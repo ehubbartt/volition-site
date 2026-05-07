@@ -1,0 +1,338 @@
+import { redirect, fail, error } from '@sveltejs/kit';
+import { db } from '$lib/server/db';
+import { CLAN_LABEL } from '$lib/clans';
+import type { Actions, PageServerLoad } from './$types';
+
+interface SignupRow {
+	id: string;
+	user_id: string;
+	team_id: string | null;
+	joined_at: string;
+	vs_users: {
+		id: string;
+		rsn: string | null;
+		discord_username: string;
+		clan_allegiance: string | null;
+	};
+}
+
+interface InviteRow {
+	id: string;
+	from_user_id: string;
+	to_user_id: string;
+	created_at: string;
+}
+
+export const load: PageServerLoad = async ({ params, locals }) => {
+	if (!locals.user) throw redirect(303, '/');
+	if (!locals.user.rsn || !locals.user.clan_allegiance) throw redirect(303, '/onboarding');
+
+	const supabase = db();
+
+	const { data: event, error: eventErr } = await supabase
+		.from('vs_events')
+		.select('id, slug, name, description, status, signup_opens_at, signup_closes_at, team_size')
+		.eq('slug', params.slug)
+		.maybeSingle();
+
+	if (eventErr) throw error(500, eventErr.message);
+	if (!event) throw error(404, 'Event not found');
+
+	const { data: signupsRaw } = await supabase
+		.from('vs_event_signups')
+		.select(
+			'id, user_id, team_id, joined_at, vs_users(id, rsn, discord_username, clan_allegiance)'
+		)
+		.eq('event_id', event.id)
+		.order('joined_at', { ascending: true });
+
+	const signups = (signupsRaw ?? []) as unknown as SignupRow[];
+
+	const mySignup = signups.find((s) => s.user_id === locals.user!.id) ?? null;
+
+	const teamMap = new Map<string, SignupRow[]>();
+	for (const s of signups) {
+		if (!s.team_id) continue;
+		const arr = teamMap.get(s.team_id) ?? [];
+		arr.push(s);
+		teamMap.set(s.team_id, arr);
+	}
+
+	const myTeam = mySignup?.team_id ? teamMap.get(mySignup.team_id) ?? [] : [];
+
+	const soloPool = signups
+		.filter((s) => !s.team_id && s.user_id !== locals.user!.id)
+		.map((s) => ({
+			user_id: s.user_id,
+			rsn: s.vs_users.rsn,
+			discord_username: s.vs_users.discord_username,
+			clan_allegiance: s.vs_users.clan_allegiance,
+			clan_label: s.vs_users.clan_allegiance
+				? CLAN_LABEL[s.vs_users.clan_allegiance as keyof typeof CLAN_LABEL]
+				: null
+		}));
+
+	let pendingInvites: { incoming: InviteRow[]; outgoing: InviteRow[] } = {
+		incoming: [],
+		outgoing: []
+	};
+
+	if (mySignup && !mySignup.team_id) {
+		const { data: invitesRaw } = await supabase
+			.from('vs_team_invites')
+			.select('id, from_user_id, to_user_id, created_at')
+			.eq('event_id', event.id)
+			.eq('status', 'pending')
+			.or(`from_user_id.eq.${locals.user.id},to_user_id.eq.${locals.user.id}`);
+
+		const invites = (invitesRaw ?? []) as InviteRow[];
+		pendingInvites = {
+			incoming: invites.filter((i) => i.to_user_id === locals.user!.id),
+			outgoing: invites.filter((i) => i.from_user_id === locals.user!.id)
+		};
+	}
+
+	const userById = new Map(signups.map((s) => [s.user_id, s.vs_users]));
+
+	const incomingInvites = pendingInvites.incoming.map((i) => ({
+		id: i.id,
+		from: userById.get(i.from_user_id) ?? null
+	}));
+	const outgoingInvites = pendingInvites.outgoing.map((i) => ({
+		id: i.id,
+		to: userById.get(i.to_user_id) ?? null
+	}));
+
+	const teams = Array.from(teamMap.entries()).map(([teamId, members]) => ({
+		team_id: teamId,
+		members: members.map((m) => ({
+			rsn: m.vs_users.rsn,
+			discord_username: m.vs_users.discord_username,
+			clan_allegiance: m.vs_users.clan_allegiance,
+			clan_label: m.vs_users.clan_allegiance
+				? CLAN_LABEL[m.vs_users.clan_allegiance as keyof typeof CLAN_LABEL]
+				: null
+		}))
+	}));
+
+	const clanCounts: Record<string, number> = {};
+	for (const s of signups) {
+		const clan = s.vs_users.clan_allegiance ?? 'unknown';
+		clanCounts[clan] = (clanCounts[clan] ?? 0) + 1;
+	}
+
+	const clanBreakdown = Object.entries(clanCounts).map(([clan, count]) => ({
+		clan,
+		label: clan in CLAN_LABEL ? CLAN_LABEL[clan as keyof typeof CLAN_LABEL] : clan,
+		count
+	}));
+
+	return {
+		event,
+		mySignup: mySignup
+			? { id: mySignup.id, team_id: mySignup.team_id }
+			: null,
+		myTeam: myTeam.map((m) => ({
+			user_id: m.user_id,
+			rsn: m.vs_users.rsn,
+			discord_username: m.vs_users.discord_username,
+			isMe: m.user_id === locals.user!.id
+		})),
+		soloPool,
+		incomingInvites,
+		outgoingInvites,
+		teams,
+		stats: {
+			totalSignups: signups.length,
+			teamCount: teamMap.size,
+			soloCount: signups.filter((s) => !s.team_id).length,
+			clanBreakdown
+		}
+	};
+};
+
+function isEventOpen(event: { status: string; signup_closes_at: string | null }) {
+	if (event.status !== 'open') return false;
+	if (event.signup_closes_at && new Date(event.signup_closes_at) < new Date()) return false;
+	return true;
+}
+
+export const actions: Actions = {
+	joinEvent: async ({ params, locals }) => {
+		if (!locals.user) throw redirect(303, '/');
+		if (!locals.user.rsn) throw redirect(303, '/onboarding');
+
+		const supabase = db();
+
+		const { data: event } = await supabase
+			.from('vs_events')
+			.select('id, status, signup_closes_at')
+			.eq('slug', params.slug)
+			.maybeSingle();
+
+		if (!event) return fail(404, { error: 'Event not found' });
+		if (!isEventOpen(event)) return fail(400, { error: 'Signups are closed' });
+
+		const { error: insertError } = await supabase
+			.from('vs_event_signups')
+			.insert({ event_id: event.id, user_id: locals.user.id });
+
+		if (insertError && !insertError.message.includes('duplicate')) {
+			return fail(500, { error: insertError.message });
+		}
+
+		return { ok: true };
+	},
+
+	inviteUser: async ({ params, locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+
+		const form = await request.formData();
+		const targetUserId = form.get('user_id')?.toString();
+		if (!targetUserId) return fail(400, { error: 'Missing user_id' });
+		if (targetUserId === locals.user.id) return fail(400, { error: "Can't invite yourself" });
+
+		const supabase = db();
+
+		const { data: event } = await supabase
+			.from('vs_events')
+			.select('id, status, signup_closes_at')
+			.eq('slug', params.slug)
+			.maybeSingle();
+
+		if (!event) return fail(404, { error: 'Event not found' });
+		if (!isEventOpen(event)) return fail(400, { error: 'Signups are closed' });
+
+		const { data: signups } = await supabase
+			.from('vs_event_signups')
+			.select('user_id, team_id')
+			.eq('event_id', event.id)
+			.in('user_id', [locals.user.id, targetUserId]);
+
+		const me = signups?.find((s) => s.user_id === locals.user!.id);
+		const them = signups?.find((s) => s.user_id === targetUserId);
+
+		if (!me) return fail(400, { error: 'You must join the event first' });
+		if (!them) return fail(400, { error: "That player hasn't joined this event" });
+		if (me.team_id) return fail(400, { error: "You're already on a team" });
+		if (them.team_id) return fail(400, { error: 'That player is already on a team' });
+
+		const { error: insertError } = await supabase.from('vs_team_invites').insert({
+			event_id: event.id,
+			from_user_id: locals.user.id,
+			to_user_id: targetUserId
+		});
+
+		if (insertError) {
+			if (insertError.message.includes('duplicate')) {
+				return fail(409, { error: 'You already have a pending invite to this player' });
+			}
+			return fail(500, { error: insertError.message });
+		}
+
+		return { ok: true };
+	},
+
+	cancelInvite: async ({ locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+
+		const form = await request.formData();
+		const inviteId = form.get('invite_id')?.toString();
+		if (!inviteId) return fail(400, { error: 'Missing invite_id' });
+
+		const { error: updateError } = await db()
+			.from('vs_team_invites')
+			.update({ status: 'cancelled', responded_at: new Date().toISOString() })
+			.eq('id', inviteId)
+			.eq('from_user_id', locals.user.id)
+			.eq('status', 'pending');
+
+		if (updateError) return fail(500, { error: updateError.message });
+
+		return { ok: true };
+	},
+
+	declineInvite: async ({ locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+
+		const form = await request.formData();
+		const inviteId = form.get('invite_id')?.toString();
+		if (!inviteId) return fail(400, { error: 'Missing invite_id' });
+
+		const { error: updateError } = await db()
+			.from('vs_team_invites')
+			.update({ status: 'declined', responded_at: new Date().toISOString() })
+			.eq('id', inviteId)
+			.eq('to_user_id', locals.user.id)
+			.eq('status', 'pending');
+
+		if (updateError) return fail(500, { error: updateError.message });
+
+		return { ok: true };
+	},
+
+	acceptInvite: async ({ locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+
+		const form = await request.formData();
+		const inviteId = form.get('invite_id')?.toString();
+		if (!inviteId) return fail(400, { error: 'Missing invite_id' });
+
+		const { error: rpcError } = await db().rpc('vs_accept_invite', {
+			p_invite_id: inviteId,
+			p_user_id: locals.user.id
+		});
+
+		if (rpcError) {
+			const msg = rpcError.message || 'Could not accept invite';
+			const friendly =
+				msg.includes('inviter_already_teamed') || msg.includes('invitee_already_teamed')
+					? 'One of you was already teamed up — refresh and try again'
+					: msg.includes('invite_not_pending')
+						? 'That invite is no longer pending'
+						: msg.includes('event_not_open')
+							? 'Signups are closed for this event'
+							: msg;
+			return fail(400, { error: friendly });
+		}
+
+		return { ok: true };
+	},
+
+	leaveTeam: async ({ params, locals }) => {
+		if (!locals.user) throw redirect(303, '/');
+
+		const supabase = db();
+
+		const { data: event } = await supabase
+			.from('vs_events')
+			.select('id')
+			.eq('slug', params.slug)
+			.maybeSingle();
+
+		if (!event) return fail(404, { error: 'Event not found' });
+
+		const { data: mySignup } = await supabase
+			.from('vs_event_signups')
+			.select('team_id')
+			.eq('event_id', event.id)
+			.eq('user_id', locals.user.id)
+			.maybeSingle();
+
+		if (!mySignup?.team_id) return fail(400, { error: "You're not on a team" });
+
+		const teamId = mySignup.team_id;
+
+		const { error: clearError } = await supabase
+			.from('vs_event_signups')
+			.update({ team_id: null })
+			.eq('event_id', event.id)
+			.eq('team_id', teamId);
+
+		if (clearError) return fail(500, { error: clearError.message });
+
+		await supabase.from('vs_teams').delete().eq('id', teamId);
+
+		return { ok: true };
+	}
+};
