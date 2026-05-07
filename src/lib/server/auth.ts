@@ -11,6 +11,7 @@ export interface SessionUser {
 	discord_username: string;
 	rsn: string | null;
 	clan_allegiance: string | null;
+	account_type: string | null;
 }
 
 function randomToken(bytes = 32): string {
@@ -48,7 +49,9 @@ export async function readSession(
 
 	const { data, error } = await db()
 		.from('vs_sessions')
-		.select('id, expires_at, vs_users(id, discord_id, discord_username, rsn, clan_allegiance)')
+		.select(
+			'id, expires_at, vs_users(id, discord_id, discord_username, rsn, clan_allegiance, account_type)'
+		)
 		.eq('id', sessionId)
 		.maybeSingle();
 

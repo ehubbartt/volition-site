@@ -4,7 +4,9 @@ import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
-	if (!locals.user.rsn || !locals.user.clan_allegiance) throw redirect(303, '/onboarding');
+	if (!locals.user.rsn || !locals.user.clan_allegiance || !locals.user.account_type) {
+		throw redirect(303, '/onboarding');
+	}
 
 	const { data: events, error } = await db()
 		.from('vs_events')

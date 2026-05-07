@@ -29,7 +29,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 
 	const { data: existing } = await supabase
 		.from('vs_users')
-		.select('id, rsn, clan_allegiance')
+		.select('id, rsn, clan_allegiance, account_type')
 		.eq('discord_id', discordUser.id)
 		.maybeSingle();
 
@@ -38,7 +38,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 
 	if (existing) {
 		userId = existing.id;
-		needsOnboarding = !existing.rsn || !existing.clan_allegiance;
+		needsOnboarding = !existing.rsn || !existing.clan_allegiance || !existing.account_type;
 
 		await supabase
 			.from('vs_users')

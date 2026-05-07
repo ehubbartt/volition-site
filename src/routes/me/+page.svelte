@@ -28,6 +28,26 @@
 			<input name="rsn" type="text" maxlength="12" required value={data.user.rsn ?? ''} />
 		</label>
 
+		<fieldset class="account-picker">
+			<legend>Account type</legend>
+			<div class="account-options">
+				{#each data.accountTypes as opt}
+					<label class="account-option" title={opt.label}>
+						<input
+							type="radio"
+							name="account_type"
+							value={opt.value}
+							checked={data.user.account_type === opt.value}
+							required
+						/>
+						<span class="opt-card">
+							<img src={opt.icon} alt={opt.label} class="opt-icon" />
+						</span>
+					</label>
+				{/each}
+			</div>
+		</fieldset>
+
 		<label>
 			<span>Clan allegiance</span>
 			<select name="clan_allegiance" required>
@@ -50,7 +70,7 @@
 
 <style>
 	.card {
-		max-width: 30rem;
+		max-width: 32rem;
 		margin: 2rem auto;
 		padding: 1.75rem;
 		background: linear-gradient(180deg, rgba(58, 48, 36, 0.9), rgba(40, 32, 24, 0.9));
@@ -126,5 +146,73 @@
 
 	button.primary:hover {
 		background: var(--accent-soft);
+	}
+
+	.account-picker {
+		border: none;
+		padding: 0;
+		margin: 0;
+	}
+
+	.account-picker legend {
+		font-size: 0.85rem;
+		color: var(--muted);
+		padding: 0;
+		margin-bottom: 0.45rem;
+	}
+
+	.account-options {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+
+	.account-option {
+		display: block;
+		gap: 0;
+		cursor: pointer;
+	}
+
+	.account-option input {
+		position: absolute;
+		opacity: 0;
+		width: 0;
+		height: 0;
+		pointer-events: none;
+	}
+
+	.opt-card {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 56px;
+		height: 56px;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		text-shadow: var(--ts);
+		transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+	}
+
+	.account-option:hover .opt-card {
+		border-color: var(--border-strong);
+	}
+
+	.account-option input:checked + .opt-card {
+		border-color: var(--accent);
+		background: var(--accent-soft);
+		box-shadow: inset 0 0 0 1px rgba(255, 152, 31, 0.3);
+	}
+
+	.account-option input:focus-visible + .opt-card {
+		box-shadow: 0 0 0 3px rgba(255, 152, 31, 0.3);
+	}
+
+	.opt-icon {
+		width: 30px;
+		height: 30px;
+		image-rendering: pixelated;
+		image-rendering: crisp-edges;
+		object-fit: contain;
 	}
 </style>

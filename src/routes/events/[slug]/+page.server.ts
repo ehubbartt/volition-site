@@ -1,6 +1,7 @@
 import { redirect, fail, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { CLAN_LABEL } from '$lib/clans';
+import { ACCOUNT_TYPES } from '$lib/accountTypes';
 import type { Actions, PageServerLoad } from './$types';
 
 interface SignupRow {
@@ -13,6 +14,7 @@ interface SignupRow {
 		rsn: string | null;
 		discord_username: string;
 		clan_allegiance: string | null;
+		account_type: string | null;
 	};
 }
 
@@ -23,9 +25,86 @@ interface InviteRow {
 	created_at: string;
 }
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+// TODO: remove demo augmentation once we no longer need to preview the
+// crowded-event UI. Triggered only when the URL has ?demo=1.
+function buildDemoData() {
+	const prefixes = ['HCIM', 'GIM', 'UIM', 'Iron', 'Pure', 'Skill', 'PVM', 'Bot'];
+	const clans: Array<keyof typeof CLAN_LABEL> = [
+		'volition',
+		'iron_refuge',
+		'reborn_iron',
+		'other_mixed'
+	];
+
+	const accountValues = ACCOUNT_TYPES.map((a) => a.value);
+
+	const soloPool = Array.from({ length: 50 }, (_, idx) => {
+		const i = idx + 1;
+		const clan = clans[i % clans.length];
+		return {
+			user_id: `fake-solo-${i}`,
+			rsn: `${prefixes[i % prefixes.length]} ${String(i).padStart(3, '0')}`,
+			discord_username: `seed_user_${i}`,
+			clan_allegiance: clan as string | null,
+			clan_label: CLAN_LABEL[clan] as string | null,
+			account_type: accountValues[i % accountValues.length] as string | null
+		};
+	});
+
+	const teams = Array.from({ length: 50 }, (_, idx) => {
+		const t = idx + 1;
+		const a = t * 2 - 1;
+		const b = t * 2;
+		const aClan = clans[a % clans.length];
+		const bClan = clans[b % clans.length];
+		return {
+			team_id: `fake-team-${t}`,
+			members: [
+				{
+					rsn: `${prefixes[a % prefixes.length]} ${String(a + 100).padStart(3, '0')}`,
+					discord_username: `seed_pair_${a}`,
+					clan_allegiance: aClan as string | null,
+					clan_label: CLAN_LABEL[aClan] as string | null,
+					account_type: accountValues[a % accountValues.length] as string | null
+				},
+				{
+					rsn: `${prefixes[b % prefixes.length]} ${String(b + 100).padStart(3, '0')}`,
+					discord_username: `seed_pair_${b}`,
+					clan_allegiance: bClan as string | null,
+					clan_label: CLAN_LABEL[bClan] as string | null,
+					account_type: accountValues[b % accountValues.length] as string | null
+				}
+			]
+		};
+	});
+
+	const clanCounts: Record<string, number> = {};
+	for (const p of soloPool) {
+		const k = p.clan_allegiance ?? 'unknown';
+		clanCounts[k] = (clanCounts[k] ?? 0) + 1;
+	}
+	for (const team of teams) {
+		for (const m of team.members) {
+			const k = m.clan_allegiance ?? 'unknown';
+			clanCounts[k] = (clanCounts[k] ?? 0) + 1;
+		}
+	}
+
+	return {
+		soloPool,
+		teams,
+		clanCounts,
+		signupAdd: 150,
+		teamAdd: 50,
+		soloAdd: 50
+	};
+}
+
+export const load: PageServerLoad = async ({ params, locals, url }) => {
 	if (!locals.user) throw redirect(303, '/');
-	if (!locals.user.rsn || !locals.user.clan_allegiance) throw redirect(303, '/onboarding');
+	if (!locals.user.rsn || !locals.user.clan_allegiance || !locals.user.account_type) {
+		throw redirect(303, '/onboarding');
+	}
 
 	const supabase = db();
 
@@ -41,7 +120,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const { data: signupsRaw } = await supabase
 		.from('vs_event_signups')
 		.select(
-			'id, user_id, team_id, joined_at, vs_users(id, rsn, discord_username, clan_allegiance)'
+			'id, user_id, team_id, joined_at, vs_users(id, rsn, discord_username, clan_allegiance, account_type)'
 		)
 		.eq('event_id', event.id)
 		.order('joined_at', { ascending: true });
@@ -69,7 +148,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			clan_allegiance: s.vs_users.clan_allegiance,
 			clan_label: s.vs_users.clan_allegiance
 				? CLAN_LABEL[s.vs_users.clan_allegiance as keyof typeof CLAN_LABEL]
-				: null
+				: null,
+			account_type: s.vs_users.account_type
 		}));
 
 	let pendingInvites: { incoming: InviteRow[]; outgoing: InviteRow[] } = {
@@ -111,7 +191,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			clan_allegiance: m.vs_users.clan_allegiance,
 			clan_label: m.vs_users.clan_allegiance
 				? CLAN_LABEL[m.vs_users.clan_allegiance as keyof typeof CLAN_LABEL]
-				: null
+				: null,
+			account_type: m.vs_users.account_type
 		}))
 	}));
 
@@ -119,6 +200,24 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	for (const s of signups) {
 		const clan = s.vs_users.clan_allegiance ?? 'unknown';
 		clanCounts[clan] = (clanCounts[clan] ?? 0) + 1;
+	}
+
+	let totalSignups = signups.length;
+	let teamCount = teamMap.size;
+	let soloCount = signups.filter((s) => !s.team_id).length;
+	let finalSoloPool = soloPool;
+	let finalTeams = teams;
+
+	if (url.searchParams.get('demo') === '1') {
+		const demo = buildDemoData();
+		finalSoloPool = [...soloPool, ...demo.soloPool];
+		finalTeams = [...teams, ...demo.teams];
+		totalSignups += demo.signupAdd;
+		teamCount += demo.teamAdd;
+		soloCount += demo.soloAdd;
+		for (const [clan, n] of Object.entries(demo.clanCounts)) {
+			clanCounts[clan] = (clanCounts[clan] ?? 0) + n;
+		}
 	}
 
 	const clanBreakdown = Object.entries(clanCounts).map(([clan, count]) => ({
@@ -136,16 +235,17 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			user_id: m.user_id,
 			rsn: m.vs_users.rsn,
 			discord_username: m.vs_users.discord_username,
+			account_type: m.vs_users.account_type,
 			isMe: m.user_id === locals.user!.id
 		})),
-		soloPool,
+		soloPool: finalSoloPool,
 		incomingInvites,
 		outgoingInvites,
-		teams,
+		teams: finalTeams,
 		stats: {
-			totalSignups: signups.length,
-			teamCount: teamMap.size,
-			soloCount: signups.filter((s) => !s.team_id).length,
+			totalSignups,
+			teamCount,
+			soloCount,
 			clanBreakdown
 		}
 	};

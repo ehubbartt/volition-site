@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
+	import AccountIcon from '$lib/AccountIcon.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -54,6 +55,7 @@
 				<ul class="team-members">
 					{#each data.myTeam as m}
 						<li>
+							<AccountIcon type={m.account_type} />
 							<span class="rsn">{m.rsn ?? m.discord_username}</span>
 							{#if m.isMe}<span class="you">you</span>{/if}
 							<span class="muted">— {m.discord_username}</span>
@@ -71,7 +73,8 @@
 					<ul class="invite-list">
 						{#each data.incomingInvites as inv}
 							<li>
-								<div>
+								<div class="who">
+									<AccountIcon type={inv.from?.account_type} />
 									<strong>{inv.from?.rsn ?? inv.from?.discord_username ?? 'Unknown'}</strong>
 									{#if inv.from?.discord_username}
 										<span class="muted">— {inv.from.discord_username}</span>
@@ -99,8 +102,9 @@
 					<ul class="invite-list">
 						{#each data.outgoingInvites as inv}
 							<li>
-								<div>
-									Waiting on
+								<div class="who">
+									<span class="muted">Waiting on</span>
+									<AccountIcon type={inv.to?.account_type} />
 									<strong>{inv.to?.rsn ?? inv.to?.discord_username ?? 'Unknown'}</strong>
 								</div>
 								<form method="POST" action="?/cancelInvite" use:enhance>
@@ -122,7 +126,8 @@
 					<ul class="pool">
 						{#each data.soloPool as p}
 							<li>
-								<div>
+								<div class="who">
+									<AccountIcon type={p.account_type} />
 									<strong>{p.rsn ?? p.discord_username}</strong>
 									<span class="muted">— {p.discord_username}</span>
 									{#if p.clan_label}
@@ -149,6 +154,7 @@
 							<div class="team-pair">
 								{#each t.members as m}
 									<span class="team-member">
+										<AccountIcon type={m.account_type} />
 										<strong>{m.rsn ?? m.discord_username}</strong>
 										{#if m.clan_label}
 											<span class="clan-tag">{m.clan_label}</span>
@@ -333,6 +339,13 @@
 		background: var(--surface-alt);
 		border: 1px solid var(--border);
 		border-radius: 3px;
+	}
+
+	.who {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
 	}
 
 	.team-members li {
