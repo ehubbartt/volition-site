@@ -1,12 +1,12 @@
 <script lang="ts">
 	import '../app.css';
 	import { page } from '$app/state';
+	import AccountIcon from '$lib/AccountIcon.svelte';
 	import type { LayoutData } from './$types';
 
 	let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
 	let path = $derived(page.url.pathname);
-	let initial = $derived(data.user?.discord_username?.[0]?.toUpperCase() ?? '?');
 </script>
 
 <header>
@@ -25,8 +25,8 @@
 			</nav>
 
 			<a href="/me" class="user-pill" class:active={path === '/me'} title="Profile">
-				<span class="avatar">{initial}</span>
-				<span class="user-name">{data.user.discord_username}</span>
+				<AccountIcon type={data.user.account_type} size={22} />
+				<span class="user-name">{data.user.rsn ?? data.user.discord_username}</span>
 			</a>
 		{:else}
 			<a href="/auth/discord/login" class="cta">Sign in with Discord</a>
@@ -70,6 +70,7 @@
 		align-items: center;
 		gap: 1rem;
 		padding: 0.75rem 1rem;
+		min-width: 0;
 	}
 
 	.brand {
@@ -129,8 +130,8 @@
 	.user-pill {
 		display: flex;
 		align-items: center;
-		gap: 0.55rem;
-		padding: 0.3rem 0.7rem 0.3rem 0.35rem;
+		gap: 0.5rem;
+		padding: 0.4rem 0.85rem;
 		background: rgba(58, 48, 36, 0.7);
 		border: 1px solid #5d5346;
 		border-radius: 999px;
@@ -148,26 +149,13 @@
 		text-decoration: none;
 	}
 
-	.avatar {
-		width: 28px;
-		height: 28px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		background: linear-gradient(135deg, #ff981f, #b66f00);
-		color: #1a1300;
-		border-radius: 50%;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
-		font-size: 1rem;
-		text-shadow: none;
-		border: 1px solid #000;
-	}
-
 	.user-name {
+		display: inline-block;
 		max-width: 10rem;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		vertical-align: middle;
 	}
 
 	.cta {
@@ -217,21 +205,52 @@
 
 	@media (max-width: 720px) {
 		.nav {
-			flex-wrap: wrap;
-			row-gap: 0.5rem;
+			gap: 0.6rem;
+			padding: 0.6rem 0.75rem;
+		}
+
+		.brand {
+			font-size: 1.35rem;
+			letter-spacing: 1px;
+			gap: 0.45rem;
+		}
+
+		.brand-logo {
+			width: 30px;
+			height: 30px;
+		}
+
+		.primary-nav a {
+			padding: 0.4rem 0.6rem;
+			font-size: 0.95rem;
+		}
+
+		.user-name {
+			max-width: 7rem;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.brand span {
+			display: none;
+		}
+
+		.brand-logo {
+			width: 32px;
+			height: 32px;
+		}
+
+		.user-pill {
+			padding: 0.4rem 0.55rem;
+			gap: 0.35rem;
 		}
 
 		.user-name {
 			display: none;
 		}
 
-		.brand {
-			font-size: 1.35rem;
-		}
-
-		.brand-logo {
-			width: 30px;
-			height: 30px;
+		main.page {
+			padding: 1.25rem 0.75rem 3rem;
 		}
 	}
 </style>

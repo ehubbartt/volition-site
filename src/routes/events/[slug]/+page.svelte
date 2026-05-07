@@ -448,4 +448,32 @@
 	form {
 		display: inline;
 	}
+
+	@media (max-width: 540px) {
+		.hero {
+			padding: 1rem 1.1rem;
+		}
+
+		.card {
+			padding: 1rem;
+		}
+
+		.invite-list li,
+		.pool li {
+			flex-wrap: wrap;
+			gap: 0.5rem 0.6rem;
+		}
+
+		.invite-list li form,
+		.pool li form,
+		.actions {
+			margin-left: auto;
+		}
+
+		.team-pair {
+			flex-direction: column;
+			gap: 0.4rem;
+			align-items: flex-start;
+		}
+	}
 </style>
