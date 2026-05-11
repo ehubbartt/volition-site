@@ -2,11 +2,84 @@
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
 	import AccountIcon from '$lib/AccountIcon.svelte';
+	import { CLAN_OPTIONS } from '$lib/clans';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	let signedUp = $derived(!!data.mySignup);
 	let onTeam = $derived(!!data.mySignup?.team_id);
+
+	let poolQuery = $state('');
+	let teamQuery = $state('');
+	let editingTeamName = $state(false);
+
+	const CLAN_ORDER: Array<{ key: string; label: string }> = [
+		...CLAN_OPTIONS.map((c) => ({ key: c.value, label: c.label })),
+		{ key: 'unknown', label: 'Unknown' }
+	];
+
+	const TEAM_GROUP_ORDER: Array<{ key: string; label: string }> = [
+		...CLAN_OPTIONS.map((c) => ({ key: c.value, label: c.label })),
+		{ key: 'mixed', label: 'Mixed clans' }
+	];
+
+	function matchesQuery(haystack: (string | null | undefined)[], q: string): boolean {
+		const needle = q.trim().toLowerCase();
+		if (!needle) return true;
+		return haystack.some((s) => s && s.toLowerCase().includes(needle));
+	}
+
+	let filteredSoloPool = $derived(
+		data.soloPool.filter((p) =>
+			matchesQuery([p.rsn, p.discord_username, p.clan_label], poolQuery)
+		)
+	);
+
+	let poolByClan = $derived.by(() => {
+		const groups = new Map<string, typeof filteredSoloPool>();
+		for (const p of filteredSoloPool) {
+			const k = p.clan_allegiance ?? 'unknown';
+			const arr = groups.get(k) ?? [];
+			arr.push(p);
+			groups.set(k, arr);
+		}
+		return CLAN_ORDER.filter((c) => groups.has(c.key)).map((c) => ({
+			key: c.key,
+			label: c.label,
+			players: groups.get(c.key)!
+		}));
+	});
+
+	function teamGroupKey(members: { clan_allegiance: string | null }[]): string {
+		const clans = new Set(members.map((m) => m.clan_allegiance ?? 'unknown'));
+		if (clans.size === 1) return [...clans][0];
+		return 'mixed';
+	}
+
+	let filteredTeams = $derived(
+		data.teams.filter((t) => {
+			const haystack: (string | null)[] = [t.name];
+			for (const m of t.members) {
+				haystack.push(m.rsn, m.discord_username, m.clan_label);
+			}
+			return matchesQuery(haystack, teamQuery);
+		})
+	);
+
+	let teamsByClan = $derived.by(() => {
+		const groups = new Map<string, typeof filteredTeams>();
+		for (const t of filteredTeams) {
+			const k = teamGroupKey(t.members);
+			const arr = groups.get(k) ?? [];
+			arr.push(t);
+			groups.set(k, arr);
+		}
+		return TEAM_GROUP_ORDER.filter((c) => groups.has(c.key)).map((c) => ({
+			key: c.key,
+			label: c.label,
+			teams: groups.get(c.key)!
+		}));
+	});
 </script>
 
 <svelte:head>
@@ -51,7 +124,53 @@
 			</div>
 		{:else if onTeam}
 			<div class="card team-card">
-				<h2>Your team</h2>
+				<div class="team-card-head">
+					<h2>Your team</h2>
+					{#if !editingTeamName}
+						<button
+							type="button"
+							class="link-btn"
+							onclick={() => (editingTeamName = true)}
+							title="Edit team name"
+						>
+							{data.mySignup?.team_name ? 'Rename' : 'Set name'}
+						</button>
+					{/if}
+				</div>
+
+				{#if editingTeamName}
+					<form
+						method="POST"
+						action="?/setTeamName"
+						class="team-name-form"
+						use:enhance={() => {
+							return async ({ result, update }) => {
+								await update();
+								if (result.type === 'success') {
+									editingTeamName = false;
+								}
+							};
+						}}
+					>
+						<input
+							name="name"
+							type="text"
+							maxlength="32"
+							placeholder="Team name (32 chars max)"
+							value={data.mySignup?.team_name ?? ''}
+							autocomplete="off"
+						/>
+						<div class="team-name-actions">
+							<button type="submit" class="primary">Save</button>
+							<button type="button" onclick={() => (editingTeamName = false)}>Cancel</button>
+						</div>
+					</form>
+				{:else}
+					<p class="team-name">
+						{data.mySignup?.team_name ?? 'Unnamed team'}
+					</p>
+				{/if}
+
 				<ul class="team-members">
 					{#each data.myTeam as m}
 						<li>
@@ -118,53 +237,95 @@
 			{/if}
 
 			<div class="card">
-				<h2>Player pool ({data.soloPool.length})</h2>
+				<div class="section-head">
+					<h2>Player pool ({data.soloPool.length})</h2>
+					<input
+						class="search-input"
+						type="search"
+						placeholder="Search by RSN, Discord, or clan…"
+						bind:value={poolQuery}
+					/>
+				</div>
 				<p class="muted">Players without a duo. Invite anyone to team up.</p>
+
 				{#if data.soloPool.length === 0}
 					<p class="muted">No one waiting right now — invite a friend to sign up!</p>
+				{:else if filteredSoloPool.length === 0}
+					<p class="muted">No players match "{poolQuery}".</p>
 				{:else}
-					<ul class="pool">
-						{#each data.soloPool as p}
-							<li>
-								<div class="who">
-									<AccountIcon type={p.account_type} />
-									<strong>{p.rsn ?? p.discord_username}</strong>
-									<span class="muted">— {p.discord_username}</span>
-									{#if p.clan_label}
-										<span class="clan-tag">{p.clan_label}</span>
-									{/if}
-								</div>
-								<form method="POST" action="?/inviteUser" use:enhance>
-									<input type="hidden" name="user_id" value={p.user_id} />
-									<button type="submit" class="primary">Invite</button>
-								</form>
-							</li>
-						{/each}
-					</ul>
+					{#each poolByClan as group}
+						<div class="clan-group">
+							<h3 class="clan-heading">
+								<span class="clan-name">{group.label}</span>
+								<span class="clan-count">{group.players.length}</span>
+							</h3>
+							<ul class="pool">
+								{#each group.players as p}
+									<li>
+										<div class="who">
+											<AccountIcon type={p.account_type} />
+											<strong>{p.rsn ?? p.discord_username}</strong>
+											<span class="muted">— {p.discord_username}</span>
+										</div>
+										<form method="POST" action="?/inviteUser" use:enhance>
+											<input type="hidden" name="user_id" value={p.user_id} />
+											<button type="submit" class="primary">Invite</button>
+										</form>
+									</li>
+								{/each}
+							</ul>
+						</div>
+					{/each}
 				{/if}
 			</div>
 		{/if}
 
 		{#if data.teams.length > 0}
 			<div class="card">
-				<h2>Teams ({data.teams.length})</h2>
-				<ul class="teams">
-					{#each data.teams as t}
-						<li>
-							<div class="team-pair">
-								{#each t.members as m}
-									<span class="team-member">
-										<AccountIcon type={m.account_type} />
-										<strong>{m.rsn ?? m.discord_username}</strong>
-										{#if m.clan_label}
-											<span class="clan-tag">{m.clan_label}</span>
-										{/if}
-									</span>
+				<div class="section-head">
+					<h2>Teams ({data.teams.length})</h2>
+					<input
+						class="search-input"
+						type="search"
+						placeholder="Search by team name, member, or clan…"
+						bind:value={teamQuery}
+					/>
+				</div>
+
+				{#if filteredTeams.length === 0}
+					<p class="muted">No teams match "{teamQuery}".</p>
+				{:else}
+					{#each teamsByClan as group}
+						<div class="clan-group">
+							<h3 class="clan-heading">
+								<span class="clan-name">{group.label}</span>
+								<span class="clan-count">{group.teams.length}</span>
+							</h3>
+							<ul class="teams">
+								{#each group.teams as t}
+									<li>
+										<div class="team-row">
+											<div class="team-name-row">
+												<strong class="team-row-name">{t.name ?? 'Unnamed team'}</strong>
+											</div>
+											<div class="team-pair">
+												{#each t.members as m}
+													<span class="team-member">
+														<AccountIcon type={m.account_type} />
+														<strong>{m.rsn ?? m.discord_username}</strong>
+														{#if m.clan_label}
+															<span class="clan-tag">{m.clan_label}</span>
+														{/if}
+													</span>
+												{/each}
+											</div>
+										</div>
+									</li>
 								{/each}
-							</div>
-						</li>
+							</ul>
+						</div>
 					{/each}
-				</ul>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -360,6 +521,138 @@
 
 	.team-card .team-members {
 		margin-bottom: 1.25rem;
+	}
+
+	.team-card-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.team-card-head h2 {
+		margin: 0;
+	}
+
+	.link-btn {
+		background: transparent;
+		border: none;
+		color: var(--accent);
+		padding: 0;
+		font-size: 0.9rem;
+		cursor: pointer;
+		text-shadow: 1px 1px #000;
+		min-height: 0;
+	}
+
+	.link-btn:hover {
+		text-decoration: underline;
+		background: transparent;
+	}
+
+	.team-name {
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-size: 1.1rem;
+		color: var(--yellow);
+		text-shadow: var(--ts-strong);
+		margin: 0 0 0.85rem;
+	}
+
+	.team-name-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-bottom: 1rem;
+	}
+
+	.team-name-form input {
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-size: 1rem;
+	}
+
+	.team-name-actions {
+		display: flex;
+		gap: 0.4rem;
+	}
+
+	.section-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		margin-bottom: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.section-head h2 {
+		margin: 0;
+	}
+
+	.search-input {
+		flex: 1 1 14rem;
+		min-width: 12rem;
+		max-width: 22rem;
+		font-size: 0.95rem;
+	}
+
+	.clan-group {
+		margin-top: 0.85rem;
+	}
+
+	.clan-group:first-of-type {
+		margin-top: 0.5rem;
+	}
+
+	.clan-heading {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		margin: 0 0 0.45rem;
+		padding-bottom: 0.25rem;
+		border-bottom: 1px solid var(--border);
+		font-size: 0.95rem;
+		color: var(--accent);
+		text-shadow: var(--ts);
+		letter-spacing: 1px;
+	}
+
+	.clan-name {
+		text-transform: uppercase;
+	}
+
+	.clan-count {
+		font-size: 0.85rem;
+		color: var(--muted);
+		font-family: 'rssmall', ui-sans-serif, Arial, sans-serif;
+	}
+
+	.team-row {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		padding: 0.65rem 0.75rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: 3px;
+	}
+
+	.team-name-row {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+	}
+
+	.team-row-name {
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		color: var(--yellow);
+		text-shadow: var(--ts);
+	}
+
+	.team-row .team-pair {
+		background: transparent;
+		border: none;
+		padding: 0;
 	}
 
 	.actions {

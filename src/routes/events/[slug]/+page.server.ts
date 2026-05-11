@@ -59,6 +59,7 @@ function buildDemoData() {
 		const bClan = clans[b % clans.length];
 		return {
 			team_id: `fake-team-${t}`,
+			name: t % 3 === 0 ? null : `Team ${String(t).padStart(2, '0')}`,
 			members: [
 				{
 					rsn: `${prefixes[a % prefixes.length]} ${String(a + 100).padStart(3, '0')}`,
@@ -117,15 +118,21 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	if (eventErr) throw error(500, eventErr.message);
 	if (!event) throw error(404, 'Event not found');
 
-	const { data: signupsRaw } = await supabase
-		.from('vs_event_signups')
-		.select(
-			'id, user_id, team_id, joined_at, vs_users(id, rsn, discord_username, clan_allegiance, account_type)'
-		)
-		.eq('event_id', event.id)
-		.order('joined_at', { ascending: true });
+	const [{ data: signupsRaw }, { data: teamsRaw }] = await Promise.all([
+		supabase
+			.from('vs_event_signups')
+			.select(
+				'id, user_id, team_id, joined_at, vs_users(id, rsn, discord_username, clan_allegiance, account_type)'
+			)
+			.eq('event_id', event.id)
+			.order('joined_at', { ascending: true }),
+		supabase.from('vs_teams').select('id, name').eq('event_id', event.id)
+	]);
 
 	const signups = (signupsRaw ?? []) as unknown as SignupRow[];
+	const teamNameById = new Map<string, string | null>(
+		(teamsRaw ?? []).map((t) => [t.id, t.name])
+	);
 
 	const mySignup = signups.find((s) => s.user_id === locals.user!.id) ?? null;
 
@@ -185,6 +192,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 	const teams = Array.from(teamMap.entries()).map(([teamId, members]) => ({
 		team_id: teamId,
+		name: teamNameById.get(teamId) ?? null,
 		members: members.map((m) => ({
 			rsn: m.vs_users.rsn,
 			discord_username: m.vs_users.discord_username,
@@ -229,7 +237,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	return {
 		event,
 		mySignup: mySignup
-			? { id: mySignup.id, team_id: mySignup.team_id }
+			? {
+					id: mySignup.id,
+					team_id: mySignup.team_id,
+					team_name: mySignup.team_id ? teamNameById.get(mySignup.team_id) ?? null : null
+				}
 			: null,
 		myTeam: myTeam.map((m) => ({
 			user_id: m.user_id,
@@ -432,6 +444,46 @@ export const actions: Actions = {
 		if (clearError) return fail(500, { error: clearError.message });
 
 		await supabase.from('vs_teams').delete().eq('id', teamId);
+
+		return { ok: true };
+	},
+
+	setTeamName: async ({ params, locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+
+		const form = await request.formData();
+		const rawName = form.get('name')?.toString().trim() ?? '';
+		const name = rawName.length === 0 ? null : rawName;
+
+		if (name !== null && name.length > 32) {
+			return fail(400, { error: 'Team name must be 32 characters or fewer' });
+		}
+
+		const supabase = db();
+
+		const { data: event } = await supabase
+			.from('vs_events')
+			.select('id')
+			.eq('slug', params.slug)
+			.maybeSingle();
+
+		if (!event) return fail(404, { error: 'Event not found' });
+
+		const { data: mySignup } = await supabase
+			.from('vs_event_signups')
+			.select('team_id')
+			.eq('event_id', event.id)
+			.eq('user_id', locals.user.id)
+			.maybeSingle();
+
+		if (!mySignup?.team_id) return fail(400, { error: "You're not on a team" });
+
+		const { error: updateError } = await supabase
+			.from('vs_teams')
+			.update({ name })
+			.eq('id', mySignup.team_id);
+
+		if (updateError) return fail(500, { error: updateError.message });
 
 		return { ok: true };
 	}
