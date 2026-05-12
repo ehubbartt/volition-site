@@ -89,8 +89,8 @@
 							</select>
 						</form>
 					</div>
-					{#if ev.description}
-						<p class="muted">{ev.description.slice(0, 200)}{ev.description.length > 200 ? '…' : ''}</p>
+					{#if ev.description_preview}
+						<p class="muted">{ev.description_preview}</p>
 					{/if}
 					<div class="meta muted">
 						team_size: {ev.team_size}

@@ -19,8 +19,8 @@
 				<li>
 					<a href={`/events/${ev.slug}`} class="event-card">
 						<div class="event-name">{ev.name}</div>
-						{#if ev.description}
-							<p class="muted">{ev.description.slice(0, 160)}{ev.description.length > 160 ? '…' : ''}</p>
+						{#if ev.description_preview}
+							<p class="muted">{ev.description_preview}</p>
 						{/if}
 						<div class="badge {ev.status}">{ev.status}</div>
 					</a>

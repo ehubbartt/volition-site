@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
+import { markdownPreview } from '$lib/markdown';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -16,5 +17,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	if (error) throw new Error(error.message);
 
-	return { events: events ?? [] };
+	return {
+		events: (events ?? []).map((ev) => ({
+			...ev,
+			description_preview: markdownPreview(ev.description, 160)
+		}))
+	};
 };

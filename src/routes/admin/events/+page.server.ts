@@ -2,6 +2,7 @@ import { redirect, error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
+import { markdownPreview } from '$lib/markdown';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -15,7 +16,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	if (queryError) throw error(500, queryError.message);
 
-	return { events: events ?? [] };
+	return {
+		events: (events ?? []).map((ev) => ({
+			...ev,
+			description_preview: markdownPreview(ev.description, 200)
+		}))
+	};
 };
 
 const eventSchema = z.object({

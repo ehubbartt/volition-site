@@ -6,6 +6,7 @@
 	const MIN_ZOOM = 0.5;
 	const MAX_ZOOM = 5;
 	const PAD = 40;
+	const LOCKED_FLOORS = new Set<number>([2, 3]);
 
 	let zoom = $state(1);
 	let panX = $state(0);
@@ -105,14 +106,19 @@
 		</div>
 		<div class="floor-tabs" role="tablist" aria-label="Floor selector">
 			{#each topology.floors as f (f.floor)}
+				{@const locked = LOCKED_FLOORS.has(f.floor)}
 				<button
 					type="button"
 					role="tab"
 					aria-selected={currentFloor === f.floor}
 					class="floor-tab"
 					class:active={currentFloor === f.floor}
+					class:locked
+					disabled={locked}
 					onclick={() => switchFloor(f.floor)}
-					title="Floor {f.floor} · {f.ways}-way picks"
+					title={locked
+						? `Floor ${f.floor} · locked`
+						: `Floor ${f.floor} · ${f.ways}-way picks`}
 				>
 					{f.floor}
 				</button>
@@ -307,6 +313,15 @@
 		color: var(--accent);
 		background: var(--accent-soft);
 		border-color: var(--accent);
+	}
+
+	.floor-tab.locked,
+	.floor-tab.locked:hover {
+		color: var(--muted-soft);
+		background: transparent;
+		border-color: transparent;
+		cursor: not-allowed;
+		opacity: 0.55;
 	}
 
 	.controls {
