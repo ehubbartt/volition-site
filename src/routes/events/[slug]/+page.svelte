@@ -12,6 +12,7 @@
 	let poolQuery = $state('');
 	let teamQuery = $state('');
 	let editingTeamName = $state(false);
+	let descExpanded = $state(false);
 
 	const CLAN_ORDER: Array<{ key: string; label: string }> = [
 		...CLAN_OPTIONS.map((c) => ({ key: c.value, label: c.label })),
@@ -95,13 +96,31 @@
 		<h1>{data.event.name}</h1>
 		<span class="badge {data.event.status}">{data.event.status}</span>
 	</div>
-	{#if data.event.description}
-		<p class="muted description">{data.event.description}</p>
+	{#if data.event.description_html}
+		{@const isLong = (data.event.description?.length ?? 0) > 220}
+		<div
+			class="description-wrap"
+			class:collapsed={isLong && !descExpanded}
+		>
+			<div class="muted description">{@html data.event.description_html}</div>
+		</div>
+		{#if isLong}
+			<button
+				type="button"
+				class="link-btn description-toggle"
+				onclick={() => (descExpanded = !descExpanded)}
+			>
+				{descExpanded ? 'Show less' : 'Show more'}
+			</button>
+		{/if}
 	{/if}
 	{#if data.event.signup_closes_at}
 		<p class="muted small-meta">
 			⏱ Signups close {new Date(data.event.signup_closes_at).toLocaleString()}
 		</p>
+	{/if}
+	{#if data.isAdmin}
+		<a class="board-link" href="/events/{data.event.slug}/board">View board → <span class="admin-tag">admin preview</span></a>
 	{/if}
 </section>
 
@@ -399,13 +418,146 @@
 
 	.description {
 		max-width: 50rem;
-		white-space: pre-wrap;
-		margin-bottom: 0.5rem;
+		margin: 0;
+	}
+
+	.description :global(h1),
+	.description :global(h2),
+	.description :global(h3) {
+		margin: 1rem 0 0.4rem;
+	}
+
+	.description :global(h1) {
+		font-size: 1.3rem;
+	}
+
+	.description :global(h2) {
+		font-size: 1.1rem;
+	}
+
+	.description :global(h3) {
+		font-size: 0.95rem;
+	}
+
+	.description :global(p) {
+		margin: 0 0 0.65rem;
+	}
+
+	.description :global(ul),
+	.description :global(ol) {
+		margin: 0.25rem 0 0.7rem;
+		padding-left: 1.3rem;
+	}
+
+	.description :global(li) {
+		margin-bottom: 0.2rem;
+	}
+
+	.description :global(blockquote) {
+		margin: 0.6rem 0;
+		padding: 0.4rem 0.85rem;
+		border-left: 3px solid var(--accent);
+		background: rgba(255, 152, 31, 0.06);
+		color: var(--text);
+	}
+
+	.description :global(blockquote p) {
+		margin: 0;
+	}
+
+	.description :global(code) {
+		padding: 0.05rem 0.35rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		font-size: 0.9em;
+	}
+
+	.description :global(pre) {
+		padding: 0.6rem 0.8rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		overflow-x: auto;
+	}
+
+	.description :global(pre code) {
+		padding: 0;
+		background: transparent;
+		border: 0;
+	}
+
+	.description :global(hr) {
+		border: none;
+		border-top: 1px solid var(--border);
+		margin: 1rem 0;
+	}
+
+	.description :global(:first-child) {
+		margin-top: 0;
+	}
+
+	.description :global(:last-child) {
+		margin-bottom: 0;
+	}
+
+	.description-wrap {
+		margin: 0.6rem 0 0.3rem;
+		overflow: hidden;
+		transition: max-height 0.25s ease;
+	}
+
+	.description-wrap.collapsed {
+		max-height: 9rem;
+		-webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+		mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+	}
+
+	.description-toggle {
+		font-size: 0.9rem;
+		padding: 0;
+		margin-bottom: 0.25rem;
 	}
 
 	.small-meta {
 		font-size: 0.95rem;
 		margin: 0;
+	}
+
+	.board-link {
+		display: inline-block;
+		margin-top: 0.75rem;
+		padding: 0.4rem 0.8rem;
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		border-radius: var(--radius);
+		font-family: var(--font-heading);
+		font-size: 0.95rem;
+		color: var(--accent);
+		text-decoration: none;
+		text-shadow: var(--ts);
+		letter-spacing: 1px;
+	}
+
+	.board-link:hover {
+		background: var(--accent);
+		color: #000;
+		text-decoration: none;
+		text-shadow: none;
+	}
+
+	.admin-tag {
+		display: inline-block;
+		margin-left: 0.4rem;
+		padding: 0.05rem 0.4rem;
+		font-family: var(--font-body);
+		font-size: 0.7rem;
+		letter-spacing: 1px;
+		text-transform: uppercase;
+		background: rgba(0, 0, 0, 0.35);
+		border: 1px solid currentColor;
+		border-radius: 3px;
+		opacity: 0.75;
 	}
 
 	.muted {

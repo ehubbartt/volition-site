@@ -2,6 +2,7 @@ import { redirect, fail, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { CLAN_LABEL } from '$lib/clans';
 import { ACCOUNT_TYPES } from '$lib/accountTypes';
+import { renderMarkdown } from '$lib/markdown';
 import type { Actions, PageServerLoad } from './$types';
 
 interface SignupRow {
@@ -235,7 +236,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	}));
 
 	return {
-		event,
+		event: { ...event, description_html: renderMarkdown(event.description) },
 		mySignup: mySignup
 			? {
 					id: mySignup.id,

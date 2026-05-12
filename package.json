@@ -24,6 +24,7 @@
 	"dependencies": {
 		"@supabase/supabase-js": "^2.81.1",
 		"arctic": "^3.7.0",
+		"marked": "^18.0.3",
 		"zod": "^4.0.0"
 	}
 }
