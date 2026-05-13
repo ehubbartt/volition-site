@@ -1,6 +1,5 @@
 import { redirect, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { isAdmin } from '$lib/server/auth';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
@@ -8,7 +7,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	if (!locals.user.rsn || !locals.user.clan_allegiance || !locals.user.account_type) {
 		throw redirect(303, '/onboarding');
 	}
-	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
 
 	const { data: event, error: eventErr } = await db()
 		.from('vs_events')

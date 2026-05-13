@@ -4,7 +4,7 @@ export interface BoardNode {
 	id: string;
 	kind: NodeKind;
 	floor: number;
-	section?: 'A' | 'B';
+	section?: 'A' | 'B' | 'C';
 	lane?: number;
 	step?: number;
 	x: number;
@@ -73,7 +73,11 @@ export function getBoardTopology(): BoardTopology {
 		let prevExitId = startId;
 		cursorY += ROW_GAP;
 
-		for (const section of ['A', 'B'] as const) {
+		const SECTIONS = ['A', 'B', 'C'] as const;
+		for (let s = 0; s < SECTIONS.length; s++) {
+			const section = SECTIONS[s];
+			const isLast = s === SECTIONS.length - 1;
+
 			const sectionTopIds: string[] = [];
 			const sectionBotIds: string[] = [];
 
@@ -107,8 +111,8 @@ export function getBoardTopology(): BoardTopology {
 				}
 			}
 
-			if (section === 'A') {
-				const midId = `f${floor}-mid`;
+			if (!isLast) {
+				const midId = `f${floor}-mid-${section}`;
 				nodes.push({ id: midId, kind: 'community', floor, x: CENTER_X, y: cursorY });
 				for (const botId of sectionBotIds) {
 					edges.push({ id: `${botId}->${midId}`, from: botId, to: midId });

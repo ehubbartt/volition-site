@@ -1,12 +1,16 @@
 <script lang="ts">
 	import type { BoardTopology } from './topology';
 
-	let { topology }: { topology: BoardTopology } = $props();
+	let {
+		topology,
+		lockedFloors = [2, 3]
+	}: { topology: BoardTopology; lockedFloors?: number[] } = $props();
 
 	const MIN_ZOOM = 0.5;
 	const MAX_ZOOM = 5;
 	const PAD = 40;
-	const LOCKED_FLOORS = new Set<number>([2, 3]);
+
+	const lockedSet = $derived(new Set(lockedFloors));
 
 	let zoom = $state(1);
 	let panX = $state(0);
@@ -106,7 +110,7 @@
 		</div>
 		<div class="floor-tabs" role="tablist" aria-label="Floor selector">
 			{#each topology.floors as f (f.floor)}
-				{@const locked = LOCKED_FLOORS.has(f.floor)}
+				{@const locked = lockedSet.has(f.floor)}
 				<button
 					type="button"
 					role="tab"

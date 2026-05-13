@@ -6,6 +6,7 @@
 	let { data }: { data: PageData } = $props();
 
 	const topology = getBoardTopology();
+	const lockedFloors = $derived(data.isAdmin ? [] : [2, 3]);
 </script>
 
 <svelte:head>
@@ -27,7 +28,7 @@
 	</p>
 </section>
 
-<BoardMap {topology} />
+<BoardMap {topology} {lockedFloors} />
 
 <style>
 	.crumbs {

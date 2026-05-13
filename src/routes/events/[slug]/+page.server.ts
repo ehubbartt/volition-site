@@ -33,7 +33,7 @@ function buildDemoData() {
 	const clans: Array<keyof typeof CLAN_LABEL> = [
 		'volition',
 		'iron_refuge',
-		'reborn_iron',
+		'07_irons',
 		'other_mixed'
 	];
 

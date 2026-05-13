@@ -1,7 +1,7 @@
 export const CLAN_OPTIONS = [
 	{ value: 'volition', label: 'Volition' },
 	{ value: 'iron_refuge', label: 'Iron Refuge' },
-	{ value: 'reborn_iron', label: 'Reborn Iron' },
+	{ value: '07_irons', label: '07 Irons' },
 	{ value: 'other_mixed', label: 'Other / Mixed' }
 ] as const;
 

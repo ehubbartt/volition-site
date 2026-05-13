@@ -119,9 +119,7 @@
 			⏱ Signups close {new Date(data.event.signup_closes_at).toLocaleString()}
 		</p>
 	{/if}
-	{#if data.isAdmin}
-		<a class="board-link" href="/events/{data.event.slug}/board">View board → <span class="admin-tag">admin preview</span></a>
-	{/if}
+	<a class="board-link" href="/events/{data.event.slug}/board">View board →</a>
 </section>
 
 {#if form?.error}
@@ -544,20 +542,6 @@
 		color: #000;
 		text-decoration: none;
 		text-shadow: none;
-	}
-
-	.admin-tag {
-		display: inline-block;
-		margin-left: 0.4rem;
-		padding: 0.05rem 0.4rem;
-		font-family: var(--font-body);
-		font-size: 0.7rem;
-		letter-spacing: 1px;
-		text-transform: uppercase;
-		background: rgba(0, 0, 0, 0.35);
-		border: 1px solid currentColor;
-		border-radius: 3px;
-		opacity: 0.75;
 	}
 
 	.muted {
