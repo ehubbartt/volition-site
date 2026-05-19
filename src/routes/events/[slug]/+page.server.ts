@@ -1,6 +1,6 @@
 import { redirect, fail, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { CLAN_LABEL } from '$lib/clans';
+import { CLAN_LABEL, CLAN_OPTIONS } from '$lib/clans';
 import { ACCOUNT_TYPES } from '$lib/accountTypes';
 import { renderMarkdown } from '$lib/markdown';
 import type { Actions, PageServerLoad } from './$types';
@@ -30,12 +30,7 @@ interface InviteRow {
 // crowded-event UI. Triggered only when the URL has ?demo=1.
 function buildDemoData() {
 	const prefixes = ['HCIM', 'GIM', 'UIM', 'Iron', 'Pure', 'Skill', 'PVM', 'Bot'];
-	const clans: Array<keyof typeof CLAN_LABEL> = [
-		'volition',
-		'iron_refuge',
-		'07_irons',
-		'other_mixed'
-	];
+	const clans = CLAN_OPTIONS.map((c) => c.value);
 
 	const accountValues = ACCOUNT_TYPES.map((a) => a.value);
 
