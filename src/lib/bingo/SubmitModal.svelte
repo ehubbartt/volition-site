@@ -6,12 +6,14 @@
 	import type { TileStatus } from './state';
 
 	interface Submission {
+		id: string;
 		proof_url: string;
 		proof_path?: string;
 		submitted_at: string;
 	}
 
 	interface Completion {
+		id: string;
 		user_id: string;
 		rsn: string | null;
 		discord_username: string;
@@ -24,13 +26,13 @@
 	interface Props {
 		tile: BingoTile;
 		status: TileStatus;
-		mySubmission: Submission | null;
+		mySubmissions: Submission[];
 		community: Completion[];
 		canSubmit: boolean;
 		onclose: () => void;
 	}
 
-	let { tile, status, mySubmission, community, canSubmit, onclose }: Props = $props();
+	let { tile, status, mySubmissions, community, canSubmit, onclose }: Props = $props();
 
 	const tier = $derived(TIER_BY_KEY[tile.tier]);
 	const submittable = $derived(status === 'open' && canSubmit);
@@ -108,13 +110,39 @@
 			<p class="points">{tile.points} point{tile.points === 1 ? '' : 's'}</p>
 		</header>
 
-		{#if mySubmission}
+		{#if mySubmissions.length > 0}
 			<section class="my-proof">
-				<h3>Your proof</h3>
-				<a href={mySubmission.proof_url} target="_blank" rel="noopener" class="proof-link">
-					<img src={mySubmission.proof_url} alt="Your submission proof" />
-				</a>
-				<p class="meta">Submitted {fmtDate(mySubmission.submitted_at)}</p>
+				<h3>Your proofs ({mySubmissions.length})</h3>
+				<ul class="mine-list">
+					{#each mySubmissions as sub (sub.id)}
+						<li>
+							<a href={sub.proof_url} target="_blank" rel="noopener" class="proof-link">
+								<img src={sub.proof_url} alt="Your submission proof" />
+							</a>
+							<div class="mine-meta">
+								<span class="meta">Submitted {fmtDate(sub.submitted_at)}</span>
+								{#if submittable}
+									<form
+										method="POST"
+										action="?/remove"
+										use:enhance={() => {
+											return async ({ result, update }) => {
+												await update({ reset: false });
+												if (result.type === 'failure') {
+													const data = result.data as { error?: string } | undefined;
+													error = data?.error ?? 'Remove failed';
+												}
+											};
+										}}
+									>
+										<input type="hidden" name="submission_id" value={sub.id} />
+										<button type="submit" class="danger small">Remove</button>
+									</form>
+								{/if}
+							</div>
+						</li>
+					{/each}
+				</ul>
 			</section>
 		{/if}
 
@@ -122,7 +150,7 @@
 			<form
 				method="POST"
 				enctype="multipart/form-data"
-				action={mySubmission ? '?/replace' : '?/submit'}
+				action="?/submit"
 				use:enhance={() => {
 					submitting = true;
 					return async ({ result, update }) => {
@@ -165,7 +193,9 @@
 						<img src={previewUrl} alt="Preview" class="preview" />
 						<span class="hint">Click or drop another to replace this preview</span>
 					{:else}
-						<span class="big">Drop image here</span>
+						<span class="big">
+							{mySubmissions.length > 0 ? 'Add another proof' : 'Drop image here'}
+						</span>
 						<span class="hint">or click to choose · PNG/JPG/WEBP/GIF, max 10 MB</span>
 					{/if}
 				</label>
@@ -175,9 +205,9 @@
 				<div class="actions">
 					<button type="submit" class="primary" disabled={!file || submitting}>
 						{#if submitting}
-							{mySubmission ? 'Replacing…' : 'Submitting…'}
+							Submitting…
 						{:else}
-							{mySubmission ? 'Replace proof' : 'Submit proof'}
+							{mySubmissions.length > 0 ? 'Add proof' : 'Submit proof'}
 						{/if}
 					</button>
 					{#if file}
@@ -185,26 +215,6 @@
 					{/if}
 				</div>
 			</form>
-
-			{#if mySubmission}
-				<form
-					method="POST"
-					action="?/remove"
-					use:enhance={() => {
-						return async ({ result, update }) => {
-							await update({ reset: false });
-							if (result.type === 'failure') {
-								const data = result.data as { error?: string } | undefined;
-								error = data?.error ?? 'Remove failed';
-							}
-						};
-					}}
-					class="remove-form"
-				>
-					<input type="hidden" name="tile_id" value={tile.id} />
-					<button type="submit" class="danger">Remove my submission</button>
-				</form>
-			{/if}
 		{:else}
 			<p class="locked-msg">
 				{#if !canSubmit && status === 'open'}
@@ -222,7 +232,7 @@
 			<section class="community">
 				<h3>Submissions ({community.length})</h3>
 				<ul>
-					{#each community as c (c.user_id)}
+					{#each community as c (c.id)}
 						<li>
 							<a href={c.proof_url} target="_blank" rel="noopener">
 								<img src={c.proof_url} alt={`Proof by ${c.rsn ?? c.discord_username}`} />
@@ -342,9 +352,36 @@
 	}
 
 	.my-proof .meta {
-		margin: 0.4rem 0 0;
 		color: var(--muted);
 		font-size: 0.8rem;
+	}
+
+	.mine-list {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+	}
+
+	.mine-list li {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.mine-meta {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+	}
+
+	button.danger.small {
+		font-size: 0.78rem;
+		padding: 0.25rem 0.55rem;
+		min-height: 0;
 	}
 
 	.dropzone {
@@ -412,10 +449,6 @@
 
 	button.danger:hover {
 		background: var(--danger-bg);
-	}
-
-	.remove-form {
-		margin-top: 0.5rem;
 	}
 
 	.error {

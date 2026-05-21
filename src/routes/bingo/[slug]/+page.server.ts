@@ -102,6 +102,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const completionsByTile: Record<
 		string,
 		Array<{
+			id: string;
 			user_id: string;
 			rsn: string | null;
 			discord_username: string;
@@ -114,9 +115,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const mySubmissions: Record<
 		string,
-		{ proof_url: string; proof_path: string; submitted_at: string }
+		Array<{ id: string; proof_url: string; proof_path: string; submitted_at: string }>
 	> = {};
 
+	const scoredPairs = new Set<string>();
 	const userPoints = new Map<
 		string,
 		{
@@ -135,6 +137,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 		const arr = completionsByTile[c.tile_id] ?? [];
 		arr.push({
+			id: c.id,
 			user_id: c.user_id,
 			rsn: c.vs_users.rsn,
 			discord_username: c.vs_users.discord_username,
@@ -146,13 +149,17 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		completionsByTile[c.tile_id] = arr;
 
 		if (c.user_id === locals.user!.id) {
-			mySubmissions[c.tile_id] = {
+			const mine = mySubmissions[c.tile_id] ?? [];
+			mine.push({
+				id: c.id,
 				proof_url: c.proof_url,
 				proof_path: c.proof_path,
 				submitted_at: c.submitted_at
-			};
+			});
+			mySubmissions[c.tile_id] = mine;
 		}
 
+		const pairKey = `${c.user_id}|${c.tile_id}`;
 		const existing = userPoints.get(c.user_id) ?? {
 			user_id: c.user_id,
 			rsn: c.vs_users.rsn,
@@ -161,8 +168,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			points: 0,
 			count: 0
 		};
-		existing.points += tile.points;
-		existing.count += 1;
+		if (!scoredPairs.has(pairKey)) {
+			scoredPairs.add(pairKey);
+			existing.points += tile.points;
+			existing.count += 1;
+		}
 		userPoints.set(c.user_id, existing);
 	}
 
@@ -261,15 +271,6 @@ export const actions: Actions = {
 			return fail(400, { error: 'That tile is not open for submissions' });
 		}
 
-		const { data: existing } = await db()
-			.from('vs_bingo_completions')
-			.select('id, proof_path')
-			.eq('event_id', event.id)
-			.eq('user_id', locals.user.id)
-			.eq('tile_id', tileId)
-			.maybeSingle();
-		if (existing) return fail(409, { error: 'You already submitted this tile — use Replace.' });
-
 		const result = await uploadProof(event.id, locals.user.id, tileId, file);
 		if ('error' in result) return fail(400, { error: result.error });
 
@@ -288,61 +289,6 @@ export const actions: Actions = {
 		return { ok: true, action: 'submit' as const, tile_id: tileId };
 	},
 
-	replace: async ({ params, locals, request }) => {
-		if (!locals.user) throw redirect(303, '/');
-		requireBingoSlug(params.slug);
-
-		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
-			return fail(403, { error: 'Only Volition clan members can submit tiles for this event.' });
-		}
-
-		const event = await fetchBingoEvent(params.slug);
-		if (!event) return fail(404, { error: 'Event not found' });
-		if (event.status !== 'open') return fail(400, { error: 'Submissions are closed' });
-
-		const form = await request.formData();
-		const tileId = form.get('tile_id')?.toString() ?? '';
-		const file = form.get('proof');
-
-		if (!BINGO_TILE_BY_ID[tileId]) return fail(400, { error: 'Unknown tile' });
-		if (!(file instanceof File)) return fail(400, { error: 'Missing proof image' });
-		if (!tileIsSubmittable(tileId, (event.starts_at ?? event.signup_opens_at))) {
-			return fail(400, { error: 'That tile is locked' });
-		}
-
-		const { data: existing } = await db()
-			.from('vs_bingo_completions')
-			.select('id, proof_path')
-			.eq('event_id', event.id)
-			.eq('user_id', locals.user.id)
-			.eq('tile_id', tileId)
-			.maybeSingle();
-		if (!existing) return fail(404, { error: 'No existing submission to replace' });
-
-		const result = await uploadProof(event.id, locals.user.id, tileId, file);
-		if ('error' in result) return fail(400, { error: result.error });
-
-		const { error: updErr } = await db()
-			.from('vs_bingo_completions')
-			.update({
-				proof_url: result.url,
-				proof_path: result.path,
-				submitted_at: new Date().toISOString()
-			})
-			.eq('id', existing.id);
-
-		if (updErr) {
-			await removeStorageObject(result.path);
-			return fail(500, { error: updErr.message });
-		}
-
-		if (existing.proof_path && existing.proof_path !== result.path) {
-			await removeStorageObject(existing.proof_path);
-		}
-
-		return { ok: true, action: 'replace' as const, tile_id: tileId };
-	},
-
 	remove: async ({ params, locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
 		requireBingoSlug(params.slug);
@@ -355,20 +301,21 @@ export const actions: Actions = {
 		if (!event) return fail(404, { error: 'Event not found' });
 
 		const form = await request.formData();
-		const tileId = form.get('tile_id')?.toString() ?? '';
-		if (!BINGO_TILE_BY_ID[tileId]) return fail(400, { error: 'Unknown tile' });
-		if (!tileIsSubmittable(tileId, (event.starts_at ?? event.signup_opens_at))) {
-			return fail(400, { error: 'You can only remove submissions while the tile is open' });
-		}
+		const submissionId = form.get('submission_id')?.toString() ?? '';
+		if (!submissionId) return fail(400, { error: 'Missing submission_id' });
 
 		const { data: existing } = await db()
 			.from('vs_bingo_completions')
-			.select('id, proof_path')
+			.select('id, tile_id, proof_path')
+			.eq('id', submissionId)
 			.eq('event_id', event.id)
 			.eq('user_id', locals.user.id)
-			.eq('tile_id', tileId)
 			.maybeSingle();
-		if (!existing) return { ok: true, action: 'remove' as const, tile_id: tileId };
+		if (!existing) return fail(404, { error: 'Submission not found' });
+
+		if (!tileIsSubmittable(existing.tile_id, (event.starts_at ?? event.signup_opens_at))) {
+			return fail(400, { error: 'You can only remove submissions while the tile is open' });
+		}
 
 		const { error: delErr } = await db()
 			.from('vs_bingo_completions')
@@ -380,7 +327,7 @@ export const actions: Actions = {
 			await removeStorageObject(existing.proof_path);
 		}
 
-		return { ok: true, action: 'remove' as const, tile_id: tileId };
+		return { ok: true, action: 'remove' as const, submission_id: submissionId };
 	}
 };
 

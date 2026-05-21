@@ -43,8 +43,16 @@
 </main>
 
 <footer>
-	<div class="container">
+	<div class="container footer-row">
 		<span class="muted">Volition · OSRS</span>
+		<a
+			class="discord-link"
+			href="https://discord.gg/fwFPKzJkSJ"
+			target="_blank"
+			rel="noopener noreferrer"
+		>
+			Join our Discord →
+		</a>
 	</div>
 </footer>
 
@@ -196,6 +204,25 @@
 	footer {
 		border-top: 1px solid #4d4336;
 		padding: 1rem 0;
+	}
+
+	.footer-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+
+	.discord-link {
+		color: #ff981f;
+		font-size: 0.9rem;
+		text-decoration: none;
+		text-shadow: 1px 1px #000;
+	}
+
+	.discord-link:hover {
+		text-decoration: underline;
 	}
 
 	.muted {

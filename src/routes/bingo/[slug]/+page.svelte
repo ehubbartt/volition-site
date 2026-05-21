@@ -73,7 +73,7 @@
 	}
 
 	function mineFor(tileId: string) {
-		return data.mySubmissions[tileId] ?? null;
+		return data.mySubmissions[tileId] ?? [];
 	}
 
 	function openModal(tileId: string) {
@@ -151,7 +151,7 @@
 					<TileCell
 						{tile}
 						status={getStatus(tile.id)}
-						mySubmitted={!!mineFor(tile.id)}
+						mySubmitted={mineFor(tile.id).length > 0}
 						communityCount={communityFor(tile.id).length}
 						onclick={() => openModal(tile.id)}
 					/>
@@ -162,7 +162,7 @@
 					<TileCell
 						tile={bonus}
 						status={getStatus(bonus.id)}
-						mySubmitted={!!mineFor(bonus.id)}
+						mySubmitted={mineFor(bonus.id).length > 0}
 						communityCount={communityFor(bonus.id).length}
 						onclick={() => openModal(bonus.id)}
 					/>
@@ -197,7 +197,7 @@
 	<SubmitModal
 		tile={openTile}
 		status={getStatus(openTile.id)}
-		mySubmission={mineFor(openTile.id)}
+		mySubmissions={mineFor(openTile.id)}
 		community={communityFor(openTile.id)}
 		canSubmit={data.isClanMember}
 		onclose={closeModal}
