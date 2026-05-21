@@ -34,7 +34,7 @@ const eventSchema = z.object({
 	name: z.string().trim().min(1).max(120),
 	description: z.string().max(10_000).optional().nullable(),
 	team_size: z.coerce.number().int().min(1).max(20),
-	status: z.enum(['draft', 'open', 'locked', 'closed']),
+	status: z.enum(['draft', 'preview', 'open', 'locked', 'closed']),
 	signup_opens_at: z.string().optional().nullable(),
 	signup_closes_at: z.string().optional().nullable(),
 	starts_at: z.string().optional().nullable(),
@@ -150,7 +150,7 @@ export const actions: Actions = {
 		const status = form.get('status')?.toString();
 
 		if (!id || !status) return fail(400, { error: 'Missing fields' });
-		if (!['draft', 'open', 'locked', 'closed'].includes(status)) {
+		if (!['draft', 'preview', 'open', 'locked', 'closed'].includes(status)) {
 			return fail(400, { error: 'Invalid status' });
 		}
 

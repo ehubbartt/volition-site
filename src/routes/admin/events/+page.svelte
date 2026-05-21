@@ -48,6 +48,7 @@
 					<span>Status</span>
 					<select name="status">
 						<option value="draft">draft</option>
+						<option value="preview">preview (admin-only)</option>
 						<option value="open" selected>open</option>
 						<option value="locked">locked</option>
 						<option value="closed">closed</option>
@@ -93,7 +94,7 @@
 						<form method="POST" action="?/updateStatus" use:enhance>
 							<input type="hidden" name="id" value={ev.id} />
 							<select name="status" onchange={(e) => (e.currentTarget.form as HTMLFormElement).requestSubmit()}>
-								{#each ['draft', 'open', 'locked', 'closed'] as s}
+								{#each ['draft', 'preview', 'open', 'locked', 'closed'] as s}
 									<option value={s} selected={ev.status === s}>{s}</option>
 								{/each}
 							</select>
@@ -133,7 +134,7 @@
 								<label>
 									<span>Status</span>
 									<select name="status">
-										{#each ['draft', 'open', 'locked', 'closed'] as s}
+										{#each ['draft', 'preview', 'open', 'locked', 'closed'] as s}
 											<option value={s} selected={ev.status === s}>{s}</option>
 										{/each}
 									</select>

@@ -3,6 +3,7 @@ import { db } from '$lib/server/db';
 import { CLAN_LABEL, CLAN_OPTIONS } from '$lib/clans';
 import { ACCOUNT_TYPES } from '$lib/accountTypes';
 import { renderMarkdown } from '$lib/markdown';
+import { isAdmin } from '$lib/server/auth';
 import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -115,6 +116,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 	if (eventErr) throw error(500, eventErr.message);
 	if (!event) throw error(404, 'Event not found');
+	if ((event.status === 'preview' || event.status === 'draft') && !isAdmin(locals.user)) {
+		throw error(404, 'Event not found');
+	}
 
 	const [{ data: signupsRaw }, { data: teamsRaw }] = await Promise.all([
 		supabase

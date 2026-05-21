@@ -37,12 +37,14 @@
 			{#each data.events as ev}
 				{@const isBingo = ev.slug === BINGO_EVENT_SLUG}
 				{@const isDraft = ev.status === 'draft'}
+				{@const isPreview = ev.status === 'preview'}
 				<li>
 					<a
 						href={hrefFor(ev.slug)}
 						class="event-card"
 						class:bingo={isBingo}
 						class:draft={isDraft}
+						class:preview={isPreview}
 					>
 						<div class="event-name">{ev.name}</div>
 						{#if ev.description_preview}
@@ -56,11 +58,18 @@
 						{/if}
 						<div
 							class="badge"
-							class:bingo={isBingo && !isDraft}
+							class:bingo={isBingo && !isDraft && !isPreview}
 							class:open={ev.status === 'open' && !isBingo}
 							class:draft={isDraft}
+							class:preview={isPreview}
 						>
-							{isDraft ? 'Draft · admin only' : isBingo ? 'Bingo' : ev.status}
+							{isDraft
+								? 'Draft · admin only'
+								: isPreview
+									? 'Preview · admin only'
+									: isBingo
+										? 'Bingo'
+										: ev.status}
 						</div>
 					</a>
 				</li>
@@ -186,5 +195,21 @@
 		border-color: var(--border-strong);
 		border-style: dashed;
 		color: var(--muted);
+	}
+
+	.event-card.preview {
+		border-color: var(--accent);
+		border-style: dashed;
+	}
+
+	.event-card.preview .event-name {
+		color: var(--accent);
+	}
+
+	.badge.preview {
+		background: var(--accent-soft);
+		border-color: var(--accent);
+		border-style: dashed;
+		color: var(--accent);
 	}
 </style>

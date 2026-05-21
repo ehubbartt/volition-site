@@ -76,7 +76,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const admin = isAdmin(locals.user);
 	const visibleStatuses = admin
-		? ['draft', 'open', 'locked']
+		? ['draft', 'preview', 'open', 'locked']
 		: ['open', 'locked'];
 
 	const { data: events, error } = await db()

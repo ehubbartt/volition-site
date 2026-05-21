@@ -10,6 +10,7 @@ import { BINGO_TILE_BY_ID, BINGO_TILES } from '$lib/server/bingoTiles';
 import type { BingoTile } from '$lib/bingo/tiles';
 import { getBingoState, getTileStatus } from '$lib/bingo/state';
 import { renderMarkdown } from '$lib/markdown';
+import { isAdmin } from '$lib/server/auth';
 import { isClanMember } from '$lib/server/clan';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -64,8 +65,18 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const event = await fetchBingoEvent(params.slug);
 
 	const memberOfClan = await isClanMember(locals.user.discord_id, locals.user.rsn);
+	const admin = isAdmin(locals.user);
 
-	if (!event || event.status === 'draft' || event.status === 'closed') {
+	if (event && event.status === 'preview' && !admin) {
+		throw error(404, 'Not found');
+	}
+
+	if (
+		!event ||
+		event.status === 'draft' ||
+		event.status === 'closed' ||
+		(event.status === 'preview' && !admin)
+	) {
 		const redactedTiles: BingoTile[] = BINGO_TILES.map((t) => ({ ...t, name: 'nice try' }));
 		return {
 			event: event
@@ -259,7 +270,9 @@ export const actions: Actions = {
 
 		const event = await fetchBingoEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
-		if (event.status !== 'open') return fail(400, { error: 'Submissions are closed' });
+		const admin = isAdmin(locals.user);
+		const isActive = event.status === 'open' || (event.status === 'preview' && admin);
+		if (!isActive) return fail(400, { error: 'Submissions are closed' });
 
 		const form = await request.formData();
 		const tileId = form.get('tile_id')?.toString() ?? '';
