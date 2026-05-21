@@ -6,7 +6,7 @@ import {
 	MAX_UPLOAD_BYTES,
 	ALLOWED_MIME
 } from '$lib/bingo/config';
-import { BINGO_TILE_BY_ID, BINGO_TILES } from '$lib/server/bingoTiles';
+import { BINGO_TILE_BY_ID, BINGO_TILES, getTileDetails } from '$lib/server/bingoTiles';
 import type { BingoTile } from '$lib/bingo/tiles';
 import { getBingoState, getTileStatus } from '$lib/bingo/state';
 import { renderMarkdown } from '$lib/markdown';
@@ -77,7 +77,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		event.status === 'closed' ||
 		(event.status === 'preview' && !admin)
 	) {
-		const redactedTiles: BingoTile[] = BINGO_TILES.map((t) => ({ ...t, name: 'nice try' }));
+		const redactedTiles: BingoTile[] = BINGO_TILES.map((t) => ({
+			...t,
+			name: 'nice try',
+			details_html: null
+		}));
 		return {
 			event: event
 				? {
@@ -194,9 +198,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const tiles: BingoTile[] = BINGO_TILES.map((t) => {
 		if (getTileStatus(t, state) === 'blurred') {
-			return { ...t, name: 'nice try' };
+			return { ...t, name: 'nice try', details_html: null };
 		}
-		return t;
+		const md = getTileDetails(t.id);
+		return { ...t, details_html: md ? renderMarkdown(md) : null };
 	});
 
 	return {

@@ -6,6 +6,7 @@ export interface BingoTile {
 	tier: BingoTier;
 	row: number;
 	points: number;
+	details_html?: string | null;
 }
 
 export interface TierMeta {

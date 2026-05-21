@@ -152,7 +152,6 @@
 						{tile}
 						status={getStatus(tile.id)}
 						mySubmitted={mineFor(tile.id).length > 0}
-						communityCount={communityFor(tile.id).length}
 						onclick={() => openModal(tile.id)}
 					/>
 				{/each}
@@ -163,7 +162,6 @@
 						tile={bonus}
 						status={getStatus(bonus.id)}
 						mySubmitted={mineFor(bonus.id).length > 0}
-						communityCount={communityFor(bonus.id).length}
 						onclick={() => openModal(bonus.id)}
 					/>
 				{/if}

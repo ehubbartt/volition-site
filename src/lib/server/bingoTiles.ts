@@ -73,3 +73,26 @@ export const BINGO_TILES: BingoTile[] = (() => {
 export const BINGO_TILE_BY_ID: Record<string, BingoTile> = Object.fromEntries(
 	BINGO_TILES.map((t) => [t.id, t])
 );
+
+// ============================================================================
+// PER-TILE "HOW TO COMPLETE" / FAQ
+// ============================================================================
+// Markdown is supported (headings, lists, **bold**, *italic*, `inline code`,
+// [links](https://example.com), blockquotes).
+// Tile IDs follow the pattern:
+//   r{row}-{tier}  for the main grid    (e.g. 'r1-skilling', 'r5-hard', 'r12-medium')
+//   b{row}         for the bonus column (e.g. 'b1', 'b7', 'b12')
+// Tile rows + tiers come from the ROWS array above (row 1 is the top).
+// Tiles with no entry simply hide the "How to complete" card in the modal.
+// Lives under $lib/server/ so future-tile details never get sent to the
+// browser before that row releases.
+const TILE_DETAILS: Record<string, string> = {
+	// Add entries here. Example:
+	// 'r1-skilling': 'Get 10 **Molch Pearls** while aerial fishing at Molch Isle.\n\n- Snap a clipped screenshot of the inventory.\n- Stacked pearls from earlier trips count.',
+	// 'r1-hard': 'Any unique drop from **Chambers of Xeric**. Loot-screen screenshot.',
+	// 'b1': 'Inventory + worn gear screenshot in any boss-capable setup under 500k GE value.'
+};
+
+export function getTileDetails(tileId: string): string | null {
+	return TILE_DETAILS[tileId] ?? null;
+}

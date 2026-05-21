@@ -7,11 +7,10 @@
 		tile: BingoTile;
 		status: TileStatus;
 		mySubmitted: boolean;
-		communityCount: number;
 		onclick?: () => void;
 	}
 
-	let { tile, status, mySubmitted, communityCount, onclick }: Props = $props();
+	let { tile, status, mySubmitted, onclick }: Props = $props();
 
 	const tier = $derived(TIER_BY_KEY[tile.tier]);
 </script>
@@ -30,9 +29,6 @@
 	<span class="name">{tile.name}</span>
 	<div class="meta">
 		<span class="points">{tile.points} pt{tile.points === 1 ? '' : 's'}</span>
-		{#if communityCount > 0}
-			<span class="count" title="Community submissions">×{communityCount}</span>
-		{/if}
 	</div>
 	{#if mySubmitted}
 		<span class="check" aria-label="You completed this">✓</span>
@@ -121,14 +117,6 @@
 	.points {
 		font-family: var(--font-heading);
 		color: var(--accent);
-	}
-
-	.count {
-		background: rgba(0, 0, 0, 0.35);
-		border: 1px solid var(--border);
-		border-radius: 2px;
-		padding: 0 0.3rem;
-		color: var(--muted);
 	}
 
 	.check {

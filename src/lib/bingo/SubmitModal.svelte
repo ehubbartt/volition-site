@@ -110,6 +110,13 @@
 			<p class="points">{tile.points} point{tile.points === 1 ? '' : 's'}</p>
 		</header>
 
+		{#if tile.details_html}
+			<section class="details">
+				<h3>How to complete</h3>
+				<div class="details-body">{@html tile.details_html}</div>
+			</section>
+		{/if}
+
 		{#if mySubmissions.length > 0}
 			<section class="my-proof">
 				<h3>Your proofs ({mySubmissions.length})</h3>
@@ -323,6 +330,51 @@
 		font-family: var(--font-heading);
 		color: var(--yellow);
 		font-size: 0.95rem;
+	}
+
+	.details {
+		margin: 1rem 0;
+		padding: 0.85rem 1rem;
+		border: 1px solid var(--border);
+		background: var(--surface-alt);
+		border-radius: var(--radius);
+	}
+
+	.details h3 {
+		margin: 0 0 0.5rem;
+		font-size: 0.95rem;
+		color: var(--accent);
+		letter-spacing: 1px;
+	}
+
+	.details-body :global(p) {
+		margin: 0 0 0.5rem;
+	}
+
+	.details-body :global(:last-child) {
+		margin-bottom: 0;
+	}
+
+	.details-body :global(ul),
+	.details-body :global(ol) {
+		margin: 0.3rem 0 0.6rem;
+		padding-left: 1.2rem;
+	}
+
+	.details-body :global(li) {
+		margin-bottom: 0.15rem;
+	}
+
+	.details-body :global(code) {
+		padding: 0.05rem 0.35rem;
+		background: rgba(0, 0, 0, 0.35);
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		font-size: 0.9em;
+	}
+
+	.details-body :global(a) {
+		color: var(--accent);
 	}
 
 	.my-proof {
