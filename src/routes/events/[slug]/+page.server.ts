@@ -3,6 +3,7 @@ import { db } from '$lib/server/db';
 import { CLAN_LABEL, CLAN_OPTIONS } from '$lib/clans';
 import { ACCOUNT_TYPES } from '$lib/accountTypes';
 import { renderMarkdown } from '$lib/markdown';
+import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 import type { Actions, PageServerLoad } from './$types';
 
 interface SignupRow {
@@ -102,6 +103,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	if (!locals.user.rsn || !locals.user.clan_allegiance || !locals.user.account_type) {
 		throw redirect(303, '/onboarding');
 	}
+	if (params.slug === BINGO_EVENT_SLUG) throw redirect(303, `/bingo/${params.slug}`);
 
 	const supabase = db();
 

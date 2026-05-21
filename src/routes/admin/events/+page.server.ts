@@ -11,7 +11,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const { data: events, error: queryError } = await db()
 		.from('vs_events')
-		.select('id, slug, name, description, status, signup_opens_at, signup_closes_at, team_size, created_at')
+		.select(
+			'id, slug, name, description, status, signup_opens_at, signup_closes_at, starts_at, ends_at, team_size, created_at'
+		)
 		.order('created_at', { ascending: false });
 
 	if (queryError) throw error(500, queryError.message);
@@ -34,7 +36,9 @@ const eventSchema = z.object({
 	team_size: z.coerce.number().int().min(1).max(20),
 	status: z.enum(['draft', 'open', 'locked', 'closed']),
 	signup_opens_at: z.string().optional().nullable(),
-	signup_closes_at: z.string().optional().nullable()
+	signup_closes_at: z.string().optional().nullable(),
+	starts_at: z.string().optional().nullable(),
+	ends_at: z.string().optional().nullable()
 });
 
 function normalizeDate(v: FormDataEntryValue | null): string | null {
@@ -57,7 +61,9 @@ export const actions: Actions = {
 			team_size: form.get('team_size') ?? '2',
 			status: form.get('status') ?? 'draft',
 			signup_opens_at: form.get('signup_opens_at') || null,
-			signup_closes_at: form.get('signup_closes_at') || null
+			signup_closes_at: form.get('signup_closes_at') || null,
+			starts_at: form.get('starts_at') || null,
+			ends_at: form.get('ends_at') || null
 		});
 
 		if (!parsed.success) {
@@ -73,7 +79,9 @@ export const actions: Actions = {
 				team_size: parsed.data.team_size,
 				status: parsed.data.status,
 				signup_opens_at: normalizeDate(form.get('signup_opens_at')),
-				signup_closes_at: normalizeDate(form.get('signup_closes_at'))
+				signup_closes_at: normalizeDate(form.get('signup_closes_at')),
+				starts_at: normalizeDate(form.get('starts_at')),
+				ends_at: normalizeDate(form.get('ends_at'))
 			});
 
 		if (insertError) {
@@ -100,7 +108,9 @@ export const actions: Actions = {
 			team_size: form.get('team_size') ?? '2',
 			status: form.get('status') ?? 'draft',
 			signup_opens_at: form.get('signup_opens_at') || null,
-			signup_closes_at: form.get('signup_closes_at') || null
+			signup_closes_at: form.get('signup_closes_at') || null,
+			starts_at: form.get('starts_at') || null,
+			ends_at: form.get('ends_at') || null
 		});
 
 		if (!parsed.success) {
@@ -116,7 +126,9 @@ export const actions: Actions = {
 				team_size: parsed.data.team_size,
 				status: parsed.data.status,
 				signup_opens_at: normalizeDate(form.get('signup_opens_at')),
-				signup_closes_at: normalizeDate(form.get('signup_closes_at'))
+				signup_closes_at: normalizeDate(form.get('signup_closes_at')),
+				starts_at: normalizeDate(form.get('starts_at')),
+				ends_at: normalizeDate(form.get('ends_at'))
 			})
 			.eq('id', id);
 

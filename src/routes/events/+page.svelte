@@ -1,7 +1,26 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 
 	let { data }: { data: PageData } = $props();
+
+	function hrefFor(slug: string): string {
+		return slug === BINGO_EVENT_SLUG ? `/bingo/${slug}` : `/events/${slug}`;
+	}
+
+	function fmtDate(iso: string | null): string | null {
+		if (!iso) return null;
+		try {
+			return new Date(iso).toLocaleString(undefined, {
+				month: 'short',
+				day: 'numeric',
+				hour: 'numeric',
+				minute: '2-digit'
+			});
+		} catch {
+			return iso;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -16,13 +35,33 @@
 	{:else}
 		<ul class="events">
 			{#each data.events as ev}
+				{@const isBingo = ev.slug === BINGO_EVENT_SLUG}
+				{@const isDraft = ev.status === 'draft'}
 				<li>
-					<a href={`/events/${ev.slug}`} class="event-card">
+					<a
+						href={hrefFor(ev.slug)}
+						class="event-card"
+						class:bingo={isBingo}
+						class:draft={isDraft}
+					>
 						<div class="event-name">{ev.name}</div>
 						{#if ev.description_preview}
 							<p class="muted">{ev.description_preview}</p>
 						{/if}
-						<div class="badge {ev.status}">{ev.status}</div>
+						{#if ev.status_line}
+							<div class="status-line">
+								<span class="label">{ev.status_line.label}</span>
+								<span class="when">{fmtDate(ev.status_line.date)}</span>
+							</div>
+						{/if}
+						<div
+							class="badge"
+							class:bingo={isBingo && !isDraft}
+							class:open={ev.status === 'open' && !isBingo}
+							class:draft={isDraft}
+						>
+							{isDraft ? 'Draft · admin only' : isBingo ? 'Bingo' : ev.status}
+						</div>
 					</a>
 				</li>
 			{/each}
@@ -75,6 +114,34 @@
 		margin-bottom: 0.5rem;
 	}
 
+	.status-line {
+		margin: 0.65rem 0 0;
+		padding: 0.4rem 0.6rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.6rem;
+		flex-wrap: wrap;
+	}
+
+	.status-line .label {
+		font-family: var(--font-heading);
+		font-size: 0.72rem;
+		letter-spacing: 1px;
+		text-transform: uppercase;
+		color: var(--muted);
+	}
+
+	.status-line .when {
+		font-size: 0.9rem;
+		color: var(--yellow);
+		font-family: var(--font-heading);
+		text-shadow: var(--ts);
+	}
+
 	.badge {
 		display: inline-block;
 		margin-top: 0.75rem;
@@ -92,5 +159,32 @@
 		background: var(--accent-soft);
 		border-color: var(--accent);
 		color: var(--accent);
+	}
+
+	.badge.bingo {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: #1a1208;
+		text-shadow: none;
+	}
+
+	.event-card.bingo .event-name {
+		color: var(--yellow);
+	}
+
+	.event-card.draft {
+		border-style: dashed;
+		opacity: 0.85;
+	}
+
+	.event-card.draft .event-name {
+		color: var(--muted);
+	}
+
+	.badge.draft {
+		background: transparent;
+		border-color: var(--border-strong);
+		border-style: dashed;
+		color: var(--muted);
 	}
 </style>

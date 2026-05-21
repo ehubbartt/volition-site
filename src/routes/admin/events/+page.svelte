@@ -64,6 +64,16 @@
 					<input name="signup_closes_at" type="datetime-local" />
 				</label>
 			</div>
+			<div class="row">
+				<label>
+					<span>Event starts at</span>
+					<input name="starts_at" type="datetime-local" />
+				</label>
+				<label>
+					<span>Event ends at</span>
+					<input name="ends_at" type="datetime-local" />
+				</label>
+			</div>
 			<button type="submit" class="primary">Create</button>
 		</form>
 	</details>
@@ -144,6 +154,24 @@
 										name="signup_closes_at"
 										type="datetime-local"
 										value={toLocalInput(ev.signup_closes_at)}
+									/>
+								</label>
+							</div>
+							<div class="row">
+								<label>
+									<span>Event starts at</span>
+									<input
+										name="starts_at"
+										type="datetime-local"
+										value={toLocalInput(ev.starts_at)}
+									/>
+								</label>
+								<label>
+									<span>Event ends at</span>
+									<input
+										name="ends_at"
+										type="datetime-local"
+										value={toLocalInput(ev.ends_at)}
 									/>
 								</label>
 							</div>
