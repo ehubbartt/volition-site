@@ -103,6 +103,13 @@
 		<div class="muted description">{@html data.event.description_html}</div>
 	{/if}
 
+	{#if !data.isClanMember}
+		<p class="non-member-note">
+			You're signed in, but you're not on the Volition clan list — you can browse the board, but
+			submissions are limited to clan members. Ping an admin if you think this is wrong.
+		</p>
+	{/if}
+
 	{#if !data.running}
 		<p class="muted">The bingo event is not currently running. Check back soon!</p>
 	{:else if liveState}
@@ -192,6 +199,7 @@
 		status={getStatus(openTile.id)}
 		mySubmission={mineFor(openTile.id)}
 		community={communityFor(openTile.id)}
+		canSubmit={data.isClanMember}
 		onclose={closeModal}
 	/>
 {/if}
@@ -246,6 +254,17 @@
 		background: var(--accent-soft);
 		border-color: var(--accent);
 		color: var(--accent);
+	}
+
+	.non-member-note {
+		margin: 0.7rem 0 0;
+		padding: 0.55rem 0.8rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--accent);
+		border-left-width: 3px;
+		border-radius: 3px;
+		color: var(--accent);
+		font-size: 0.9rem;
 	}
 
 	.status-row {

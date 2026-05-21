@@ -10,6 +10,7 @@ import { BINGO_TILE_BY_ID, BINGO_TILES } from '$lib/server/bingoTiles';
 import type { BingoTile } from '$lib/bingo/tiles';
 import { getBingoState, getTileStatus } from '$lib/bingo/state';
 import { renderMarkdown } from '$lib/markdown';
+import { isClanMember } from '$lib/server/clan';
 import type { Actions, PageServerLoad } from './$types';
 
 interface CompletionRow {
@@ -62,6 +63,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const event = await fetchBingoEvent(params.slug);
 
+	const memberOfClan = await isClanMember(locals.user.discord_id, locals.user.rsn);
+
 	if (!event || event.status === 'draft' || event.status === 'closed') {
 		const redactedTiles: BingoTile[] = BINGO_TILES.map((t) => ({ ...t, name: 'nice try' }));
 		return {
@@ -75,6 +78,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			running: false as const,
 			state: null,
 			tiles: redactedTiles,
+			isClanMember: memberOfClan,
 			completionsByTile: {} as Record<string, never>,
 			mySubmissions: {} as Record<string, never>,
 			leaderboard: [] as never[]
@@ -186,6 +190,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		running: true as const,
 		state,
 		tiles,
+		isClanMember: memberOfClan,
 		completionsByTile,
 		mySubmissions,
 		leaderboard
@@ -238,6 +243,10 @@ export const actions: Actions = {
 		if (!locals.user) throw redirect(303, '/');
 		requireBingoSlug(params.slug);
 
+		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
+			return fail(403, { error: 'Only Volition clan members can submit tiles for this event.' });
+		}
+
 		const event = await fetchBingoEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
 		if (event.status !== 'open') return fail(400, { error: 'Submissions are closed' });
@@ -282,6 +291,10 @@ export const actions: Actions = {
 	replace: async ({ params, locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
 		requireBingoSlug(params.slug);
+
+		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
+			return fail(403, { error: 'Only Volition clan members can submit tiles for this event.' });
+		}
 
 		const event = await fetchBingoEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
@@ -333,6 +346,10 @@ export const actions: Actions = {
 	remove: async ({ params, locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
 		requireBingoSlug(params.slug);
+
+		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
+			return fail(403, { error: 'Only Volition clan members can manage submissions.' });
+		}
 
 		const event = await fetchBingoEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });

@@ -26,13 +26,14 @@
 		status: TileStatus;
 		mySubmission: Submission | null;
 		community: Completion[];
+		canSubmit: boolean;
 		onclose: () => void;
 	}
 
-	let { tile, status, mySubmission, community, onclose }: Props = $props();
+	let { tile, status, mySubmission, community, canSubmit, onclose }: Props = $props();
 
 	const tier = $derived(TIER_BY_KEY[tile.tier]);
-	const submittable = $derived(status === 'open');
+	const submittable = $derived(status === 'open' && canSubmit);
 
 	let fileInput: HTMLInputElement | null = $state(null);
 	let file = $state<File | null>(null);
@@ -206,8 +207,11 @@
 			{/if}
 		{:else}
 			<p class="locked-msg">
-				{#if status === 'past-locked'}
-					This tile is locked — the row has moved on.
+				{#if !canSubmit && status === 'open'}
+					Only Volition clan members can submit tiles for this event. If you've recently joined,
+					ping an admin to be added to the clan list.
+				{:else if status === 'past-locked'}
+					This tile is locked — the event has ended.
 				{:else}
 					This tile is not yet open.
 				{/if}
