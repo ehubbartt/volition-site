@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
+	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -91,14 +92,21 @@
 							<strong>{ev.name}</strong>
 							<span class="muted">/{ev.slug}</span>
 						</div>
-						<form method="POST" action="?/updateStatus" use:enhance>
-							<input type="hidden" name="id" value={ev.id} />
-							<select name="status" onchange={(e) => (e.currentTarget.form as HTMLFormElement).requestSubmit()}>
-								{#each ['draft', 'preview', 'open', 'locked', 'closed'] as s}
-									<option value={s} selected={ev.status === s}>{s}</option>
-								{/each}
-							</select>
-						</form>
+						<div class="head-actions">
+							{#if ev.slug === BINGO_EVENT_SLUG}
+								<a class="review-link" href="/admin/bingo/{ev.slug}/review">
+									Review submissions →
+								</a>
+							{/if}
+							<form method="POST" action="?/updateStatus" use:enhance>
+								<input type="hidden" name="id" value={ev.id} />
+								<select name="status" onchange={(e) => (e.currentTarget.form as HTMLFormElement).requestSubmit()}>
+									{#each ['draft', 'preview', 'open', 'locked', 'closed'] as s}
+										<option value={s} selected={ev.status === s}>{s}</option>
+									{/each}
+								</select>
+							</form>
+						</div>
 					</div>
 					{#if ev.description_preview}
 						<p class="muted">{ev.description_preview}</p>
@@ -214,6 +222,43 @@
 		border-radius: var(--radius);
 		margin-bottom: 1rem;
 		box-shadow: var(--shadow-card);
+	}
+
+	.head-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.head-actions form {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: 0;
+		margin: 0;
+	}
+
+	.review-link {
+		display: inline-flex;
+		align-items: center;
+		min-height: 40px;
+		padding: 0 0.85rem;
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		border-radius: var(--radius);
+		color: var(--accent);
+		font-family: var(--font-heading);
+		font-size: 0.85rem;
+		text-decoration: none;
+		letter-spacing: 1px;
+		text-shadow: var(--ts);
+	}
+
+	.review-link:hover {
+		background: var(--accent);
+		color: #1a1208;
+		text-decoration: none;
+		text-shadow: none;
 	}
 
 	form {

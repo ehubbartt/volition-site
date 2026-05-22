@@ -136,4 +136,56 @@
 		font-size: 0.9rem;
 		opacity: 0.7;
 	}
+
+	@media (max-width: 720px) {
+		.cell {
+			gap: 0.2rem;
+			min-height: 3.2rem;
+			padding: 0.32rem 0.38rem;
+		}
+		.dot {
+			width: 10px;
+			height: 10px;
+		}
+		.name {
+			font-size: 0.72rem;
+			-webkit-line-clamp: 2;
+			line-clamp: 2;
+		}
+		.meta {
+			font-size: 0.62rem;
+		}
+		.check {
+			font-size: 0.85rem;
+			top: 2px;
+			right: 4px;
+		}
+		.lock {
+			font-size: 0.7rem;
+			top: 2px;
+			right: 4px;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.cell {
+			min-height: 2.6rem;
+			padding: 0.25rem 0.3rem;
+			border-radius: 3px;
+		}
+		.name {
+			font-size: 0.62rem;
+			line-height: 1.15;
+		}
+		.meta {
+			font-size: 0.56rem;
+		}
+		.points {
+			font-size: 0.6rem;
+		}
+		.dot {
+			width: 8px;
+			height: 8px;
+		}
+	}
 </style>

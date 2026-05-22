@@ -14,6 +14,8 @@ import { isAdmin } from '$lib/server/auth';
 import { isClanMember } from '$lib/server/clan';
 import type { Actions, PageServerLoad } from './$types';
 
+type SubmissionStatus = 'pending' | 'approved' | 'rejected';
+
 interface CompletionRow {
 	id: string;
 	user_id: string;
@@ -21,6 +23,7 @@ interface CompletionRow {
 	proof_url: string;
 	proof_path: string;
 	submitted_at: string;
+	status: SubmissionStatus;
 	vs_users: {
 		id: string;
 		rsn: string | null;
@@ -105,7 +108,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const { data: completionsRaw, error: cErr } = await db()
 		.from('vs_bingo_completions')
 		.select(
-			'id, user_id, tile_id, proof_url, proof_path, submitted_at, vs_users(id, rsn, discord_username, clan_allegiance, account_type)'
+			'id, user_id, tile_id, proof_url, proof_path, submitted_at, status, vs_users!user_id(id, rsn, discord_username, clan_allegiance, account_type)'
 		)
 		.eq('event_id', event.id)
 		.order('submitted_at', { ascending: true });
@@ -130,7 +133,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const mySubmissions: Record<
 		string,
-		Array<{ id: string; proof_url: string; proof_path: string; submitted_at: string }>
+		Array<{
+			id: string;
+			proof_url: string;
+			proof_path: string;
+			submitted_at: string;
+			status: SubmissionStatus;
+		}>
 	> = {};
 
 	const scoredPairs = new Set<string>();
@@ -150,45 +159,50 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		const tile = BINGO_TILE_BY_ID[c.tile_id];
 		if (!tile) continue;
 
-		const arr = completionsByTile[c.tile_id] ?? [];
-		arr.push({
-			id: c.id,
-			user_id: c.user_id,
-			rsn: c.vs_users.rsn,
-			discord_username: c.vs_users.discord_username,
-			account_type: c.vs_users.account_type,
-			submitted_at: c.submitted_at,
-			proof_url: c.proof_url,
-			isMe: c.user_id === locals.user!.id
-		});
-		completionsByTile[c.tile_id] = arr;
+		// Community list + leaderboard only count approved submissions.
+		if (c.status === 'approved') {
+			const arr = completionsByTile[c.tile_id] ?? [];
+			arr.push({
+				id: c.id,
+				user_id: c.user_id,
+				rsn: c.vs_users.rsn,
+				discord_username: c.vs_users.discord_username,
+				account_type: c.vs_users.account_type,
+				submitted_at: c.submitted_at,
+				proof_url: c.proof_url,
+				isMe: c.user_id === locals.user!.id
+			});
+			completionsByTile[c.tile_id] = arr;
 
+			const pairKey = `${c.user_id}|${c.tile_id}`;
+			const existing = userPoints.get(c.user_id) ?? {
+				user_id: c.user_id,
+				rsn: c.vs_users.rsn,
+				discord_username: c.vs_users.discord_username,
+				account_type: c.vs_users.account_type,
+				points: 0,
+				count: 0
+			};
+			if (!scoredPairs.has(pairKey)) {
+				scoredPairs.add(pairKey);
+				existing.points += tile.points;
+				existing.count += 1;
+			}
+			userPoints.set(c.user_id, existing);
+		}
+
+		// Submitter always sees their own submissions, including pending + rejected ones.
 		if (c.user_id === locals.user!.id) {
 			const mine = mySubmissions[c.tile_id] ?? [];
 			mine.push({
 				id: c.id,
 				proof_url: c.proof_url,
 				proof_path: c.proof_path,
-				submitted_at: c.submitted_at
+				submitted_at: c.submitted_at,
+				status: c.status
 			});
 			mySubmissions[c.tile_id] = mine;
 		}
-
-		const pairKey = `${c.user_id}|${c.tile_id}`;
-		const existing = userPoints.get(c.user_id) ?? {
-			user_id: c.user_id,
-			rsn: c.vs_users.rsn,
-			discord_username: c.vs_users.discord_username,
-			account_type: c.vs_users.account_type,
-			points: 0,
-			count: 0
-		};
-		if (!scoredPairs.has(pairKey)) {
-			scoredPairs.add(pairKey);
-			existing.points += tile.points;
-			existing.count += 1;
-		}
-		userPoints.set(c.user_id, existing);
 	}
 
 	const leaderboard = Array.from(userPoints.values()).sort((a, b) => {

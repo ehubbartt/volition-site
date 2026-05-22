@@ -5,11 +5,14 @@
 	import { TIER_BY_KEY } from './tiles';
 	import type { TileStatus } from './state';
 
+	type SubmissionStatus = 'pending' | 'approved' | 'rejected';
+
 	interface Submission {
 		id: string;
 		proof_url: string;
 		proof_path?: string;
 		submitted_at: string;
+		status: SubmissionStatus;
 	}
 
 	interface Completion {
@@ -122,12 +125,21 @@
 				<h3>Your proofs ({mySubmissions.length})</h3>
 				<ul class="mine-list">
 					{#each mySubmissions as sub (sub.id)}
-						<li>
+						<li class="mine-item status-{sub.status}">
 							<a href={sub.proof_url} target="_blank" rel="noopener" class="proof-link">
 								<img src={sub.proof_url} alt="Your submission proof" />
 							</a>
 							<div class="mine-meta">
-								<span class="meta">Submitted {fmtDate(sub.submitted_at)}</span>
+								<div class="mine-meta-left">
+									<span class="status-pill status-{sub.status}">
+										{sub.status === 'pending'
+											? 'Pending review'
+											: sub.status === 'approved'
+												? 'Approved'
+												: 'Rejected'}
+									</span>
+									<span class="meta">Submitted {fmtDate(sub.submitted_at)}</span>
+								</div>
 								{#if submittable}
 									<form
 										method="POST"
@@ -428,6 +440,49 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.mine-meta-left {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.status-pill {
+		display: inline-block;
+		padding: 0.05rem 0.45rem;
+		font-family: var(--font-heading);
+		font-size: 0.68rem;
+		letter-spacing: 1px;
+		text-transform: uppercase;
+		border-radius: 3px;
+		border: 1px solid transparent;
+		text-shadow: none;
+	}
+
+	.status-pill.status-pending {
+		background: rgba(255, 152, 31, 0.18);
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+
+	.status-pill.status-approved {
+		background: var(--success-bg);
+		border-color: var(--success);
+		color: var(--success);
+	}
+
+	.status-pill.status-rejected {
+		background: var(--danger-bg);
+		border-color: var(--danger);
+		color: var(--danger);
+	}
+
+	.mine-item.status-rejected .proof-link img {
+		opacity: 0.55;
+		filter: saturate(0.5);
 	}
 
 	button.danger.small {

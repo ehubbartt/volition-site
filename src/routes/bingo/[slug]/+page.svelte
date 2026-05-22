@@ -312,6 +312,23 @@
 		border-radius: var(--radius);
 	}
 
+	@media (max-width: 720px) {
+		.board {
+			grid-template-columns: 1.2rem repeat(4, 1fr) 0.3rem 1fr;
+			gap: 0.3rem;
+			min-width: 0;
+			padding: 0.3rem;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.board {
+			grid-template-columns: 0.9rem repeat(4, 1fr) 0.2rem 1fr;
+			gap: 0.22rem;
+			padding: 0.22rem;
+		}
+	}
+
 	.cell-header,
 	.cell-gap,
 	.row-number {
@@ -355,6 +372,28 @@
 		font-size: 1.1rem;
 		color: var(--accent);
 		text-shadow: var(--ts);
+	}
+
+	@media (max-width: 720px) {
+		.tier-header .pts {
+			display: none;
+		}
+		.tier-header .tier-name {
+			font-size: 0.65rem;
+			padding: 0.18rem 0.2rem;
+			letter-spacing: 0.5px;
+		}
+		.row-number {
+			font-size: 0.78rem;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.tier-header .tier-name {
+			font-size: 0.58rem;
+			padding: 0.15rem 0.15rem;
+			letter-spacing: 0;
+		}
 	}
 
 	.card {
@@ -411,5 +450,30 @@
 	.lb .cnt {
 		color: var(--muted);
 		font-size: 0.75rem;
+	}
+
+	@media (max-width: 720px) {
+		.hero {
+			padding: 0.9rem 1rem;
+			margin-bottom: 0.9rem;
+		}
+
+		.countdown {
+			font-size: 1.05rem;
+		}
+
+		.status-label {
+			font-size: 0.85rem;
+		}
+
+		.layout {
+			gap: 1rem;
+		}
+
+		.lb li {
+			font-size: 0.78rem;
+			padding: 0.3rem 0.4rem;
+			gap: 0.3rem;
+		}
 	}
 </style>
