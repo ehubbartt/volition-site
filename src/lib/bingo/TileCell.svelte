@@ -3,14 +3,16 @@
 	import { TIER_BY_KEY } from './tiles';
 	import type { TileStatus } from './state';
 
+	type MyStatus = 'approved' | 'pending' | 'rejected' | null;
+
 	interface Props {
 		tile: BingoTile;
 		status: TileStatus;
-		mySubmitted: boolean;
+		myStatus: MyStatus;
 		onclick?: () => void;
 	}
 
-	let { tile, status, mySubmitted, onclick }: Props = $props();
+	let { tile, status, myStatus, onclick }: Props = $props();
 
 	const tier = $derived(TIER_BY_KEY[tile.tier]);
 </script>
@@ -18,7 +20,9 @@
 <button
 	type="button"
 	class="cell {tile.tier} {status}"
-	class:my-submitted={mySubmitted}
+	class:my-approved={myStatus === 'approved'}
+	class:my-pending={myStatus === 'pending'}
+	class:my-rejected={myStatus === 'rejected'}
 	disabled={status === 'blurred'}
 	aria-label={status === 'blurred' ? 'Locked future tile' : `${tile.name} (${tile.points} pts)`}
 	onclick={() => {
@@ -30,10 +34,14 @@
 	<div class="meta">
 		<span class="points">{tile.points} pt{tile.points === 1 ? '' : 's'}</span>
 	</div>
-	{#if mySubmitted}
-		<span class="check" aria-label="You completed this">✓</span>
+	{#if myStatus === 'approved'}
+		<span class="status-icon approved" aria-label="You completed this">✓</span>
+	{:else if myStatus === 'pending'}
+		<span class="status-icon pending" aria-label="Pending review">⋯</span>
+	{:else if myStatus === 'rejected'}
+		<span class="status-icon rejected" aria-label="Submission rejected — resubmit">✗</span>
 	{/if}
-	{#if status === 'past-locked'}
+	{#if status === 'past-locked' && !myStatus}
 		<span class="lock" aria-label="Locked">🔒</span>
 	{/if}
 </button>
@@ -82,9 +90,39 @@
 		pointer-events: none;
 	}
 
-	.cell.my-submitted {
+	.cell.my-approved {
 		border-color: var(--success);
 		box-shadow: inset 0 0 0 1px rgba(13, 193, 13, 0.4);
+	}
+
+	.cell.my-pending {
+		border-color: var(--accent);
+		box-shadow: inset 0 0 0 1px rgba(255, 152, 31, 0.4);
+	}
+
+	.cell.my-rejected {
+		border-color: var(--danger);
+		box-shadow: inset 0 0 0 1px rgba(255, 0, 0, 0.45);
+	}
+
+	.cell.my-rejected:not(:disabled) {
+		animation: rejectedPulse 2.4s ease-in-out infinite;
+	}
+
+	@keyframes rejectedPulse {
+		0%,
+		100% {
+			box-shadow: inset 0 0 0 1px rgba(255, 0, 0, 0.35);
+		}
+		50% {
+			box-shadow: inset 0 0 0 1px rgba(255, 0, 0, 0.7);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.cell.my-rejected:not(:disabled) {
+			animation: none;
+		}
 	}
 
 	.dot {
@@ -119,14 +157,28 @@
 		color: var(--accent);
 	}
 
-	.check {
+	.status-icon {
 		position: absolute;
 		top: 4px;
 		right: 6px;
 		font-family: var(--font-heading);
-		color: var(--success);
 		font-size: 1.1rem;
 		text-shadow: 1px 1px #000;
+		line-height: 1;
+	}
+
+	.status-icon.approved {
+		color: var(--success);
+	}
+
+	.status-icon.pending {
+		color: var(--accent);
+		font-size: 1.3rem;
+		top: 0px;
+	}
+
+	.status-icon.rejected {
+		color: var(--danger);
 	}
 
 	.lock {
@@ -155,10 +207,14 @@
 		.meta {
 			font-size: 0.62rem;
 		}
-		.check {
+		.status-icon {
 			font-size: 0.85rem;
 			top: 2px;
 			right: 4px;
+		}
+		.status-icon.pending {
+			font-size: 1rem;
+			top: 0;
 		}
 		.lock {
 			font-size: 0.7rem;

@@ -76,6 +76,14 @@
 		return data.mySubmissions[tileId] ?? [];
 	}
 
+	function myStatusFor(tileId: string): 'approved' | 'pending' | 'rejected' | null {
+		const subs = mineFor(tileId);
+		if (subs.length === 0) return null;
+		if (subs.some((s) => s.status === 'approved')) return 'approved';
+		if (subs.some((s) => s.status === 'pending')) return 'pending';
+		return 'rejected';
+	}
+
 	function openModal(tileId: string) {
 		const status = getStatus(tileId);
 		if (status === 'blurred') return;
@@ -151,7 +159,7 @@
 					<TileCell
 						{tile}
 						status={getStatus(tile.id)}
-						mySubmitted={mineFor(tile.id).length > 0}
+						myStatus={myStatusFor(tile.id)}
 						onclick={() => openModal(tile.id)}
 					/>
 				{/each}
@@ -161,7 +169,7 @@
 					<TileCell
 						tile={bonus}
 						status={getStatus(bonus.id)}
-						mySubmitted={mineFor(bonus.id).length > 0}
+						myStatus={myStatusFor(bonus.id)}
 						onclick={() => openModal(bonus.id)}
 					/>
 				{/if}
