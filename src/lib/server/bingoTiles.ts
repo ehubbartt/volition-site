@@ -6,17 +6,17 @@ import { TIER_BY_KEY } from '$lib/bingo/tiles';
 // tiles the viewer isn't allowed to see before returning data to the page.
 
 const ROWS: Array<[string, string, string, string]> = [
-	['10 Molch Pearls', 'New mole gem bag upgrade thingy', 'God sword: Any hilt', 'Cox Unique'],
-	['Pharohs sceptre', 'Scurrius Spine', 'Any Dag ring', 'Any Jar'],
-	['gnome restaurant unique', 'Beef Pet', 'Chaos ele pet', 'Yama Horn'],
+	['1 Molch Pearls', 'New mole gem bag upgrade thingy', 'Arenea Boots', 'Toa Unique'],
+	['5 Gold Satuettes', 'Scurrius Spine', 'Any Dag ring', 'Any Jar'],
+	['Gnome Restaurant Unique', 'Beef Pet', 'Chaos ele pet', 'Yama Horn'],
 	['Shark paint', 'Fedora', 'Amulet of the Damned', 'Nightmare unique / Phosanis'],
-	['moon loop half from bone mine', 'Huey Unique', 'Oathplate Shard Drop', 'Tob Unique'],
+	['Moon Loop half from bone mine', 'Huey Unique', 'Oathplate Shard Drop', 'Tob Unique'],
 	['burn an oomlie wrap', 'KQ Head', 'Any CG seed', 'Nex Unique'],
-	['cook a snake from mm2', 'Any Bopa', 'Royal titans staff Piece', 'Colo Sunfire Drop'],
+	['cook a snake from mm2', 'Any Bopa', 'Royal titans staff Piece', 'Colo Unique'],
 	['Mine 521 Stardust', 'Steel Ring', 'Wildy Ring', 'Glowy hole'],
-	['pickpocket a elite clue from a hero', 'Zenyte', 'Any Rev Totem', 'Toa Unique'],
+	['pickpocket a elite clue from a hero', 'Zenyte', 'Any Rev Totem', 'Cox Unique'],
 	['25 Con laps wildy', 'Mask of Ranul', 'Elder Chaos Robes', 'Gold Ring Drop'],
-	['piece of pyromancer outfit', 'Sarachnis Pristine silk', 'Champion scroll', 'Brutus Slippers'],
+	['piece of pyromancer outfit', 'Sarachnis Pristine silk', 'Champion scroll', 'God sword: Any hilt'],
 	[
 		'Score 521 giant foundry total points',
 		'Black Pickaxe',
@@ -26,17 +26,17 @@ const ROWS: Array<[string, string, string, string]> = [
 ];
 
 const BONUS: string[] = [
-	'Sub 500k gear',
-	'Any Pet',
-	'Solo',
-	'Nightmare time',
+	'Complete Moa',
+	'Kill Giant mole: Maple sb and addy arrows',
+	'Solo Yama No demonbane',
+	'Nightmare Dragon mace and Ibans only',
 	'Silly Hat and Boots',
-	'CG',
-	'Colo',
-	'Fight Cave sub 100k Gear / invent',
-	'Sub 500k Gear Expert',
+	'Cg only tier 1 weapons',
+	'Complete Waves 1-11 with only hunter sunlight cb',
+	'Fight Cave Weapon only',
+	'One Style Cox',
 	'Kill Vard with only Dragon Scim',
-	'Sara brew from grubby chest',
+	'Brutus Slippers',
 	'Build a demonic throne'
 ];
 
