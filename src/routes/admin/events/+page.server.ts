@@ -162,5 +162,27 @@ export const actions: Actions = {
 		if (updateError) return fail(500, { error: updateError.message });
 
 		return { ok: true };
+	},
+
+	updateDates: async ({ locals, request }) => {
+		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+
+		const form = await request.formData();
+		const id = form.get('id')?.toString();
+		if (!id) return fail(400, { error: 'Missing id' });
+
+		const { error: updateError } = await db()
+			.from('vs_events')
+			.update({
+				signup_opens_at: normalizeDate(form.get('signup_opens_at')),
+				signup_closes_at: normalizeDate(form.get('signup_closes_at')),
+				starts_at: normalizeDate(form.get('starts_at')),
+				ends_at: normalizeDate(form.get('ends_at'))
+			})
+			.eq('id', id);
+
+		if (updateError) return fail(500, { error: updateError.message });
+
+		return { ok: true };
 	}
 };

@@ -83,16 +83,38 @@ export const BINGO_TILE_BY_ID: Record<string, BingoTile> = Object.fromEntries(
 //   r{row}-{tier}  for the main grid    (e.g. 'r1-skilling', 'r5-hard', 'r12-medium')
 //   b{row}         for the bonus column (e.g. 'b1', 'b7', 'b12')
 // Tile rows + tiers come from the ROWS array above (row 1 is the top).
-// Tiles with no entry simply hide the "How to complete" card in the modal.
+// Any tile not listed in TILE_DETAILS falls back to DEFAULT_TILE_DETAILS.
 // Lives under $lib/server/ so future-tile details never get sent to the
 // browser before that row releases.
+
+const DEFAULT_TILE_DETAILS =
+	'Screenshot of the new collection log or the untradeable loot notification.';
+
 const TILE_DETAILS: Record<string, string> = {
-	// Add entries here. Example:
-	// 'r1-skilling': 'Get 10 **Molch Pearls** while aerial fishing at Molch Isle.\n\n- Snap a clipped screenshot of the inventory.\n- Stacked pearls from earlier trips count.',
-	// 'r1-hard': 'Any unique drop from **Chambers of Xeric**. Loot-screen screenshot.',
-	// 'b1': 'Inventory + worn gear screenshot in any boss-capable setup under 500k GE value.'
+	// Skilling-tier overrides
+	'r2-skilling': 'Screenshot of 5 gold statuettes from pyramid plunder in inventory.',
+	'r6-skilling': 'Screenshot of Oomlie wrap in inventory.',
+	'r7-skilling': 'Screenshot of Stuffed snake in inventory.',
+	'r8-skilling': 'Screenshot of 521 stardust in inventory.',
+	'r9-skilling': 'Screenshot of the untradeable loot notification.',
+	'r10-skilling': 'Screenshot of 25 wilderness agility tickets in inventory.',
+	'r12-skilling': 'Screenshot of a 150 score sword in giants foundry.',
+
+	// Bonus-tile rules
+	'b1': 'Complete Moa.',
+	'b2': 'Kill Giant Mole using only Maple shortbow and adamant arrows.',
+	'b3': 'Solo Yama with no demonbane weapons.',
+	'b4': 'Kill Nightmare using only Dragon mace and Iban\'s staff.',
+	'b5': 'Wear a silly hat and silly boots — admins decide what counts.',
+	'b6': 'Complete Corrupted Gauntlet using only tier 1 weapons.',
+	'b7': 'Complete Fortis Colosseum waves 1–11 using only the hunter sunlight crossbow.',
+	'b8': 'Complete the Fight Caves using only the weapon (no other gear).',
+	'b9': 'Complete Chambers of Xeric using only one combat style.',
+	'b10': 'Kill Vardorvis using only a Dragon Scimitar.',
+	'b11': 'Obtain Brutus Slippers as a drop.',
+	'b12': 'Build a Demonic throne in your POH.'
 };
 
 export function getTileDetails(tileId: string): string | null {
-	return TILE_DETAILS[tileId] ?? null;
+	return TILE_DETAILS[tileId] ?? DEFAULT_TILE_DETAILS;
 }

@@ -118,6 +118,50 @@
 						{/if}
 					</div>
 
+					<details class="dates-block">
+						<summary><strong>Dates</strong> <span class="muted small">(update without touching other fields)</span></summary>
+						<form method="POST" action="?/updateDates" use:enhance class="dates-form">
+							<input type="hidden" name="id" value={ev.id} />
+							<div class="row">
+								<label>
+									<span>Event starts at</span>
+									<input
+										name="starts_at"
+										type="datetime-local"
+										value={toLocalInput(ev.starts_at)}
+									/>
+								</label>
+								<label>
+									<span>Event ends at</span>
+									<input
+										name="ends_at"
+										type="datetime-local"
+										value={toLocalInput(ev.ends_at)}
+									/>
+								</label>
+							</div>
+							<div class="row">
+								<label>
+									<span>Signups open at</span>
+									<input
+										name="signup_opens_at"
+										type="datetime-local"
+										value={toLocalInput(ev.signup_opens_at)}
+									/>
+								</label>
+								<label>
+									<span>Signups close at</span>
+									<input
+										name="signup_closes_at"
+										type="datetime-local"
+										value={toLocalInput(ev.signup_closes_at)}
+									/>
+								</label>
+							</div>
+							<button type="submit" class="primary">Save dates</button>
+						</form>
+					</details>
+
 					<details class="edit-block">
 						<summary>Edit details</summary>
 						<form method="POST" action="?/update" use:enhance class="edit-form">
@@ -236,6 +280,29 @@
 		align-items: center;
 		gap: 0;
 		margin: 0;
+	}
+
+	.dates-block {
+		margin-top: 0.75rem;
+		padding: 0.4rem 0.6rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: 3px;
+	}
+
+	.dates-block summary {
+		cursor: pointer;
+		padding: 0.15rem 0;
+		font-size: 0.9rem;
+	}
+
+	.dates-block .small {
+		font-size: 0.8rem;
+		margin-left: 0.35rem;
+	}
+
+	.dates-form {
+		margin-top: 0.75rem;
 	}
 
 	.review-link {
