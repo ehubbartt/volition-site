@@ -51,21 +51,15 @@ export function getBingoState(
 		};
 	}
 
-	if (elapsed >= TOTAL_MS) {
-		return {
-			status: 'ended',
-			startAt,
-			endsAt,
-			activeRow: null,
-			rowsReleased: BINGO_ROW_COUNT,
-			nextRowAt: null,
-			msUntilNextRow: null,
-			msUntilStart: null
-		};
-	}
-
-	const activeRow = Math.floor(elapsed / ROW_MS);
-	const nextRowAt = new Date(startAt.getTime() + (activeRow + 1) * ROW_MS);
+	// Once all rows have released the event stays 'active' indefinitely so
+	// submissions remain open. The admin closes it manually by switching the
+	// vs_events.status field to 'closed' or 'locked'.
+	const rawActiveRow = Math.floor(elapsed / ROW_MS);
+	const allRowsReleased = rawActiveRow >= BINGO_ROW_COUNT - 1;
+	const activeRow = Math.min(rawActiveRow, BINGO_ROW_COUNT - 1);
+	const nextRowAt = allRowsReleased
+		? null
+		: new Date(startAt.getTime() + (activeRow + 1) * ROW_MS);
 
 	return {
 		status: 'active',
@@ -74,7 +68,7 @@ export function getBingoState(
 		activeRow,
 		rowsReleased: activeRow + 1,
 		nextRowAt,
-		msUntilNextRow: nextRowAt.getTime() - now.getTime(),
+		msUntilNextRow: nextRowAt ? nextRowAt.getTime() - now.getTime() : null,
 		msUntilStart: 0
 	};
 }

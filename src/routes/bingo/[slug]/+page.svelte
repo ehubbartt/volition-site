@@ -126,10 +126,14 @@
 				<span class="status-label">Starts in</span>
 				<strong class="countdown">{formatCountdown(liveState.msUntilStart)}</strong>
 			{:else if liveState.status === 'active'}
-				<span class="status-label">
-					Row {(liveState.activeRow ?? 0) + 1} of {BINGO_ROW_COUNT} · next in
-				</span>
-				<strong class="countdown">{formatCountdown(liveState.msUntilNextRow)}</strong>
+				{#if liveState.nextRowAt}
+					<span class="status-label">
+						Row {(liveState.activeRow ?? 0) + 1} of {BINGO_ROW_COUNT} · next in
+					</span>
+					<strong class="countdown">{formatCountdown(liveState.msUntilNextRow)}</strong>
+				{:else}
+					<span class="status-label">All {BINGO_ROW_COUNT} rows open</span>
+				{/if}
 			{:else}
 				<span class="status-label">Event ended</span>
 			{/if}

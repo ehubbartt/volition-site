@@ -18,7 +18,7 @@ const ROWS: Array<[string, string, string, string]> = [
 	['25 Con laps wildy', 'Mask of Ranul', 'Elder Chaos Robes', 'Gold Ring Drop'],
 	['piece of pyromancer outfit', 'Sarachnis Pristine silk', 'Champion scroll', 'God sword: Any hilt'],
 	[
-		'Score 521 giant foundry total points',
+		'Giants foundry',
 		'Black Pickaxe',
 		'Any Odium AND male shard',
 		'Spirit Shield'
@@ -92,6 +92,7 @@ const DEFAULT_TILE_DETAILS =
 
 const TILE_DETAILS: Record<string, string> = {
 	// Skilling-tier overrides
+	'r1-hard': 'Must be a purple',
 	'r2-skilling': 'Screenshot of 5 gold statuettes from pyramid plunder in inventory.',
 	'r6-skilling': 'Screenshot of Oomlie wrap in inventory.',
 	'r7-skilling': 'Screenshot of Stuffed snake in inventory.',
