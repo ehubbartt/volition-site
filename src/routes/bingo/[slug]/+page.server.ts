@@ -98,6 +98,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			tiles: redactedTiles,
 			isClanMember: memberOfClan,
 			completionsByTile: {} as Record<string, never>,
+			completionCountByTile: {} as Record<string, never>,
 			mySubmissions: {} as Record<string, never>,
 			leaderboard: [] as never[]
 		};
@@ -130,6 +131,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			isMe: boolean;
 		}>
 	> = {};
+
+	const completionCountByTile: Record<string, number> = {};
 
 	const mySubmissions: Record<
 		string,
@@ -173,6 +176,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				isMe: c.user_id === locals.user!.id
 			});
 			completionsByTile[c.tile_id] = arr;
+
+			completionCountByTile[c.tile_id] = (completionCountByTile[c.tile_id] ?? 0) + 1;
 
 			const pairKey = `${c.user_id}|${c.tile_id}`;
 			const existing = userPoints.get(c.user_id) ?? {
@@ -218,6 +223,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		return { ...t, details_html: md ? renderMarkdown(md) : null };
 	});
 
+	// Detailed community list (proofs + names) is admin-only.
+	// Regular users still get the count so the modal can show "N completed".
+	const communityForClient = admin ? completionsByTile : {};
+
 	return {
 		event: {
 			id: event.id,
@@ -231,7 +240,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		state,
 		tiles,
 		isClanMember: memberOfClan,
-		completionsByTile,
+		completionsByTile: communityForClient,
+		completionCountByTile,
 		mySubmissions,
 		leaderboard
 	};
@@ -360,6 +370,35 @@ export const actions: Actions = {
 		}
 
 		return { ok: true, action: 'remove' as const, submission_id: submissionId };
+	},
+
+	adminReject: async ({ params, locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		if (!isAdmin(locals.user)) return fail(403, { error: 'Not allowed' });
+		requireBingoSlug(params.slug);
+
+		const event = await fetchBingoEvent(params.slug);
+		if (!event) return fail(404, { error: 'Event not found' });
+
+		const form = await request.formData();
+		const submissionId = form.get('submission_id')?.toString() ?? '';
+		const note = form.get('note')?.toString().trim() || null;
+		if (!submissionId) return fail(400, { error: 'Missing submission_id' });
+
+		const { error: upErr } = await db()
+			.from('vs_bingo_completions')
+			.update({
+				status: 'rejected',
+				reviewed_at: new Date().toISOString(),
+				reviewed_by: locals.user.id,
+				review_note: note
+			})
+			.eq('id', submissionId)
+			.eq('event_id', event.id);
+
+		if (upErr) return fail(500, { error: upErr.message });
+
+		return { ok: true, action: 'adminReject' as const, submission_id: submissionId };
 	}
 };
 

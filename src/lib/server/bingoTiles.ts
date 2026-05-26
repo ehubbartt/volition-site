@@ -6,17 +6,17 @@ import { TIER_BY_KEY } from '$lib/bingo/tiles';
 // tiles the viewer isn't allowed to see before returning data to the page.
 
 const ROWS: Array<[string, string, string, string]> = [
-	['1 Molch Pearls', 'New mole gem bag upgrade thingy', 'Arenea Boots', 'Toa Unique'],
-	['5 Gold Satuettes', 'Scurrius Spine', 'Any Dag ring', 'Any Jar'],
+	['1 Molch Pearls', 'Immaculate Mole Skin', 'Arenea Boots', 'Toa Unique'],
+	['5 Gold Statuettes', 'Scurrius Spine', 'Any Dag ring', 'Any Jar'],
 	['Gnome Restaurant Unique', 'Beef Pet', 'Chaos ele pet', 'Yama Horn'],
 	['Shark paint', 'Fedora', 'Amulet of the Damned', 'Nightmare unique / Phosanis'],
 	['Moon Loop half from bone mine', 'Huey Unique', 'Oathplate Shard Drop', 'Tob Unique'],
-	['burn an oomlie wrap', 'KQ Head', 'Any CG seed', 'Nex Unique'],
-	['cook a snake from mm2', 'Any Bopa', 'Royal titans staff Piece', 'Colo Unique'],
+	['Burn an oomlie wrap', 'KQ Head', 'Any CG seed', 'Nex Unique'],
+	['Cook a snake from mm2', 'Any Boppa', 'Royal titans staff Piece', 'Colo Unique'],
 	['Mine 521 Stardust', 'Steel Ring', 'Wildy Ring', 'Glowy hole'],
-	['pickpocket a elite clue from a hero', 'Zenyte', 'Any Rev Totem', 'Cox Unique'],
-	['25 Con laps wildy', 'Mask of Ranul', 'Elder Chaos Robes', 'Gold Ring Drop'],
-	['piece of pyromancer outfit', 'Sarachnis Pristine silk', 'Champion scroll', 'God sword: Any hilt'],
+	['Pickpocket a elite clue from a hero', 'Zenyte', 'Any Rev Totem', 'Cox Unique'],
+	['25 wildy laps', 'Mask of Ranul', 'Elder Chaos Robes', 'Gold Ring Drop'],
+	['Piece of Pyromancer outfit', 'Sarachnis Pristine silk', 'Champion scroll', 'God sword: Any hilt'],
 	[
 		'Giants foundry',
 		'Black Pickaxe',
@@ -26,18 +26,18 @@ const ROWS: Array<[string, string, string, string]> = [
 ];
 
 const BONUS: string[] = [
-	'Complete Moa',
-	'Kill Giant mole: Maple sb and addy arrows',
-	'Solo Yama No demonbane',
-	'Nightmare Dragon mace and Ibans only',
-	'Silly Hat and Boots',
-	'Cg only tier 1 weapons',
-	'Complete Waves 1-11 with only hunter sunlight cb',
-	'Fight Cave Weapon only',
-	'One Style Cox',
-	'Kill Vard with only Dragon Scim',
-	'Brutus Slippers',
-	'Build a demonic throne'
+	'Moa',
+	'Giant mole',
+	'Yama',
+	'Nightmare',
+	'Tob',
+	'CG',
+	'Colosseum',
+	'Fight Caves',
+	'Cox',
+	'Vardorvis',
+	'Brutus',
+	'Demonic throne'
 ];
 
 const TIER_ORDER: BingoTier[] = ['skilling', 'easy', 'medium', 'hard'];
@@ -92,7 +92,7 @@ const DEFAULT_TILE_DETAILS =
 
 const TILE_DETAILS: Record<string, string> = {
 	// Skilling-tier overrides
-	'r1-hard': 'Must be a purple',
+	'r1-hard': 'Must be a purple in your name',
 	'r2-skilling': 'Screenshot of 5 gold statuettes from pyramid plunder in inventory.',
 	'r6-skilling': 'Screenshot of Oomlie wrap in inventory.',
 	'r7-skilling': 'Screenshot of Stuffed snake in inventory.',
@@ -102,16 +102,62 @@ const TILE_DETAILS: Record<string, string> = {
 	'r12-skilling': 'Screenshot of a 150 score sword in giants foundry.',
 
 	// Bonus-tile rules
-	'b1': 'Complete Moa.',
-	'b2': 'Kill Giant Mole using only Maple shortbow and adamant arrows.',
-	'b3': 'Solo Yama with no demonbane weapons.',
-	'b4': 'Kill Nightmare using only Dragon mace and Iban\'s staff.',
-	'b5': 'Wear a silly hat and silly boots — admins decide what counts.',
-	'b6': 'Complete Corrupted Gauntlet using only tier 1 weapons.',
-	'b7': 'Complete Fortis Colosseum waves 1–11 using only the hunter sunlight crossbow.',
-	'b8': 'Complete the Fight Caves using only the weapon (no other gear).',
-	'b9': 'Complete Chambers of Xeric using only one combat style.',
-	'b10': 'Kill Vardorvis using only a Dragon Scimitar.',
+	'b1': `Complete a **Tombs of Amascut** raid with **3-4 players** escorting a butcher through every room.
+
+**Cows** (every player except one):
+- Wear the full **5-piece cow outfit** from Django in Draynor.
+- Any weapons; any gear in non-cow slots is allowed.
+
+**Butcher** (the remaining player):
+- Wear **only** an apron, a chef's hat, and a meat cleaver — nothing else equipped.
+- May only heal with **cooked beef or T-Bone Steak** during the raid.
+- **Must not die.**
+
+**Rules:**
+- The butcher enters every room first — they cannot wait outside while the cows clear.
+- The challenge is complete when the cows successfully carry the butcher through the entire raid.
+
+**Proof (both required):**
+1. Inventory screenshot with the **party hub visible** so every player's inventory can be verified.
+2. Scoreboard screenshot showing the **death count**.`,
+	'b2': 'Kill Giant Mole using only Maple shortbow and adamant arrows. No armour or gear.',
+	'b3': 'Solo Yama with no demonbane weapons or demonbane spells.',
+	'b4': 'Kill Phosani\'s Nightmare using a Dragon mace, Iban\'s staff, and any darts as your only weapons. Any armour and other gear is allowed.',
+	'b5': `Complete a **4-man Theatre of Blood** where each player takes a colored Power Ranger role with a fixed uniform and combat style for the entire raid.
+
+**Roles, uniforms & allowed styles:**
+- **Red Ranger** — melee role · **melee only**
+  - Red d'hide body + chaps and a **Dragon med helm**.
+- **Green Ranger** — ranged role · **melee + ranged**
+  - Green d'hide body + chaps and an **Adamant med helm**.
+- **Blue Ranger** — magic role · **melee + magic**
+  - Blue d'hide body + chaps and a **Mithril med helm**.
+- **Black Ranger** — flex role · **any combat style**
+  - Black d'hide body + chaps and a **Black med helm**.
+
+**Gear rules:**
+- The uniform above is **required** for the body, legs, and helm slots.
+- **No gear switching** mid-raid — the set you enter with is the set you wear the entire raid.
+- **Weapon swaps are the only exception** (so Green can swap melee weapon ↔ bow, etc.).
+- Other slots (boots, gloves, cape, ammy, ring) are unrestricted as long as they fit the role's allowed styles.
+
+**Proof:**
+- Screenshot at Verzik's death / the reward chest with the **party hub visible** so every player's uniform and color can be verified.`,
+	'b6': 'Complete Corrupted Gauntlet using only tier 1 weapons. Screenshot quickly before you get teleported out of the arena.',
+	'b7': 'Complete Fortis Colosseum waves 1–11 using only the hunter sunlight crossbow. Having any other weapon in your inventory disqualifies the run (sorry no sol). Any armour allowed.',
+	'b8': 'Complete the Fight Caves using only a weapon (no other gear).',
+	'b9': `Complete a **3-man Chambers of Xeric** where every player commits to a single combat style for the entire raid.
+
+**Before entering:**
+- Each player chooses **melee, ranged, or magic** and locks in that style for the whole raid.
+
+**During the raid:**
+- Use only gear and weapons of your chosen style. Bringing any off-style gear **disqualifies the run**.
+- **Thralls** are allowed, but only the thrall variant matching your chosen style.
+
+**Proof:**
+- Screenshot inside **Olm's chamber** after the Great Olm has been defeated with party hub visible.`,
+	'b10': 'Kill Vardorvis using only a Dragon Scimitar. No armour is allowed.',
 	'b11': 'Obtain Brutus Slippers as a drop.',
 	'b12': 'Build a Demonic throne in your POH.'
 };

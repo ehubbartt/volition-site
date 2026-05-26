@@ -31,11 +31,22 @@
 		status: TileStatus;
 		mySubmissions: Submission[];
 		community: Completion[];
+		communityCount: number;
 		canSubmit: boolean;
+		isAdmin: boolean;
 		onclose: () => void;
 	}
 
-	let { tile, status, mySubmissions, community, canSubmit, onclose }: Props = $props();
+	let {
+		tile,
+		status,
+		mySubmissions,
+		community,
+		communityCount,
+		canSubmit,
+		isAdmin,
+		onclose
+	}: Props = $props();
 
 	const tier = $derived(TIER_BY_KEY[tile.tier]);
 	const submittable = $derived(status === 'open' && canSubmit);
@@ -253,18 +264,43 @@
 				<ul>
 					{#each community as c (c.id)}
 						<li>
-							<a href={c.proof_url} target="_blank" rel="noopener">
+							<a class="proof-thumb" href={c.proof_url} target="_blank" rel="noopener">
 								<img src={c.proof_url} alt={`Proof by ${c.rsn ?? c.discord_username}`} />
-								<span class="who">
-									<AccountIcon type={c.account_type} />
-									<strong>{c.rsn ?? c.discord_username}</strong>
-									{#if c.isMe}<span class="me-tag">you</span>{/if}
-								</span>
-								<span class="when">{fmtDate(c.submitted_at)}</span>
 							</a>
+							<div class="who">
+								<AccountIcon type={c.account_type} />
+								<strong>{c.rsn ?? c.discord_username}</strong>
+								{#if c.isMe}<span class="me-tag">you</span>{/if}
+							</div>
+							<div class="when">{fmtDate(c.submitted_at)}</div>
+							{#if isAdmin}
+								<form
+									method="POST"
+									action="?/adminReject"
+									use:enhance={() => {
+										return async ({ result, update }) => {
+											await update({ reset: false });
+											if (result.type === 'failure') {
+												const data = result.data as { error?: string } | undefined;
+												error = data?.error ?? 'Reject failed';
+											}
+										};
+									}}
+								>
+									<input type="hidden" name="submission_id" value={c.id} />
+									<button type="submit" class="danger small">Reject</button>
+								</form>
+							{/if}
 						</li>
 					{/each}
 				</ul>
+			</section>
+		{:else if communityCount > 0}
+			<section class="community community-count-only">
+				<h3>
+					{communityCount} community submission{communityCount === 1 ? '' : 's'}
+				</h3>
+				<p class="muted small">Individual proofs are visible to admins only.</p>
 			</section>
 		{/if}
 	</div>
@@ -582,6 +618,11 @@
 		border-top: 1px solid var(--border);
 	}
 
+	.community-count-only .muted.small {
+		margin: 0;
+		font-size: 0.8rem;
+	}
+
 	.community h3 {
 		margin: 0 0 0.6rem;
 		font-size: 0.95rem;
@@ -596,7 +637,7 @@
 		grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
 	}
 
-	.community li a {
+	.community li {
 		display: flex;
 		flex-direction: column;
 		gap: 0.3rem;
@@ -604,13 +645,18 @@
 		background: var(--surface-alt);
 		border: 1px solid var(--border);
 		border-radius: 3px;
-		text-decoration: none;
 		color: var(--text);
 	}
 
-	.community li a:hover {
-		border-color: var(--accent);
+	.community li .proof-thumb {
+		display: block;
 		text-decoration: none;
+		border-radius: 3px;
+		overflow: hidden;
+	}
+
+	.community li .proof-thumb:hover {
+		outline: 1px solid var(--accent);
 	}
 
 	.community img {
@@ -620,6 +666,15 @@
 		object-fit: cover;
 		border-radius: 3px;
 		background: #000;
+	}
+
+	.community li form {
+		display: flex;
+		margin-top: 0.15rem;
+	}
+
+	.community li form button {
+		width: 100%;
 	}
 
 	.community .who {

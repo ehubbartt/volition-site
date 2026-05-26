@@ -72,6 +72,10 @@
 		return data.completionsByTile[tileId] ?? [];
 	}
 
+	function communityCountFor(tileId: string): number {
+		return data.completionCountByTile[tileId] ?? 0;
+	}
+
 	function mineFor(tileId: string) {
 		return data.mySubmissions[tileId] ?? [];
 	}
@@ -209,7 +213,9 @@
 		status={getStatus(openTile.id)}
 		mySubmissions={mineFor(openTile.id)}
 		community={communityFor(openTile.id)}
+		communityCount={communityCountFor(openTile.id)}
 		canSubmit={data.isClanMember}
+		isAdmin={data.isAdmin}
 		onclose={closeModal}
 	/>
 {/if}
