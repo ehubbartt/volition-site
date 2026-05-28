@@ -4,7 +4,7 @@
 	import type { PageData } from './$types';
 	import { TIERS } from '$lib/bingo/tiles';
 	import type { BingoTier, BingoTile } from '$lib/bingo/tiles';
-	import { BINGO_ROW_COUNT } from '$lib/bingo/config';
+	import { BINGO_ROW_COUNT, BINGO_EVENT_SLUG } from '$lib/bingo/config';
 	import { getTileStatus, formatCountdown } from '$lib/bingo/state';
 	import TileCell from '$lib/bingo/TileCell.svelte';
 	import SubmitModal from '$lib/bingo/SubmitModal.svelte';
@@ -193,12 +193,31 @@
 			{:else}
 				<ol class="lb">
 					{#each data.leaderboard as p, i (p.user_id)}
-						<li>
-							<span class="rank">{i + 1}</span>
-							<AccountIcon type={p.account_type} />
-							<span class="name">{p.rsn ?? p.discord_username}</span>
-							<span class="pts">{p.points} pt{p.points === 1 ? '' : 's'}</span>
-							<span class="cnt">×{p.count}</span>
+						{@const isMe = p.user_id === data.user?.id}
+						<li class:me={isMe}>
+							{#if data.isAdmin}
+								<a class="lb-row" href="/admin/bingo/{BINGO_EVENT_SLUG}/user/{p.user_id}">
+									<span class="rank">{i + 1}</span>
+									<AccountIcon type={p.account_type} />
+									<span class="name">
+										{p.rsn ?? p.discord_username}
+										{#if isMe}<span class="me-tag">you</span>{/if}
+									</span>
+									<span class="pts">{p.points} pt{p.points === 1 ? '' : 's'}</span>
+									<span class="cnt">×{p.count}</span>
+								</a>
+							{:else}
+								<div class="lb-row">
+									<span class="rank">{i + 1}</span>
+									<AccountIcon type={p.account_type} />
+									<span class="name">
+										{p.rsn ?? p.discord_username}
+										{#if isMe}<span class="me-tag">you</span>{/if}
+									</span>
+									<span class="pts">{p.points} pt{p.points === 1 ? '' : 's'}</span>
+									<span class="cnt">×{p.count}</span>
+								</div>
+							{/if}
 						</li>
 					{/each}
 				</ol>
@@ -437,6 +456,10 @@
 	}
 
 	.lb li {
+		border-radius: 3px;
+	}
+
+	.lb-row {
 		display: grid;
 		grid-template-columns: 1.5rem 22px 1fr auto auto;
 		align-items: center;
@@ -446,6 +469,19 @@
 		border: 1px solid var(--border);
 		border-radius: 3px;
 		font-size: 0.85rem;
+		color: var(--text);
+		text-decoration: none;
+	}
+
+	a.lb-row:hover {
+		border-color: var(--accent);
+		text-decoration: none;
+	}
+
+	.lb li.me .lb-row {
+		border-color: var(--accent);
+		background: var(--accent-soft);
+		box-shadow: inset 0 0 0 1px rgba(255, 152, 31, 0.3);
 	}
 
 	.lb .rank {
@@ -455,9 +491,26 @@
 	}
 
 	.lb .name {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		min-width: 0;
 		overflow: hidden;
-		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.lb .me-tag {
+		flex-shrink: 0;
+	}
+
+	.lb .me-tag {
+		font-size: 0.6rem;
+		text-transform: uppercase;
+		background: var(--accent);
+		color: #1a1208;
+		padding: 0.02rem 0.3rem;
+		border-radius: 3px;
+		text-shadow: none;
 	}
 
 	.lb .pts {

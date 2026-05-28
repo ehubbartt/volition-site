@@ -16,7 +16,7 @@ const ROWS: Array<[string, string, string, string]> = [
 	['Mine 521 Stardust', 'Steel Ring', 'Wildy Ring', 'Glowy hole'],
 	['Pickpocket a elite clue from a hero', 'Zenyte', 'Any Rev Totem', 'Cox Unique'],
 	['25 wildy laps', 'Mask of Ranul', 'Elder Chaos Robes', 'Gold Ring Drop'],
-	['Piece of Pyromancer outfit', 'Sarachnis Pristine silk', 'Champion scroll', 'God sword: Any hilt'],
+	['Gain 521 charges to a milk bucket', 'Sarachnis Pristine silk', 'Champion scroll', 'God sword: Any hilt'],
 	[
 		'Giants foundry',
 		'Black Pickaxe',
@@ -96,9 +96,11 @@ const TILE_DETAILS: Record<string, string> = {
 	'r2-skilling': 'Screenshot of 5 gold statuettes from pyramid plunder in inventory.',
 	'r6-skilling': 'Screenshot of Oomlie wrap in inventory.',
 	'r7-skilling': 'Screenshot of Stuffed snake in inventory.',
+	'r-7-medium': 'Screenshot of the new collection log or the untradeable loot notification from Earthbound tecpatl, Glacial temotli, Sulphur blades, Dual macas, or Torag\'s hammers.',
 	'r8-skilling': 'Screenshot of 521 stardust in inventory.',
 	'r9-skilling': 'Screenshot of the untradeable loot notification.',
 	'r10-skilling': 'Screenshot of 25 wilderness agility tickets in inventory.',
+	'r11-skilling': 'Pre-screenshot of milk bucket charges and post with at least 521 more charges.',
 	'r12-skilling': 'Screenshot of a 150 score sword in giants foundry.',
 
 	// Bonus-tile rules
@@ -121,7 +123,7 @@ const TILE_DETAILS: Record<string, string> = {
 1. Inventory screenshot with the **party hub visible** so every player's inventory can be verified.
 2. Scoreboard screenshot showing the **death count**.`,
 	'b2': 'Kill Giant Mole using only Maple shortbow and adamant arrows. No armour or gear.',
-	'b3': 'Solo Yama with no demonbane weapons or demonbane spells.',
+	'b3': 'Solo Yama with no demonbane weapons or demonbane spells. (no shadow)',
 	'b4': 'Kill Phosani\'s Nightmare using a Dragon mace, Iban\'s staff, and any darts as your only weapons. Any armour and other gear is allowed.',
 	'b5': `Complete a **4-man Theatre of Blood** where each player takes a colored Power Ranger role with a fixed uniform and combat style for the entire raid.
 
@@ -137,14 +139,22 @@ const TILE_DETAILS: Record<string, string> = {
 
 **Gear rules:**
 - The uniform above is **required** for the body, legs, and helm slots.
-- **No gear switching** mid-raid — the set you enter with is the set you wear the entire raid.
+- **No gear switching** mid-raid — the set you enter with is the set you wear the entire raid (2-h weapons unequipping your shield is allowed).
 - **Weapon swaps are the only exception** (so Green can swap melee weapon ↔ bow, etc.).
 - Other slots (boots, gloves, cape, ammy, ring) are unrestricted as long as they fit the role's allowed styles.
 
 **Proof:**
 - Screenshot at Verzik's death / the reward chest with the **party hub visible** so every player's uniform and color can be verified.`,
 	'b6': 'Complete Corrupted Gauntlet using only tier 1 weapons. Screenshot quickly before you get teleported out of the arena.',
-	'b7': 'Complete Fortis Colosseum waves 1–11 using only the hunter sunlight crossbow. Having any other weapon in your inventory disqualifies the run (sorry no sol). Any armour allowed.',
+	'b7': `Complete **Fortis Colosseum waves 1–12** using only gear obtainable from the **Varlamore region**.
+
+**Item rules:**
+- Every item you bring — weapons, armour, ammo, food, potions, runes — must be **fully obtainable within Varlamore**.
+- **No items from Doom of Mokhaiotl** are allowed.
+- You must be on the **Arceuus spellbook** for the entire run.
+
+**Proof:**
+- Screenshot of your inventory + worn gear and the colosseum completion / wave 12 screen.`,
 	'b8': 'Complete the Fight Caves using only a weapon (no other gear).',
 	'b9': `Complete a **3-man Chambers of Xeric** where every player commits to a single combat style for the entire raid.
 

@@ -3,14 +3,14 @@
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import type { BingoTile } from './tiles';
 	import { TIER_BY_KEY } from './tiles';
+	import { MAX_IMAGES_PER_SUBMISSION } from './config';
 	import type { TileStatus } from './state';
 
 	type SubmissionStatus = 'pending' | 'approved' | 'rejected';
 
 	interface Submission {
 		id: string;
-		proof_url: string;
-		proof_path?: string;
+		proof_urls: string[];
 		submitted_at: string;
 		status: SubmissionStatus;
 	}
@@ -22,7 +22,7 @@
 		discord_username: string;
 		account_type: string | null;
 		submitted_at: string;
-		proof_url: string;
+		proof_urls: string[];
 		isMe: boolean;
 	}
 
@@ -52,45 +52,73 @@
 	const submittable = $derived(status === 'open' && canSubmit);
 
 	let fileInput: HTMLInputElement | null = $state(null);
-	let file = $state<File | null>(null);
-	let previewUrl = $state<string | null>(null);
+	let staged = $state<Array<{ file: File; url: string }>>([]);
 	let dragOver = $state(false);
 	let submitting = $state(false);
 	let error = $state<string | null>(null);
 
-	$effect(() => {
-		if (!previewUrl) return;
-		const url = previewUrl;
-		return () => URL.revokeObjectURL(url);
-	});
+	// Mirror the staged files onto the hidden <input type="file" multiple> so the
+	// form submits them all under "proof". Setting .files programmatically does
+	// not refire the change event, so this won't loop with handleSelect.
+	function syncInput() {
+		if (!fileInput) return;
+		const dt = new DataTransfer();
+		for (const s of staged) dt.items.add(s.file);
+		fileInput.files = dt.files;
+	}
 
-	function setFile(f: File | null) {
-		file = f;
-		previewUrl = f ? URL.createObjectURL(f) : null;
+	function addFiles(files: FileList | File[]) {
 		error = null;
-		if (fileInput) {
-			if (f) {
-				const dt = new DataTransfer();
-				dt.items.add(f);
-				fileInput.files = dt.files;
-			} else {
-				fileInput.value = '';
+		for (const f of Array.from(files)) {
+			if (!f.type.startsWith('image/')) continue;
+			if (staged.length >= MAX_IMAGES_PER_SUBMISSION) {
+				error = `You can attach up to ${MAX_IMAGES_PER_SUBMISSION} images per submission.`;
+				break;
 			}
+			staged = [...staged, { file: f, url: URL.createObjectURL(f) }];
 		}
+		syncInput();
+	}
+
+	function removeStaged(i: number) {
+		const s = staged[i];
+		if (s) URL.revokeObjectURL(s.url);
+		staged = staged.filter((_, idx) => idx !== i);
+		syncInput();
+	}
+
+	function clearStaged() {
+		for (const s of staged) URL.revokeObjectURL(s.url);
+		staged = [];
+		if (fileInput) fileInput.value = '';
 	}
 
 	function handleDrop(e: DragEvent) {
 		e.preventDefault();
 		dragOver = false;
 		if (!submittable) return;
-		const f = e.dataTransfer?.files?.[0];
-		if (f) setFile(f);
+		if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
 	}
 
 	function handleSelect(e: Event) {
 		const target = e.target as HTMLInputElement;
-		const f = target.files?.[0];
-		if (f) setFile(f);
+		if (target.files?.length) addFiles(target.files);
+	}
+
+	function handlePaste(e: ClipboardEvent) {
+		if (!submittable) return;
+		const items = e.clipboardData?.items;
+		if (!items) return;
+		for (const item of items) {
+			if (item.kind === 'file' && item.type.startsWith('image/')) {
+				const f = item.getAsFile();
+				if (f) {
+					e.preventDefault();
+					addFiles([f]);
+					return;
+				}
+			}
+		}
 	}
 
 	function onKey(e: KeyboardEvent) {
@@ -110,7 +138,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onpaste={handlePaste} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -137,9 +165,13 @@
 				<ul class="mine-list">
 					{#each mySubmissions as sub (sub.id)}
 						<li class="mine-item status-{sub.status}">
-							<a href={sub.proof_url} target="_blank" rel="noopener" class="proof-link">
-								<img src={sub.proof_url} alt="Your submission proof" />
-							</a>
+							<div class="thumb-row">
+								{#each sub.proof_urls as url, idx (url)}
+									<a href={url} target="_blank" rel="noopener" class="proof-link">
+										<img src={url} alt={`Your submission proof ${idx + 1}`} />
+									</a>
+								{/each}
+							</div>
 							<div class="mine-meta">
 								<div class="mine-meta-left">
 									<span class="status-pill status-{sub.status}">
@@ -187,7 +219,7 @@
 						await update({ reset: false });
 						submitting = false;
 						if (result.type === 'success') {
-							setFile(null);
+							clearStaged();
 						} else if (result.type === 'failure') {
 							const data = result.data as { error?: string } | undefined;
 							error = data?.error ?? 'Submit failed';
@@ -203,7 +235,6 @@
 				<label
 					class="dropzone"
 					class:drag-over={dragOver}
-					class:has-file={!!file}
 					ondragover={(e) => {
 						e.preventDefault();
 						dragOver = true;
@@ -216,32 +247,48 @@
 						type="file"
 						name="proof"
 						accept="image/png,image/jpeg,image/webp,image/gif"
+						multiple
 						onchange={handleSelect}
 						hidden
 					/>
-					{#if file && previewUrl}
-						<img src={previewUrl} alt="Preview" class="preview" />
-						<span class="hint">Click or drop another to replace this preview</span>
-					{:else}
-						<span class="big">
-							{mySubmissions.length > 0 ? 'Add another proof' : 'Drop image here'}
-						</span>
-						<span class="hint">or click to choose · PNG/JPG/WEBP/GIF, max 10 MB</span>
-					{/if}
+					<span class="big">
+						{staged.length > 0 ? 'Add another image' : 'Drop or paste image'}
+					</span>
+					<span class="hint">
+						click to choose · paste (Ctrl/Cmd+V) · up to {MAX_IMAGES_PER_SUBMISSION} images, 10 MB each
+					</span>
 				</label>
+
+				{#if staged.length > 0}
+					<div class="staged">
+						{#each staged as s, i (s.url)}
+							<div class="staged-item">
+								<img src={s.url} alt={`Staged ${i + 1}`} />
+								<button
+									type="button"
+									class="staged-remove"
+									aria-label="Remove image"
+									onclick={() => removeStaged(i)}
+								>
+									×
+								</button>
+							</div>
+						{/each}
+					</div>
+				{/if}
 
 				{#if error}<p class="error">{error}</p>{/if}
 
 				<div class="actions">
-					<button type="submit" class="primary" disabled={!file || submitting}>
+					<button type="submit" class="primary" disabled={staged.length === 0 || submitting}>
 						{#if submitting}
 							Submitting…
 						{:else}
-							{mySubmissions.length > 0 ? 'Add proof' : 'Submit proof'}
+							Submit {staged.length > 1 ? `${staged.length} images` : 'proof'}
 						{/if}
 					</button>
-					{#if file}
-						<button type="button" onclick={() => setFile(null)}>Clear</button>
+					{#if staged.length > 0}
+						<button type="button" onclick={clearStaged}>Clear</button>
 					{/if}
 				</div>
 			</form>
@@ -264,9 +311,13 @@
 				<ul>
 					{#each community as c (c.id)}
 						<li>
-							<a class="proof-thumb" href={c.proof_url} target="_blank" rel="noopener">
-								<img src={c.proof_url} alt={`Proof by ${c.rsn ?? c.discord_username}`} />
-							</a>
+							<div class="thumb-row">
+								{#each c.proof_urls as url, idx (url)}
+									<a class="proof-thumb" href={url} target="_blank" rel="noopener">
+										<img src={url} alt={`Proof ${idx + 1} by ${c.rsn ?? c.discord_username}`} />
+									</a>
+								{/each}
+							</div>
 							<div class="who">
 								<AccountIcon type={c.account_type} />
 								<strong>{c.rsn ?? c.discord_username}</strong>
@@ -439,16 +490,32 @@
 		color: var(--success);
 	}
 
-	.proof-link {
-		display: block;
+	.thumb-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
 	}
 
-	.my-proof img {
+	.thumb-row .proof-link,
+	.thumb-row .proof-thumb {
 		display: block;
-		max-width: 100%;
-		max-height: 18rem;
+		border-radius: 3px;
+		overflow: hidden;
+	}
+
+	.thumb-row img {
+		display: block;
+		width: 6rem;
+		height: 6rem;
+		object-fit: cover;
 		border-radius: 3px;
 		border: 1px solid var(--border);
+		background: #000;
+	}
+
+	.thumb-row .proof-link:hover,
+	.thumb-row .proof-thumb:hover {
+		outline: 1px solid var(--accent);
 	}
 
 	.my-proof .meta {
@@ -550,14 +617,44 @@
 		background: var(--accent-soft);
 	}
 
-	.dropzone.has-file {
-		padding: 0.5rem;
+	.staged {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		margin-bottom: 0.75rem;
 	}
 
-	.preview {
-		max-width: 100%;
-		max-height: 16rem;
+	.staged-item {
+		position: relative;
+	}
+
+	.staged-item img {
+		display: block;
+		width: 5.5rem;
+		height: 5.5rem;
+		object-fit: cover;
 		border-radius: 3px;
+		border: 1px solid var(--border);
+		background: #000;
+	}
+
+	.staged-remove {
+		position: absolute;
+		top: -6px;
+		right: -6px;
+		width: 20px;
+		height: 20px;
+		min-height: 0;
+		padding: 0;
+		line-height: 1;
+		font-size: 1rem;
+		border-radius: 50%;
+		background: var(--danger);
+		color: #fff;
+		border: 1px solid #000;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.big {
@@ -646,26 +743,6 @@
 		border: 1px solid var(--border);
 		border-radius: 3px;
 		color: var(--text);
-	}
-
-	.community li .proof-thumb {
-		display: block;
-		text-decoration: none;
-		border-radius: 3px;
-		overflow: hidden;
-	}
-
-	.community li .proof-thumb:hover {
-		outline: 1px solid var(--accent);
-	}
-
-	.community img {
-		display: block;
-		width: 100%;
-		height: 6rem;
-		object-fit: cover;
-		border-radius: 3px;
-		background: #000;
 	}
 
 	.community li form {

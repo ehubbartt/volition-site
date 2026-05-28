@@ -4,6 +4,7 @@ import {
 	BINGO_BUCKET,
 	BINGO_EVENT_SLUG,
 	MAX_UPLOAD_BYTES,
+	MAX_IMAGES_PER_SUBMISSION,
 	ALLOWED_MIME
 } from '$lib/bingo/config';
 import { BINGO_TILE_BY_ID, BINGO_TILES, getTileDetails } from '$lib/server/bingoTiles';
@@ -20,8 +21,8 @@ interface CompletionRow {
 	id: string;
 	user_id: string;
 	tile_id: string;
-	proof_url: string;
-	proof_path: string;
+	proof_urls: string[] | null;
+	proof_paths: string[] | null;
 	submitted_at: string;
 	status: SubmissionStatus;
 	vs_users: {
@@ -109,7 +110,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const { data: completionsRaw, error: cErr } = await db()
 		.from('vs_bingo_completions')
 		.select(
-			'id, user_id, tile_id, proof_url, proof_path, submitted_at, status, vs_users!user_id(id, rsn, discord_username, clan_allegiance, account_type)'
+			'id, user_id, tile_id, proof_urls, proof_paths, submitted_at, status, vs_users!user_id(id, rsn, discord_username, clan_allegiance, account_type)'
 		)
 		.eq('event_id', event.id)
 		.order('submitted_at', { ascending: true });
@@ -127,7 +128,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			discord_username: string;
 			account_type: string | null;
 			submitted_at: string;
-			proof_url: string;
+			proof_urls: string[];
 			isMe: boolean;
 		}>
 	> = {};
@@ -138,8 +139,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		string,
 		Array<{
 			id: string;
-			proof_url: string;
-			proof_path: string;
+			proof_urls: string[];
 			submitted_at: string;
 			status: SubmissionStatus;
 		}>
@@ -162,6 +162,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		const tile = BINGO_TILE_BY_ID[c.tile_id];
 		if (!tile) continue;
 
+		const proofUrls = c.proof_urls ?? [];
+
 		// Community list + leaderboard only count approved submissions.
 		if (c.status === 'approved') {
 			const arr = completionsByTile[c.tile_id] ?? [];
@@ -172,7 +174,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				discord_username: c.vs_users.discord_username,
 				account_type: c.vs_users.account_type,
 				submitted_at: c.submitted_at,
-				proof_url: c.proof_url,
+				proof_urls: proofUrls,
 				isMe: c.user_id === locals.user!.id
 			});
 			completionsByTile[c.tile_id] = arr;
@@ -201,8 +203,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			const mine = mySubmissions[c.tile_id] ?? [];
 			mine.push({
 				id: c.id,
-				proof_url: c.proof_url,
-				proof_path: c.proof_path,
+				proof_urls: proofUrls,
 				submitted_at: c.submitted_at,
 				status: c.status
 			});
@@ -284,10 +285,6 @@ async function uploadProof(
 	return { path, url: pub.publicUrl };
 }
 
-async function removeStorageObject(path: string): Promise<void> {
-	await db().storage.from(BINGO_BUCKET).remove([path]);
-}
-
 export const actions: Actions = {
 	submit: async ({ params, locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
@@ -305,26 +302,40 @@ export const actions: Actions = {
 
 		const form = await request.formData();
 		const tileId = form.get('tile_id')?.toString() ?? '';
-		const file = form.get('proof');
+		const files = form.getAll('proof').filter((f): f is File => f instanceof File && f.size > 0);
 
 		if (!BINGO_TILE_BY_ID[tileId]) return fail(400, { error: 'Unknown tile' });
-		if (!(file instanceof File)) return fail(400, { error: 'Missing proof image' });
+		if (files.length === 0) return fail(400, { error: 'Add at least one proof image' });
+		if (files.length > MAX_IMAGES_PER_SUBMISSION) {
+			return fail(400, { error: `Max ${MAX_IMAGES_PER_SUBMISSION} images per submission` });
+		}
 		if (!tileIsSubmittable(tileId, (event.starts_at ?? event.signup_opens_at))) {
 			return fail(400, { error: 'That tile is not open for submissions' });
 		}
 
-		const result = await uploadProof(event.id, locals.user.id, tileId, file);
-		if ('error' in result) return fail(400, { error: result.error });
+		const urls: string[] = [];
+		const paths: string[] = [];
+		for (const file of files) {
+			const result = await uploadProof(event.id, locals.user.id, tileId, file);
+			if ('error' in result) {
+				if (paths.length) await db().storage.from(BINGO_BUCKET).remove(paths);
+				return fail(400, { error: result.error });
+			}
+			urls.push(result.url);
+			paths.push(result.path);
+		}
 
 		const { error: insErr } = await db().from('vs_bingo_completions').insert({
 			event_id: event.id,
 			user_id: locals.user.id,
 			tile_id: tileId,
-			proof_url: result.url,
-			proof_path: result.path
+			proof_urls: urls,
+			proof_paths: paths,
+			proof_url: urls[0],
+			proof_path: paths[0]
 		});
 		if (insErr) {
-			await removeStorageObject(result.path);
+			await db().storage.from(BINGO_BUCKET).remove(paths);
 			return fail(500, { error: insErr.message });
 		}
 
@@ -348,7 +359,7 @@ export const actions: Actions = {
 
 		const { data: existing } = await db()
 			.from('vs_bingo_completions')
-			.select('id, tile_id, proof_path')
+			.select('id, tile_id, proof_paths')
 			.eq('id', submissionId)
 			.eq('event_id', event.id)
 			.eq('user_id', locals.user.id)
@@ -365,8 +376,9 @@ export const actions: Actions = {
 			.eq('id', existing.id);
 		if (delErr) return fail(500, { error: delErr.message });
 
-		if (existing.proof_path) {
-			await removeStorageObject(existing.proof_path);
+		const paths = (existing.proof_paths ?? []) as string[];
+		if (paths.length) {
+			await db().storage.from(BINGO_BUCKET).remove(paths);
 		}
 
 		return { ok: true, action: 'remove' as const, submission_id: submissionId };

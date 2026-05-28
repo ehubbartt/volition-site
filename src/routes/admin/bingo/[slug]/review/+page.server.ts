@@ -12,7 +12,7 @@ interface PendingRow {
 	id: string;
 	user_id: string;
 	tile_id: string;
-	proof_url: string;
+	proof_urls: string[] | null;
 	submitted_at: string;
 	status: 'pending' | 'approved' | 'rejected';
 	vs_users: {
@@ -37,7 +37,7 @@ export interface PendingGroup {
 	tile: Pick<BingoTile, 'id' | 'name' | 'tier' | 'points' | 'row'> & {
 		details_html: string | null;
 	};
-	submissions: Array<{ id: string; proof_url: string; submitted_at: string }>;
+	submissions: Array<{ id: string; proof_urls: string[]; submitted_at: string }>;
 }
 
 function requireBingoSlug(slug: string): void {
@@ -65,7 +65,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const { data: pendingRaw, error: qErr } = await db()
 		.from('vs_bingo_completions')
 		.select(
-			'id, user_id, tile_id, proof_url, submitted_at, status, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance)'
+			'id, user_id, tile_id, proof_urls, submitted_at, status, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance)'
 		)
 		.eq('event_id', event.id)
 		.eq('status', 'pending')
@@ -112,7 +112,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		}
 		group.submissions.push({
 			id: row.id,
-			proof_url: row.proof_url,
+			proof_urls: row.proof_urls ?? [],
 			submitted_at: row.submitted_at
 		});
 	}

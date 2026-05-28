@@ -116,9 +116,13 @@
 			<ul class="proof-list">
 				{#each current.submissions as sub (sub.id)}
 					<li>
-						<a href={sub.proof_url} target="_blank" rel="noopener">
-							<img src={sub.proof_url} alt="Submitted proof" />
-						</a>
+						<div class="sub-images">
+							{#each sub.proof_urls as url, idx (url)}
+								<a href={url} target="_blank" rel="noopener">
+									<img src={url} alt={`Submitted proof ${idx + 1}`} />
+								</a>
+							{/each}
+						</div>
 						<p class="meta muted">Submitted {fmt(sub.submitted_at)}</p>
 					</li>
 				{/each}
@@ -443,10 +447,22 @@
 		gap: 0.85rem;
 	}
 
+	.sub-images {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+
 	.proof-list a {
 		display: block;
 		border-radius: 3px;
 		overflow: hidden;
+		flex: 1 1 14rem;
+		max-width: 100%;
+	}
+
+	.proof-list a:hover {
+		outline: 1px solid var(--accent);
 	}
 
 	.proof-list img {
