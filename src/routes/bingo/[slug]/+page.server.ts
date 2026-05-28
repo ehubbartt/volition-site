@@ -32,6 +32,10 @@ interface CompletionRow {
 		clan_allegiance: string | null;
 		account_type: string | null;
 	};
+	reviewer: {
+		rsn: string | null;
+		discord_username: string;
+	} | null;
 }
 
 const EXT_BY_MIME: Record<string, string> = {
@@ -110,7 +114,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const { data: completionsRaw, error: cErr } = await db()
 		.from('vs_bingo_completions')
 		.select(
-			'id, user_id, tile_id, proof_urls, proof_paths, submitted_at, status, vs_users!user_id(id, rsn, discord_username, clan_allegiance, account_type)'
+			'id, user_id, tile_id, proof_urls, proof_paths, submitted_at, status, vs_users!user_id(id, rsn, discord_username, clan_allegiance, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username)'
 		)
 		.eq('event_id', event.id)
 		.order('submitted_at', { ascending: true });
@@ -129,6 +133,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			account_type: string | null;
 			submitted_at: string;
 			proof_urls: string[];
+			reviewed_by_name: string | null;
 			isMe: boolean;
 		}>
 	> = {};
@@ -142,6 +147,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			proof_urls: string[];
 			submitted_at: string;
 			status: SubmissionStatus;
+			reviewed_by_name: string | null;
 		}>
 	> = {};
 
@@ -163,6 +169,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		if (!tile) continue;
 
 		const proofUrls = c.proof_urls ?? [];
+		const reviewerName = c.reviewer ? (c.reviewer.rsn ?? c.reviewer.discord_username) : null;
 
 		// Community list + leaderboard only count approved submissions.
 		if (c.status === 'approved') {
@@ -175,6 +182,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				account_type: c.vs_users.account_type,
 				submitted_at: c.submitted_at,
 				proof_urls: proofUrls,
+				reviewed_by_name: reviewerName,
 				isMe: c.user_id === locals.user!.id
 			});
 			completionsByTile[c.tile_id] = arr;
@@ -205,7 +213,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				id: c.id,
 				proof_urls: proofUrls,
 				submitted_at: c.submitted_at,
-				status: c.status
+				status: c.status,
+				reviewed_by_name: reviewerName
 			});
 			mySubmissions[c.tile_id] = mine;
 		}

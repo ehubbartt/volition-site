@@ -13,6 +13,7 @@
 		proof_urls: string[];
 		submitted_at: string;
 		status: SubmissionStatus;
+		reviewed_by_name: string | null;
 	}
 
 	interface Completion {
@@ -23,6 +24,7 @@
 		account_type: string | null;
 		submitted_at: string;
 		proof_urls: string[];
+		reviewed_by_name: string | null;
 		isMe: boolean;
 	}
 
@@ -182,6 +184,9 @@
 												: 'Rejected'}
 									</span>
 									<span class="meta">Submitted {fmtDate(sub.submitted_at)}</span>
+									{#if sub.status === 'approved' && sub.reviewed_by_name}
+										<span class="meta">· Accepted by {sub.reviewed_by_name}</span>
+									{/if}
 								</div>
 								{#if submittable}
 									<form
@@ -324,6 +329,9 @@
 								{#if c.isMe}<span class="me-tag">you</span>{/if}
 							</div>
 							<div class="when">{fmtDate(c.submitted_at)}</div>
+							{#if c.reviewed_by_name}
+								<div class="when accepted-by">Accepted by {c.reviewed_by_name}</div>
+							{/if}
 							{#if isAdmin}
 								<form
 									method="POST"
@@ -764,6 +772,10 @@
 	.community .when {
 		font-size: 0.7rem;
 		color: var(--muted);
+	}
+
+	.community .accepted-by {
+		color: var(--success);
 	}
 
 	.me-tag {

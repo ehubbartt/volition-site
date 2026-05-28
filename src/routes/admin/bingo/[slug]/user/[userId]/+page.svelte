@@ -94,6 +94,9 @@
 								<span class="status-pill status-{s.status}">{statusLabel(s.status)}</span>
 								<span class="muted when">{fmt(s.submitted_at)}</span>
 							</div>
+							{#if s.status === 'approved' && s.reviewed_by_name}
+								<div class="accepted-by">Accepted by {s.reviewed_by_name}</div>
+							{/if}
 							<div class="proof-actions">
 								{#if s.status !== 'approved'}
 									<form method="POST" action="?/approve" use:enhance={moderate}>
@@ -342,6 +345,12 @@
 		gap: 0.4rem;
 		margin-top: 0.35rem;
 		flex-wrap: wrap;
+	}
+
+	.accepted-by {
+		margin-top: 0.25rem;
+		font-size: 0.72rem;
+		color: var(--success);
 	}
 
 	.proof-actions {

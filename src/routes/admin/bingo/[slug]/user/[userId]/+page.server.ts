@@ -15,6 +15,7 @@ interface SubRow {
 	proof_urls: string[] | null;
 	submitted_at: string;
 	status: SubmissionStatus;
+	reviewer: { rsn: string | null; discord_username: string } | null;
 }
 
 export const load: PageServerLoad = async ({ params, locals }) => {
@@ -40,7 +41,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const { data: subsRaw, error: sErr } = await db()
 		.from('vs_bingo_completions')
-		.select('id, tile_id, proof_urls, submitted_at, status')
+		.select(
+			'id, tile_id, proof_urls, submitted_at, status, reviewer:vs_users!reviewed_by(rsn, discord_username)'
+		)
 		.eq('event_id', event.id)
 		.eq('user_id', params.userId)
 		.order('submitted_at', { ascending: true });
@@ -63,6 +66,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				proof_urls: string[];
 				submitted_at: string;
 				status: SubmissionStatus;
+				reviewed_by_name: string | null;
 			}>;
 		}
 	>();
@@ -91,7 +95,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			id: s.id,
 			proof_urls: s.proof_urls ?? [],
 			submitted_at: s.submitted_at,
-			status: s.status
+			status: s.status,
+			reviewed_by_name: s.reviewer ? (s.reviewer.rsn ?? s.reviewer.discord_username) : null
 		});
 
 		if (s.status === 'approved' && !scoredTiles.has(s.tile_id)) {
