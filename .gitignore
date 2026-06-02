@@ -6,3 +6,4 @@ node_modules
 .svelte-kit
 build
 package-lock.json.bak
+claude.md
