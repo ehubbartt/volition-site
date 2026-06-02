@@ -2,12 +2,14 @@
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import AccountIcon from '$lib/AccountIcon.svelte';
+	import Lightbox from '$lib/Lightbox.svelte';
 	import { TIER_BY_KEY } from '$lib/bingo/tiles';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
 	let error = $state<string | null>(null);
+	let lightboxSrc = $state<string | null>(null);
 
 	function fmt(iso: string) {
 		try {
@@ -85,9 +87,14 @@
 						<li class="proof status-{s.status}">
 							<div class="proof-images">
 								{#each s.proof_urls as url, idx (url)}
-									<a href={url} target="_blank" rel="noopener">
+									<button
+										type="button"
+										class="proof-button"
+										onclick={() => (lightboxSrc = url)}
+										aria-label={`View proof ${idx + 1}`}
+									>
 										<img src={url} alt={`Proof ${idx + 1}`} />
-									</a>
+									</button>
 								{/each}
 							</div>
 							<div class="proof-meta">
@@ -117,6 +124,10 @@
 			</li>
 		{/each}
 	</ul>
+{/if}
+
+{#if lightboxSrc}
+	<Lightbox src={lightboxSrc} alt="Proof" onclose={() => (lightboxSrc = null)} />
 {/if}
 
 <style>
@@ -320,12 +331,19 @@
 		gap: 0.3rem;
 	}
 
-	.proof a {
+	.proof .proof-button {
 		display: block;
 		flex: 1 1 4.5rem;
+		padding: 0;
+		background: transparent;
+		border: 0;
+		cursor: pointer;
+		min-height: 0;
+		border-radius: 3px;
+		overflow: hidden;
 	}
 
-	.proof a:hover {
+	.proof .proof-button:hover {
 		outline: 1px solid var(--accent);
 	}
 

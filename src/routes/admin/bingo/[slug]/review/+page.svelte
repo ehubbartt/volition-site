@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import AccountIcon from '$lib/AccountIcon.svelte';
+	import Lightbox from '$lib/Lightbox.svelte';
 	import { TIER_BY_KEY } from '$lib/bingo/tiles';
 	import type { PageData } from './$types';
 
@@ -11,6 +12,7 @@
 	let busy = $state(false);
 	let error = $state<string | null>(null);
 	let lastAction = $state<null | { kind: 'approve' | 'reject'; rsn: string }>(null);
+	let lightboxSrc = $state<string | null>(null);
 
 	const current = $derived(data.groups[currentIndex] ?? null);
 	const remaining = $derived(data.groups.length - currentIndex);
@@ -118,9 +120,14 @@
 					<li>
 						<div class="sub-images">
 							{#each sub.proof_urls as url, idx (url)}
-								<a href={url} target="_blank" rel="noopener">
+								<button
+									type="button"
+									class="proof-button"
+									onclick={() => (lightboxSrc = url)}
+									aria-label={`View proof ${idx + 1}`}
+								>
 									<img src={url} alt={`Submitted proof ${idx + 1}`} />
-								</a>
+								</button>
 							{/each}
 						</div>
 						<p class="meta muted">Submitted {fmt(sub.submitted_at)}</p>
@@ -214,6 +221,10 @@
 			Check for new submissions
 		</button>
 	</article>
+{/if}
+
+{#if lightboxSrc}
+	<Lightbox src={lightboxSrc} alt="Submitted proof" onclose={() => (lightboxSrc = null)} />
 {/if}
 
 <style>
@@ -453,15 +464,20 @@
 		gap: 0.5rem;
 	}
 
-	.proof-list a {
+	.proof-list .proof-button {
 		display: block;
 		border-radius: 3px;
 		overflow: hidden;
 		flex: 1 1 14rem;
 		max-width: 100%;
+		padding: 0;
+		background: transparent;
+		border: 0;
+		cursor: pointer;
+		min-height: 0;
 	}
 
-	.proof-list a:hover {
+	.proof-list .proof-button:hover {
 		outline: 1px solid var(--accent);
 	}
 

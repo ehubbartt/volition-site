@@ -36,6 +36,7 @@
 		communityCount: number;
 		canSubmit: boolean;
 		isAdmin: boolean;
+		onZoom: (url: string) => void;
 		onclose: () => void;
 	}
 
@@ -47,6 +48,7 @@
 		communityCount,
 		canSubmit,
 		isAdmin,
+		onZoom,
 		onclose
 	}: Props = $props();
 
@@ -169,9 +171,14 @@
 						<li class="mine-item status-{sub.status}">
 							<div class="thumb-row">
 								{#each sub.proof_urls as url, idx (url)}
-									<a href={url} target="_blank" rel="noopener" class="proof-link">
+									<button
+										type="button"
+										class="proof-link"
+										onclick={() => onZoom(url)}
+										aria-label={`View proof ${idx + 1}`}
+									>
 										<img src={url} alt={`Your submission proof ${idx + 1}`} />
-									</a>
+									</button>
 								{/each}
 							</div>
 							<div class="mine-meta">
@@ -318,9 +325,14 @@
 						<li>
 							<div class="thumb-row">
 								{#each c.proof_urls as url, idx (url)}
-									<a class="proof-thumb" href={url} target="_blank" rel="noopener">
+									<button
+										type="button"
+										class="proof-thumb"
+										onclick={() => onZoom(url)}
+										aria-label={`View proof ${idx + 1} by ${c.rsn ?? c.discord_username}`}
+									>
 										<img src={url} alt={`Proof ${idx + 1} by ${c.rsn ?? c.discord_username}`} />
-									</a>
+									</button>
 								{/each}
 							</div>
 							<div class="who">
@@ -509,6 +521,11 @@
 		display: block;
 		border-radius: 3px;
 		overflow: hidden;
+		padding: 0;
+		background: transparent;
+		border: 0;
+		cursor: pointer;
+		min-height: 0;
 	}
 
 	.thumb-row img {

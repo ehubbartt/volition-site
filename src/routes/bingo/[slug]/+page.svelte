@@ -8,6 +8,7 @@
 	import { getTileStatus, formatCountdown } from '$lib/bingo/state';
 	import TileCell from '$lib/bingo/TileCell.svelte';
 	import SubmitModal from '$lib/bingo/SubmitModal.svelte';
+	import Lightbox from '$lib/Lightbox.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -96,6 +97,16 @@
 
 	function closeModal() {
 		openTileId = null;
+	}
+
+	let lightboxSrc = $state<string | null>(null);
+
+	function openLightbox(url: string) {
+		lightboxSrc = url;
+	}
+
+	function closeLightbox() {
+		lightboxSrc = null;
 	}
 </script>
 
@@ -235,8 +246,13 @@
 		communityCount={communityCountFor(openTile.id)}
 		canSubmit={data.isClanMember}
 		isAdmin={data.isAdmin}
+		onZoom={openLightbox}
 		onclose={closeModal}
 	/>
+{/if}
+
+{#if lightboxSrc}
+	<Lightbox src={lightboxSrc} alt="Bingo proof" onclose={closeLightbox} />
 {/if}
 
 <style>

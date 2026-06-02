@@ -12,7 +12,7 @@ const ROWS: Array<[string, string, string, string]> = [
 	['Shark paint', 'Fedora', 'Amulet of the Damned', 'Nightmare unique / Phosanis'],
 	['Moon Loop half from bone mine', 'Huey Unique', 'Oathplate Shard Drop', 'Tob Unique'],
 	['Burn an oomlie wrap', 'KQ Head', 'Any CG seed', 'Nex Unique'],
-	['Cook a snake from mm2', 'Any Boppa', 'Royal titans staff Piece', 'Colo Unique'],
+	['Sorceress\'s Garden', 'Any Boppa', 'Royal titans staff Piece', 'Colo Unique'],
 	['Mine 521 Stardust', 'Steel Ring', 'Wildy Ring', 'Glowy hole'],
 	['Pickpocket a elite clue from a hero', 'Zenyte', 'Any Rev Totem', 'Cox Unique'],
 	['25 wildy laps', 'Mask of Ranul', 'Elder Chaos Robes', 'Gold Ring Drop'],
@@ -36,7 +36,7 @@ const BONUS: string[] = [
 	'Fight Caves',
 	'Cox',
 	'Vardorvis',
-	'Brutus',
+	'Calvar\'ion',
 	'Demonic throne'
 ];
 
@@ -95,7 +95,7 @@ const TILE_DETAILS: Record<string, string> = {
 	'r1-hard': 'Must be a purple in your name',
 	'r2-skilling': 'Screenshot of 5 gold statuettes from pyramid plunder in inventory.',
 	'r6-skilling': 'Screenshot of Oomlie wrap in inventory.',
-	'r7-skilling': 'Screenshot of Stuffed snake in inventory.',
+	'r7-skilling': 'Pick one of each seasonal Sq\'irk fruits in the Sorceress\'s Garden',
 	'r-7-medium': 'Screenshot of the new collection log or the untradeable loot notification from Earthbound tecpatl, Glacial temotli, Sulphur blades, Dual macas, or Torag\'s hammers.',
 	'r8-skilling': 'Screenshot of 521 stardust in inventory.',
 	'r9-skilling': 'Screenshot of the untradeable loot notification.',
@@ -164,11 +164,19 @@ const TILE_DETAILS: Record<string, string> = {
 **During the raid:**
 - Use only gear and weapons of your chosen style. Bringing any off-style gear **disqualifies the run**.
 - **Thralls** are allowed, but only the thrall variant matching your chosen style.
+- You may use non combat spells regardless of your chosen style.
 
 **Proof:**
 - Screenshot inside **Olm's chamber** after the Great Olm has been defeated with party hub visible.`,
 	'b10': 'Kill Vardorvis using only a Dragon Scimitar. No armour is allowed.',
-	'b11': 'Obtain Brutus Slippers as a drop.',
+	'b11': `Kill **Calvar'ion** using a **Bone club** with your **entire inventory filled with bones**.
+
+**Bone gear discount:**
+- You may also wear other bone gear (Skeletal armour, Dragonbone necklace, etc.).
+- For **each piece of extra bone gear** worn, you may bring **one fewer bone** in your inventory for the kill.
+
+**Proof:**
+- Screenshot of the kill with your inventory and worn gear visible.`,
 	'b12': 'Build a Demonic throne in your POH.'
 };
 
