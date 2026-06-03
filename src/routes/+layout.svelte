@@ -20,7 +20,9 @@
 			<nav class="primary-nav">
 				<a href="/events" class:active={path.startsWith('/events')}>Events</a>
 				{#if data.isAdmin}
-					<a href="/admin/events" class:active={path.startsWith('/admin')}>Admin</a>
+					<a href="/admin/events" class:active={path.startsWith('/admin/events')}>Admin</a>
+					<a href="/admin/cards" class:active={path.startsWith('/admin/cards')}>Cards &amp; Packs</a>
+					<a href="/admin/pack-tester" class:active={path.startsWith('/admin/pack-tester')}>Tester</a>
 				{/if}
 			</nav>
 
