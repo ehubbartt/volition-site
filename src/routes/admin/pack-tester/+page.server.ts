@@ -1,6 +1,6 @@
 import { redirect, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { isAdmin } from '$lib/server/auth';
+import { isCardTester } from '$lib/server/auth';
 import { isValidRarity, type Card, type CardAbility, type CardRarity } from '$lib/cards/rarity';
 import type { PageServerLoad } from './$types';
 
@@ -28,7 +28,7 @@ export interface TesterPack {
 // roll opens locally — no VP, no ownership, nothing persisted (infinite).
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
-	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
+	if (!isCardTester(locals.user)) throw error(403, 'Not allowed');
 
 	const [packsRes, cardsRes] = await Promise.all([
 		db().from('vs_card_packs').select('id, name, front_url, back_url').order('name', { ascending: true }),

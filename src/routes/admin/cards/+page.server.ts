@@ -1,14 +1,14 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
-import { isAdmin } from '$lib/server/auth';
+import { isCardTester } from '$lib/server/auth';
 import { uploadCardFaces, removeCardArt } from '$lib/server/cardArt';
 import { isValidRarity, type CardAbility } from '$lib/cards/rarity';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
-	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
+	if (!isCardTester(locals.user)) throw error(403, 'Not allowed');
 
 	const [cardsRes, packsRes] = await Promise.all([
 		db()
@@ -60,7 +60,7 @@ const packSchema = z.object({
 
 export const actions: Actions = {
 	createCard: async ({ locals, request }) => {
-		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
 
 		const form = await request.formData();
 		const parsed = cardSchema.safeParse({
@@ -111,7 +111,7 @@ export const actions: Actions = {
 	},
 
 	updateCard: async ({ locals, request }) => {
-		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
 
 		const form = await request.formData();
 		const id = form.get('id')?.toString();
@@ -168,7 +168,7 @@ export const actions: Actions = {
 	},
 
 	deleteCard: async ({ locals, request }) => {
-		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
 
 		const form = await request.formData();
 		const id = form.get('id')?.toString();
@@ -190,7 +190,7 @@ export const actions: Actions = {
 	},
 
 	createPack: async ({ locals, request }) => {
-		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
 
 		const form = await request.formData();
 		const parsed = packSchema.safeParse({
@@ -233,7 +233,7 @@ export const actions: Actions = {
 	},
 
 	updatePack: async ({ locals, request }) => {
-		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
 
 		const form = await request.formData();
 		const id = form.get('id')?.toString();
@@ -282,7 +282,7 @@ export const actions: Actions = {
 	},
 
 	deletePack: async ({ locals, request }) => {
-		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
 
 		const form = await request.formData();
 		const id = form.get('id')?.toString();

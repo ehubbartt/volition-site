@@ -11,12 +11,18 @@
 	type Tab = 'profile' | 'packs' | 'collection' | 'wallet';
 	let tab = $state<Tab>('profile');
 
-	const tabs: { id: Tab; label: string }[] = [
+	// Packs + Collection are part of the in-progress card game — only card testers
+	// see them (gated by the CARD_TESTER_DISCORD_IDS allow-list).
+	let tabs = $derived<{ id: Tab; label: string }[]>([
 		{ id: 'profile', label: 'Profile' },
-		{ id: 'packs', label: 'Packs' },
-		{ id: 'collection', label: 'Collection' },
+		...(data.isCardTester
+			? ([
+					{ id: 'packs', label: 'Packs' },
+					{ id: 'collection', label: 'Collection' }
+				] as { id: Tab; label: string }[])
+			: []),
 		{ id: 'wallet', label: 'Wallet' }
-	];
+	]);
 
 	let clanLabel = $derived(
 		data.user.clan_allegiance ? CLAN_LABEL[data.user.clan_allegiance as ClanValue] : null

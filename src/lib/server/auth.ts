@@ -84,3 +84,15 @@ export function isAdmin(user: SessionUser | null): boolean {
 		.filter(Boolean);
 	return adminIds.includes(user.discord_id);
 }
+
+// Separate allow-list (env var CARD_TESTER_DISCORD_IDS) for the in-progress card
+// game. Intentionally INDEPENDENT of ADMIN_DISCORD_IDS — being a general admin
+// grants no card access; only ids in this list can see/test the card features.
+export function isCardTester(user: SessionUser | null): boolean {
+	if (!user) return false;
+	const ids = (env.CARD_TESTER_DISCORD_IDS ?? '')
+		.split(',')
+		.map((s) => s.trim())
+		.filter(Boolean);
+	return ids.includes(user.discord_id);
+}

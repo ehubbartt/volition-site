@@ -288,7 +288,7 @@
     const W = PACK_W,
       H = PACK_H;
     // plateau half-thickness — scales with how many cards are in the pack
-    const BULGE = Math.min(0.34, 0.06 + cards.length * 0.025);
+    const BULGE = Math.min(0.34, 0.06 + cards.length * 0.015);
     const CRUMPLE = 0.002; // foil wrinkle depth (near-flat — smooth pack)
 
     const ss = (a: number, b: number, x: number) => {
@@ -371,8 +371,8 @@
             float firmnessAt(vec2 p) {
               float u = p.x / ${W.toFixed(3)} + 0.5;
               float v = p.y / ${H.toFixed(3)} + 0.5;
-              float vBand = smoothstep(0.05, 0.12, v) * (1.0 - smoothstep(0.88, 0.95, v));
-              float fU = smoothstep(0.0, 0.14, u) * (1.0 - smoothstep(0.86, 1.0, u));
+              float vBand = smoothstep(0.06, 0.1, v) * (1.0 - smoothstep(0.86, 0.9, v));
+              float fU = smoothstep(0.0, 0.025, u) * (1.0 - smoothstep(0.975, 1.0, u));
               return clamp(fU * vBand, 0.0, 1.0);
             }
             // localized push under the cursor: a soft dent on the SLACK foil only —
@@ -414,12 +414,8 @@
       return m;
     }
 
-    // jagged tear profile across the width (so the rip edge is ragged)
-    const jagAt = (u: number) =>
-      0.13 *
-      (Math.sin(u * 41) * 0.5 +
-        Math.sin(u * 23 + 1) * 0.32 +
-        Math.sin(u * 67 + 2) * 0.2);
+    // straight tear (Pokémon-TCG style) — no jag across the width
+    const jagAt = (_u: number) => 0;
 
     // One face (front/back) of a vertical slice [v0,v1]. The bulge is a flat
     // RECTANGULAR plateau over the card area that fades out BEFORE the top/bottom
@@ -447,10 +443,13 @@
           gy += jagAt(u);
         pos.setY(i, gy - centerY);
         const v = (gy + H / 2) / H;
-        // flat rectangular bulge as tall as the cards inside, centred in the
-        // pack and faded back to flat only at the thin sealed top/bottom strips
-        const vBand = ss(0.05, 0.12, v) * ss(0.95, 0.88, v);
-        const plateau = BULGE * falloff(u, 0.14) * vBand;
+        // cards fill nearly the full width and most of the height, sitting just
+        // slightly low: very thin side seals, a small seal at the bottom and a
+        // slightly larger crimp at the top
+        // plateau matches the full card height exactly (cards are 3.78 tall,
+        // centred at y=-0.1 → v 0.10–0.86), with thin tapers just outside
+        const vBand = ss(0.06, 0.1, v) * ss(0.9, 0.86, v);
+        const plateau = BULGE * falloff(u, 0.025) * vBand;
         const cr =
           CRUMPLE *
           wrinkle(front ? u : u + 1.7, front ? v : v + 2.3) *
@@ -612,33 +611,74 @@
       guideDashMats.push(mat);
     }
 
-    // scissors sprite just inside the left edge, rotated to point right (toward
-    // the pack); small, and nudged toward/away from the pack in the loop.
-    const scCanvas = document.createElement("canvas");
-    scCanvas.width = scCanvas.height = 128;
-    const scCtx = scCanvas.getContext("2d");
-    if (scCtx) {
-      scCtx.translate(128, 0);
-      scCtx.scale(-1, 1); // mirror so the blades face the pack
-      scCtx.font = "92px serif";
-      scCtx.textAlign = "center";
-      scCtx.textBaseline = "middle";
-      scCtx.fillText("✂️", 64, 72);
+    // ---- Rip FX: a glowing star that swipes across the straight tear line
+    // (Pokémon-TCG style), trailing a bright glow over the part already cut. These
+    // live in packGroup (not guideGroup) so they show DURING the rip.
+    function makeStarTexture() {
+      const s = 128;
+      const cv = document.createElement("canvas");
+      cv.width = cv.height = s;
+      const x = cv.getContext("2d");
+      const t = new THREE.CanvasTexture(cv);
+      t.colorSpace = THREE.SRGBColorSpace;
+      if (!x) return t;
+      const cx = s / 2;
+      const g = x.createRadialGradient(cx, cx, 0, cx, cx, cx);
+      g.addColorStop(0, "rgba(255,255,255,1)");
+      g.addColorStop(0.22, "rgba(255,246,205,0.9)");
+      g.addColorStop(0.55, "rgba(255,212,120,0.25)");
+      g.addColorStop(1, "rgba(255,200,100,0)");
+      x.fillStyle = g;
+      x.fillRect(0, 0, s, s);
+      x.translate(cx, cx);
+      x.fillStyle = "rgba(255,255,255,0.95)";
+      const spike = (len: number, w: number) => {
+        x.beginPath();
+        x.moveTo(0, -len);
+        x.lineTo(w, 0);
+        x.lineTo(0, len);
+        x.lineTo(-w, 0);
+        x.closePath();
+        x.fill();
+      };
+      spike(cx * 0.95, 7); // vertical
+      x.rotate(Math.PI / 2);
+      spike(cx * 0.95, 7); // horizontal
+      x.rotate(-Math.PI / 4);
+      spike(cx * 0.55, 4); // diagonals
+      x.rotate(Math.PI / 2);
+      spike(cx * 0.55, 4);
+      t.needsUpdate = true;
+      return t;
     }
-    const scTex = new THREE.CanvasTexture(scCanvas);
-    scTex.colorSpace = THREE.SRGBColorSpace;
-    const scMat = new THREE.SpriteMaterial({
-      map: scTex,
+    const starTex = makeStarTexture();
+    const starMat = new THREE.SpriteMaterial({
+      map: starTex,
       transparent: true,
       depthTest: false,
+      blending: THREE.AdditiveBlending,
+      opacity: 0,
     });
-    scMat.rotation = Math.PI / 2; // turn from facing-down to facing-right
-    const scissors = new THREE.Sprite(scMat);
-    scissors.scale.set(0.22, 0.22, 0.22);
-    const scBaseX = -W / 2 - 0.45;
-    scissors.position.set(scBaseX, tearWorldY + jagAt(0), GUIDE_Z + 0.05);
-    scissors.renderOrder = 6;
-    guideGroup.add(scissors);
+    const star = new THREE.Sprite(starMat);
+    star.scale.set(0.95, 0.95, 0.95);
+    // sit right on the foil at the tear line (not floating out front) so the
+    // swipe tracks the actual edge
+    star.position.set(-W / 2, tearWorldY, 0.07);
+    star.renderOrder = 8;
+    packGroup.add(star);
+
+    // bright glow along the already-cut part of the tear line
+    const trailMat = new THREE.MeshBasicMaterial({
+      color: 0xffe6a6,
+      transparent: true,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+      opacity: 0,
+    });
+    const trail = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.025), trailMat);
+    trail.position.set(-W / 2, tearWorldY, 0.05);
+    trail.renderOrder = 7;
+    packGroup.add(trail);
 
     // Cards live in a group inside the pack so they rotate/tilt with it; on
     // open it's detached to the scene (upright) to become the deck.
@@ -738,6 +778,8 @@
     let ripActive = false; // true only when the swipe started at the pack's top
     let flinging = false;
     let flingStart = 0;
+    let sliding = false; // cards sliding up out of the opened pack
+    let slideStart = 0;
     let dragDX = 0;
     let tiltX = 0,
       tiltY = 0; // drag-to-rotate the front card (works on touch too)
@@ -927,8 +969,7 @@
         shellGroup.visible = !opened;
         tornGroup.visible = opened;
 
-        // dotted tear guide: fill dots left→right along the jagged path, then
-        // repeat. Only while the pack is sealed and rotation-locked.
+        // dotted tear guide: fill dashes left→right, looping. Pre-rip hint only.
         const guideOn = locked && !opened;
         guideGroup.visible = guideOn;
         if (guideOn) {
@@ -941,11 +982,30 @@
               0.12,
             );
           }
-          // scissors drift toward the pack and back, slightly
-          scissors.position.x =
-            scBaseX + 0.12 * (0.5 + 0.5 * Math.sin(now / 500));
-          scMat.opacity = 0.95;
         }
+
+        // glowing star swipes across the straight tear line ONLY while ripping;
+        // a bright glow trails the part already cut. Inset from the edges so it
+        // stays within the pack width.
+        const fxOn = locked && !flinging && rip > 0.02 && rip < 0.995;
+        const EDGE = 0.03;
+        const ripX = Math.max(0, Math.min(1, rip));
+        // track peelLid's tear front (it sweeps across W + PEEL_SPAN) so the star
+        // sits exactly where the foil is actually separating, not behind it
+        const PEEL_SPAN = 0.55;
+        const left = -W / 2 + EDGE;
+        const right = W / 2 - EDGE;
+        const xFront = Math.max(
+          left,
+          Math.min(right, -W / 2 + ripX * (W + PEEL_SPAN)),
+        );
+        star.position.x = xFront;
+        star.scale.setScalar(0.16 + 0.03 * Math.sin(now / 110));
+        starMat.opacity = lerp(starMat.opacity, fxOn ? 1 : 0, 0.3);
+        const cut = Math.max(0.001, xFront - left);
+        trail.scale.x = cut;
+        trail.position.x = left + cut / 2;
+        trailMat.opacity = lerp(trailMat.opacity, fxOn ? 0.85 : 0, 0.2);
 
         if (!flinging) {
           // the top peels open: tears from the left, folding forward, the tear
@@ -961,49 +1021,68 @@
           }
         } else {
           // fully torn: the folded flap drops away toward the viewer and fades,
-          // then the cards rise
+          // then the cards slide up out of the pack
           peelLid(1);
           const tt = Math.min((now - flingStart) / 450, 1);
           const e = 1 - Math.pow(1 - tt, 3);
           lidGroup.position.x = e * 2.6; // slide off to the right, where it peeled
           lidGroup.position.z = e * 0.6;
           fade(lidGroup, 1 - e);
-          if (tt >= 1) {
-            // detach the cards to the scene, upright, as the swipeable deck
-            scene.add(cardsGroup);
-            cardsGroup.position.set(0, 0, 0);
-            cardsGroup.rotation.set(0, 0, 0);
-            cardsGroup.visible = true;
-            stage = "cards";
-            packGroup.visible = false;
+          if (tt >= 1 && !sliding) {
+            sliding = true;
+            slideStart = now;
+            // hand the cards to the scene so they hold their place while the
+            // pack slides away beneath them
+            scene.attach(cardsGroup);
           }
         }
 
-        // Cards stay hidden until the tear begins (so you don't see them
-        // behind the closed pack when spinning it), then sit still inside,
-        // visible through the opening — tops kept below the pack's top edge.
+        // Cards stay hidden until the tear begins, then sit still inside the pack,
+        // visible through the opening.
         cardsGroup.visible = rip > 0.02;
-        if (cardsGroup.visible) {
-          const cardScale = 0.9;
-          // nestled inside the bulge (where there's depth), below the flat
-          // tear section — the pack is hollow so nothing clips
-          const topY = tearWorldY - 0.45;
+        if (cardsGroup.visible && !sliding) {
+          const cardScale = 1; // full size — same as when they come out
+          // sits slightly low, matching the bulge plateau (v 0.14–0.82)
+          const cardCenterY = -0.1;
           for (let i = 0; i < cardMeshes.length; i++) {
             const m = cardMeshes[i];
-            m.position.set(
-              0,
-              topY - (CARD_H * cardScale) / 2 + i * 0.012,
-              -i * 0.012,
-            );
+            m.position.set(0, cardCenterY + i * 0.012, -i * 0.012);
             m.rotation.set(0, 0, 0);
             m.scale.setScalar(cardScale);
             (m.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 1;
             edgeMats[i].opacity = 1;
           }
         }
+
+        // The pack slides DOWN out of view, revealing the cards (which were
+        // detached to the scene and stay in place), then the deck takes over.
+        if (sliding) {
+          const st = Math.min((now - slideStart) / 650, 1);
+          const se = 1 - Math.pow(1 - st, 3);
+          packGroup.position.y = -se * 7.5; // drop away beneath the cards
+          // the foil reacts as the cards leave: a quick flex that settles, plus a
+          // tiny recoil bob early in the drop
+          rippleUniforms.uRipple.value = 0.07 * Math.sin(st * Math.PI);
+          packGroup.position.y += 0.18 * Math.sin(st * Math.PI) * (1 - st);
+          if (st >= 1) {
+            stage = "cards";
+            packGroup.visible = false;
+          }
+        }
       }
 
       if (stage === "cards") {
+        // the WHOLE stack rotates together when you inspect (so cards don't clip
+        // into each other), and the group settles to a centred resting spot
+        const DECK_Y = 0.4;
+        const inspectRX = pointerY * 0.14 + tiltX;
+        const inspectRY = pointerX * 0.14 + tiltY;
+        cardsGroup.position.x = lerp(cardsGroup.position.x, 0, 0.1);
+        cardsGroup.position.y = lerp(cardsGroup.position.y, DECK_Y, 0.1);
+        cardsGroup.position.z = lerp(cardsGroup.position.z, 0, 0.1);
+        cardsGroup.rotation.x = lerp(cardsGroup.rotation.x, inspectRX, 0.15);
+        cardsGroup.rotation.y = lerp(cardsGroup.rotation.y, inspectRY, 0.15);
+        cardsGroup.rotation.z = lerp(cardsGroup.rotation.z, 0, 0.12);
         for (let i = 0; i < cardMeshes.length; i++) {
           const m = cardMeshes[i];
           const rel = i - currentIndex;
@@ -1017,28 +1096,28 @@
             op = 0,
             sc = 1;
           if (rel < 0) {
-            tx = -11;
-            tz = 1;
-            rz = 0.45;
+            // swiped away — flies off to the left and fades
+            tx = -12;
+            tz = 2;
+            rz = 0.5;
             op = 0;
-          } else if (rel > 4) {
-            ty = 0.5;
-            tz = -2;
+          } else if (rel > 6) {
+            tz = -0.6;
             op = 0;
-            sc = 0.85;
+            sc = 0.96;
           } else {
-            const bob = Math.sin(now / 700 + i) * 0.04;
-            ty = rel * 0.18 + bob;
-            // front card sits forward of the stack so its tilt never lets a
-            // card behind clip through it
-            tz = rel === 0 ? 0.4 : -rel * 0.5;
-            op = 1; // solid stack — behind cards are blurred, not see-through
-            sc = 1 - rel * 0.05;
+            // a tight STACK: cards sit on top of each other with tiny offsets so
+            // the edges of the ones underneath just peek out
+            tx = rel * 0.015;
+            ty = -rel * 0.02;
+            tz = -rel * 0.04;
+            sc = 1 - rel * 0.012;
+            op = 1; // solid stack — under cards are blurred, not see-through
             if (rel === 0) {
-              tx = dragDX * 0.01;
+              tz = 0.06; // top card sits just in front of the stack
+              tx = dragDX * 0.01; // slide for the swipe-away gesture
               rz = -dragDX * 0.0012;
-              ry = pointerX * 0.12 + tiltY;
-              rx = pointerY * 0.12 + tiltX;
+              // inspection rotation is applied to the whole group, not here
             }
           }
           m.position.x = lerp(m.position.x, tx, 0.14);
@@ -1098,8 +1177,9 @@
           });
         }
       });
-      scTex.dispose();
-      scMat.dispose();
+      starTex.dispose();
+      starMat.dispose();
+      trailMat.dispose();
       foilNormal.dispose();
       envTex.dispose();
       pmrem.dispose();
