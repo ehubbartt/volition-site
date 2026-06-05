@@ -3,7 +3,14 @@
 	import { enhance } from '$app/forms';
 	import CardThumb from '$lib/cards/CardThumb.svelte';
 	import PackThumb from '$lib/cards/PackThumb.svelte';
-	import { RARITIES, isValidRarity, type Card, type CardAbility } from '$lib/cards/rarity';
+	import {
+		RARITIES,
+		RARITY_BY_KEY,
+		isValidRarity,
+		type Card,
+		type CardAbility,
+		type CardRarity
+	} from '$lib/cards/rarity';
 	import type { CardPack } from '$lib/cards/packs';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -14,7 +21,13 @@
 	// Blank ability rows appended to each form so admins can add more.
 	const BLANK_ROWS = 3;
 
-	function toCard(c: PageData['cards'][number]): Card {
+	type RawCard = PageData['cards'][number];
+	type RawPack = PageData['packs'][number];
+
+	// Cards group rarest → most common within a set.
+	const RARITY_ORDER: CardRarity[] = ['legendary', 'epic', 'rare', 'uncommon', 'common'];
+
+	function toCard(c: RawCard): Card {
 		return {
 			id: c.id,
 			name: c.name,
@@ -27,7 +40,7 @@
 		};
 	}
 
-	function toPack(p: PageData['packs'][number]): CardPack {
+	function toPack(p: RawPack): CardPack {
 		return {
 			id: p.id,
 			name: p.name,
@@ -46,11 +59,158 @@
 	function packName(id: string | null): string {
 		return data.packs.find((p) => p.id === id)?.name ?? '—';
 	}
+
+	function cardRarity(c: RawCard): CardRarity {
+		return isValidRarity(c.rarity) ? c.rarity : 'common';
+	}
+
+	function cardsInPack(packId: string): RawCard[] {
+		return data.cards.filter((c) => c.pack_id === packId);
+	}
+
+	// Split a card list into rarity buckets (rarest first), dropping empty ones.
+	function byRarity(cards: RawCard[]) {
+		return RARITY_ORDER.map((key) => ({
+			meta: RARITY_BY_KEY[key],
+			cards: cards.filter((c) => cardRarity(c) === key)
+		})).filter((g) => g.cards.length > 0);
+	}
+
+	// Cards grouped by their set (pack order from the server), with a trailing
+	// "No set" bucket for any orphans (pack_id is required, so usually empty).
+	let cardGroups = $derived.by(() => {
+		const groups: { pack: RawPack | null; cards: RawCard[] }[] = data.packs.map((p) => ({
+			pack: p,
+			cards: cardsInPack(p.id)
+		}));
+		const orphans = data.cards.filter(
+			(c) => !c.pack_id || !data.packs.some((p) => p.id === c.pack_id)
+		);
+		if (orphans.length) groups.push({ pack: null, cards: orphans });
+		return groups;
+	});
 </script>
 
 <svelte:head>
 	<title>Admin · Cards & Packs</title>
 </svelte:head>
+
+{#snippet cardEntry(raw: RawCard)}
+	{@const card = toCard(raw)}
+	<li class="card">
+		<div class="item-head">
+			<div class="thumb">
+				<CardThumb {card} />
+			</div>
+			<div class="head-meta">
+				<strong>{card.name}</strong>
+				<span class="muted">{card.rarity}{#if card.level} · lvl {card.level}{/if}</span>
+				<span class="muted small">Set: {packName(raw.pack_id)}</span>
+				{#if card.abilities.length}
+					<span class="muted small">{card.abilities.length} abilit{card.abilities.length === 1 ? 'y' : 'ies'}</span>
+				{/if}
+			</div>
+			<form method="POST" action="?/deleteCard" use:enhance class="delete-form">
+				<input type="hidden" name="id" value={card.id} />
+				<button
+					type="submit"
+					class="danger"
+					onclick={(e) => {
+						if (!confirm(`Delete "${card.name}"?`)) e.preventDefault();
+					}}
+				>
+					Delete
+				</button>
+			</form>
+		</div>
+
+		<details class="edit-block">
+			<summary>Edit</summary>
+			<form method="POST" action="?/updateCard" enctype="multipart/form-data" use:enhance class="edit-form">
+				<input type="hidden" name="id" value={card.id} />
+				<label>
+					<span>Name</span>
+					<input name="name" type="text" required value={card.name} />
+				</label>
+				<label>
+					<span>Set / pack</span>
+					<select name="pack_id" required>
+						<option value="" disabled selected={!raw.pack_id}>Pick a set…</option>
+						{#each data.packs as p}
+							<option value={p.id} selected={raw.pack_id === p.id}>{p.name}</option>
+						{/each}
+					</select>
+				</label>
+				<div class="row">
+					<label>
+						<span>Combat level</span>
+						<input name="level" type="number" min="0" value={card.level ?? ''} />
+					</label>
+					<label>
+						<span>Rarity</span>
+						<select name="rarity">
+							{#each RARITIES as r}
+								<option value={r.key} selected={r.key === card.rarity}>{r.label}</option>
+							{/each}
+						</select>
+					</label>
+				</div>
+				<label>
+					<span>Flavor / description</span>
+					<textarea name="flavor" rows="2">{card.flavor ?? ''}</textarea>
+				</label>
+
+				<fieldset class="abilities">
+					<legend>Abilities <span class="muted small">(clear a name to remove it)</span></legend>
+					{#each abilityRows(card) as ab}
+						<div class="ability-row">
+							<input name="ability_name" type="text" placeholder="Name" value={ab.name} />
+							<input name="ability_desc" type="text" placeholder="Description" value={ab.description} />
+						</div>
+					{/each}
+				</fieldset>
+
+				<div class="row">
+					<label>
+						<span>Replace front art (optional)</span>
+						<input name="front" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+					</label>
+					<label>
+						<span>Replace back art (optional)</span>
+						<input name="back" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+					</label>
+				</div>
+
+				<button type="submit" class="primary">Save changes</button>
+			</form>
+		</details>
+	</li>
+{/snippet}
+
+{#snippet packCardList(packId: string)}
+	{@const cards = cardsInPack(packId)}
+	{#if cards.length === 0}
+		<p class="muted small">No cards in this set yet.</p>
+	{:else}
+		{#each byRarity(cards) as rg (rg.meta.key)}
+			<div class="rarity-group">
+				<span class="rarity-label" style="--rc: {rg.meta.color}">{rg.meta.label} ({rg.cards.length})</span>
+				<ul class="mini-list">
+					{#each rg.cards as raw (raw.id)}
+						{@const card = toCard(raw)}
+						<li class="mini-card">
+							<div class="mini-thumb"><CardThumb {card} /></div>
+							<div class="mini-meta">
+								<span class="mini-name">{card.name}</span>
+								{#if card.level}<span class="muted small">lvl {card.level}</span>{/if}
+							</div>
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/each}
+	{/if}
+{/snippet}
 
 <section>
 	<h1>Cards &amp; Packs</h1>
@@ -139,99 +299,24 @@
 		{#if data.cards.length === 0}
 			<p class="muted">No cards yet.</p>
 		{:else}
-			<ul class="item-list">
-				{#each data.cards as raw (raw.id)}
-					{@const card = toCard(raw)}
-					<li class="card">
-						<div class="item-head">
-							<div class="thumb">
-								<CardThumb {card} />
-							</div>
-							<div class="head-meta">
-								<strong>{card.name}</strong>
-								<span class="muted">{card.rarity}{#if card.level} · lvl {card.level}{/if}</span>
-								<span class="muted small">Set: {packName(raw.pack_id)}</span>
-								{#if card.abilities.length}
-									<span class="muted small">{card.abilities.length} abilit{card.abilities.length === 1 ? 'y' : 'ies'}</span>
-								{/if}
-							</div>
-							<form method="POST" action="?/deleteCard" use:enhance class="delete-form">
-								<input type="hidden" name="id" value={card.id} />
-								<button
-									type="submit"
-									class="danger"
-									onclick={(e) => {
-										if (!confirm(`Delete "${card.name}"?`)) e.preventDefault();
-									}}
-								>
-									Delete
-								</button>
-							</form>
+			{#each cardGroups as group (group.pack?.id ?? 'none')}
+				<section class="pack-group">
+					<h3 class="group-head">
+						{group.pack?.name ?? 'No set'}
+						<span class="count">{group.cards.length}</span>
+					</h3>
+					{#each byRarity(group.cards) as rg (rg.meta.key)}
+						<div class="rarity-group">
+							<span class="rarity-label" style="--rc: {rg.meta.color}">{rg.meta.label} ({rg.cards.length})</span>
+							<ul class="item-list">
+								{#each rg.cards as raw (raw.id)}
+									{@render cardEntry(raw)}
+								{/each}
+							</ul>
 						</div>
-
-						<details class="edit-block">
-							<summary>Edit</summary>
-							<form method="POST" action="?/updateCard" enctype="multipart/form-data" use:enhance class="edit-form">
-								<input type="hidden" name="id" value={card.id} />
-								<label>
-									<span>Name</span>
-									<input name="name" type="text" required value={card.name} />
-								</label>
-								<label>
-									<span>Set / pack</span>
-									<select name="pack_id" required>
-										<option value="" disabled selected={!raw.pack_id}>Pick a set…</option>
-										{#each data.packs as p}
-											<option value={p.id} selected={raw.pack_id === p.id}>{p.name}</option>
-										{/each}
-									</select>
-								</label>
-								<div class="row">
-									<label>
-										<span>Combat level</span>
-										<input name="level" type="number" min="0" value={card.level ?? ''} />
-									</label>
-									<label>
-										<span>Rarity</span>
-										<select name="rarity">
-											{#each RARITIES as r}
-												<option value={r.key} selected={r.key === card.rarity}>{r.label}</option>
-											{/each}
-										</select>
-									</label>
-								</div>
-								<label>
-									<span>Flavor / description</span>
-									<textarea name="flavor" rows="2">{card.flavor ?? ''}</textarea>
-								</label>
-
-								<fieldset class="abilities">
-									<legend>Abilities <span class="muted small">(clear a name to remove it)</span></legend>
-									{#each abilityRows(card) as ab}
-										<div class="ability-row">
-											<input name="ability_name" type="text" placeholder="Name" value={ab.name} />
-											<input name="ability_desc" type="text" placeholder="Description" value={ab.description} />
-										</div>
-									{/each}
-								</fieldset>
-
-								<div class="row">
-									<label>
-										<span>Replace front art (optional)</span>
-										<input name="front" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-									</label>
-									<label>
-										<span>Replace back art (optional)</span>
-										<input name="back" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-									</label>
-								</div>
-
-								<button type="submit" class="primary">Save changes</button>
-							</form>
-						</details>
-					</li>
-				{/each}
-			</ul>
+					{/each}
+				</section>
+			{/each}
 		{/if}
 	{:else if tab === 'packs'}
 		<details class="card">
@@ -278,6 +363,7 @@
 							<div class="head-meta">
 								<strong>{pack.name}</strong>
 								<span class="muted">{pack.cost_vp.toLocaleString()} VP</span>
+								<span class="muted small">{cardsInPack(pack.id).length} card{cardsInPack(pack.id).length === 1 ? '' : 's'}</span>
 								{#if pack.description}
 									<span class="muted small">{pack.description}</span>
 								{/if}
@@ -295,6 +381,11 @@
 								</button>
 							</form>
 						</div>
+
+						<details class="edit-block cards-block">
+							<summary>Cards in this set ({cardsInPack(pack.id).length})</summary>
+							{@render packCardList(pack.id)}
+						</details>
 
 						<details class="edit-block">
 							<summary>Edit</summary>
@@ -459,6 +550,37 @@
 		gap: 0.5rem;
 	}
 
+	/* Grouping: one section per set, rarity buckets within. */
+	.pack-group {
+		margin-bottom: 1.5rem;
+	}
+
+	.group-head {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 1.5rem 0 0.75rem;
+		padding-bottom: 0.4rem;
+		border-bottom: 1px solid var(--border);
+		font-size: 1.15rem;
+	}
+
+	.rarity-group {
+		margin-bottom: 1rem;
+	}
+
+	.rarity-label {
+		display: inline-block;
+		margin: 0.35rem 0 0.5rem;
+		padding: 0.1rem 0.6rem;
+		border-radius: 999px;
+		border: 1px solid var(--rc);
+		color: var(--rc);
+		font-size: 0.78rem;
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		letter-spacing: 0.5px;
+	}
+
 	.item-list {
 		list-style: none;
 		padding: 0;
@@ -498,6 +620,45 @@
 
 	.edit-form {
 		margin-top: 0.75rem;
+	}
+
+	/* Compact card list shown when expanding a pack. */
+	.mini-list {
+		list-style: none;
+		padding: 0;
+		margin: 0.25rem 0 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+		gap: 0.5rem;
+	}
+
+	.mini-card {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		padding: 0.4rem 0.6rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		min-width: 0;
+	}
+
+	.mini-thumb {
+		width: 2.75rem;
+		flex: 0 0 auto;
+	}
+
+	.mini-meta {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+		min-width: 0;
+	}
+
+	.mini-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	button.primary {

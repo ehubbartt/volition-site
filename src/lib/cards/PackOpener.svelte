@@ -225,7 +225,7 @@
       const bTop = 0.5 + (cardCenterY + CARD_H / 2) / PACK_H;
       const bMargin = (PACK_W - CARD_W) / 2 / PACK_W; // side margin = card width
       const BULGE_TAPER = 0.04;
-      const TEAR_BASE = Math.min(0.96, bTop + 0.07); // crimp/tear above the cards
+      const TEAR_BASE = Math.min(0.96, bTop + 0.03); // crimp/tear above the cards
       const RIP_DISTANCE = 750; // px of horizontal swipe to fully rip
       const tearWorldY = (TEAR_BASE - 0.5) * PACK_H;
 
