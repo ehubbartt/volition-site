@@ -7,3 +7,4 @@ node_modules
 build
 package-lock.json.bak
 claude.md
+db/migrations/

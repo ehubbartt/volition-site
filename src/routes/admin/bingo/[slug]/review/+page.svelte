@@ -47,7 +47,7 @@
 <svelte:window onkeydown={onKey} />
 
 <nav class="crumbs">
-	<a href="/admin/events">← Admin</a>
+	<a href="/admin">← Admin</a>
 	<span class="sep">·</span>
 	<a href="/bingo/{data.event.slug}">View event →</a>
 </nav>
