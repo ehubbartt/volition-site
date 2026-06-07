@@ -1,12 +1,33 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import BoardMap from '$lib/board/BoardMap.svelte';
+	import BoardSubmitModal from '$lib/board/BoardSubmitModal.svelte';
+	import Lightbox from '$lib/Lightbox.svelte';
 	import { getBoardTopology } from '$lib/board/topology';
 
 	let { data }: { data: PageData } = $props();
 
 	const topology = getBoardTopology();
-	const lockedFloors = $derived(data.isAdmin ? [] : [2, 3]);
+	const contentVisible = $derived(Object.keys(data.content).length > 0);
+	const lockedFloors = $derived(contentVisible ? [] : [2, 3]);
+
+	let openNodeId = $state<string | null>(null);
+	const openTile = $derived.by(() => {
+		if (!openNodeId) return null;
+		const c = data.content[openNodeId];
+		if (!c) return null;
+		return { id: openNodeId, name: c.name, faq_html: c.faq_html };
+	});
+
+	function onNodeClick(id: string) {
+		if (data.content[id]) openNodeId = id;
+	}
+
+	function closeModal() {
+		openNodeId = null;
+	}
+
+	let lightboxSrc = $state<string | null>(null);
 </script>
 
 <svelte:head>
@@ -22,13 +43,49 @@
 		<h1>{data.event.name} · Board</h1>
 		<span class="badge {data.event.status}">{data.event.status}</span>
 	</div>
-	<p class="muted teaser">
-		The board is sealed until the event begins. Tile contents will be revealed when your team
-		reaches each section — for now, scroll and pan to see the shape of the climb.
-	</p>
+	{#if contentVisible}
+		<p class="muted teaser">
+			{#if data.status === 'open'}
+				Pick a path, complete its tiles, then tackle the intermission tile before choosing the next.
+				Click any tile for the rules and to submit your team's proof.
+			{:else}
+				Admin preview — the board is still sealed for players. Click any tile to review its rules and
+				proofs.
+			{/if}
+		</p>
+	{:else}
+		<p class="muted teaser">
+			The board is sealed until the event begins. Tile contents will be revealed when your team
+			reaches each section — for now, scroll and pan to see the shape of the climb.
+		</p>
+	{/if}
 </section>
 
-<BoardMap {topology} {lockedFloors} />
+<BoardMap
+	{topology}
+	{lockedFloors}
+	content={data.content}
+	doneByTile={data.teamDoneByTile}
+	{onNodeClick}
+/>
+
+{#if openTile}
+	<BoardSubmitModal
+		tile={openTile}
+		status={data.status}
+		teamSubmissions={data.teamSubmissionsByTile[openTile.id] ?? []}
+		community={data.completionsByTile[openTile.id] ?? []}
+		communityCount={data.completionCountByTile[openTile.id] ?? 0}
+		canSubmit={data.isClanMember && data.hasTeam}
+		isAdmin={data.isAdmin}
+		onZoom={(url) => (lightboxSrc = url)}
+		onclose={closeModal}
+	/>
+{/if}
+
+{#if lightboxSrc}
+	<Lightbox src={lightboxSrc} alt="DuoWolf proof" onclose={() => (lightboxSrc = null)} />
+{/if}
 
 <style>
 	.crumbs {

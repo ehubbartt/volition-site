@@ -1,3 +1,14 @@
+import {
+	DUO_FLOORS,
+	DUO_FLOOR_LANES,
+	DUO_SECTION_ROWS,
+	DUO_SECTIONS,
+	duoBossId,
+	duoMidId,
+	duoPathId,
+	duoStartId
+} from './config';
+
 export type NodeKind = 'start' | 'community' | 'path' | 'boss';
 
 export interface BoardNode {
@@ -33,15 +44,12 @@ export interface BoardTopology {
 	viewBox: { w: number; h: number };
 }
 
-const FLOORS: { ways: number }[] = [{ ways: 3 }, { ways: 3 }, { ways: 2 }];
-
 const VIEW_WIDTH = 600;
 const CENTER_X = VIEW_WIDTH / 2;
 const LANE_GAP = 115;
 const ROW_GAP = 82;
 const FLOOR_HEADER = 56;
 const FLOOR_GAP = 96;
-const SECTION_ROWS = 3;
 
 export function getBoardTopology(): BoardTopology {
 	const nodes: BoardNode[] = [];
@@ -50,19 +58,20 @@ export function getBoardTopology(): BoardTopology {
 
 	let cursorY = 0;
 
-	for (let f = 0; f < FLOORS.length; f++) {
+	for (let f = 0; f < DUO_FLOORS; f++) {
 		const floor = f + 1;
-		const ways = FLOORS[f].ways;
 		const bandTop = cursorY;
 		cursorY += FLOOR_HEADER;
 
+		// Lane count is constant across a floor's sections (3 / 3 / 2 per floor).
+		const lanes = DUO_FLOOR_LANES[f];
 		const laneXs: number[] = [];
-		for (let lane = 0; lane < ways; lane++) {
-			const offset = (lane - (ways - 1) / 2) * LANE_GAP;
+		for (let lane = 0; lane < lanes; lane++) {
+			const offset = (lane - (lanes - 1) / 2) * LANE_GAP;
 			laneXs.push(CENTER_X + offset);
 		}
 
-		const startId = `f${floor}-start`;
+		const startId = duoStartId(floor);
 		nodes.push({
 			id: startId,
 			kind: floor === 1 ? 'start' : 'community',
@@ -73,17 +82,16 @@ export function getBoardTopology(): BoardTopology {
 		let prevExitId = startId;
 		cursorY += ROW_GAP;
 
-		const SECTIONS = ['A', 'B', 'C'] as const;
-		for (let s = 0; s < SECTIONS.length; s++) {
-			const section = SECTIONS[s];
-			const isLast = s === SECTIONS.length - 1;
+		for (let s = 0; s < DUO_SECTIONS.length; s++) {
+			const section = DUO_SECTIONS[s];
+			const isLast = s === DUO_SECTIONS.length - 1;
 
 			const sectionTopIds: string[] = [];
 			const sectionBotIds: string[] = [];
 
-			for (let step = 0; step < SECTION_ROWS; step++) {
-				for (let lane = 0; lane < ways; lane++) {
-					const id = `f${floor}-${section}-l${lane}-s${step}`;
+			for (let step = 0; step < DUO_SECTION_ROWS; step++) {
+				for (let lane = 0; lane < lanes; lane++) {
+					const id = duoPathId(floor, section, lane, step);
 					nodes.push({
 						id,
 						kind: 'path',
@@ -95,7 +103,7 @@ export function getBoardTopology(): BoardTopology {
 						y: cursorY
 					});
 					if (step === 0) sectionTopIds.push(id);
-					if (step === SECTION_ROWS - 1) sectionBotIds.push(id);
+					if (step === DUO_SECTION_ROWS - 1) sectionBotIds.push(id);
 				}
 				cursorY += ROW_GAP;
 			}
@@ -103,16 +111,16 @@ export function getBoardTopology(): BoardTopology {
 			for (const topId of sectionTopIds) {
 				edges.push({ id: `${prevExitId}->${topId}`, from: prevExitId, to: topId });
 			}
-			for (let lane = 0; lane < ways; lane++) {
-				for (let step = 0; step < SECTION_ROWS - 1; step++) {
-					const a = `f${floor}-${section}-l${lane}-s${step}`;
-					const b = `f${floor}-${section}-l${lane}-s${step + 1}`;
+			for (let lane = 0; lane < lanes; lane++) {
+				for (let step = 0; step < DUO_SECTION_ROWS - 1; step++) {
+					const a = duoPathId(floor, section, lane, step);
+					const b = duoPathId(floor, section, lane, step + 1);
 					edges.push({ id: `${a}->${b}`, from: a, to: b });
 				}
 			}
 
 			if (!isLast) {
-				const midId = `f${floor}-mid-${section}`;
+				const midId = duoMidId(floor, section);
 				nodes.push({ id: midId, kind: 'community', floor, x: CENTER_X, y: cursorY });
 				for (const botId of sectionBotIds) {
 					edges.push({ id: `${botId}->${midId}`, from: botId, to: midId });
@@ -120,7 +128,7 @@ export function getBoardTopology(): BoardTopology {
 				prevExitId = midId;
 				cursorY += ROW_GAP;
 			} else {
-				const bossId = `f${floor}-boss`;
+				const bossId = duoBossId(floor);
 				nodes.push({ id: bossId, kind: 'boss', floor, x: CENTER_X, y: cursorY });
 				for (const botId of sectionBotIds) {
 					edges.push({ id: `${botId}->${bossId}`, from: botId, to: bossId });
@@ -131,16 +139,16 @@ export function getBoardTopology(): BoardTopology {
 
 		floors.push({
 			floor,
-			ways,
+			ways: lanes,
 			y: bandTop,
 			height: cursorY - bandTop,
 			label: `Floor ${floor}`
 		});
 	}
 
-	for (let f = 0; f < FLOORS.length - 1; f++) {
-		const fromId = `f${f + 1}-boss`;
-		const toId = `f${f + 2}-start`;
+	for (let f = 0; f < DUO_FLOORS - 1; f++) {
+		const fromId = duoBossId(f + 1);
+		const toId = duoStartId(f + 2);
 		edges.push({ id: `${fromId}->${toId}`, from: fromId, to: toId, interFloor: true });
 	}
 

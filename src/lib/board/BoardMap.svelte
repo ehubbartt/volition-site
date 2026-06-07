@@ -1,14 +1,29 @@
 <script lang="ts">
-	import type { BoardTopology } from './topology';
+	import type { BoardNode, BoardTopology } from './topology';
+
+	interface NodeContent {
+		name: string;
+		faq_html: string | null;
+	}
 
 	let {
 		topology,
-		lockedFloors = [2, 3]
-	}: { topology: BoardTopology; lockedFloors?: number[] } = $props();
+		lockedFloors = [2, 3],
+		content = {},
+		doneByTile = {},
+		onNodeClick
+	}: {
+		topology: BoardTopology;
+		lockedFloors?: number[];
+		content?: Record<string, NodeContent>;
+		doneByTile?: Record<string, boolean>;
+		onNodeClick?: (id: string) => void;
+	} = $props();
 
 	const MIN_ZOOM = 0.5;
 	const MAX_ZOOM = 5;
 	const PAD = 40;
+	const DRAG_THRESHOLD = 5;
 
 	const lockedSet = $derived(new Set(lockedFloors));
 
@@ -19,6 +34,22 @@
 	let currentFloor = $state(1);
 	let dragStartX = 0;
 	let dragStartY = 0;
+	// Track real drags so a click that pans the canvas doesn't also open a tile.
+	let pointerDownX = 0;
+	let pointerDownY = 0;
+	let dragMoved = false;
+
+	function handleNodeClick(id: string) {
+		if (dragMoved) return;
+		if (!content[id]) return;
+		onNodeClick?.(id);
+	}
+
+	function handleNodeKey(e: KeyboardEvent, id: string) {
+		if (e.key !== 'Enter' && e.key !== ' ') return;
+		e.preventDefault();
+		if (content[id]) onNodeClick?.(id);
+	}
 
 	const visible = $derived.by(() => {
 		const band = topology.floors.find((f) => f.floor === currentFloor) ?? topology.floors[0];
@@ -60,6 +91,9 @@
 	function onMouseDown(e: MouseEvent) {
 		if (e.button !== 0) return;
 		isPanning = true;
+		dragMoved = false;
+		pointerDownX = e.clientX;
+		pointerDownY = e.clientY;
 		dragStartX = e.clientX - panX;
 		dragStartY = e.clientY - panY;
 	}
@@ -67,6 +101,9 @@
 	function onMouseMove(e: MouseEvent) {
 		if (!isPanning) return;
 		e.preventDefault();
+		if (!dragMoved && Math.hypot(e.clientX - pointerDownX, e.clientY - pointerDownY) > DRAG_THRESHOLD) {
+			dragMoved = true;
+		}
 		panX = e.clientX - dragStartX;
 		panY = e.clientY - dragStartY;
 	}
@@ -78,6 +115,9 @@
 	function onTouchStart(e: TouchEvent) {
 		if (e.touches.length !== 1) return;
 		isPanning = true;
+		dragMoved = false;
+		pointerDownX = e.touches[0].clientX;
+		pointerDownY = e.touches[0].clientY;
 		dragStartX = e.touches[0].clientX - panX;
 		dragStartY = e.touches[0].clientY - panY;
 	}
@@ -85,8 +125,12 @@
 	function onTouchMove(e: TouchEvent) {
 		if (!isPanning || e.touches.length !== 1) return;
 		e.preventDefault();
-		panX = e.touches[0].clientX - dragStartX;
-		panY = e.touches[0].clientY - dragStartY;
+		const t = e.touches[0];
+		if (!dragMoved && Math.hypot(t.clientX - pointerDownX, t.clientY - pointerDownY) > DRAG_THRESHOLD) {
+			dragMoved = true;
+		}
+		panX = t.clientX - dragStartX;
+		panY = t.clientY - dragStartY;
 	}
 
 	function onTouchEnd() {
@@ -198,38 +242,77 @@
 				{/each}
 			</g>
 
+			{#snippet nodeBody(n: BoardNode, c: NodeContent | undefined, done: boolean)}
+				{#if n.kind === 'boss'}
+					<circle r="44" class="boss-aura" fill="url(#bossGlow)" />
+					<polygon points="0,-30 26,-13 22,22 -22,22 -26,-13" class="boss-shape" />
+					<g class="skull">
+						<path
+							class="skull-base"
+							d="M -10,-8 C -14,-8 -14,0 -14,2 C -14,7 -11,11 -8,12 L -8,14 L -4,14 L -4,11 L 4,11 L 4,14 L 8,14 L 8,12 C 11,11 14,7 14,2 C 14,0 14,-8 10,-8 Z"
+						/>
+						<ellipse class="skull-socket" cx="-5" cy="2" rx="3" ry="4" />
+						<ellipse class="skull-socket" cx="5" cy="2" rx="3" ry="4" />
+						<path class="skull-socket" d="M -1,7 L 1,7 L 0,10 Z" />
+					</g>
+				{:else if n.kind === 'start' || n.kind === 'community'}
+					<rect x="-22" y="-22" width="44" height="44" rx="6" class="comm-shape" />
+					<path
+						class="flame"
+						d="M 0,-12 C -5,-7 -6,-3 -3,1 C -4,4 -1,8 0,7 C 1,8 4,4 3,1 C 6,-3 5,-7 0,-12 Z"
+					/>
+					{#if n.kind === 'start'}
+						<text y="-32" text-anchor="middle" class="start-label">START</text>
+					{/if}
+				{:else}
+					<polygon points="-17,-7 -7,-17 7,-17 17,-7 17,7 7,17 -7,17 -17,7" class="path-shape" />
+					{#if !c}
+						<text y="6" text-anchor="middle" class="path-glyph">?</text>
+					{/if}
+				{/if}
+
+				{#if done}
+					<g class="done-badge" transform="translate(15,-15)">
+						<circle r="8" class="done-bg" />
+						<path class="done-check" d="M -3.5,0 L -1,2.5 L 3.5,-3" />
+					</g>
+				{/if}
+
+				{#if c}
+					<foreignObject
+						x="-62"
+						y={n.kind === 'boss' ? 26 : n.kind === 'path' ? 18 : 24}
+						width="124"
+						height="34"
+						class="label-fo"
+					>
+						<div class="node-label" xmlns="http://www.w3.org/1999/xhtml">{c.name}</div>
+					</foreignObject>
+				{/if}
+			{/snippet}
+
 			<g class="nodes">
 				{#each visible.nodes as n (n.id)}
-					<g class="node {n.kind}" transform="translate({n.x},{n.y})">
-						{#if n.kind === 'boss'}
-							<circle r="44" class="boss-aura" fill="url(#bossGlow)" />
-							<polygon points="0,-30 26,-13 22,22 -22,22 -26,-13" class="boss-shape" />
-							<g class="skull">
-								<path
-									class="skull-base"
-									d="M -10,-8 C -14,-8 -14,0 -14,2 C -14,7 -11,11 -8,12 L -8,14 L -4,14 L -4,11 L 4,11 L 4,14 L 8,14 L 8,12 C 11,11 14,7 14,2 C 14,0 14,-8 10,-8 Z"
-								/>
-								<ellipse class="skull-socket" cx="-5" cy="2" rx="3" ry="4" />
-								<ellipse class="skull-socket" cx="5" cy="2" rx="3" ry="4" />
-								<path class="skull-socket" d="M -1,7 L 1,7 L 0,10 Z" />
-							</g>
-						{:else if n.kind === 'start' || n.kind === 'community'}
-							<rect x="-22" y="-22" width="44" height="44" rx="6" class="comm-shape" />
-							<path
-								class="flame"
-								d="M 0,-12 C -5,-7 -6,-3 -3,1 C -4,4 -1,8 0,7 C 1,8 4,4 3,1 C 6,-3 5,-7 0,-12 Z"
-							/>
-							{#if n.kind === 'start'}
-								<text y="-32" text-anchor="middle" class="start-label">START</text>
-							{/if}
-						{:else}
-							<polygon
-								points="-17,-7 -7,-17 7,-17 17,-7 17,7 7,17 -7,17 -17,7"
-								class="path-shape"
-							/>
-							<text y="6" text-anchor="middle" class="path-glyph">?</text>
-						{/if}
-					</g>
+					{@const c = content[n.id]}
+					{@const done = !!doneByTile[n.id]}
+					{#if c}
+						<g
+							class="node {n.kind} interactive"
+							class:done
+							transform="translate({n.x},{n.y})"
+							role="button"
+							tabindex={0}
+							aria-label={c.name}
+							onclick={() => handleNodeClick(n.id)}
+							onkeydown={(e) => handleNodeKey(e, n.id)}
+						>
+							{@render nodeBody(n, c, done)}
+						</g>
+					{:else}
+						<g class="node {n.kind}" class:done transform="translate({n.x},{n.y})">
+							{@render nodeBody(n, c, done)}
+						</g>
+					{/if}
 				{/each}
 			</g>
 		</svg>
@@ -479,6 +562,66 @@
 
 	.node {
 		pointer-events: none;
+	}
+
+	.node.interactive {
+		pointer-events: auto;
+		cursor: pointer;
+	}
+
+	.node.interactive:focus-visible {
+		outline: none;
+	}
+
+	.node.interactive:hover .path-shape,
+	.node.interactive:focus-visible .path-shape {
+		fill: var(--accent-soft);
+		stroke: var(--accent);
+	}
+
+	.node.interactive:hover .comm-shape,
+	.node.interactive:focus-visible .comm-shape,
+	.node.interactive:hover .boss-shape,
+	.node.interactive:focus-visible .boss-shape {
+		stroke: var(--yellow);
+	}
+
+	.label-fo {
+		overflow: visible;
+		pointer-events: none;
+	}
+
+	.node-label {
+		font-family: var(--font-body);
+		font-size: 8.5px;
+		line-height: 1.05;
+		text-align: center;
+		color: var(--text);
+		text-shadow: 1px 1px 2px #000, 0 0 3px #000;
+		overflow: hidden;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+		word-break: break-word;
+	}
+
+	.done-badge {
+		pointer-events: none;
+	}
+
+	.done-bg {
+		fill: var(--success);
+		stroke: #0a0805;
+		stroke-width: 1;
+	}
+
+	.done-check {
+		fill: none;
+		stroke: #fff;
+		stroke-width: 2;
+		stroke-linecap: round;
+		stroke-linejoin: round;
 	}
 
 	@media (prefers-reduced-motion: reduce) {
