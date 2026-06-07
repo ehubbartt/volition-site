@@ -6,6 +6,7 @@
 	import {
 		RARITIES,
 		RARITY_BY_KEY,
+		DEFAULT_RARITY,
 		isValidRarity,
 		type Card,
 		type CardAbility,
@@ -24,15 +25,15 @@
 	type RawCard = PageData['cards'][number];
 	type RawPack = PageData['packs'][number];
 
-	// Cards group rarest → most common within a set.
-	const RARITY_ORDER: CardRarity[] = ['legendary', 'epic', 'rare', 'uncommon', 'common'];
+	// Cards group rarest → most common within a set (reverse of the ascending list).
+	const RARITY_ORDER: CardRarity[] = [...RARITIES].reverse().map((r) => r.key);
 
 	function toCard(c: RawCard): Card {
 		return {
 			id: c.id,
 			name: c.name,
 			level: c.level,
-			rarity: (isValidRarity(c.rarity) ? c.rarity : 'common') as Card['rarity'],
+			rarity: (isValidRarity(c.rarity) ? c.rarity : DEFAULT_RARITY) as Card['rarity'],
 			abilities: (c.abilities ?? []) as CardAbility[],
 			flavor: c.flavor,
 			front_url: c.front_url,
@@ -61,7 +62,7 @@
 	}
 
 	function cardRarity(c: RawCard): CardRarity {
-		return isValidRarity(c.rarity) ? c.rarity : 'common';
+		return isValidRarity(c.rarity) ? c.rarity : DEFAULT_RARITY;
 	}
 
 	function cardsInPack(packId: string): RawCard[] {
@@ -89,6 +90,42 @@
 		if (orphans.length) groups.push({ pack: null, cards: orphans });
 		return groups;
 	});
+
+	// Editable per-pack rarity drop weights (relative). Seeded from the server and
+	// re-seeded when the set of packs changes (e.g. after a create/delete).
+	function seedWeights(): Record<string, Record<string, number>> {
+		const out: Record<string, Record<string, number>> = {};
+		for (const p of data.packs) {
+			const w = (p.rarity_weights ?? {}) as Record<string, number>;
+			out[p.id] = {};
+			for (const r of RARITIES) out[p.id][r.key] = Number(w[r.key] ?? 0);
+		}
+		return out;
+	}
+	let weights = $state(seedWeights());
+	let lastPackKey = '';
+	$effect(() => {
+		const key = data.packs.map((p) => p.id).join(',');
+		if (key !== lastPackKey) {
+			lastPackKey = key;
+			weights = seedWeights();
+		}
+	});
+
+	function rarityCount(packId: string, key: string): number {
+		return cardsInPack(packId).filter((c) => cardRarity(c) === key).length;
+	}
+
+	// Live drop % = a rarity's weight ÷ total weight of rarities that have cards.
+	function dropPct(packId: string, key: string): number {
+		if (rarityCount(packId, key) === 0) return 0;
+		let total = 0;
+		for (const r of RARITIES) {
+			if (rarityCount(packId, r.key) > 0) total += Math.max(0, weights[packId]?.[r.key] ?? 0);
+		}
+		if (total <= 0) return 0;
+		return (Math.max(0, weights[packId]?.[key] ?? 0) / total) * 100;
+	}
 </script>
 
 <svelte:head>
@@ -260,7 +297,7 @@
 						<span>Rarity</span>
 						<select name="rarity">
 							{#each RARITIES as r}
-								<option value={r.key} selected={r.key === 'common'}>{r.label}</option>
+								<option value={r.key} selected={r.key === DEFAULT_RARITY}>{r.label}</option>
 							{/each}
 						</select>
 					</label>
@@ -330,9 +367,19 @@
 					<span>Description (optional)</span>
 					<textarea name="description" rows="2"></textarea>
 				</label>
-				<label>
-					<span>Cost (VP)</span>
-					<input name="cost_vp" type="number" min="0" value="0" />
+				<div class="row">
+					<label>
+						<span>Cost (VP)</span>
+						<input name="cost_vp" type="number" min="0" value="0" />
+					</label>
+					<label>
+						<span>Cards per open</span>
+						<input name="cards_per_pack" type="number" min="1" max="50" value="5" />
+					</label>
+				</div>
+				<label class="check">
+					<input type="checkbox" name="released" />
+					<span>Released (visible to players in the Gamba store)</span>
 				</label>
 				<div class="row">
 					<label>
@@ -361,25 +408,36 @@
 								<PackThumb {pack} />
 							</div>
 							<div class="head-meta">
-								<strong>{pack.name}</strong>
-								<span class="muted">{pack.cost_vp.toLocaleString()} VP</span>
+								<div class="name-row">
+									<strong>{pack.name}</strong>
+									<span class="badge" class:live={raw.released}>{raw.released ? 'Released' : 'Draft'}</span>
+								</div>
+								<span class="muted">{pack.cost_vp.toLocaleString()} VP · {raw.cards_per_pack} per open</span>
 								<span class="muted small">{cardsInPack(pack.id).length} card{cardsInPack(pack.id).length === 1 ? '' : 's'}</span>
 								{#if pack.description}
 									<span class="muted small">{pack.description}</span>
 								{/if}
 							</div>
-							<form method="POST" action="?/deletePack" use:enhance class="delete-form">
-								<input type="hidden" name="id" value={pack.id} />
-								<button
-									type="submit"
-									class="danger"
-									onclick={(e) => {
-										if (!confirm(`Delete "${pack.name}"?`)) e.preventDefault();
-									}}
-								>
-									Delete
-								</button>
-							</form>
+							<div class="head-actions">
+								<form method="POST" action="?/toggleRelease" use:enhance>
+									<input type="hidden" name="id" value={pack.id} />
+									<button type="submit" class="toggle">
+										{raw.released ? 'Unrelease' : 'Release'}
+									</button>
+								</form>
+								<form method="POST" action="?/deletePack" use:enhance class="delete-form">
+									<input type="hidden" name="id" value={pack.id} />
+									<button
+										type="submit"
+										class="danger"
+										onclick={(e) => {
+											if (!confirm(`Delete "${pack.name}"?`)) e.preventDefault();
+										}}
+									>
+										Delete
+									</button>
+								</form>
+							</div>
 						</div>
 
 						<details class="edit-block cards-block">
@@ -399,10 +457,39 @@
 									<span>Description</span>
 									<textarea name="description" rows="2">{pack.description ?? ''}</textarea>
 								</label>
-								<label>
-									<span>Cost (VP)</span>
-									<input name="cost_vp" type="number" min="0" value={pack.cost_vp} />
-								</label>
+								<div class="row">
+									<label>
+										<span>Cost (VP)</span>
+										<input name="cost_vp" type="number" min="0" value={pack.cost_vp} />
+									</label>
+									<label>
+										<span>Cards per open</span>
+										<input name="cards_per_pack" type="number" min="1" max="50" value={raw.cards_per_pack} />
+									</label>
+								</div>
+
+								<fieldset class="rates">
+									<legend>
+										Drop rates <span class="muted small">(relative weights — auto-normalized, no need to total 100)</span>
+									</legend>
+									{#each RARITIES as r}
+										{@const count = rarityCount(pack.id, r.key)}
+										<div class="rate-row">
+											<span class="rate-name" style="--rc: {r.color}">{r.label}</span>
+											<input
+												type="number"
+												min="0"
+												step="any"
+												name={`weight_${r.key}`}
+												bind:value={weights[pack.id][r.key]}
+											/>
+											<span class="rate-pct" class:none={count === 0}>
+												{count === 0 ? 'no cards' : dropPct(pack.id, r.key).toFixed(1) + '%'}
+											</span>
+										</div>
+									{/each}
+								</fieldset>
+
 								<div class="row">
 									<label>
 										<span>Replace front art (optional)</span>
@@ -550,6 +637,46 @@
 		gap: 0.5rem;
 	}
 
+	.rates {
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 0.75rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		margin: 0;
+	}
+
+	.rates legend {
+		font-size: 0.8rem;
+		color: var(--muted);
+		padding: 0 0.35rem;
+	}
+
+	.rate-row {
+		display: grid;
+		grid-template-columns: 1fr 6rem 4rem;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.rate-name {
+		color: var(--rc);
+		font-size: 0.9rem;
+	}
+
+	.rate-pct {
+		font-size: 0.85rem;
+		color: var(--text);
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.rate-pct.none {
+		color: var(--muted);
+		font-style: italic;
+	}
+
 	/* Grouping: one section per set, rarity buckets within. */
 	.pack-group {
 		margin-bottom: 1.5rem;
@@ -604,6 +731,61 @@
 		gap: 0.15rem;
 		margin-right: auto;
 		min-width: 0;
+	}
+
+	.name-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.badge {
+		padding: 0.05rem 0.5rem;
+		border-radius: 999px;
+		border: 1px solid var(--border);
+		background: var(--surface-alt);
+		color: var(--muted);
+		font-size: 0.7rem;
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		letter-spacing: 0.5px;
+		text-transform: uppercase;
+	}
+
+	.badge.live {
+		border-color: var(--success);
+		color: var(--success);
+		background: var(--success-bg);
+	}
+
+	.head-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		flex: 0 0 auto;
+	}
+
+	.head-actions form {
+		margin: 0;
+	}
+
+	button.toggle {
+		border-color: var(--accent);
+		color: var(--accent);
+		font-size: 0.9rem;
+	}
+
+	button.toggle:hover {
+		background: var(--accent-soft);
+	}
+
+	label.check {
+		flex-direction: row;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	label.check input {
+		width: auto;
 	}
 
 	.edit-block {

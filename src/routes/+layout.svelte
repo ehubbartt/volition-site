@@ -19,6 +19,9 @@
 		{#if data.user}
 			<nav class="primary-nav">
 				<a href="/events" class:active={path.startsWith('/events')}>Events</a>
+				{#if data.isCardTester}
+					<a href="/gamba" class:active={path.startsWith('/gamba')}>Gamba</a>
+				{/if}
 				{#if data.isAdmin || data.isCardTester}
 					<a href="/admin" class:active={path.startsWith('/admin')}>Admin</a>
 				{/if}

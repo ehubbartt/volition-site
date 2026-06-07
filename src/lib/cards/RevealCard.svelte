@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { RARITY_BY_KEY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
+	import { RARITY_BY_KEY, DEFAULT_RARITY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
 
 	let { card }: { card: Card } = $props();
 
 	let revealed = $state(false);
-	let rarity = $derived(RARITY_BY_KEY[card.rarity] ?? RARITY_BY_KEY.common);
+	let rarity = $derived(RARITY_BY_KEY[card.rarity] ?? RARITY_BY_KEY[DEFAULT_RARITY]);
 	let front = $derived(card.front_url || DEFAULT_CARD_BACK);
 	let back = $derived(card.back_url || DEFAULT_CARD_BACK);
 </script>

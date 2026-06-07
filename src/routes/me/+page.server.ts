@@ -4,12 +4,14 @@ import { db } from '$lib/server/db';
 import { isValidClan, CLAN_OPTIONS } from '$lib/clans';
 import { isValidAccountType, ACCOUNT_TYPES } from '$lib/accountTypes';
 import { getPlayerVp, getWalletItems } from '$lib/server/playerStats';
-import { isValidRarity, type UserCard, type CardAbility, type CardRarity } from '$lib/cards/rarity';
+import { isValidRarity, DEFAULT_RARITY, type UserCard, type CardAbility, type CardRarity } from '$lib/cards/rarity';
+import { isValidFinish, type CardFinish } from '$lib/cards/finishes';
 import type { UserPack } from '$lib/cards/packs';
 import type { Actions, PageServerLoad } from './$types';
 
 interface UserCardRow {
 	quantity: number;
+	finish: string;
 	vs_cards: {
 		id: string;
 		name: string;
@@ -42,7 +44,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		getWalletItems(locals.user.discord_id),
 		db()
 			.from('vs_user_cards')
-			.select('quantity, vs_cards(id, name, level, rarity, abilities, flavor, front_url, back_url)')
+			.select('quantity, finish, vs_cards(id, name, level, rarity, abilities, flavor, front_url, back_url)')
 			.eq('user_id', locals.user.id)
 			.order('first_acquired_at', { ascending: false }),
 		db()
@@ -60,12 +62,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 				id: c.id,
 				name: c.name,
 				level: c.level,
-				rarity: (isValidRarity(c.rarity) ? c.rarity : 'common') as CardRarity,
+				rarity: (isValidRarity(c.rarity) ? c.rarity : DEFAULT_RARITY) as CardRarity,
 				abilities: c.abilities ?? [],
 				flavor: c.flavor,
 				front_url: c.front_url,
 				back_url: c.back_url,
-				quantity: row.quantity
+				quantity: row.quantity,
+				finish: (isValidFinish(row.finish) ? row.finish : 'normal') as CardFinish
 			};
 		});
 

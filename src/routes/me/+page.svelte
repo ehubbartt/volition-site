@@ -3,6 +3,8 @@
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import CardThumb from '$lib/cards/CardThumb.svelte';
 	import PackThumb from '$lib/cards/PackThumb.svelte';
+	import CardViewer from '$lib/cards/CardViewer.svelte';
+	import type { UserCard } from '$lib/cards/rarity';
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
 
@@ -10,6 +12,9 @@
 
 	type Tab = 'profile' | 'packs' | 'collection' | 'wallet';
 	let tab = $state<Tab>('profile');
+
+	// Collection card the viewer modal is showing (null = closed).
+	let viewing = $state<UserCard | null>(null);
 
 	// Packs + Collection are part of the in-progress card game — only card testers
 	// see them (gated by the CARD_TESTER_DISCORD_IDS allow-list).
@@ -149,8 +154,10 @@
 				</div>
 			{:else}
 				<div class="card-grid">
-					{#each data.collection as card (card.id)}
-						<CardThumb {card} quantity={card.quantity} />
+					{#each data.collection as card (card.id + '-' + card.finish)}
+						<button type="button" class="thumb-btn" onclick={() => (viewing = card)}>
+							<CardThumb {card} quantity={card.quantity} finish={card.finish} />
+						</button>
 					{/each}
 				</div>
 			{/if}
@@ -175,6 +182,10 @@
 		</div>
 	{/if}
 </section>
+
+{#if viewing}
+	<CardViewer card={viewing} onClose={() => (viewing = null)} />
+{/if}
 
 <style>
 	.profile {
@@ -425,6 +436,17 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
 		gap: 1rem;
+	}
+
+	.thumb-btn {
+		display: block;
+		padding: 0;
+		margin: 0;
+		min-height: auto;
+		background: none;
+		border: none;
+		text-align: inherit;
+		cursor: pointer;
 	}
 
 	.empty {

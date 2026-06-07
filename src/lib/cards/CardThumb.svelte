@@ -1,12 +1,16 @@
 <script lang="ts">
-	import { RARITY_BY_KEY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
+	import { RARITY_BY_KEY, DEFAULT_RARITY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
+	import { FINISH_BY_KEY, type CardFinish } from '$lib/cards/finishes';
 
 	let {
 		card,
-		quantity = null
-	}: { card: Card; quantity?: number | null } = $props();
+		quantity = null,
+		finish = null
+	}: { card: Card; quantity?: number | null; finish?: CardFinish | null } = $props();
 
-	let rarity = $derived(RARITY_BY_KEY[card.rarity] ?? RARITY_BY_KEY.common);
+	let rarity = $derived(RARITY_BY_KEY[card.rarity] ?? RARITY_BY_KEY[DEFAULT_RARITY]);
+	let finishMeta = $derived(finish ? FINISH_BY_KEY[finish] : null);
+	let isHolo = $derived(!!finishMeta && finishMeta.key !== 'normal');
 	let front = $derived(card.front_url || DEFAULT_CARD_BACK);
 	let back = $derived(card.back_url || DEFAULT_CARD_BACK);
 </script>
@@ -23,6 +27,9 @@
 		</div>
 		{#if quantity && quantity > 1}
 			<span class="qty">×{quantity}</span>
+		{/if}
+		{#if isHolo}
+			<span class="finish-badge">{finishMeta?.label}</span>
 		{/if}
 	</div>
 	<div class="info">
@@ -103,6 +110,21 @@
 		font-size: 0.8rem;
 		color: var(--text);
 		text-shadow: var(--ts);
+	}
+
+	.finish-badge {
+		position: absolute;
+		top: 0.35rem;
+		left: 0.35rem;
+		z-index: 1;
+		padding: 0.08rem 0.4rem;
+		background: rgba(20, 8, 30, 0.85);
+		border: 1px solid #b06bff;
+		border-radius: 999px;
+		font-size: 0.65rem;
+		color: #e7d3ff;
+		text-shadow: var(--ts);
+		white-space: nowrap;
 	}
 
 	.info {

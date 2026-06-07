@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isCardTester } from '$lib/server/auth';
 import { uploadCardFaces, removeCardArt } from '$lib/server/cardArt';
-import { isValidRarity, type CardAbility } from '$lib/cards/rarity';
+import { isValidRarity, RARITIES, DEFAULT_RARITY, type CardAbility } from '$lib/cards/rarity';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -19,7 +19,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 			.order('created_at', { ascending: false }),
 		db()
 			.from('vs_card_packs')
-			.select('id, name, description, cost_vp, front_path, front_url, back_path, back_url, created_at')
+			.select(
+				'id, name, description, cost_vp, cards_per_pack, released, rarity_weights, front_path, front_url, back_path, back_url, created_at'
+			)
 			.order('created_at', { ascending: false })
 	]);
 
@@ -55,7 +57,8 @@ function parseAbilities(form: FormData): CardAbility[] {
 const packSchema = z.object({
 	name: z.string().trim().min(1, 'Name is required').max(120),
 	description: z.string().trim().max(2000).optional().nullable(),
-	cost_vp: z.coerce.number().int().min(0).max(10_000_000)
+	cost_vp: z.coerce.number().int().min(0).max(10_000_000),
+	cards_per_pack: z.coerce.number().int().min(1).max(50)
 });
 
 export const actions: Actions = {
@@ -66,7 +69,7 @@ export const actions: Actions = {
 		const parsed = cardSchema.safeParse({
 			name: form.get('name'),
 			level: form.get('level') || null,
-			rarity: form.get('rarity') ?? 'common',
+			rarity: form.get('rarity') ?? DEFAULT_RARITY,
 			pack_id: form.get('pack_id') ?? '',
 			flavor: form.get('flavor') || null
 		});
@@ -120,7 +123,7 @@ export const actions: Actions = {
 		const parsed = cardSchema.safeParse({
 			name: form.get('name'),
 			level: form.get('level') || null,
-			rarity: form.get('rarity') ?? 'common',
+			rarity: form.get('rarity') ?? DEFAULT_RARITY,
 			pack_id: form.get('pack_id') ?? '',
 			flavor: form.get('flavor') || null
 		});
@@ -196,7 +199,8 @@ export const actions: Actions = {
 		const parsed = packSchema.safeParse({
 			name: form.get('name'),
 			description: form.get('description') || null,
-			cost_vp: form.get('cost_vp') ?? '0'
+			cost_vp: form.get('cost_vp') ?? '0',
+			cards_per_pack: form.get('cards_per_pack') ?? '5'
 		});
 		if (!parsed.success) {
 			return fail(400, { error: parsed.error.issues[0]?.message ?? 'Invalid input' });
@@ -207,7 +211,9 @@ export const actions: Actions = {
 			.insert({
 				name: parsed.data.name,
 				description: parsed.data.description,
-				cost_vp: parsed.data.cost_vp
+				cost_vp: parsed.data.cost_vp,
+				cards_per_pack: parsed.data.cards_per_pack,
+				released: form.get('released') === 'on'
 			})
 			.select('id')
 			.single();
@@ -242,16 +248,26 @@ export const actions: Actions = {
 		const parsed = packSchema.safeParse({
 			name: form.get('name'),
 			description: form.get('description') || null,
-			cost_vp: form.get('cost_vp') ?? '0'
+			cost_vp: form.get('cost_vp') ?? '0',
+			cards_per_pack: form.get('cards_per_pack') ?? '5'
 		});
 		if (!parsed.success) {
 			return fail(400, { error: parsed.error.issues[0]?.message ?? 'Invalid input' });
+		}
+
+		// Per-rarity drop weights (relative; normalized at roll time).
+		const rarityWeights: Record<string, number> = {};
+		for (const r of RARITIES) {
+			const v = Number(form.get(`weight_${r.key}`) ?? 0);
+			rarityWeights[r.key] = Number.isFinite(v) && v > 0 ? v : 0;
 		}
 
 		const update: Record<string, unknown> = {
 			name: parsed.data.name,
 			description: parsed.data.description,
 			cost_vp: parsed.data.cost_vp,
+			cards_per_pack: parsed.data.cards_per_pack,
+			rarity_weights: rarityWeights,
 			updated_at: new Date().toISOString()
 		};
 
@@ -277,6 +293,30 @@ export const actions: Actions = {
 		if (faces.update.back_path && prev?.back_path && prev.back_path !== faces.update.back_path) {
 			await removeCardArt(prev.back_path as string);
 		}
+
+		return { ok: true };
+	},
+
+	toggleRelease: async ({ locals, request }) => {
+		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
+
+		const form = await request.formData();
+		const id = form.get('id')?.toString();
+		if (!id) return fail(400, { error: 'Missing id' });
+
+		const { data: prev, error: readErr } = await db()
+			.from('vs_card_packs')
+			.select('released')
+			.eq('id', id)
+			.maybeSingle();
+		if (readErr) return fail(500, { error: readErr.message });
+		if (!prev) return fail(404, { error: 'Pack not found' });
+
+		const { error: updErr } = await db()
+			.from('vs_card_packs')
+			.update({ released: !prev.released, updated_at: new Date().toISOString() })
+			.eq('id', id);
+		if (updErr) return fail(500, { error: updErr.message });
 
 		return { ok: true };
 	},

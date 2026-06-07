@@ -1,7 +1,7 @@
 import { redirect, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isCardTester } from '$lib/server/auth';
-import { isValidRarity, type Card, type CardAbility, type CardRarity } from '$lib/cards/rarity';
+import { isValidRarity, DEFAULT_RARITY, type Card, type CardAbility, type CardRarity } from '$lib/cards/rarity';
 import type { PageServerLoad } from './$types';
 
 interface CardRow {
@@ -48,7 +48,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			id: c.id,
 			name: c.name,
 			level: c.level,
-			rarity: (isValidRarity(c.rarity) ? c.rarity : 'common') as CardRarity,
+			rarity: (isValidRarity(c.rarity) ? c.rarity : DEFAULT_RARITY) as CardRarity,
 			abilities: c.abilities ?? [],
 			flavor: c.flavor,
 			front_url: c.front_url,

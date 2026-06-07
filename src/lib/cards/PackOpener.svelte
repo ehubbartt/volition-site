@@ -4,8 +4,15 @@
   import {
     DEFAULT_CARD_BACK,
     RARITY_BY_KEY,
+    DEFAULT_RARITY,
     type Card,
   } from "$lib/cards/rarity";
+  import {
+    FINISH_BY_KEY,
+    HOLO_FINISHES,
+    type CardFinish,
+    type FinishMeta,
+  } from "$lib/cards/finishes";
   import { DEFAULT_PACK_FRONT, DEFAULT_PACK_BACK } from "$lib/cards/packs";
 
   interface OpenerPack {
@@ -14,15 +21,11 @@
     back_url: string | null;
   }
 
-  // Four holo tiers, applied progressively (card 1 -> tier 1, etc., then cycling)
-  // so each look can be compared. Each tier has its own pattern; `holo` = rainbow
-  // strength, `sheen` = moving glare. Kept subtle on purpose.
-  const HOLO_LEVELS = [
-    { label: "Holo I · Stripe", holo: 0.03, sheen: 0.005, pattern: 0 },
-    { label: "Holo II · Sparkle", holo: 0.04, sheen: 0.005, pattern: 1 },
-    { label: "Holo III · Wave", holo: 0.014, sheen: 0.006, pattern: 2 },
-    { label: "Holo IV · Prism", holo: 0.02, sheen: 0.008, pattern: 3 },
-  ];
+  // Each revealed card uses its OWN rolled finish (c.finish). When a card has no
+  // finish (e.g. the pack tester, which doesn't roll), we cycle the holo looks so
+  // they can be compared — that's what HOLO_DEMO is for. Finish metadata
+  // (holo/sheen/pattern) is shared in $lib/cards/finishes.
+  const HOLO_DEMO = HOLO_FINISHES;
 
   const HOLO_VERT = `
 		varying vec2 vUv;
@@ -138,11 +141,14 @@
 		}
 	`;
 
+  // Cards may carry a rolled `finish` (the gamba open flow); without one (the
+  // tester) the opener cycles the holo looks for comparison.
+  type OpenerCard = Card & { finish?: CardFinish };
   let {
     pack,
     cards,
     onClose,
-  }: { pack: OpenerPack; cards: Card[]; onClose: () => void } = $props();
+  }: { pack: OpenerPack; cards: OpenerCard[]; onClose: () => void } = $props();
 
   let canvas: HTMLCanvasElement;
   let stage = $state<"pack" | "cards" | "grid" | "inspect">("pack");
@@ -158,7 +164,7 @@
   let currentCard = $derived(cards[Math.min(focusIndex, total - 1)] ?? null);
   let currentRarity = $derived(
     currentCard
-      ? (RARITY_BY_KEY[currentCard.rarity] ?? RARITY_BY_KEY.common)
+      ? (RARITY_BY_KEY[currentCard.rarity] ?? RARITY_BY_KEY[DEFAULT_RARITY])
       : null,
   );
   let currentHolo = $derived(holoLabels[focusIndex] ?? "");
@@ -753,7 +759,7 @@
       function makeCardMat(
         url: string | null,
         fallback: string,
-        level: (typeof HOLO_LEVELS)[number],
+        level: FinishMeta,
       ) {
         const mat = new THREE.ShaderMaterial({
           uniforms: {
@@ -788,7 +794,10 @@
       const backMats: THREE.MeshBasicMaterial[] = [];
       const flipped: boolean[] = cards.map(() => false); // per-card flip state
       const cardMeshes: THREE.Mesh[] = cards.map((c, i) => {
-        const level = HOLO_LEVELS[i % HOLO_LEVELS.length];
+        // Each card shows its OWN rolled finish; with none (tester) cycle the looks.
+        const level: FinishMeta = c.finish
+          ? FINISH_BY_KEY[c.finish]
+          : HOLO_DEMO[i % HOLO_DEMO.length];
         labels.push(level.label);
         const m = new THREE.Mesh(
           cardGeo,
@@ -827,7 +836,7 @@
         m.add(back);
         backMats.push(backMat);
 
-        if (level.pattern === HOLO_LEVELS.length - 1) {
+        if (level.pattern === 3) {
           const ovMat = new THREE.ShaderMaterial({
             uniforms: { uOpacity: { value: 0 } },
             vertexShader: HOLO_VERT,
