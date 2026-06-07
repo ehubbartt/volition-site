@@ -3,7 +3,7 @@
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import CardThumb from '$lib/cards/CardThumb.svelte';
 	import PackThumb from '$lib/cards/PackThumb.svelte';
-	import CardViewer from '$lib/cards/CardViewer.svelte';
+	import CardInspector3D from '$lib/cards/CardInspector3D.svelte';
 	import type { UserCard } from '$lib/cards/rarity';
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
@@ -156,7 +156,7 @@
 				<div class="card-grid">
 					{#each data.collection as card (card.id + '-' + card.finish)}
 						<button type="button" class="thumb-btn" onclick={() => (viewing = card)}>
-							<CardThumb {card} quantity={card.quantity} finish={card.finish} />
+							<CardThumb {card} quantity={card.quantity} finish={card.finish} flip={false} />
 						</button>
 					{/each}
 				</div>
@@ -184,7 +184,7 @@
 </section>
 
 {#if viewing}
-	<CardViewer card={viewing} onClose={() => (viewing = null)} />
+	<CardInspector3D card={viewing} onClose={() => (viewing = null)} />
 {/if}
 
 <style>

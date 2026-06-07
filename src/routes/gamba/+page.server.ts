@@ -3,7 +3,7 @@ import { db } from '$lib/server/db';
 import { isCardTester } from '$lib/server/auth';
 import { getPlayerVp, spendPlayerVp, grantPlayerVp } from '$lib/server/playerStats';
 import { grantCards, makeRarityRoller, type CardGrant } from '$lib/server/gamba';
-import { isValidRarity, DEFAULT_RARITY, type Card, type CardAbility, type CardRarity } from '$lib/cards/rarity';
+import { isValidRarity, RARITIES, DEFAULT_RARITY, type Card, type CardAbility, type CardRarity } from '$lib/cards/rarity';
 import { rollFinish, type CardFinish } from '$lib/cards/finishes';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -89,6 +89,13 @@ export const actions: Actions = {
 		for (let i = 0; i < n; i++) {
 			rolled.push({ card: rollCard(), finish: rollFinish() });
 		}
+
+		// Reveal in increasing rarity — the rarest pulls land at the END of the open
+		// (the reveal order follows this array), so the open builds to a climax.
+		const rarityRank = new Map(RARITIES.map((r, i) => [r.key as string, i]));
+		rolled.sort(
+			(a, b) => (rarityRank.get(a.card.rarity) ?? 0) - (rarityRank.get(b.card.rarity) ?? 0)
+		);
 
 		// 1) Spend VP (optimistic — only if affordable and unchanged).
 		const spend = await spendPlayerVp(locals.user.discord_id, locals.user.rsn, cost);

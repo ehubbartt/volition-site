@@ -202,10 +202,13 @@
       // One shared world-units-per-pixel scale: the pack is anchored to ~3.5 wide
       // and the cards are sized from THEIR pixels at the same scale, so card art
       // placed (centred) inside the pack art lines up 1:1 in 3D.
-      const packImg = await loadDims(pack.front_url, DEFAULT_PACK_FRONT);
-      const cardImg = cards[0]
-        ? await loadDims(cards[0].front_url, DEFAULT_CARD_BACK)
-        : { w: 5, h: 7 };
+      // Load both dimensions in PARALLEL (not one after the other) so the opener
+      // becomes interactive sooner — the sequential awaits added up to ~1s on a
+      // cold load before anything rendered or the rip button worked.
+      const [packImg, cardImg] = await Promise.all([
+        loadDims(pack.front_url, DEFAULT_PACK_FRONT),
+        cards[0] ? loadDims(cards[0].front_url, DEFAULT_CARD_BACK) : Promise.resolve({ w: 5, h: 7 }),
+      ]);
       if (disposed) return;
       const SCALE = 3.5 / packImg.w;
       const PACK_W = packImg.w * SCALE;
@@ -232,7 +235,10 @@
       const bMargin = (PACK_W - CARD_W) / 2 / PACK_W; // side margin = card width
       const BULGE_TAPER = 0.04;
       const TEAR_BASE = Math.min(0.96, bTop + 0.03); // crimp/tear above the cards
-      const RIP_DISTANCE = 750; // px of horizontal swipe to fully rip
+      // px of horizontal swipe to fully rip. Scaled to the viewport so a narrow
+      // (mobile) screen doesn't need an impossible ~2-screen-width swipe — there
+      // the tear tracks the finger ~1:1 like it does on desktop.
+      const RIP_DISTANCE = Math.min(750, window.innerWidth * 0.9);
       const tearWorldY = (TEAR_BASE - 0.5) * PACK_H;
 
       const scene = new THREE.Scene();
@@ -793,6 +799,8 @@
       const edgeMats: THREE.MeshStandardMaterial[] = [];
       const backMats: THREE.MeshBasicMaterial[] = [];
       const flipped: boolean[] = cards.map(() => false); // per-card flip state
+      // the summary grid always shows fronts, so clear any flips when entering it
+      const resetFlips = () => flipped.fill(false);
       const cardMeshes: THREE.Mesh[] = cards.map((c, i) => {
         // Each card shows its OWN rolled finish; with none (tester) cycle the looks.
         const level: FinishMeta = c.finish
@@ -884,6 +892,7 @@
 
       function goToIndex(i: number) {
         if (i >= total) {
+          resetFlips();
           stage = "grid"; // past the last card → summary grid
           return;
         }
@@ -894,10 +903,14 @@
         if (stage === "pack") {
           committing = true;
           ripTarget = 1;
+          rip = Math.max(rip, 0.08); // tear is visible the instant you click
         }
       };
       goBackToGrid = () => {
-        if (stage === "inspect") stage = "grid";
+        if (stage === "inspect") {
+          resetFlips();
+          stage = "grid";
+        }
       };
 
       function onDown(e: PointerEvent) {
@@ -935,8 +948,9 @@
           }
         } else if (stage === "cards") {
           dragDX += dx;
-          tiltY = THREE.MathUtils.clamp(tiltY + dx * 0.004, -0.3, 0.3);
-          tiltX = THREE.MathUtils.clamp(tiltX + dy * 0.004, -0.28, 0.28);
+          // drag turns the stack (to see its side) — wider yaw, no sideways travel
+          tiltY = THREE.MathUtils.clamp(tiltY + dx * 0.006, -0.6, 0.6);
+          tiltX = THREE.MathUtils.clamp(tiltX + dy * 0.005, -0.4, 0.4);
         } else if (stage === "inspect") {
           // free-rotate the inspected card
           tiltY += dx * 0.01;
@@ -973,11 +987,13 @@
         if (stage === "cards") {
           if (tap && currentIndex < total) {
             flipped[currentIndex] = !flipped[currentIndex]; // tap flips the card
-          } else if (dragDX < -90) {
-            if (currentIndex >= total - 1)
+          } else if (dragDX < -130) {
+            if (currentIndex >= total - 1) {
+              resetFlips();
               stage = "grid"; // swiped past the last card → summary grid
+            }
             else goToIndex(currentIndex + 1);
-          } else if (dragDX > 90 && currentIndex > 0) {
+          } else if (dragDX > 130 && currentIndex > 0) {
             goToIndex(currentIndex - 1);
           }
         } else if (stage === "grid" && tap) {
@@ -1223,12 +1239,14 @@
           const DECK_Y = 0.4;
           const inspectRX = pointerY * 0.14 + tiltX;
           const inspectRY = pointerX * 0.14 + tiltY;
-          cardsGroup.position.x = lerp(cardsGroup.position.x, 0, 0.1);
+          // inspecting TURNS the whole stack (revealing its side/edge) rather than
+          // sliding it horizontally — the group stays centred and just rotates
+          cardsGroup.position.x = lerp(cardsGroup.position.x, 0, 0.15);
           cardsGroup.position.y = lerp(cardsGroup.position.y, DECK_Y, 0.1);
           cardsGroup.position.z = lerp(cardsGroup.position.z, 0, 0.1);
           cardsGroup.rotation.x = lerp(cardsGroup.rotation.x, inspectRX, 0.15);
           cardsGroup.rotation.y = lerp(cardsGroup.rotation.y, inspectRY, 0.15);
-          cardsGroup.rotation.z = lerp(cardsGroup.rotation.z, 0, 0.12);
+          cardsGroup.rotation.z = lerp(cardsGroup.rotation.z, 0, 0.15);
           for (let i = 0; i < cardMeshes.length; i++) {
             const m = cardMeshes[i];
             const rel = i - currentIndex;
@@ -1262,9 +1280,8 @@
               ry = flipped[i] ? Math.PI : 0; // tapped cards show their back
               if (rel === 0) {
                 tz = 0.06; // top card sits just in front of the stack
-                tx = dragDX * 0.01; // slide for the swipe-away gesture
-                rz = -dragDX * 0.0012;
-                // inspection rotation is applied to the whole group, not here
+                // swipe slide/roll + inspection rotation are applied to the whole
+                // group (above) so the stack stays together as one unit
               }
             }
             m.position.x = lerp(m.position.x, tx, 0.14);

@@ -137,7 +137,7 @@
 	<li class="card">
 		<div class="item-head">
 			<div class="thumb">
-				<CardThumb {card} />
+				<CardThumb {card} flip={false} />
 			</div>
 			<div class="head-meta">
 				<strong>{card.name}</strong>
@@ -236,7 +236,7 @@
 					{#each rg.cards as raw (raw.id)}
 						{@const card = toCard(raw)}
 						<li class="mini-card">
-							<div class="mini-thumb"><CardThumb {card} /></div>
+							<div class="mini-thumb"><CardThumb {card} flip={false} /></div>
 							<div class="mini-meta">
 								<span class="mini-name">{card.name}</span>
 								{#if card.level}<span class="muted small">lvl {card.level}</span>{/if}
@@ -405,7 +405,7 @@
 					<li class="card">
 						<div class="item-head">
 							<div class="thumb">
-								<PackThumb {pack} />
+								<PackThumb {pack} flip={false} />
 							</div>
 							<div class="head-meta">
 								<div class="name-row">

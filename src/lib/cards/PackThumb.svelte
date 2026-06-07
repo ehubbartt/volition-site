@@ -3,14 +3,15 @@
 
 	let {
 		pack,
-		quantity = null
-	}: { pack: CardPack; quantity?: number | null } = $props();
+		quantity = null,
+		flip = true
+	}: { pack: CardPack; quantity?: number | null; flip?: boolean } = $props();
 
 	let front = $derived(pack.front_url || DEFAULT_PACK_FRONT);
 	let back = $derived(pack.back_url || DEFAULT_PACK_BACK);
 </script>
 
-<div class="pack-thumb" title={pack.name}>
+<div class="pack-thumb" class:no-flip={!flip} title={pack.name}>
 	<div class="art">
 		<div class="flip">
 			<div class="face front">
@@ -69,6 +70,10 @@
 
 	.pack-thumb:hover .flip {
 		transform: rotateY(180deg);
+	}
+
+	.pack-thumb.no-flip:hover .flip {
+		transform: none;
 	}
 
 	.face {

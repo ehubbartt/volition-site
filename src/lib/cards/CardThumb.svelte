@@ -5,8 +5,9 @@
 	let {
 		card,
 		quantity = null,
-		finish = null
-	}: { card: Card; quantity?: number | null; finish?: CardFinish | null } = $props();
+		finish = null,
+		flip = true
+	}: { card: Card; quantity?: number | null; finish?: CardFinish | null; flip?: boolean } = $props();
 
 	let rarity = $derived(RARITY_BY_KEY[card.rarity] ?? RARITY_BY_KEY[DEFAULT_RARITY]);
 	let finishMeta = $derived(finish ? FINISH_BY_KEY[finish] : null);
@@ -15,7 +16,7 @@
 	let back = $derived(card.back_url || DEFAULT_CARD_BACK);
 </script>
 
-<div class="card-thumb" style="--rarity: {rarity.color}" title={card.name}>
+<div class="card-thumb" class:no-flip={!flip} style="--rarity: {rarity.color}" title={card.name}>
 	<div class="art">
 		<div class="flip">
 			<div class="face front">
@@ -75,6 +76,10 @@
 
 	.card-thumb:hover .flip {
 		transform: rotateY(180deg);
+	}
+
+	.card-thumb.no-flip:hover .flip {
+		transform: none;
 	}
 
 	.face {
