@@ -784,6 +784,16 @@
           t.colorSpace = THREE.SRGBColorSpace;
           mat.uniforms.map.value = t;
           mat.needsUpdate = true;
+          // Upload to the GPU NOW (while the pack idles) instead of in the frame
+          // the rip first reveals the card — uploading several large card images
+          // at once was the freeze right after clicking "Rip open".
+          if (!disposed) {
+            try {
+              renderer.initTexture(t);
+            } catch {
+              /* perf hint only */
+            }
+          }
         };
         loader.load(url || fallback, apply, undefined, () =>
           loader.load(fallback, apply),
@@ -834,6 +844,13 @@
           t.colorSpace = THREE.SRGBColorSpace;
           backMat.map = t;
           backMat.needsUpdate = true;
+          if (!disposed) {
+            try {
+              renderer.initTexture(t);
+            } catch {
+              /* perf hint only */
+            }
+          }
         };
         loader.load(c.back_url || DEFAULT_CARD_BACK, applyBack, undefined, () =>
           loader.load(DEFAULT_CARD_BACK, applyBack),
