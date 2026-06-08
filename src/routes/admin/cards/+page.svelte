@@ -3,11 +3,13 @@
 	import { enhance } from '$app/forms';
 	import CardThumb from '$lib/cards/CardThumb.svelte';
 	import PackThumb from '$lib/cards/PackThumb.svelte';
+	import CardInspector3D from '$lib/cards/CardInspector3D.svelte';
 	import {
 		RARITIES,
 		RARITY_BY_KEY,
 		DEFAULT_RARITY,
 		isValidRarity,
+		toCardLayers,
 		type Card,
 		type CardAbility,
 		type CardRarity
@@ -18,6 +20,10 @@
 
 	type Tab = 'cards' | 'packs';
 	let tab = $state<Tab>('cards');
+
+	// Click a card thumbnail to preview it in the full 3D inspector (no need to own
+	// or open it). Finish is unset here, so it shows the base card (no holo).
+	let inspecting = $state<Card | null>(null);
 
 	// Blank ability rows appended to each form so admins can add more.
 	const BLANK_ROWS = 3;
@@ -37,7 +43,9 @@
 			abilities: (c.abilities ?? []) as CardAbility[],
 			flavor: c.flavor,
 			front_url: c.front_url,
-			back_url: c.back_url
+			back_url: c.back_url,
+			layers: toCardLayers((c as { layers?: unknown }).layers),
+			full_art: !!(c as { full_art?: boolean }).full_art
 		};
 	}
 
@@ -63,6 +71,12 @@
 
 	function cardRarity(c: RawCard): CardRarity {
 		return isValidRarity(c.rarity) ? c.rarity : DEFAULT_RARITY;
+	}
+
+	// How many 3D depth layers a card has (jsonb array on the row).
+	function layerCount(c: RawCard): number {
+		const l = (c as { layers?: unknown }).layers;
+		return Array.isArray(l) ? l.length : 0;
 	}
 
 	function cardsInPack(packId: string): RawCard[] {
@@ -91,40 +105,91 @@
 		return groups;
 	});
 
-	// Editable per-pack rarity drop weights (relative). Seeded from the server and
-	// re-seeded when the set of packs changes (e.g. after a create/delete).
-	function seedWeights(): Record<string, Record<string, number>> {
-		const out: Record<string, Record<string, number>> = {};
-		for (const p of data.packs) {
-			const w = (p.rarity_weights ?? {}) as Record<string, number>;
-			out[p.id] = {};
-			for (const r of RARITIES) out[p.id][r.key] = Number(w[r.key] ?? 0);
-		}
-		return out;
-	}
-	let weights = $state(seedWeights());
-	let lastPackKey = '';
-	$effect(() => {
-		const key = data.packs.map((p) => p.id).join(',');
-		if (key !== lastPackKey) {
-			lastPackKey = key;
-			weights = seedWeights();
-		}
-	});
-
 	function rarityCount(packId: string, key: string): number {
 		return cardsInPack(packId).filter((c) => cardRarity(c) === key).length;
 	}
 
-	// Live drop % = a rarity's weight ÷ total weight of rarities that have cards.
-	function dropPct(packId: string, key: string): number {
+	// Only rarities that actually have cards in the set can be rolled, so the
+	// per-slot editor only shows those (keeps the grid compact).
+	function presentRarities(packId: string) {
+		return RARITIES.filter((r) => rarityCount(packId, r.key) > 0);
+	}
+
+	// Editable per-slot rarity drop weights (relative). slotW[packId][slot][rarity].
+	// Each slot is one card in the open; the number of slots = the pack's "Cards
+	// per open". Seeded from the server's slot_weights; any slot the server hasn't
+	// stored yet falls back to the pack's legacy per-pack rarity_weights.
+	function blankSlotFor(p: RawPack): Record<string, number> {
+		const legacy = (p.rarity_weights ?? {}) as Record<string, number>;
+		const slot: Record<string, number> = {};
+		for (const r of RARITIES) slot[r.key] = Number(legacy[r.key] ?? 0);
+		return slot;
+	}
+
+	function seedSlotW(): Record<string, Record<string, number>[]> {
+		const out: Record<string, Record<string, number>[]> = {};
+		for (const p of data.packs) {
+			const saved = (Array.isArray(p.slot_weights) ? p.slot_weights : []) as Record<string, number>[];
+			const legacy = (p.rarity_weights ?? {}) as Record<string, number>;
+			const count = Math.max(1, Number(p.cards_per_pack ?? 5));
+			const arr: Record<string, number>[] = [];
+			for (let i = 0; i < count; i++) {
+				// A stored slot wins outright (missing keys = 0); only an entirely
+				// unconfigured slot falls back to the legacy per-pack weights.
+				const base = saved[i] ?? legacy;
+				const slot: Record<string, number> = {};
+				for (const r of RARITIES) slot[r.key] = Number(base?.[r.key] ?? 0);
+				arr.push(slot);
+			}
+			out[p.id] = arr;
+		}
+		return out;
+	}
+
+	function seedSlotCount(): Record<string, number> {
+		const out: Record<string, number> = {};
+		for (const p of data.packs) out[p.id] = Math.max(1, Number(p.cards_per_pack ?? 5));
+		return out;
+	}
+
+	let slotW = $state(seedSlotW());
+	let slotCount = $state(seedSlotCount());
+
+	// Reseed when the server data changes (create/delete, or a save that updated
+	// cards_per_pack / slot_weights). Keyed on the fields the editor mirrors.
+	let lastPackKey = '';
+	$effect(() => {
+		const key = JSON.stringify(data.packs.map((p) => [p.id, p.cards_per_pack, p.slot_weights]));
+		if (key !== lastPackKey) {
+			lastPackKey = key;
+			slotW = seedSlotW();
+			slotCount = seedSlotCount();
+		}
+	});
+
+	// Grow each pack's slot array to match its live "Cards per open" input so new
+	// slots get editable rows immediately (slots past the count are kept but
+	// ignored on save).
+	$effect(() => {
+		for (const p of data.packs) {
+			const need = Math.max(1, Number(slotCount[p.id] ?? 1));
+			const arr = (slotW[p.id] ??= []);
+			while (arr.length < need) arr.push(blankSlotFor(p));
+		}
+	});
+
+	// Live drop % for a rarity within one slot = its weight ÷ total weight of the
+	// rarities present in the set, for that slot.
+	function slotPct(packId: string, slot: number, key: string): number {
 		if (rarityCount(packId, key) === 0) return 0;
+		const s = slotW[packId]?.[slot];
+		if (!s) return 0;
 		let total = 0;
 		for (const r of RARITIES) {
-			if (rarityCount(packId, r.key) > 0) total += Math.max(0, weights[packId]?.[r.key] ?? 0);
+			if (rarityCount(packId, r.key) > 0) total += Math.max(0, s[r.key] ?? 0);
 		}
 		if (total <= 0) return 0;
-		return (Math.max(0, weights[packId]?.[key] ?? 0) / total) * 100;
+		return (Math.max(0, s[key] ?? 0) / total) * 100;
 	}
 </script>
 
@@ -136,15 +201,21 @@
 	{@const card = toCard(raw)}
 	<li class="card">
 		<div class="item-head">
-			<div class="thumb">
+			<button type="button" class="thumb thumb-btn" onclick={() => (inspecting = card)} title="Inspect in 3D">
 				<CardThumb {card} flip={false} />
-			</div>
+			</button>
 			<div class="head-meta">
 				<strong>{card.name}</strong>
 				<span class="muted">{card.rarity}{#if card.level} · lvl {card.level}{/if}</span>
 				<span class="muted small">Set: {packName(raw.pack_id)}</span>
 				{#if card.abilities.length}
 					<span class="muted small">{card.abilities.length} abilit{card.abilities.length === 1 ? 'y' : 'ies'}</span>
+				{/if}
+				{#if layerCount(raw)}
+					<span class="muted small">3D · {layerCount(raw)} layer{layerCount(raw) === 1 ? '' : 's'}</span>
+				{/if}
+				{#if card.full_art}
+					<span class="muted small">Full art · no holo</span>
 				{/if}
 			</div>
 			<form method="POST" action="?/deleteCard" use:enhance class="delete-form">
@@ -218,6 +289,25 @@
 					</label>
 				</div>
 
+				<label>
+					<span>
+						3D depth layers (optional) — uploading replaces all; stacked bottom→top
+						{#if layerCount(raw)} · currently {layerCount(raw)}{/if}
+					</span>
+					<input name="layer" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" />
+				</label>
+				{#if layerCount(raw)}
+					<label class="check">
+						<input type="checkbox" name="clear_layers" />
+						<span>Remove all 3D layers</span>
+					</label>
+				{/if}
+
+				<label class="check">
+					<input type="checkbox" name="full_art" checked={card.full_art} />
+					<span>Full art (no holo / reverse holo)</span>
+				</label>
+
 				<button type="submit" class="primary">Save changes</button>
 			</form>
 		</details>
@@ -236,7 +326,7 @@
 					{#each rg.cards as raw (raw.id)}
 						{@const card = toCard(raw)}
 						<li class="mini-card">
-							<div class="mini-thumb"><CardThumb {card} flip={false} /></div>
+							<button type="button" class="mini-thumb thumb-btn" onclick={() => (inspecting = card)} title="Inspect in 3D"><CardThumb {card} flip={false} /></button>
 							<div class="mini-meta">
 								<span class="mini-name">{card.name}</span>
 								{#if card.level}<span class="muted small">lvl {card.level}</span>{/if}
@@ -327,6 +417,16 @@
 						<input name="back" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
 					</label>
 				</div>
+
+				<label>
+					<span>3D depth layers (optional, multiple — stacked bottom→top above the front)</span>
+					<input name="layer" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" />
+				</label>
+
+				<label class="check">
+					<input type="checkbox" name="full_art" />
+					<span>Full art (no holo / reverse holo)</span>
+				</label>
 
 				<button type="submit" class="primary">Create card</button>
 			</form>
@@ -464,30 +564,45 @@
 									</label>
 									<label>
 										<span>Cards per open</span>
-										<input name="cards_per_pack" type="number" min="1" max="50" value={raw.cards_per_pack} />
+										<input
+											name="cards_per_pack"
+											type="number"
+											min="1"
+											max="50"
+											bind:value={slotCount[pack.id]}
+										/>
 									</label>
 								</div>
 
 								<fieldset class="rates">
 									<legend>
-										Drop rates <span class="muted small">(relative weights — auto-normalized, no need to total 100)</span>
+										Per-slot drop rates
+										<span class="muted small">(one card per slot · relative weights, auto-normalized)</span>
 									</legend>
-									{#each RARITIES as r}
-										{@const count = rarityCount(pack.id, r.key)}
-										<div class="rate-row">
-											<span class="rate-name" style="--rc: {r.color}">{r.label}</span>
-											<input
-												type="number"
-												min="0"
-												step="any"
-												name={`weight_${r.key}`}
-												bind:value={weights[pack.id][r.key]}
-											/>
-											<span class="rate-pct" class:none={count === 0}>
-												{count === 0 ? 'no cards' : dropPct(pack.id, r.key).toFixed(1) + '%'}
-											</span>
-										</div>
-									{/each}
+									{#if presentRarities(pack.id).length === 0}
+										<p class="muted small">Add cards to this set first to set drop rates.</p>
+									{:else}
+										{#each (slotW[pack.id] ?? []).slice(0, Math.max(1, slotCount[pack.id] ?? 1)) as slot, i (i)}
+											<div class="slot">
+												<span class="slot-head">Slot {i + 1}</span>
+												<div class="slot-grid">
+													{#each presentRarities(pack.id) as r (r.key)}
+														<label class="slot-rate">
+															<span class="rate-name" style="--rc: {r.color}">{r.label}</span>
+															<input
+																type="number"
+																min="0"
+																step="any"
+																name={`slot_${i}_weight_${r.key}`}
+																bind:value={slot[r.key]}
+															/>
+															<span class="rate-pct">{slotPct(pack.id, i, r.key).toFixed(0)}%</span>
+														</label>
+													{/each}
+												</div>
+											</div>
+										{/each}
+									{/if}
 								</fieldset>
 
 								<div class="row">
@@ -509,6 +624,10 @@
 		{/if}
 	{/if}
 </section>
+
+{#if inspecting}
+	<CardInspector3D card={inspecting} onClose={() => (inspecting = null)} allowFinishToggle />
+{/if}
 
 <style>
 	h1 {
@@ -653,28 +772,58 @@
 		padding: 0 0.35rem;
 	}
 
-	.rate-row {
+	/* One block per slot (= one card in the open). */
+	.slot {
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 0.5rem 0.6rem;
+		background: var(--surface-alt);
+	}
+
+	.slot-head {
+		display: block;
+		margin-bottom: 0.4rem;
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-size: 0.8rem;
+		letter-spacing: 0.5px;
+		color: var(--text);
+	}
+
+	.slot-grid {
 		display: grid;
-		grid-template-columns: 1fr 6rem 4rem;
+		grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+		gap: 0.4rem 0.6rem;
+	}
+
+	.slot-rate {
+		flex-direction: row;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.35rem;
 	}
 
 	.rate-name {
 		color: var(--rc);
-		font-size: 0.9rem;
+		font-size: 0.85rem;
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.slot-rate input {
+		width: 3.2rem;
+		flex: 0 0 auto;
+		padding: 0.2rem 0.3rem;
 	}
 
 	.rate-pct {
-		font-size: 0.85rem;
-		color: var(--text);
+		flex: 0 0 auto;
+		width: 2.6rem;
 		text-align: right;
-		font-variant-numeric: tabular-nums;
-	}
-
-	.rate-pct.none {
+		font-size: 0.75rem;
 		color: var(--muted);
-		font-style: italic;
+		font-variant-numeric: tabular-nums;
 	}
 
 	/* Grouping: one section per set, rarity buckets within. */
@@ -723,6 +872,20 @@
 	.thumb {
 		width: 5.5rem;
 		flex: 0 0 auto;
+	}
+
+	/* Thumbnails are clickable to open the 3D inspector — strip button chrome. */
+	.thumb-btn {
+		display: block;
+		padding: 0;
+		border: none;
+		background: none;
+		min-height: 0;
+		cursor: pointer;
+	}
+
+	.thumb-btn:hover {
+		background: none;
 	}
 
 	.head-meta {

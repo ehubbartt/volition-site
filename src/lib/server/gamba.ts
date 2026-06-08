@@ -6,16 +6,17 @@ export interface CardGrant {
 	finish: CardFinish;
 }
 
-// Builds a weighted card picker for one pack open. The card is chosen in two
-// steps: pick a RARITY by the pack's configured weights (rarity_weights), then a
-// card of that rarity uniformly. Weights are relative and only count rarities
-// that actually have cards in the pool. If no positive weights are configured,
-// it falls back to weighting each rarity by its card count (= uniform over all
-// cards), preserving the pre-rates behavior.
-export function makeRarityRoller<T extends { rarity: string }>(
-	pool: T[],
-	weights: Record<string, number> | null | undefined
-): () => T {
+// Builds a weighted card picker for a pack pool. The pool is grouped by rarity
+// ONCE; the returned pick(weights) function rolls a single card for a given set
+// of rarity weights — call it per slot with that slot's weights. The card is
+// chosen in two steps: pick a RARITY by the supplied weights, then a card of
+// that rarity uniformly. Weights are relative and only count rarities that
+// actually have cards in the pool. If no positive weights are supplied (an
+// unconfigured slot), it falls back to weighting each rarity by its card count
+// (= uniform over all cards).
+export function makeSlotRoller<T extends { rarity: string }>(
+	pool: T[]
+): (weights: Record<string, number> | null | undefined) => T {
 	const groups = new Map<string, T[]>();
 	for (const c of pool) {
 		const arr = groups.get(c.rarity) ?? [];
@@ -24,18 +25,18 @@ export function makeRarityRoller<T extends { rarity: string }>(
 	}
 	const rarities = [...groups.keys()];
 
-	let w = rarities.map((r) => Math.max(0, Number(weights?.[r] ?? 0)));
-	if (w.reduce((a, b) => a + b, 0) <= 0) {
-		w = rarities.map((r) => groups.get(r)!.length); // uniform over all cards
-	}
-	const total = w.reduce((a, b) => a + b, 0);
+	return (weights) => {
+		let w = rarities.map((r) => Math.max(0, Number(weights?.[r] ?? 0)));
+		if (w.reduce((a, b) => a + b, 0) <= 0) {
+			w = rarities.map((r) => groups.get(r)!.length); // uniform over all cards
+		}
+		const total = w.reduce((a, b) => a + b, 0);
 
-	return () => {
-		let r = Math.random() * total;
+		let rnd = Math.random() * total;
 		let idx = w.length - 1;
 		for (let i = 0; i < w.length; i++) {
-			r -= w[i];
-			if (r < 0) {
+			rnd -= w[i];
+			if (rnd < 0) {
 				idx = i;
 				break;
 			}

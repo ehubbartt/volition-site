@@ -2,7 +2,7 @@ import { redirect, error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isCardTester } from '$lib/server/auth';
-import { uploadCardFaces, removeCardArt } from '$lib/server/cardArt';
+import { uploadCardFaces, uploadCardLayers, removeCardArt } from '$lib/server/cardArt';
 import { isValidRarity, RARITIES, DEFAULT_RARITY, type CardAbility } from '$lib/cards/rarity';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -14,13 +14,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 		db()
 			.from('vs_cards')
 			.select(
-				'id, name, level, rarity, pack_id, abilities, flavor, front_path, front_url, back_path, back_url, created_at'
+				'id, name, level, rarity, pack_id, abilities, flavor, front_path, front_url, back_path, back_url, layers, full_art, created_at'
 			)
 			.order('created_at', { ascending: false }),
 		db()
 			.from('vs_card_packs')
 			.select(
-				'id, name, description, cost_vp, cards_per_pack, released, rarity_weights, front_path, front_url, back_path, back_url, created_at'
+				'id, name, description, cost_vp, cards_per_pack, released, rarity_weights, slot_weights, front_path, front_url, back_path, back_url, created_at'
 			)
 			.order('created_at', { ascending: false })
 	]);
@@ -87,7 +87,8 @@ export const actions: Actions = {
 				rarity: parsed.data.rarity,
 				pack_id: parsed.data.pack_id,
 				flavor: parsed.data.flavor,
-				abilities
+				abilities,
+				full_art: form.get('full_art') === 'on'
 			})
 			.select('id')
 			.single();
@@ -99,13 +100,26 @@ export const actions: Actions = {
 			// Card row exists but art failed — report so the admin can retry.
 			return fail(400, { error: `Card created, but art upload failed: ${faces.error}` });
 		}
-		if (Object.keys(faces.update).length) {
-			const { error: updErr } = await db()
-				.from('vs_cards')
-				.update(faces.update)
-				.eq('id', inserted.id);
+
+		const update: Record<string, unknown> = { ...faces.update };
+		const cleanupPaths = [...faces.uploadedPaths];
+
+		// Optional 3D depth layers (multi-file, bottom→top in upload order).
+		const layerFiles = form.getAll('layer').filter((f): f is File => f instanceof File && f.size > 0);
+		if (layerFiles.length) {
+			const up = await uploadCardLayers(inserted.id, layerFiles);
+			if ('error' in up) {
+				for (const p of cleanupPaths) await removeCardArt(p);
+				return fail(400, { error: `Card created, but layer upload failed: ${up.error}` });
+			}
+			update.layers = up.layers;
+			cleanupPaths.push(...up.uploadedPaths);
+		}
+
+		if (Object.keys(update).length) {
+			const { error: updErr } = await db().from('vs_cards').update(update).eq('id', inserted.id);
 			if (updErr) {
-				for (const p of faces.uploadedPaths) await removeCardArt(p);
+				for (const p of cleanupPaths) await removeCardArt(p);
 				return fail(500, { error: updErr.message });
 			}
 		}
@@ -140,19 +154,38 @@ export const actions: Actions = {
 			pack_id: parsed.data.pack_id,
 			flavor: parsed.data.flavor,
 			abilities,
+			full_art: form.get('full_art') === 'on',
 			updated_at: new Date().toISOString()
 		};
 
-		// Snapshot old paths so we can delete any face that gets replaced.
+		// Snapshot old paths so we can delete any face/layer that gets replaced.
 		const { data: prev } = await db()
 			.from('vs_cards')
-			.select('front_path, back_path')
+			.select('front_path, back_path, layers')
 			.eq('id', id)
 			.maybeSingle();
 
 		const faces = await uploadCardFaces('cards', id, form);
 		if ('error' in faces) return fail(400, { error: faces.error });
 		Object.assign(update, faces.update);
+
+		// 3D depth layers: the "clear" toggle empties them; otherwise uploading any
+		// layer files REPLACES the whole set (bottom→top in upload order).
+		const clearLayers = form.get('clear_layers') === 'on';
+		const layerFiles = form.getAll('layer').filter((f): f is File => f instanceof File && f.size > 0);
+		let replacedLayers = false;
+		if (clearLayers) {
+			update.layers = [];
+			replacedLayers = true;
+		} else if (layerFiles.length) {
+			const up = await uploadCardLayers(id, layerFiles);
+			if ('error' in up) {
+				for (const p of faces.uploadedPaths) await removeCardArt(p);
+				return fail(400, { error: up.error });
+			}
+			update.layers = up.layers;
+			replacedLayers = true;
+		}
 
 		const { error: updErr } = await db().from('vs_cards').update(update).eq('id', id);
 		if (updErr) {
@@ -165,6 +198,10 @@ export const actions: Actions = {
 		}
 		if (faces.update.back_path && prev?.back_path && prev.back_path !== faces.update.back_path) {
 			await removeCardArt(prev.back_path as string);
+		}
+		// Old layer files are orphaned once layers are replaced/cleared — delete them.
+		if (replacedLayers && Array.isArray(prev?.layers)) {
+			for (const l of prev.layers as { path?: string }[]) await removeCardArt(l?.path);
 		}
 
 		return { ok: true };
@@ -179,7 +216,7 @@ export const actions: Actions = {
 
 		const { data: existing } = await db()
 			.from('vs_cards')
-			.select('front_path, back_path')
+			.select('front_path, back_path, layers')
 			.eq('id', id)
 			.maybeSingle();
 
@@ -188,6 +225,9 @@ export const actions: Actions = {
 
 		await removeCardArt(existing?.front_path as string | null);
 		await removeCardArt(existing?.back_path as string | null);
+		if (Array.isArray(existing?.layers)) {
+			for (const l of existing.layers as { path?: string }[]) await removeCardArt(l?.path);
+		}
 
 		return { ok: true };
 	},
@@ -255,11 +295,18 @@ export const actions: Actions = {
 			return fail(400, { error: parsed.error.issues[0]?.message ?? 'Invalid input' });
 		}
 
-		// Per-rarity drop weights (relative; normalized at roll time).
-		const rarityWeights: Record<string, number> = {};
-		for (const r of RARITIES) {
-			const v = Number(form.get(`weight_${r.key}`) ?? 0);
-			rarityWeights[r.key] = Number.isFinite(v) && v > 0 ? v : 0;
+		// Per-slot drop weights: one rarity-weight map per slot, indexed 0..n-1
+		// (n = cards_per_pack). Fields arrive as slot_<i>_weight_<rarity>. Only
+		// positive weights are kept; an empty slot map falls back to the legacy
+		// per-pack rarity_weights (left untouched here) at roll time.
+		const slotWeights: Record<string, number>[] = [];
+		for (let i = 0; i < parsed.data.cards_per_pack; i++) {
+			const slot: Record<string, number> = {};
+			for (const r of RARITIES) {
+				const v = Number(form.get(`slot_${i}_weight_${r.key}`) ?? 0);
+				if (Number.isFinite(v) && v > 0) slot[r.key] = v;
+			}
+			slotWeights.push(slot);
 		}
 
 		const update: Record<string, unknown> = {
@@ -267,7 +314,7 @@ export const actions: Actions = {
 			description: parsed.data.description,
 			cost_vp: parsed.data.cost_vp,
 			cards_per_pack: parsed.data.cards_per_pack,
-			rarity_weights: rarityWeights,
+			slot_weights: slotWeights,
 			updated_at: new Date().toISOString()
 		};
 

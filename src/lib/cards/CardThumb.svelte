@@ -21,6 +21,9 @@
 		<div class="flip">
 			<div class="face front">
 				<img src={front} alt={card.name} loading="lazy" />
+				{#each card.layers ?? [] as ly}
+					<img class="layer" src={ly.url} alt="" loading="lazy" />
+				{/each}
 			</div>
 			<div class="face back">
 				<img src={back} alt="" loading="lazy" />
@@ -101,6 +104,13 @@
 		height: 100%;
 		object-fit: cover;
 		image-rendering: -webkit-optimize-contrast;
+	}
+
+	/* Flat composite: depth layers stacked over the front (in order, last on top).
+	   Same object-fit so they line up with the front art. */
+	.face.front .layer {
+		position: absolute;
+		inset: 0;
 	}
 
 	.qty {
