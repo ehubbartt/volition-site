@@ -2,8 +2,11 @@
 	import type { PageData } from './$types';
 	import BoardMap from '$lib/board/BoardMap.svelte';
 	import BoardSubmitModal from '$lib/board/BoardSubmitModal.svelte';
+	import BoardChoosePathModal from '$lib/board/BoardChoosePathModal.svelte';
 	import Lightbox from '$lib/Lightbox.svelte';
 	import { getBoardTopology } from '$lib/board/topology';
+	import { parseDuoNodeId, duoPathId, DUO_SECTION_ROWS, type DuoSection } from '$lib/board/config';
+	import { laneCountForFloor } from '$lib/board/progress';
 
 	let { data }: { data: PageData } = $props();
 
@@ -16,10 +19,34 @@
 		if (!openNodeId) return null;
 		const c = data.content[openNodeId];
 		if (!c) return null;
-		return { id: openNodeId, name: c.name, faq_html: c.faq_html };
+		return { id: openNodeId, name: c.name, img: c.img, faq_html: c.faq_html };
+	});
+
+	let openChoose = $state<{ floor: number; section: DuoSection } | null>(null);
+	const openChooseLanes = $derived.by(() => {
+		if (!openChoose) return [];
+		const { floor, section } = openChoose;
+		const lanes = [];
+		for (let lane = 0; lane < laneCountForFloor(floor); lane++) {
+			const tiles = [];
+			for (let step = 0; step < DUO_SECTION_ROWS; step++) {
+				const id = duoPathId(floor, section, lane, step);
+				const c = data.content[id];
+				if (c) tiles.push({ id, name: c.name, img: c.img, required: data.nodeProgress[id]?.required ?? 1 });
+			}
+			lanes.push({ lane, tiles });
+		}
+		return lanes;
 	});
 
 	function onNodeClick(id: string) {
+		if (data.nodeState[id] === 'choosable') {
+			const ref = parseDuoNodeId(id);
+			if (ref && ref.kind === 'path' && ref.section) {
+				openChoose = { floor: ref.floor, section: ref.section };
+			}
+			return;
+		}
 		if (data.content[id]) openNodeId = id;
 	}
 
@@ -65,7 +92,8 @@
 	{topology}
 	{lockedFloors}
 	content={data.content}
-	doneByTile={data.teamDoneByTile}
+	nodeState={data.nodeState}
+	nodeProgress={data.nodeProgress}
 	{onNodeClick}
 />
 
@@ -76,10 +104,20 @@
 		teamSubmissions={data.teamSubmissionsByTile[openTile.id] ?? []}
 		community={data.completionsByTile[openTile.id] ?? []}
 		communityCount={data.completionCountByTile[openTile.id] ?? 0}
-		canSubmit={data.isClanMember && data.hasTeam}
+		canSubmit={data.isClanMember && data.hasTeam && data.nodeState[openTile.id] === 'active'}
 		isAdmin={data.isAdmin}
+		progress={data.nodeProgress[openTile.id] ?? null}
 		onZoom={(url) => (lightboxSrc = url)}
 		onclose={closeModal}
+	/>
+{/if}
+
+{#if openChoose}
+	<BoardChoosePathModal
+		floor={openChoose.floor}
+		section={openChoose.section}
+		lanes={openChooseLanes}
+		onclose={() => (openChoose = null)}
 	/>
 {/if}
 

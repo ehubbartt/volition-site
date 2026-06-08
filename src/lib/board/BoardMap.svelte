@@ -1,8 +1,10 @@
 <script lang="ts">
 	import type { BoardNode, BoardTopology } from './topology';
+	import type { NodeState, NodeProgress } from './progress';
 
 	interface NodeContent {
 		name: string;
+		img: string | null;
 		faq_html: string | null;
 	}
 
@@ -10,13 +12,15 @@
 		topology,
 		lockedFloors = [2, 3],
 		content = {},
-		doneByTile = {},
+		nodeState = {},
+		nodeProgress = {},
 		onNodeClick
 	}: {
 		topology: BoardTopology;
 		lockedFloors?: number[];
 		content?: Record<string, NodeContent>;
-		doneByTile?: Record<string, boolean>;
+		nodeState?: Record<string, NodeState>;
+		nodeProgress?: Record<string, NodeProgress>;
 		onNodeClick?: (id: string) => void;
 	} = $props();
 
@@ -244,49 +248,92 @@
 
 			{#snippet nodeBody(n: BoardNode, c: NodeContent | undefined, done: boolean)}
 				{#if n.kind === 'boss'}
-					<circle r="44" class="boss-aura" fill="url(#bossGlow)" />
-					<polygon points="0,-30 26,-13 22,22 -22,22 -26,-13" class="boss-shape" />
-					<g class="skull">
-						<path
-							class="skull-base"
-							d="M -10,-8 C -14,-8 -14,0 -14,2 C -14,7 -11,11 -8,12 L -8,14 L -4,14 L -4,11 L 4,11 L 4,14 L 8,14 L 8,12 C 11,11 14,7 14,2 C 14,0 14,-8 10,-8 Z"
+					<circle r="56" class="boss-aura" fill="url(#bossGlow)" />
+					<polygon points="0,-39 34,-17 29,29 -29,29 -34,-17" class="boss-shape" />
+					{#if c?.img}
+						<image
+							class="node-img"
+							href={c.img}
+							x="-27"
+							y="-27"
+							width="54"
+							height="54"
+							preserveAspectRatio="xMidYMid meet"
 						/>
-						<ellipse class="skull-socket" cx="-5" cy="2" rx="3" ry="4" />
-						<ellipse class="skull-socket" cx="5" cy="2" rx="3" ry="4" />
-						<path class="skull-socket" d="M -1,7 L 1,7 L 0,10 Z" />
-					</g>
+					{:else}
+						<g class="skull">
+							<path
+								class="skull-base"
+								d="M -10,-8 C -14,-8 -14,0 -14,2 C -14,7 -11,11 -8,12 L -8,14 L -4,14 L -4,11 L 4,11 L 4,14 L 8,14 L 8,12 C 11,11 14,7 14,2 C 14,0 14,-8 10,-8 Z"
+							/>
+							<ellipse class="skull-socket" cx="-5" cy="2" rx="3" ry="4" />
+							<ellipse class="skull-socket" cx="5" cy="2" rx="3" ry="4" />
+							<path class="skull-socket" d="M -1,7 L 1,7 L 0,10 Z" />
+						</g>
+					{/if}
 				{:else if n.kind === 'start' || n.kind === 'community'}
-					<rect x="-22" y="-22" width="44" height="44" rx="6" class="comm-shape" />
-					<path
-						class="flame"
-						d="M 0,-12 C -5,-7 -6,-3 -3,1 C -4,4 -1,8 0,7 C 1,8 4,4 3,1 C 6,-3 5,-7 0,-12 Z"
-					/>
+					<rect x="-25" y="-25" width="50" height="50" rx="7" class="comm-shape" />
+					{#if c?.img}
+						<image
+							class="node-img"
+							href={c.img}
+							x="-19"
+							y="-19"
+							width="38"
+							height="38"
+							preserveAspectRatio="xMidYMid meet"
+						/>
+					{:else}
+						<path
+							class="flame"
+							d="M 0,-14 C -6,-8 -7,-3 -3,1 C -5,5 -1,9 0,8 C 1,9 5,5 3,1 C 7,-3 6,-8 0,-14 Z"
+						/>
+					{/if}
 					{#if n.kind === 'start'}
-						<text y="-32" text-anchor="middle" class="start-label">START</text>
+						<text y="-37" text-anchor="middle" class="start-label">START</text>
 					{/if}
 				{:else}
-					<polygon points="-17,-7 -7,-17 7,-17 17,-7 17,7 7,17 -7,17 -17,7" class="path-shape" />
-					{#if !c}
-						<text y="6" text-anchor="middle" class="path-glyph">?</text>
+					<polygon points="-23,-9 -9,-23 9,-23 23,-9 23,9 9,23 -9,23 -23,9" class="path-shape" />
+					{#if c?.img}
+						<image
+							class="node-img"
+							href={c.img}
+							x="-17"
+							y="-17"
+							width="34"
+							height="34"
+							preserveAspectRatio="xMidYMid meet"
+						/>
+					{:else if !c}
+						<text y="7" text-anchor="middle" class="path-glyph">?</text>
 					{/if}
 				{/if}
 
 				{#if done}
-					<g class="done-badge" transform="translate(15,-15)">
-						<circle r="8" class="done-bg" />
-						<path class="done-check" d="M -3.5,0 L -1,2.5 L 3.5,-3" />
+					<g class="done-badge" transform="translate(18,-18)">
+						<circle r="9.5" class="done-bg" />
+						<path class="done-check" d="M -4,0 L -1.5,3 L 4,-3.5" />
 					</g>
 				{/if}
 
 				{#if c}
+					{@const p = nodeProgress[n.id]}
 					<foreignObject
-						x="-62"
-						y={n.kind === 'boss' ? 26 : n.kind === 'path' ? 18 : 24}
-						width="124"
-						height="34"
+						x="-61"
+						y={n.kind === 'boss' ? 36 : n.kind === 'path' ? 26 : 30}
+						width="122"
+						height="50"
 						class="label-fo"
 					>
-						<div class="node-label" xmlns="http://www.w3.org/1999/xhtml">{c.name}</div>
+						<div class="node-label-wrap" xmlns="http://www.w3.org/1999/xhtml">
+							<div class="node-label">{c.name}</div>
+							{#if p && (p.required > 1 || p.pending > 0)}
+								<div class="node-prog">
+									<span class:full={p.approved >= p.required}>{p.approved}/{p.required}</span>
+									{#if p.pending > 0}<span class="node-prog-pending">+{p.pending}</span>{/if}
+								</div>
+							{/if}
+						</div>
 					</foreignObject>
 				{/if}
 			{/snippet}
@@ -294,11 +341,15 @@
 			<g class="nodes">
 				{#each visible.nodes as n (n.id)}
 					{@const c = content[n.id]}
-					{@const done = !!doneByTile[n.id]}
+					{@const st = nodeState[n.id]}
+					{@const done = st === 'complete'}
 					{#if c}
 						<g
 							class="node {n.kind} interactive"
 							class:done
+							class:choosable={st === 'choosable'}
+							class:active={st === 'active'}
+							class:dimmed={st === 'dimmed'}
 							transform="translate({n.x},{n.y})"
 							role="button"
 							tabindex={0}
@@ -309,8 +360,8 @@
 							{@render nodeBody(n, c, done)}
 						</g>
 					{:else}
-						<g class="node {n.kind}" class:done transform="translate({n.x},{n.y})">
-							{@render nodeBody(n, c, done)}
+						<g class="node {n.kind}" transform="translate({n.x},{n.y})">
+							{@render nodeBody(n, c, false)}
 						</g>
 					{/if}
 				{/each}
@@ -509,8 +560,12 @@
 	.path-glyph {
 		font-family: var(--font-heading);
 		fill: var(--yellow);
-		font-size: 20px;
+		font-size: 26px;
 		opacity: 0.55;
+	}
+
+	.node-img {
+		filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.85));
 	}
 
 	.comm-shape {
@@ -527,7 +582,7 @@
 	.start-label {
 		font-family: var(--font-heading);
 		fill: var(--yellow);
-		font-size: 12px;
+		font-size: 13px;
 		letter-spacing: 2px;
 	}
 
@@ -586,14 +641,51 @@
 		stroke: var(--yellow);
 	}
 
+	/* Progression states (player view) */
+	.node.dimmed {
+		opacity: 0.4;
+	}
+
+	.node.active .path-shape,
+	.node.active .comm-shape,
+	.node.active .boss-shape {
+		stroke: var(--accent);
+		stroke-width: 3;
+		filter: drop-shadow(0 0 4px rgba(255, 152, 31, 0.7));
+	}
+
+	.node.choosable .path-shape,
+	.node.choosable .comm-shape {
+		stroke: var(--yellow);
+		stroke-width: 2.5;
+		animation: choosablePulse 1.8s ease-in-out infinite;
+	}
+
+	@keyframes choosablePulse {
+		0%,
+		100% {
+			filter: drop-shadow(0 0 1px rgba(240, 210, 60, 0.4));
+		}
+		50% {
+			filter: drop-shadow(0 0 6px rgba(240, 210, 60, 0.95));
+		}
+	}
+
 	.label-fo {
 		overflow: visible;
 		pointer-events: none;
 	}
 
+	.node-label-wrap {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1px;
+	}
+
 	.node-label {
 		font-family: var(--font-body);
-		font-size: 8.5px;
+		font-size: 10px;
 		line-height: 1.05;
 		text-align: center;
 		color: var(--text);
@@ -604,6 +696,24 @@
 		line-clamp: 2;
 		-webkit-box-orient: vertical;
 		word-break: break-word;
+	}
+
+	.node-prog {
+		font-family: var(--font-heading);
+		font-size: 9px;
+		line-height: 1;
+		color: var(--yellow);
+		text-shadow: 1px 1px 2px #000;
+		display: flex;
+		gap: 3px;
+	}
+
+	.node-prog .full {
+		color: var(--success);
+	}
+
+	.node-prog-pending {
+		color: var(--accent);
 	}
 
 	.done-badge {
@@ -619,13 +729,18 @@
 	.done-check {
 		fill: none;
 		stroke: #fff;
-		stroke-width: 2;
+		stroke-width: 2.3;
 		stroke-linecap: round;
 		stroke-linejoin: round;
 	}
 
 	@media (prefers-reduced-motion: reduce) {
 		.boss-aura {
+			animation: none;
+		}
+
+		.node.choosable .path-shape,
+		.node.choosable .comm-shape {
 			animation: none;
 		}
 

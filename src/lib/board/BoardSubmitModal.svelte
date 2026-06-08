@@ -29,13 +29,14 @@
 	}
 
 	interface Props {
-		tile: { id: string; name: string; faq_html: string | null };
+		tile: { id: string; name: string; img: string | null; faq_html: string | null };
 		status: BoardStatus;
 		teamSubmissions: TeamSubmission[];
 		community: Completion[];
 		communityCount: number;
 		canSubmit: boolean;
 		isAdmin: boolean;
+		progress?: { approved: number; required: number; pending: number } | null;
 		onZoom: (url: string) => void;
 		onclose: () => void;
 	}
@@ -48,6 +49,7 @@
 		communityCount,
 		canSubmit,
 		isAdmin,
+		progress = null,
 		onZoom,
 		onclose
 	}: Props = $props();
@@ -150,7 +152,24 @@
 		<button type="button" class="close" aria-label="Close" onclick={onclose}>×</button>
 
 		<header class="head">
-			<h2 id="modal-title">{tile.name}</h2>
+			{#if tile.img}
+				<img class="tile-img" src={tile.img} alt={tile.name} loading="lazy" />
+			{/if}
+			<div class="head-text">
+				<h2 id="modal-title">{tile.name}</h2>
+				{#if progress}
+					<div class="progress-line">
+						{#if progress.approved >= progress.required}
+							<span class="prog-done">✓ Complete ({progress.approved}/{progress.required})</span>
+						{:else}
+							<span class="prog-count">{progress.approved}/{progress.required} approved</span>
+						{/if}
+						{#if progress.pending > 0}
+							<span class="prog-pending">{progress.pending} in review</span>
+						{/if}
+					</div>
+				{/if}
+			</div>
 		</header>
 
 		{#if tile.faq_html}
@@ -422,13 +441,58 @@
 	}
 
 	.head {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
 		margin-bottom: 1rem;
 		padding-right: 2rem;
+	}
+
+	.tile-img {
+		width: 3rem;
+		height: 3rem;
+		object-fit: contain;
+		flex-shrink: 0;
+		image-rendering: auto;
+		filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+	}
+
+	.head-text {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		min-width: 0;
 	}
 
 	.head h2 {
 		margin: 0;
 		font-size: 1.3rem;
+	}
+
+	.progress-line {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		font-size: 0.8rem;
+	}
+
+	.prog-done {
+		color: var(--success);
+		font-family: var(--font-heading);
+	}
+
+	.prog-count {
+		color: var(--yellow);
+		font-family: var(--font-heading);
+	}
+
+	.prog-pending {
+		padding: 0.02rem 0.4rem;
+		border-radius: 3px;
+		background: rgba(255, 152, 31, 0.18);
+		border: 1px solid var(--accent);
+		color: var(--accent);
 	}
 
 	.details {

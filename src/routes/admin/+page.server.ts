@@ -1,6 +1,7 @@
 import { redirect, error } from '@sveltejs/kit';
 import { isAdmin, isCardTester } from '$lib/server/auth';
 import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
+import { DUO_WOLF_EVENT_SLUG } from '$lib/server/duoWolfTiles';
 import type { PageServerLoad } from './$types';
 
 // General admin hub. Reachable by anyone with EITHER permission; the page itself
@@ -11,5 +12,5 @@ export const load: PageServerLoad = ({ locals }) => {
 	const admin = isAdmin(locals.user);
 	const cardTester = isCardTester(locals.user);
 	if (!admin && !cardTester) throw error(403, 'Not allowed');
-	return { admin, cardTester, bingoSlug: BINGO_EVENT_SLUG };
+	return { admin, cardTester, bingoSlug: BINGO_EVENT_SLUG, duoSlug: DUO_WOLF_EVENT_SLUG };
 };

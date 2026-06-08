@@ -51,6 +51,33 @@ export interface DuoNodeRef {
 	midIndex?: number; // 0 = mid after section A, 1 = mid after section B
 }
 
+// Parse a canonical node id back into its DuoNodeRef (inverse of the builders).
+// Client-safe; used to map a clicked board node → floor/section for the path
+// picker and progression logic. Returns null for an unrecognised id.
+export function parseDuoNodeId(id: string): DuoNodeRef | null {
+	let m = /^f(\d+)-start$/.exec(id);
+	if (m) return { id, kind: 'start', floor: Number(m[1]) };
+	m = /^f(\d+)-boss$/.exec(id);
+	if (m) return { id, kind: 'boss', floor: Number(m[1]) };
+	m = /^f(\d+)-mid-([A-C])$/.exec(id);
+	if (m) {
+		const section = m[2] as DuoSection;
+		return { id, kind: 'mid', floor: Number(m[1]), section, midIndex: DUO_SECTIONS.indexOf(section) };
+	}
+	m = /^f(\d+)-([A-C])-l(\d+)-s(\d+)$/.exec(id);
+	if (m) {
+		return {
+			id,
+			kind: 'path',
+			floor: Number(m[1]),
+			section: m[2] as DuoSection,
+			lane: Number(m[3]),
+			step: Number(m[4])
+		};
+	}
+	return null;
+}
+
 // Enumerate every content-bearing node id, in board order. Consumed by the
 // server tile-content map and by submission validation.
 export function duoNodeRefs(): DuoNodeRef[] {

@@ -46,10 +46,10 @@ export interface BoardTopology {
 
 const VIEW_WIDTH = 600;
 const CENTER_X = VIEW_WIDTH / 2;
-const LANE_GAP = 115;
-const ROW_GAP = 82;
+const LANE_GAP = 124;
+const ROW_GAP = 92;
 const FLOOR_HEADER = 56;
-const FLOOR_GAP = 96;
+const FLOOR_GAP = 100;
 
 export function getBoardTopology(): BoardTopology {
 	const nodes: BoardNode[] = [];
