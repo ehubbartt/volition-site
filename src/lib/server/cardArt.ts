@@ -1,5 +1,11 @@
 import { db } from './db';
-import { CARD_ART_BUCKET, MAX_UPLOAD_BYTES, ALLOWED_MIME, EXT_BY_MIME } from '$lib/cards/config';
+import {
+	CARD_ART_BUCKET,
+	MAX_UPLOAD_BYTES,
+	ALLOWED_MIME,
+	EXT_BY_MIME,
+	MAX_CARD_LAYERS
+} from '$lib/cards/config';
 
 // Shared art upload for the card game. Cards and packs both live in the
 // `vs-card-art` bucket under their own prefix ('cards' / 'packs').
@@ -32,6 +38,34 @@ export async function uploadCardArt(
 
 export async function removeCardArt(path: string | null | undefined): Promise<void> {
 	if (path) await db().storage.from(CARD_ART_BUCKET).remove([path]);
+}
+
+// Uploads an ordered set of 3D depth-layer images for a card and returns their
+// {path, url} entries (bottom→top, in the order given). On any error, anything
+// uploaded in this call is rolled back. Empty file slots are skipped.
+export async function uploadCardLayers(
+	id: string,
+	files: File[]
+): Promise<{ layers: { path: string; url: string }[]; uploadedPaths: string[] } | { error: string }> {
+	const real = files.filter((f) => f instanceof File && f.size > 0);
+	if (real.length > MAX_CARD_LAYERS) {
+		return { error: `Too many layers (max ${MAX_CARD_LAYERS})` };
+	}
+
+	const layers: { path: string; url: string }[] = [];
+	const uploadedPaths: string[] = [];
+
+	for (let i = 0; i < real.length; i++) {
+		const result = await uploadCardArt('cards', `${id}-layer${i}`, real[i]);
+		if ('error' in result) {
+			for (const p of uploadedPaths) await removeCardArt(p);
+			return { error: result.error };
+		}
+		layers.push(result);
+		uploadedPaths.push(result.path);
+	}
+
+	return { layers, uploadedPaths };
 }
 
 // Uploads the optional `front` / `back` files from a form for a card or pack and

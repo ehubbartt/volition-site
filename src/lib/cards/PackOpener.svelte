@@ -9,10 +9,12 @@
   } from "$lib/cards/rarity";
   import {
     FINISH_BY_KEY,
-    HOLO_FINISHES,
+    HOLO_TEXTURE_URL,
+    HOLO_MASK_URL,
     type CardFinish,
     type FinishMeta,
   } from "$lib/cards/finishes";
+  import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG } from "$lib/cards/holo";
   import { DEFAULT_PACK_FRONT, DEFAULT_PACK_BACK } from "$lib/cards/packs";
 
   interface OpenerPack {
@@ -20,126 +22,6 @@
     front_url: string | null;
     back_url: string | null;
   }
-
-  // Each revealed card uses its OWN rolled finish (c.finish). When a card has no
-  // finish (e.g. the pack tester, which doesn't roll), we cycle the holo looks so
-  // they can be compared — that's what HOLO_DEMO is for. Finish metadata
-  // (holo/sheen/pattern) is shared in $lib/cards/finishes.
-  const HOLO_DEMO = HOLO_FINISHES;
-
-  const HOLO_VERT = `
-		varying vec2 vUv;
-		varying vec3 vNormal;
-		varying vec3 vViewPos;
-		void main() {
-			vUv = uv;
-			vec4 mv = modelViewMatrix * vec4(position, 1.0);
-			vViewPos = -mv.xyz;
-			vNormal = normalMatrix * normal;
-			gl_Position = projectionMatrix * mv;
-		}
-	`;
-
-  const HOLO_FRAG = `
-		uniform sampler2D map;
-		uniform float uHolo;
-		uniform float uSheen;
-		uniform float uOpacity;
-		uniform float uReveal;
-		uniform int uPattern;
-		varying vec2 vUv;
-		varying vec3 vNormal;
-		varying vec3 vViewPos;
-		// the sRGB texture is GPU-decoded to linear on sample; re-encode the final
-		// colour to sRGB for display (built-in materials do this for us, ShaderMaterial
-		// does not) — otherwise the cards render dark/dull.
-		vec3 lin2srgb(vec3 c) {
-			c = clamp(c, 0.0, 1.0);
-			return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
-		}
-		void main() {
-			vec4 sharp = texture2D(map, vUv);
-			vec4 base = sharp;
-			if (uReveal < 0.999) {
-				// box blur so cards behind the front one are unreadable but visible
-				float br = 0.014;
-				vec4 b = texture2D(map, vUv + vec2(br, 0.0));
-				b += texture2D(map, vUv + vec2(-br, 0.0));
-				b += texture2D(map, vUv + vec2(0.0, br));
-				b += texture2D(map, vUv + vec2(0.0, -br));
-				b += texture2D(map, vUv + vec2(br, br));
-				b += texture2D(map, vUv + vec2(-br, br));
-				b += texture2D(map, vUv + vec2(br, -br));
-				b += texture2D(map, vUv + vec2(-br, -br));
-				b += sharp;
-				base = sharp; // blur removed — behind cards stay sharp
-			}
-			vec3 N = normalize(vNormal);
-			vec3 V = normalize(vViewPos);
-			float fres = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 3.0);
-
-			// motion driven by how the card is tilted toward the viewer (no time)
-			vec2 tilt = N.xy;
-			float flow = (tilt.x + tilt.y) * 9.0;
-
-			vec2 p = vUv;
-			float phase;
-			float glare;
-
-			if (uPattern == 0) {
-				phase = (p.x + p.y) * 5.0 + flow;
-				glare = smoothstep(0.6, 1.0, sin((p.x + p.y) * 7.0 + flow * 1.4 + fres * 3.0));
-			} else if (uPattern == 1) {
-				vec2 cell = fract(p * 9.0) - 0.5;
-				float d = length(cell);
-				float tw = 0.5 + 0.5 * sin(flow * 1.5 + (floor(p.x * 9.0) + floor(p.y * 9.0)) * 1.7);
-				phase = p.x * 5.0 - p.y * 5.0 + flow;
-				glare = smoothstep(0.32, 0.0, d) * tw;
-			} else if (uPattern == 2) {
-				float r = length(p - 0.5);
-				phase = r * 9.0 + flow;
-				glare = smoothstep(0.6, 1.0, sin(r * 34.0 + flow * 2.0 + fres * 4.0));
-			} else {
-				vec2 c = p - 0.5;
-				float a = atan(c.y, c.x);
-				float r = length(c);
-				phase = a * 1.5 + r * 4.0 + flow;
-				glare = smoothstep(0.6, 1.0, sin(a * 8.0 + flow + r * 10.0));
-			}
-
-			vec3 rainbow = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.33, 0.67) + phase + fres * 3.0));
-			vec3 col = base.rgb;
-			// holo only on the (sharp) front card
-			col += rainbow * uHolo * (0.3 + fres) * base.a * uReveal;
-			col += mix(rainbow, vec3(1.0), 0.25) * glare * uSheen * base.a * uReveal;
-			// cards behind are blurred (above) and dimmed a touch so they recede
-			col *= mix(0.55, 1.0, uReveal);
-			gl_FragColor = vec4(lin2srgb(col), base.a * uOpacity);
-		}
-	`;
-
-  // Extra floating holo sheet for the top tier (additive, layered-depth shimmer).
-  const HOLO_OVERLAY_FRAG = `
-		uniform float uOpacity;
-		varying vec2 vUv;
-		varying vec3 vNormal;
-		varying vec3 vViewPos;
-		void main() {
-			vec3 N = normalize(vNormal);
-			vec3 V = normalize(vViewPos);
-			float fres = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 2.0);
-			vec2 tilt = N.xy;
-			float flow = (tilt.x + tilt.y) * 9.0;
-			vec2 p = vUv + tilt * 0.18;
-			vec2 c = p - 0.5;
-			float a = atan(c.y, c.x);
-			float r = length(c);
-			float band = sin(a * 10.0 + flow + r * 14.0);
-			float mask = smoothstep(0.45, 1.0, band) * (0.25 + fres);
-			vec3 rainbow = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.33, 0.67) + a + flow * 0.3));
-			gl_FragColor = vec4(rainbow * mask, mask * uOpacity * 0.07);
-		}
-	`;
 
   // Cards may carry a rolled `finish` (the gamba open flow); without one (the
   // tester) the opener cycles the holo looks for comparison.
@@ -293,6 +175,38 @@
 
       const loader = new THREE.TextureLoader();
       loader.crossOrigin = "anonymous";
+
+      // Holo foil (colour) + region-mask (alpha) textures, loaded once and shared
+      // across cards (cached by URL). dummyTex keeps the foil/mask samplers bound
+      // for Normal cards, where uHas = 0 means the shader never reads them.
+      const texCache = new Map<string, THREE.Texture>();
+      const dummyTex = new THREE.DataTexture(
+        new Uint8Array([255, 255, 255, 255]),
+        1,
+        1,
+      );
+      dummyTex.needsUpdate = true;
+      function holoTexFor(url: string, srgb: boolean, repeat: boolean) {
+        const hit = texCache.get(url);
+        if (hit) return hit;
+        const t = loader.load(url, (tx) => {
+          if (!disposed) {
+            try {
+              renderer.initTexture(tx);
+            } catch {
+              /* perf hint only */
+            }
+          }
+        });
+        if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+        // foil tiles with MIRRORED repeat (no hard seam when the UV offset pushes
+        // past the edge); the mask must clamp so its region doesn't repeat.
+        t.wrapS = t.wrapT = repeat
+          ? THREE.MirroredRepeatWrapping
+          : THREE.ClampToEdgeWrapping;
+        texCache.set(url, t);
+        return t;
+      }
 
       // Fine foil crinkle as a NORMAL map — thousands of tiny facets that catch the
       // glint light as sparkle. Fine scale → metallic shimmer, not large patchiness.
@@ -770,9 +684,18 @@
         const mat = new THREE.ShaderMaterial({
           uniforms: {
             map: { value: null },
-            uHolo: { value: level.holo },
-            uSheen: { value: level.sheen },
-            uPattern: { value: level.pattern },
+            uHoloTex: {
+              value: level.texture
+                ? holoTexFor(HOLO_TEXTURE_URL[level.texture], true, true)
+                : dummyTex,
+            },
+            uMask: {
+              value: level.placement
+                ? holoTexFor(HOLO_MASK_URL[level.placement], false, false)
+                : dummyTex,
+            },
+            uHas: { value: level.placement ? 1 : 0 },
+            uStrength: { value: level.strength },
             uReveal: { value: 1 },
             uOpacity: { value: 0 },
           },
@@ -808,14 +731,29 @@
       const overlayMats: (THREE.ShaderMaterial | null)[] = [];
       const edgeMats: THREE.MeshStandardMaterial[] = [];
       const backMats: THREE.MeshBasicMaterial[] = [];
+      // Per-card stacked depth layers (parallel to cardMeshes; empty for most),
+      // the matching drop-shadow materials, and the layer+shadow meshes (so we can
+      // toggle their visibility per card / per stage).
+      const layerMats: THREE.MeshBasicMaterial[][] = [];
+      const shadowMats: THREE.ShaderMaterial[][] = [];
+      const depthObjs: THREE.Object3D[][] = [];
+      const LAYER_DEPTH = 0.08; // how far each layer sits above the card (small = subtle)
+      const SHADOW_STRENGTH = 0.5;
+      const SHADOW_DIR = new THREE.Vector2(0.6, -0.8); // light upper-left → shadow lower-right
       const flipped: boolean[] = cards.map(() => false); // per-card flip state
       // the summary grid always shows fronts, so clear any flips when entering it
       const resetFlips = () => flipped.fill(false);
+      // No rolled finish (the pack tester) → preview the guaranteed-slot rule: the
+      // last card is a Holo, the second-to-last a Reverse Holo, the rest Normal.
+      const finishFor = (c: OpenerCard, i: number): FinishMeta => {
+        if (c.full_art) return FINISH_BY_KEY.normal; // full-art cards never holo
+        if (c.finish) return FINISH_BY_KEY[c.finish] ?? FINISH_BY_KEY.normal;
+        if (i === cards.length - 1) return FINISH_BY_KEY.holo;
+        if (i === cards.length - 2) return FINISH_BY_KEY.reverse;
+        return FINISH_BY_KEY.normal;
+      };
       const cardMeshes: THREE.Mesh[] = cards.map((c, i) => {
-        // Each card shows its OWN rolled finish; with none (tester) cycle the looks.
-        const level: FinishMeta = c.finish
-          ? FINISH_BY_KEY[c.finish]
-          : HOLO_DEMO[i % HOLO_DEMO.length];
+        const level: FinishMeta = finishFor(c, i);
         labels.push(level.label);
         const m = new THREE.Mesh(
           cardGeo,
@@ -861,22 +799,63 @@
         m.add(back);
         backMats.push(backMat);
 
-        if (level.pattern === 3) {
-          const ovMat = new THREE.ShaderMaterial({
-            uniforms: { uOpacity: { value: 0 } },
+        // Stacked 3D depth layers above the front (special cards only). Each sits at
+        // a higher z so tilting parallaxes them apart, AND casts a soft drop shadow
+        // on the card base (offset by its height) so it reads as popping OUT of the
+        // card. Layer + shadow opacity track the front's uOpacity in the frame loop.
+        const myLayerMats: THREE.MeshBasicMaterial[] = [];
+        const myShadowMats: THREE.ShaderMaterial[] = [];
+        const myDepthObjs: THREE.Object3D[] = [];
+        ((c.layers ?? []) as { url: string }[]).forEach((ly, li) => {
+          const h = (li + 1) * LAYER_DEPTH;
+          const lm = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
+          const sm = new THREE.ShaderMaterial({
+            uniforms: {
+              map: { value: null },
+              uOpacity: { value: 0 },
+              uBlur: { value: new THREE.Vector2(0.012 * (li + 1), 0.012 * (li + 1)) },
+            },
             vertexShader: HOLO_VERT,
-            fragmentShader: HOLO_OVERLAY_FRAG,
+            fragmentShader: LAYER_SHADOW_FRAG,
             transparent: true,
             depthWrite: false,
-            blending: THREE.AdditiveBlending,
           });
-          const ov = new THREE.Mesh(cardGeo, ovMat);
-          ov.position.z = 0.08;
-          m.add(ov);
-          overlayMats.push(ovMat);
-        } else {
-          overlayMats.push(null);
-        }
+          const applyLayer = (t: THREE.Texture) => {
+            t.colorSpace = THREE.SRGBColorSpace;
+            lm.map = t;
+            lm.needsUpdate = true;
+            sm.uniforms.map.value = t; // shadow reuses the layer texture (alpha)
+            if (!disposed) {
+              try {
+                renderer.initTexture(t);
+              } catch {
+                /* perf hint only */
+              }
+            }
+          };
+          loader.load(ly.url, applyLayer);
+          // Force draw order front(0) → shadow(1) → layer(2) so the transparency
+          // sort never flips the shadow behind the front (which made it vanish).
+          const shadow = new THREE.Mesh(cardGeo, sm);
+          shadow.position.set(SHADOW_DIR.x * h * 1.1, SHADOW_DIR.y * h * 1.1, 0.002 + li * 0.0015);
+          shadow.renderOrder = 1;
+          m.add(shadow);
+          myShadowMats.push(sm);
+          const lp = new THREE.Mesh(cardGeo, lm);
+          lp.position.z = h;
+          lp.renderOrder = 2;
+          m.add(lp);
+          myLayerMats.push(lm);
+          myDepthObjs.push(shadow, lp);
+        });
+        layerMats.push(myLayerMats);
+        shadowMats.push(myShadowMats);
+        depthObjs.push(myDepthObjs);
+
+        // The holo is the masked foil on the front itself — no separate overlay
+        // sheet. overlayMats stays parallel to cardMeshes (always null) so the
+        // frame loop's `if (ov)` guards just skip.
+        overlayMats.push(null);
 
         cardsGroup.add(m);
         return m;
@@ -906,6 +885,12 @@
       let downX = 0,
         downY = 0; // pointer-down position, to tell a tap from a drag
       const TOP_GATE = -0.12; // must grab above this (normalized Y) to rip
+      // Deck swipe feel: a horizontal drag first just turns the stack (inspect);
+      // only past SEP_START does the top card peel off the stack (the visual cue),
+      // and releasing only swipes it once you're past SWIPE_COMMIT (else it snaps
+      // back). This stops a casual inspect-drag from swiping the card by accident.
+      const SEP_START = 95;
+      const SWIPE_COMMIT = 175;
 
       function goToIndex(i: number) {
         if (i >= total) {
@@ -1004,13 +989,13 @@
         if (stage === "cards") {
           if (tap && currentIndex < total) {
             flipped[currentIndex] = !flipped[currentIndex]; // tap flips the card
-          } else if (dragDX < -130) {
+          } else if (dragDX < -SWIPE_COMMIT) {
             if (currentIndex >= total - 1) {
               resetFlips();
               stage = "grid"; // swiped past the last card → summary grid
             }
             else goToIndex(currentIndex + 1);
-          } else if (dragDX > 130 && currentIndex > 0) {
+          } else if (dragDX > SWIPE_COMMIT && currentIndex > 0) {
             goToIndex(currentIndex - 1);
           }
         } else if (stage === "grid" && tap) {
@@ -1087,6 +1072,18 @@
       function frame() {
         raf = requestAnimationFrame(frame);
         const now = performance.now();
+
+        // Depth layers/shadows only show for the FRONT-most card, and never while
+        // the pack is still closed — otherwise behind-card layers clip through the
+        // top card and the raised layer pokes out of the unopened pack.
+        for (let i = 0; i < depthObjs.length; i++) {
+          let show: boolean;
+          if (stage === "pack") show = false;
+          else if (stage === "cards") show = i === currentIndex;
+          else if (stage === "inspect") show = i === inspectIndex;
+          else show = true; // grid: cards are spread out, all can show
+          for (const o of depthObjs[i]) o.visible = show;
+        }
 
         if (stage === "pack") {
           packGroup.rotation.y = lerp(packGroup.rotation.y, targetRotY, 0.12);
@@ -1230,6 +1227,8 @@
               m.scale.setScalar(cardScale);
               (m.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 1;
               edgeMats[i].opacity = 1;
+              layerMats[i].forEach((lm) => (lm.opacity = 1));
+              shadowMats[i].forEach((sm) => (sm.uniforms.uOpacity.value = SHADOW_STRENGTH));
             }
           }
 
@@ -1254,8 +1253,18 @@
           // the WHOLE stack rotates together when you inspect (so cards don't clip
           // into each other), and the group settles to a centred resting spot
           const DECK_Y = 0.4;
-          const inspectRX = pointerY * 0.14 + tiltX;
-          const inspectRY = pointerX * 0.14 + tiltY;
+          // how far the top card has peeled toward a swipe (0 = seated, 1 = committed)
+          const sep = THREE.MathUtils.clamp(
+            (Math.abs(dragDX) - SEP_START) / (SWIPE_COMMIT - SEP_START),
+            0,
+            1.1,
+          );
+          const sepDir = Math.sign(dragDX);
+          // the inspect turn eases back toward front as the card peels off, so the
+          // swipe reads cleanly instead of flinging a tilted stack
+          const turn = 1 - Math.min(1, sep);
+          const inspectRX = (pointerY * 0.14 + tiltX) * turn;
+          const inspectRY = (pointerX * 0.14 + tiltY) * turn;
           // inspecting TURNS the whole stack (revealing its side/edge) rather than
           // sliding it horizontally — the group stays centred and just rotates
           cardsGroup.position.x = lerp(cardsGroup.position.x, 0, 0.15);
@@ -1296,9 +1305,12 @@
               op = 1; // solid stack — under cards are blurred, not see-through
               ry = flipped[i] ? Math.PI : 0; // tapped cards show their back
               if (rel === 0) {
-                tz = 0.06; // top card sits just in front of the stack
-                // swipe slide/roll + inspection rotation are applied to the whole
-                // group (above) so the stack stays together as one unit
+                // seated normally; dragging past SEP_START peels it off the stack
+                // (slides aside + lifts toward you) so you can SEE it's about to
+                // swipe. Release before SWIPE_COMMIT and it lerps back into place.
+                tx = sepDir * sep * 2.2;
+                tz = 0.06 + sep * 0.7;
+                rz = -sepDir * sep * 0.14;
               }
             }
             m.position.x = lerp(m.position.x, tx, 0.14);
@@ -1327,6 +1339,10 @@
             );
             edgeMats[i].opacity = mat.uniforms.uOpacity.value;
             backMats[i].opacity = mat.uniforms.uOpacity.value;
+            layerMats[i].forEach((lm) => (lm.opacity = mat.uniforms.uOpacity.value));
+            shadowMats[i].forEach(
+              (sm) => (sm.uniforms.uOpacity.value = mat.uniforms.uOpacity.value * SHADOW_STRENGTH),
+            );
 
             const ov = overlayMats[i];
             if (ov) {
@@ -1418,6 +1434,10 @@
             );
             edgeMats[i].opacity = mat.uniforms.uOpacity.value;
             backMats[i].opacity = mat.uniforms.uOpacity.value;
+            layerMats[i].forEach((lm) => (lm.opacity = mat.uniforms.uOpacity.value));
+            shadowMats[i].forEach(
+              (sm) => (sm.uniforms.uOpacity.value = mat.uniforms.uOpacity.value * SHADOW_STRENGTH),
+            );
             const ov = overlayMats[i];
             if (ov) ov.uniforms.uOpacity.value = mat.uniforms.uOpacity.value;
           }
@@ -1456,6 +1476,8 @@
         foilNormal.dispose();
         envTex.dispose();
         pmrem.dispose();
+        texCache.forEach((t) => t.dispose());
+        dummyTex.dispose();
         renderer.dispose();
       };
     })();

@@ -1,23 +1,43 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import * as THREE from 'three';
 	import { RARITY_BY_KEY, DEFAULT_RARITY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
-	import { FINISH_BY_KEY, type CardFinish } from '$lib/cards/finishes';
-	import { HOLO_VERT, HOLO_FRAG, HOLO_OVERLAY_FRAG } from '$lib/cards/holo';
+	import {
+		FINISH_BY_KEY,
+		HOLO_TEXTURE_URL,
+		HOLO_MASK_URL,
+		type CardFinish
+	} from '$lib/cards/finishes';
+	import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG } from '$lib/cards/holo';
 
 	let {
 		card,
-		onClose
+		onClose,
+		allowFinishToggle = false
 	}: {
 		card: Card & { finish?: CardFinish; quantity?: number | null };
 		onClose: () => void;
+		// When true, show a Normal/Holo/Reverse switcher (admin preview); the foil
+		// is swapped live without rebuilding the scene.
+		allowFinishToggle?: boolean;
 	} = $props();
 
 	let canvas: HTMLCanvasElement;
 
 	let rarity = $derived(RARITY_BY_KEY[card.rarity] ?? RARITY_BY_KEY[DEFAULT_RARITY]);
-	let finish = $derived(card.finish ? FINISH_BY_KEY[card.finish] : null);
-	let isHolo = $derived(!!finish && finish.key !== 'normal');
+	// The finish currently being shown (live-switchable when allowFinishToggle).
+	// untrack: capture only the initial finish — the inspector remounts per card.
+	let activeFinish = $state<CardFinish>(untrack(() => card.finish ?? 'normal'));
+	let finishMeta = $derived(FINISH_BY_KEY[activeFinish] ?? FINISH_BY_KEY.normal);
+	// Full-art cards never show holo, whatever finish is selected/stored.
+	let isHolo = $derived(!card.full_art && finishMeta.key !== 'normal');
+
+	// Imperative bridge: set by onMount so the toggle can update the 3D material.
+	let applyFinish: (f: CardFinish) => void = () => {};
+	function setFinish(f: CardFinish) {
+		activeFinish = f;
+		applyFinish(f);
+	}
 
 	function onKey(e: KeyboardEvent) {
 		if (e.key === 'Escape') onClose();
@@ -43,8 +63,6 @@
 			const dims = await loadDims(frontUrl, { w: 5, h: 7 });
 			if (disposed) return;
 
-			const fin = card.finish ? FINISH_BY_KEY[card.finish] : FINISH_BY_KEY.normal;
-
 			const CARD_H = 4;
 			const CARD_W = CARD_H * (dims.w / dims.h);
 			const CARD_D = 0.04;
@@ -60,13 +78,34 @@
 			const group = new THREE.Group();
 			scene.add(group);
 
-			// Front: holo shader plane.
+			// 1x1 white stand-in so the foil/mask samplers are always bound, even for
+			// a Normal card (uHas = 0 means the shader never reads them).
+			const dummy = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+			dummy.needsUpdate = true;
+
+			// Holo foil + mask textures, cached by URL so switching finishes (the admin
+			// toggle) reuses them instead of reloading.
+			const texCache = new Map<string, THREE.Texture>();
+			function holoTexFor(url: string, srgb: boolean, mirror: boolean) {
+				const hit = texCache.get(url);
+				if (hit) return hit;
+				const t = loader.load(url);
+				if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+				t.wrapS = t.wrapT = mirror
+					? THREE.MirroredRepeatWrapping
+					: THREE.ClampToEdgeWrapping;
+				texCache.set(url, t);
+				return t;
+			}
+
+			// Front: holo shader plane. Foil uniforms are filled by applyFinish below.
 			const frontMat = new THREE.ShaderMaterial({
 				uniforms: {
 					map: { value: null },
-					uHolo: { value: fin.holo },
-					uSheen: { value: fin.sheen },
-					uPattern: { value: fin.pattern },
+					uHoloTex: { value: dummy },
+					uMask: { value: dummy },
+					uHas: { value: 0 },
+					uStrength: { value: 0 },
 					uReveal: { value: 1 },
 					uOpacity: { value: 1 }
 				},
@@ -74,6 +113,20 @@
 				fragmentShader: HOLO_FRAG,
 				transparent: true
 			});
+			// Swap the foil/mask for a finish (live — used by the toggle and at init).
+			applyFinish = (f: CardFinish) => {
+				// Full-art cards never show the foil, regardless of the selected finish.
+				const meta = card.full_art ? FINISH_BY_KEY.normal : (FINISH_BY_KEY[f] ?? FINISH_BY_KEY.normal);
+				frontMat.uniforms.uHas.value = meta.placement ? 1 : 0;
+				frontMat.uniforms.uStrength.value = meta.strength;
+				frontMat.uniforms.uHoloTex.value = meta.texture
+					? holoTexFor(HOLO_TEXTURE_URL[meta.texture], true, true)
+					: dummy;
+				frontMat.uniforms.uMask.value = meta.placement
+					? holoTexFor(HOLO_MASK_URL[meta.placement], false, false)
+					: dummy;
+			};
+			applyFinish(activeFinish);
 			loader.load(frontUrl, (t) => {
 				t.colorSpace = THREE.SRGBColorSpace;
 				frontMat.uniforms.map.value = t;
@@ -102,21 +155,46 @@
 			back.position.z = -(CARD_D + 0.006);
 			group.add(back);
 
-			// Prism gets the extra floating shimmer sheet.
-			let overlayMat: THREE.ShaderMaterial | null = null;
-			if (fin.pattern === 3) {
-				overlayMat = new THREE.ShaderMaterial({
-					uniforms: { uOpacity: { value: 1 } },
+			// Stacked 3D depth layers above the front. Each layer is raised in z (so
+			// rotating parallaxes them apart) AND casts a soft drop shadow onto the
+			// card base, thrown toward a fixed light by its height — that grounds it so
+			// it reads as popping OUT of the card rather than floating above it.
+			const LAYER_DEPTH = 0.08; // how far each layer sits above the card (small = subtle)
+			const SHADOW_DIR = new THREE.Vector2(0.6, -0.8); // light upper-left → shadow lower-right
+			const layerMats: THREE.MeshBasicMaterial[] = [];
+			(card.layers ?? []).forEach((ly, i) => {
+				const h = (i + 1) * LAYER_DEPTH;
+				const lm = new THREE.MeshBasicMaterial({ transparent: true });
+				const sm = new THREE.ShaderMaterial({
+					uniforms: {
+						map: { value: null },
+						uOpacity: { value: 0.5 },
+						uBlur: { value: new THREE.Vector2(0.012 * (i + 1), 0.012 * (i + 1)) }
+					},
 					vertexShader: HOLO_VERT,
-					fragmentShader: HOLO_OVERLAY_FRAG,
+					fragmentShader: LAYER_SHADOW_FRAG,
 					transparent: true,
-					depthWrite: false,
-					blending: THREE.AdditiveBlending
+					depthWrite: false
 				});
-				const ov = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), overlayMat);
-				ov.position.z = 0.02;
-				group.add(ov);
-			}
+				loader.load(ly.url, (t) => {
+					t.colorSpace = THREE.SRGBColorSpace;
+					lm.map = t;
+					lm.needsUpdate = true;
+					sm.uniforms.map.value = t; // shadow reuses the layer texture (alpha)
+				});
+				// Force draw order front(0) → shadow(1) → layer(2) so the transparency
+				// sort never flips the shadow behind the front (which made it vanish).
+				const shadow = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), sm);
+				shadow.position.set(SHADOW_DIR.x * h * 1.1, SHADOW_DIR.y * h * 1.1, 0.002 + i * 0.0015);
+				shadow.renderOrder = 1;
+				group.add(shadow);
+				// the layer itself, raised above the card
+				const lp = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), lm);
+				lp.position.z = h;
+				lp.renderOrder = 2;
+				group.add(lp);
+				layerMats.push(lm);
+			});
 
 			// ---- Interaction: drag to rotate, tap to flip ----
 			let targetRotY = 0;
@@ -204,6 +282,9 @@
 				});
 				frontMat.uniforms.map.value?.dispose?.();
 				backMat.map?.dispose?.();
+				texCache.forEach((t) => t.dispose());
+				layerMats.forEach((m) => m.map?.dispose?.());
+				dummy.dispose();
 				renderer.dispose();
 			};
 		})();
@@ -229,8 +310,8 @@
 			<span class="rarity" style="--rarity:{rarity.color}">
 				{rarity.label}{#if card.level} · lvl {card.level}{/if}
 			</span>
-			{#if finish}
-				<span class="badge" class:holo-badge={isHolo}>{finish.label}</span>
+			{#if isHolo}
+				<span class="badge holo-badge">{finishMeta.label}</span>
 			{/if}
 			{#if card.quantity && card.quantity > 0}
 				<span class="badge owned">×{card.quantity} owned</span>
@@ -251,6 +332,22 @@
 				<p class="flavor">"{card.flavor}"</p>
 			{/if}
 		</div>
+	{/if}
+
+	{#if allowFinishToggle && !card.full_art}
+		<div class="finish-toggle">
+			<button type="button" class:active={activeFinish === 'normal'} onclick={() => setFinish('normal')}>
+				Normal
+			</button>
+			<button type="button" class:active={activeFinish === 'holo'} onclick={() => setFinish('holo')}>
+				Holo
+			</button>
+			<button type="button" class:active={activeFinish === 'reverse'} onclick={() => setFinish('reverse')}>
+				Reverse Holo
+			</button>
+		</div>
+	{:else if allowFinishToggle && card.full_art}
+		<p class="full-art-note">Full art — holo not available</p>
 	{/if}
 
 	<p class="hint">Drag to rotate · tap to flip · Esc to close</p>
@@ -411,6 +508,56 @@
 		margin: 0;
 		color: var(--muted);
 		font-size: 0.8rem;
+		pointer-events: none;
+		text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+	}
+
+	/* Finish preview switcher (admin). Interactive, so it opts back into pointer events. */
+	.finish-toggle {
+		position: absolute;
+		bottom: 2.5rem;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 2;
+		display: flex;
+		gap: 0.3rem;
+		pointer-events: auto;
+	}
+
+	.finish-toggle button {
+		min-height: auto;
+		padding: 0.3rem 0.75rem;
+		font-size: 0.8rem;
+		background: rgba(0, 0, 0, 0.55);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		color: var(--muted);
+		cursor: pointer;
+	}
+
+	.finish-toggle button:hover {
+		color: var(--text);
+		border-color: var(--border-strong);
+	}
+
+	.finish-toggle button.active {
+		color: var(--accent);
+		border-color: var(--accent);
+		background: var(--accent-soft, rgba(255, 152, 31, 0.16));
+	}
+
+	.full-art-note {
+		position: absolute;
+		bottom: 2.5rem;
+		left: 50%;
+		transform: translateX(-50%);
+		margin: 0;
+		padding: 0.25rem 0.7rem;
+		font-size: 0.78rem;
+		color: var(--muted);
+		background: rgba(0, 0, 0, 0.5);
+		border: 1px solid var(--border);
+		border-radius: 999px;
 		pointer-events: none;
 		text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
 	}

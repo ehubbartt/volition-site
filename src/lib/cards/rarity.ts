@@ -25,6 +25,11 @@ export interface CardAbility {
 	description: string;
 }
 
+// An extra image stacked above the front face for the 3D depth effect.
+export interface CardLayer {
+	url: string;
+}
+
 export interface Card {
 	id: string;
 	name: string;
@@ -34,6 +39,10 @@ export interface Card {
 	flavor: string | null;
 	front_url: string | null;
 	back_url: string | null;
+	// Optional stacked depth layers (bottom→top), rendered above the front in 3D.
+	layers?: CardLayer[];
+	// Full-art card: art covers the whole card, so holo/reverse-holo never apply.
+	full_art?: boolean;
 }
 
 // A card the user owns, with how many copies. `finish` is the holo variant —
@@ -69,4 +78,16 @@ export const RARITY_BY_KEY: Record<CardRarity, RarityMeta> = Object.fromEntries(
 
 export function isValidRarity(value: unknown): value is CardRarity {
 	return typeof value === 'string' && value in RARITY_BY_KEY;
+}
+
+// Normalises a stored `vs_cards.layers` jsonb value (an array of {path, url}) to
+// the client-safe CardLayer[] (urls only), dropping anything without a url.
+export function toCardLayers(raw: unknown): CardLayer[] {
+	if (!Array.isArray(raw)) return [];
+	const out: CardLayer[] = [];
+	for (const l of raw) {
+		const url = (l as { url?: unknown })?.url;
+		if (typeof url === 'string' && url) out.push({ url });
+	}
+	return out;
 }
