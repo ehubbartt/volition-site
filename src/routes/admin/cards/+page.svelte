@@ -44,7 +44,8 @@
 			flavor: c.flavor,
 			front_url: c.front_url,
 			back_url: c.back_url,
-			layers: toCardLayers((c as { layers?: unknown }).layers)
+			layers: toCardLayers((c as { layers?: unknown }).layers),
+			full_art: !!(c as { full_art?: boolean }).full_art
 		};
 	}
 
@@ -213,6 +214,9 @@
 				{#if layerCount(raw)}
 					<span class="muted small">3D · {layerCount(raw)} layer{layerCount(raw) === 1 ? '' : 's'}</span>
 				{/if}
+				{#if card.full_art}
+					<span class="muted small">Full art · no holo</span>
+				{/if}
 			</div>
 			<form method="POST" action="?/deleteCard" use:enhance class="delete-form">
 				<input type="hidden" name="id" value={card.id} />
@@ -298,6 +302,11 @@
 						<span>Remove all 3D layers</span>
 					</label>
 				{/if}
+
+				<label class="check">
+					<input type="checkbox" name="full_art" checked={card.full_art} />
+					<span>Full art (no holo / reverse holo)</span>
+				</label>
 
 				<button type="submit" class="primary">Save changes</button>
 			</form>
@@ -412,6 +421,11 @@
 				<label>
 					<span>3D depth layers (optional, multiple — stacked bottom→top above the front)</span>
 					<input name="layer" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" />
+				</label>
+
+				<label class="check">
+					<input type="checkbox" name="full_art" />
+					<span>Full art (no holo / reverse holo)</span>
 				</label>
 
 				<button type="submit" class="primary">Create card</button>

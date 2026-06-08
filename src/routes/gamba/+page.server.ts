@@ -17,6 +17,7 @@ interface CardRow {
 	front_url: string | null;
 	back_url: string | null;
 	layers: unknown;
+	full_art: boolean | null;
 }
 
 // Player-facing pack store. Gated to card testers for now (CARD_TESTER_DISCORD_IDS)
@@ -71,7 +72,7 @@ export const actions: Actions = {
 		// Card pool for this set.
 		const { data: poolRows, error: poolErr } = await db()
 			.from('vs_cards')
-			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers')
+			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art')
 			.eq('pack_id', packId);
 		if (poolErr) return fail(500, { error: poolErr.message });
 		const pool = (poolRows ?? []) as CardRow[];
@@ -114,8 +115,11 @@ export const actions: Actions = {
 		// Reveal order is fixed above, so these land on the final two cards opened.
 		const rolled = rolledCards.map((card, i) => {
 			let finish: CardFinish = 'normal';
-			if (i === rolledCards.length - 1) finish = 'holo';
-			else if (i === rolledCards.length - 2) finish = 'reverse';
+			// Full-art cards never get a holo finish (the masks don't apply to them).
+			if (!card.full_art) {
+				if (i === rolledCards.length - 1) finish = 'holo';
+				else if (i === rolledCards.length - 2) finish = 'reverse';
+			}
 			return { card, finish };
 		});
 
@@ -150,6 +154,7 @@ export const actions: Actions = {
 			front_url: r.card.front_url,
 			back_url: r.card.back_url,
 			layers: toCardLayers(r.card.layers),
+			full_art: !!r.card.full_art,
 			finish: r.finish
 		}));
 

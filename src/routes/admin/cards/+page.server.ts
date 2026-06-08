@@ -14,7 +14,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		db()
 			.from('vs_cards')
 			.select(
-				'id, name, level, rarity, pack_id, abilities, flavor, front_path, front_url, back_path, back_url, layers, created_at'
+				'id, name, level, rarity, pack_id, abilities, flavor, front_path, front_url, back_path, back_url, layers, full_art, created_at'
 			)
 			.order('created_at', { ascending: false }),
 		db()
@@ -87,7 +87,8 @@ export const actions: Actions = {
 				rarity: parsed.data.rarity,
 				pack_id: parsed.data.pack_id,
 				flavor: parsed.data.flavor,
-				abilities
+				abilities,
+				full_art: form.get('full_art') === 'on'
 			})
 			.select('id')
 			.single();
@@ -153,6 +154,7 @@ export const actions: Actions = {
 			pack_id: parsed.data.pack_id,
 			flavor: parsed.data.flavor,
 			abilities,
+			full_art: form.get('full_art') === 'on',
 			updated_at: new Date().toISOString()
 		};
 

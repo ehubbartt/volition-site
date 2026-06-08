@@ -41,6 +41,8 @@ export interface Card {
 	back_url: string | null;
 	// Optional stacked depth layers (bottom→top), rendered above the front in 3D.
 	layers?: CardLayer[];
+	// Full-art card: art covers the whole card, so holo/reverse-holo never apply.
+	full_art?: boolean;
 }
 
 // A card the user owns, with how many copies. `finish` is the holo variant —

@@ -22,6 +22,7 @@ interface UserCardRow {
 		front_url: string | null;
 		back_url: string | null;
 		layers: unknown;
+		full_art: boolean | null;
 	} | null;
 }
 
@@ -45,7 +46,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		getWalletItems(locals.user.discord_id),
 		db()
 			.from('vs_user_cards')
-			.select('quantity, finish, vs_cards(id, name, level, rarity, abilities, flavor, front_url, back_url, layers)')
+			.select('quantity, finish, vs_cards(id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art)')
 			.eq('user_id', locals.user.id)
 			.order('first_acquired_at', { ascending: false }),
 		db()
@@ -69,6 +70,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 				front_url: c.front_url,
 				back_url: c.back_url,
 				layers: toCardLayers(c.layers),
+				full_art: !!c.full_art,
 				quantity: row.quantity,
 				finish: (isValidFinish(row.finish) ? row.finish : 'normal') as CardFinish
 			};

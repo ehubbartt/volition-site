@@ -29,7 +29,8 @@
 	// untrack: capture only the initial finish — the inspector remounts per card.
 	let activeFinish = $state<CardFinish>(untrack(() => card.finish ?? 'normal'));
 	let finishMeta = $derived(FINISH_BY_KEY[activeFinish] ?? FINISH_BY_KEY.normal);
-	let isHolo = $derived(finishMeta.key !== 'normal');
+	// Full-art cards never show holo, whatever finish is selected/stored.
+	let isHolo = $derived(!card.full_art && finishMeta.key !== 'normal');
 
 	// Imperative bridge: set by onMount so the toggle can update the 3D material.
 	let applyFinish: (f: CardFinish) => void = () => {};
@@ -114,7 +115,8 @@
 			});
 			// Swap the foil/mask for a finish (live — used by the toggle and at init).
 			applyFinish = (f: CardFinish) => {
-				const meta = FINISH_BY_KEY[f] ?? FINISH_BY_KEY.normal;
+				// Full-art cards never show the foil, regardless of the selected finish.
+				const meta = card.full_art ? FINISH_BY_KEY.normal : (FINISH_BY_KEY[f] ?? FINISH_BY_KEY.normal);
 				frontMat.uniforms.uHas.value = meta.placement ? 1 : 0;
 				frontMat.uniforms.uStrength.value = meta.strength;
 				frontMat.uniforms.uHoloTex.value = meta.texture
@@ -332,7 +334,7 @@
 		</div>
 	{/if}
 
-	{#if allowFinishToggle}
+	{#if allowFinishToggle && !card.full_art}
 		<div class="finish-toggle">
 			<button type="button" class:active={activeFinish === 'normal'} onclick={() => setFinish('normal')}>
 				Normal
@@ -344,6 +346,8 @@
 				Reverse Holo
 			</button>
 		</div>
+	{:else if allowFinishToggle && card.full_art}
+		<p class="full-art-note">Full art — holo not available</p>
 	{/if}
 
 	<p class="hint">Drag to rotate · tap to flip · Esc to close</p>
@@ -540,6 +544,22 @@
 		color: var(--accent);
 		border-color: var(--accent);
 		background: var(--accent-soft, rgba(255, 152, 31, 0.16));
+	}
+
+	.full-art-note {
+		position: absolute;
+		bottom: 2.5rem;
+		left: 50%;
+		transform: translateX(-50%);
+		margin: 0;
+		padding: 0.25rem 0.7rem;
+		font-size: 0.78rem;
+		color: var(--muted);
+		background: rgba(0, 0, 0, 0.5);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		pointer-events: none;
+		text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
 	}
 
 	@media (max-width: 560px) {

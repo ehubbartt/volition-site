@@ -746,6 +746,7 @@
       // No rolled finish (the pack tester) → preview the guaranteed-slot rule: the
       // last card is a Holo, the second-to-last a Reverse Holo, the rest Normal.
       const finishFor = (c: OpenerCard, i: number): FinishMeta => {
+        if (c.full_art) return FINISH_BY_KEY.normal; // full-art cards never holo
         if (c.finish) return FINISH_BY_KEY[c.finish] ?? FINISH_BY_KEY.normal;
         if (i === cards.length - 1) return FINISH_BY_KEY.holo;
         if (i === cards.length - 2) return FINISH_BY_KEY.reverse;

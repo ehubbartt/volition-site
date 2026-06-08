@@ -15,6 +15,7 @@ interface CardRow {
 	front_url: string | null;
 	back_url: string | null;
 	layers: unknown;
+	full_art: boolean | null;
 }
 
 export interface TesterPack {
@@ -35,7 +36,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		db().from('vs_card_packs').select('id, name, front_url, back_url').order('name', { ascending: true }),
 		db()
 			.from('vs_cards')
-			.select('id, name, level, rarity, pack_id, abilities, flavor, front_url, back_url, layers')
+			.select('id, name, level, rarity, pack_id, abilities, flavor, front_url, back_url, layers, full_art')
 			.order('name', { ascending: true })
 	]);
 
@@ -54,7 +55,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			flavor: c.flavor,
 			front_url: c.front_url,
 			back_url: c.back_url,
-			layers: toCardLayers(c.layers)
+			layers: toCardLayers(c.layers),
+			full_art: !!c.full_art
 		};
 		const arr = cardsByPack.get(c.pack_id) ?? [];
 		arr.push(card);
