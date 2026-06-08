@@ -4,7 +4,7 @@ import { db } from '$lib/server/db';
 import { isValidClan, CLAN_OPTIONS } from '$lib/clans';
 import { isValidAccountType, ACCOUNT_TYPES } from '$lib/accountTypes';
 import { getPlayerVp, getWalletItems } from '$lib/server/playerStats';
-import { isValidRarity, DEFAULT_RARITY, type UserCard, type CardAbility, type CardRarity } from '$lib/cards/rarity';
+import { isValidRarity, DEFAULT_RARITY, toCardLayers, type UserCard, type CardAbility, type CardRarity } from '$lib/cards/rarity';
 import { isValidFinish, type CardFinish } from '$lib/cards/finishes';
 import type { UserPack } from '$lib/cards/packs';
 import type { Actions, PageServerLoad } from './$types';
@@ -21,6 +21,7 @@ interface UserCardRow {
 		flavor: string | null;
 		front_url: string | null;
 		back_url: string | null;
+		layers: unknown;
 	} | null;
 }
 
@@ -44,7 +45,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		getWalletItems(locals.user.discord_id),
 		db()
 			.from('vs_user_cards')
-			.select('quantity, finish, vs_cards(id, name, level, rarity, abilities, flavor, front_url, back_url)')
+			.select('quantity, finish, vs_cards(id, name, level, rarity, abilities, flavor, front_url, back_url, layers)')
 			.eq('user_id', locals.user.id)
 			.order('first_acquired_at', { ascending: false }),
 		db()
@@ -67,6 +68,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 				flavor: c.flavor,
 				front_url: c.front_url,
 				back_url: c.back_url,
+				layers: toCardLayers(c.layers),
 				quantity: row.quantity,
 				finish: (isValidFinish(row.finish) ? row.finish : 'normal') as CardFinish
 			};

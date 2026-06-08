@@ -2,9 +2,9 @@ import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isCardTester } from '$lib/server/auth';
 import { getPlayerVp, spendPlayerVp, grantPlayerVp } from '$lib/server/playerStats';
-import { grantCards, makeRarityRoller, type CardGrant } from '$lib/server/gamba';
-import { isValidRarity, RARITIES, DEFAULT_RARITY, type Card, type CardAbility, type CardRarity } from '$lib/cards/rarity';
-import { rollFinish, type CardFinish } from '$lib/cards/finishes';
+import { grantCards, makeSlotRoller, type CardGrant } from '$lib/server/gamba';
+import { isValidRarity, RARITIES, DEFAULT_RARITY, toCardLayers, type Card, type CardAbility, type CardRarity } from '$lib/cards/rarity';
+import { type CardFinish } from '$lib/cards/finishes';
 import type { Actions, PageServerLoad } from './$types';
 
 interface CardRow {
@@ -16,6 +16,7 @@ interface CardRow {
 	flavor: string | null;
 	front_url: string | null;
 	back_url: string | null;
+	layers: unknown;
 }
 
 // Player-facing pack store. Gated to card testers for now (CARD_TESTER_DISCORD_IDS)
@@ -61,7 +62,7 @@ export const actions: Actions = {
 		// Pack must exist AND be released.
 		const { data: pack, error: pErr } = await db()
 			.from('vs_card_packs')
-			.select('id, name, cost_vp, cards_per_pack, rarity_weights, front_url, back_url, released')
+			.select('id, name, cost_vp, cards_per_pack, rarity_weights, slot_weights, front_url, back_url, released')
 			.eq('id', packId)
 			.maybeSingle();
 		if (pErr) return fail(500, { error: pErr.message });
@@ -70,7 +71,7 @@ export const actions: Actions = {
 		// Card pool for this set.
 		const { data: poolRows, error: poolErr } = await db()
 			.from('vs_cards')
-			.select('id, name, level, rarity, abilities, flavor, front_url, back_url')
+			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers')
 			.eq('pack_id', packId);
 		if (poolErr) return fail(500, { error: poolErr.message });
 		const pool = (poolRows ?? []) as CardRow[];
@@ -79,23 +80,44 @@ export const actions: Actions = {
 		const cost = pack.cost_vp ?? 0;
 		const n = Math.max(1, pack.cards_per_pack ?? 5);
 
-		// Roll a card by the pack's rarity drop rates (with replacement), then roll
-		// its holo finish (weighted, independent of the card).
-		const rollCard = makeRarityRoller(
-			pool,
-			pack.rarity_weights as Record<string, number> | null
-		);
-		const rolled: { card: CardRow; finish: CardFinish }[] = [];
+		// Roll each of the n cards by its SLOT's rarity drop rates (slot_weights is
+		// an array indexed by slot, 0-based). A slot with no configured weights
+		// falls back to the legacy per-pack rarity_weights, then to uniform.
+		const slotWeights = (Array.isArray(pack.slot_weights) ? pack.slot_weights : []) as Record<
+			string,
+			number
+		>[];
+		const hasSlots = slotWeights.some((s) => s && Object.keys(s).length > 0);
+		const legacyWeights = pack.rarity_weights as Record<string, number> | null;
+		const pick = makeSlotRoller(pool);
+
+		const rolledCards: CardRow[] = [];
 		for (let i = 0; i < n; i++) {
-			rolled.push({ card: rollCard(), finish: rollFinish() });
+			const slot = slotWeights[i];
+			const w = slot && Object.keys(slot).length > 0 ? slot : legacyWeights;
+			rolledCards.push(pick(w));
 		}
 
-		// Reveal in increasing rarity — the rarest pulls land at the END of the open
-		// (the reveal order follows this array), so the open builds to a climax.
-		const rarityRank = new Map(RARITIES.map((r, i) => [r.key as string, i]));
-		rolled.sort(
-			(a, b) => (rarityRank.get(a.card.rarity) ?? 0) - (rarityRank.get(b.card.rarity) ?? 0)
-		);
+		// Reveal order: when slots are configured the admin controls the per-slot
+		// progression, so reveal in SLOT order (slot 1 first → slot n last). Legacy
+		// per-pack packs have no slot ordering, so fall back to rarest-last for a
+		// climactic reveal.
+		if (!hasSlots) {
+			const rarityRank = new Map(RARITIES.map((r, i) => [r.key as string, i]));
+			rolledCards.sort(
+				(a, b) => (rarityRank.get(a.rarity) ?? 0) - (rarityRank.get(b.rarity) ?? 0)
+			);
+		}
+
+		// Finishes (temporary rule — see CLAUDE.md): the LAST card is a guaranteed
+		// Holo and the second-to-last a guaranteed Reverse Holo; the rest Normal.
+		// Reveal order is fixed above, so these land on the final two cards opened.
+		const rolled = rolledCards.map((card, i) => {
+			let finish: CardFinish = 'normal';
+			if (i === rolledCards.length - 1) finish = 'holo';
+			else if (i === rolledCards.length - 2) finish = 'reverse';
+			return { card, finish };
+		});
 
 		// 1) Spend VP (optimistic — only if affordable and unchanged).
 		const spend = await spendPlayerVp(locals.user.discord_id, locals.user.rsn, cost);
@@ -127,6 +149,7 @@ export const actions: Actions = {
 			flavor: r.card.flavor,
 			front_url: r.card.front_url,
 			back_url: r.card.back_url,
+			layers: toCardLayers(r.card.layers),
 			finish: r.finish
 		}));
 

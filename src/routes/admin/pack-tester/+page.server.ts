@@ -1,7 +1,7 @@
 import { redirect, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isCardTester } from '$lib/server/auth';
-import { isValidRarity, DEFAULT_RARITY, type Card, type CardAbility, type CardRarity } from '$lib/cards/rarity';
+import { isValidRarity, DEFAULT_RARITY, toCardLayers, type Card, type CardAbility, type CardRarity } from '$lib/cards/rarity';
 import type { PageServerLoad } from './$types';
 
 interface CardRow {
@@ -14,6 +14,7 @@ interface CardRow {
 	flavor: string | null;
 	front_url: string | null;
 	back_url: string | null;
+	layers: unknown;
 }
 
 export interface TesterPack {
@@ -34,7 +35,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		db().from('vs_card_packs').select('id, name, front_url, back_url').order('name', { ascending: true }),
 		db()
 			.from('vs_cards')
-			.select('id, name, level, rarity, pack_id, abilities, flavor, front_url, back_url')
+			.select('id, name, level, rarity, pack_id, abilities, flavor, front_url, back_url, layers')
 			.order('name', { ascending: true })
 	]);
 
@@ -52,7 +53,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			abilities: c.abilities ?? [],
 			flavor: c.flavor,
 			front_url: c.front_url,
-			back_url: c.back_url
+			back_url: c.back_url,
+			layers: toCardLayers(c.layers)
 		};
 		const arr = cardsByPack.get(c.pack_id) ?? [];
 		arr.push(card);

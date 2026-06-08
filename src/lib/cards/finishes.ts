@@ -1,45 +1,64 @@
 // Client-safe card finishes (holo variants). Not secret. When a pack is opened
-// each pulled card rolls a finish, which is tracked SEPARATELY in the collection
-// (vs_user_cards.finish) — a Normal Olm and a Holo·Prism Olm are distinct items.
+// each pulled card gets a finish, which is tracked SEPARATELY in the collection
+// (vs_user_cards.finish) — a Normal Olm and a Holo Olm are distinct items.
 //
-// holo/sheen/pattern map to the PackOpener holo shader (the four holo looks the
-// opener was tuned around); weight = relative roll odds (tune these to change how
-// often each finish appears). These finish odds are independent of which card is
-// rolled.
+// A holo finish is a foil shine overlaid onto the card front, masked to a region:
+//  - `regular` (Holo)         — foil over the main art window     (mask-regular.png)
+//  - `reverse` (Reverse Holo) — foil over everything BUT the art  (mask-reverse.png)
+// The foil itself is one of the holo textures in static/holo (star / ripple). The
+// region masks use the ALPHA channel (opaque = apply the foil there). Rendered by
+// the holo shader in $lib/cards/holo.ts (used by PackOpener + CardInspector3D).
 
-export type CardFinish = 'normal' | 'stripe' | 'sparkle' | 'wave' | 'prism';
+export type CardFinish = 'normal' | 'holo' | 'reverse';
+export type HoloPlacement = 'regular' | 'reverse';
+export type HoloTexture = 'star' | 'ripple';
 
 export interface FinishMeta {
 	key: CardFinish;
 	label: string; // short label for badges
-	holo: number; // shader rainbow strength (0 = no holo)
-	sheen: number; // shader moving glare
-	pattern: number; // shader holo pattern index (-1 = none)
-	weight: number; // relative roll weight (higher = more common)
+	placement: HoloPlacement | null; // which region mask (null = no holo / Normal)
+	texture: HoloTexture | null; // which foil overlay (null = none)
+	strength: number; // foil intensity (0 = none)
+	weight: number; // legacy random-roll weight (kept; holos are positional for now)
 }
 
-// Order = display order (rarest last). Tune `weight` to change pull odds.
 export const FINISHES: FinishMeta[] = [
-	{ key: 'normal', label: 'Normal', holo: 0, sheen: 0, pattern: -1, weight: 80 },
-	{ key: 'stripe', label: 'Holo · Stripe', holo: 0.03, sheen: 0.005, pattern: 0, weight: 10 },
-	{ key: 'sparkle', label: 'Holo · Sparkle', holo: 0.04, sheen: 0.005, pattern: 1, weight: 6 },
-	{ key: 'wave', label: 'Holo · Wave', holo: 0.014, sheen: 0.006, pattern: 2, weight: 3 },
-	{ key: 'prism', label: 'Holo · Prism', holo: 0.02, sheen: 0.008, pattern: 3, weight: 1 }
+	{ key: 'normal', label: 'Normal', placement: null, texture: null, strength: 0, weight: 80 },
+	{ key: 'holo', label: 'Holo', placement: 'regular', texture: 'star', strength: 1, weight: 14 },
+	{
+		key: 'reverse',
+		label: 'Reverse Holo',
+		placement: 'reverse',
+		texture: 'ripple',
+		strength: 1,
+		weight: 6
+	}
 ];
 
 export const FINISH_BY_KEY: Record<CardFinish, FinishMeta> = Object.fromEntries(
 	FINISHES.map((f) => [f.key, f])
 ) as Record<CardFinish, FinishMeta>;
 
-// The holo finishes only (everything except Normal) — used as the opener's
-// look-comparison cycle when no real finish is supplied (e.g. the pack tester).
-export const HOLO_FINISHES = FINISHES.filter((f) => f.key !== 'normal');
+// The holo finishes only (everything except Normal).
+export const HOLO_FINISHES = FINISHES.filter((f) => f.placement !== null);
+
+// Foil overlay (colour) + region mask (alpha) assets, served from static/holo.
+export const HOLO_TEXTURE_URL: Record<HoloTexture, string> = {
+	star: '/holo/star-holo.jpg',
+	ripple: '/holo/ripple-holo.jpg'
+};
+export const HOLO_MASK_URL: Record<HoloPlacement, string> = {
+	regular: '/holo/mask-regular.png',
+	reverse: '/holo/mask-reverse.png'
+};
 
 export function isValidFinish(value: unknown): value is CardFinish {
 	return typeof value === 'string' && value in FINISH_BY_KEY;
 }
 
-// Weighted random finish for a pulled card.
+// Weighted random finish. Currently UNUSED by the open flow (the last card is a
+// guaranteed Holo and the second-to-last a guaranteed Reverse Holo — see
+// gamba/+page.server.ts), but kept for when finishes go back to being rolled.
 export function rollFinish(): CardFinish {
 	const total = FINISHES.reduce((sum, f) => sum + f.weight, 0);
 	let r = Math.random() * total;

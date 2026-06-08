@@ -1,12 +1,13 @@
-// Holo card shaders — the 3D foil look used for revealed cards. Used by the
-// collection inspector (CardInspector3D.svelte). These MIRROR the holo shaders
-// inlined in PackOpener.svelte (the pack-open reveal); if you retune the holo
-// look in one, update the other so the inspector matches the opener.
+// Holo card shaders — the 3D foil look used for revealed cards. Shared by the
+// pack-open reveal (PackOpener.svelte) and the collection inspector
+// (CardInspector3D.svelte) so both render identically.
 //
-// The look is self-contained in the fragment shader (it derives its own
-// fresnel/flow from the surface normal — no scene lights needed). `uHolo` =
-// rainbow strength, `uSheen` = moving glare, `uPattern` = which holo pattern
-// (0 stripe, 1 sparkle, 2 wave, 3 prism), `uReveal` = 1 for a focused card.
+// The foil is a colour texture (uHoloTex — star / ripple) overlaid onto the card
+// front, confined to a region by a mask (uMask, its ALPHA channel: opaque = apply
+// foil here). `uHas` = 1 for a holo card (0 = Normal, foil skipped). The foil
+// slides with the card's tilt so the colours travel as you angle it, and blooms
+// toward grazing angles (fresnel). `uReveal` = 1 for a focused/front card (cards
+// behind it are dimmed). `uStrength` scales the foil; `uOpacity` fades the card.
 
 export const HOLO_VERT = `
 	varying vec2 vUv;
@@ -21,86 +22,78 @@ export const HOLO_VERT = `
 	}
 `;
 
+// Soft drop shadow for a raised depth layer: renders the layer's silhouette (its
+// alpha) as a blurred dark shape. Placed on the card's base surface and offset by
+// the layer's height, it grounds the layer so it reads as popping OUT of the card
+// instead of floating above it. uBlur = penumbra radius (uv); uOpacity = darkness.
+export const LAYER_SHADOW_FRAG = `
+	uniform sampler2D map;
+	uniform float uOpacity;
+	uniform vec2 uBlur;
+	varying vec2 vUv;
+	void main() {
+		// 9-tap box blur of the alpha for a soft penumbra
+		float a = texture2D(map, vUv).a * 0.36;
+		a += texture2D(map, vUv + vec2(uBlur.x, 0.0)).a * 0.1;
+		a += texture2D(map, vUv - vec2(uBlur.x, 0.0)).a * 0.1;
+		a += texture2D(map, vUv + vec2(0.0, uBlur.y)).a * 0.1;
+		a += texture2D(map, vUv - vec2(0.0, uBlur.y)).a * 0.1;
+		a += texture2D(map, vUv + uBlur).a * 0.06;
+		a += texture2D(map, vUv - uBlur).a * 0.06;
+		a += texture2D(map, vUv + vec2(uBlur.x, -uBlur.y)).a * 0.06;
+		a += texture2D(map, vUv + vec2(-uBlur.x, uBlur.y)).a * 0.06;
+		gl_FragColor = vec4(0.0, 0.0, 0.0, a * uOpacity);
+	}
+`;
+
 export const HOLO_FRAG = `
 	uniform sampler2D map;
-	uniform float uHolo;
-	uniform float uSheen;
+	uniform sampler2D uHoloTex;
+	uniform sampler2D uMask;
+	uniform float uHas;
+	uniform float uStrength;
 	uniform float uOpacity;
 	uniform float uReveal;
-	uniform int uPattern;
 	varying vec2 vUv;
 	varying vec3 vNormal;
 	varying vec3 vViewPos;
-	// the sRGB texture is GPU-decoded to linear on sample; re-encode the final
-	// colour to sRGB for display (built-in materials do this for us, ShaderMaterial
-	// does not) — otherwise the cards render dark/dull.
+	// sRGB textures are GPU-decoded to linear on sample; re-encode the final colour
+	// to sRGB for display (built-in materials do this for us, ShaderMaterial does
+	// not) — otherwise the cards render dark/dull.
 	vec3 lin2srgb(vec3 c) {
 		c = clamp(c, 0.0, 1.0);
 		return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
 	}
 	void main() {
 		vec4 base = texture2D(map, vUv);
-		vec3 N = normalize(vNormal);
-		vec3 V = normalize(vViewPos);
-		float fres = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 3.0);
+		vec3 col = base.rgb;
 
-		// motion driven by how the card is tilted toward the viewer (no time)
-		vec2 tilt = N.xy;
-		float flow = (tilt.x + tilt.y) * 9.0;
+		if (uHas > 0.5) {
+			vec3 N = normalize(vNormal);
+			vec3 V = normalize(vViewPos);
+			float fres = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 2.0);
+			vec2 tilt = N.xy;
 
-		vec2 p = vUv;
-		float phase;
-		float glare;
+			// region = the mask's alpha (opaque = apply the foil here)
+			float region = texture2D(uMask, vUv).a;
 
-		if (uPattern == 0) {
-			phase = (p.x + p.y) * 5.0 + flow;
-			glare = smoothstep(0.6, 1.0, sin((p.x + p.y) * 7.0 + flow * 1.4 + fres * 3.0));
-		} else if (uPattern == 1) {
-			vec2 cell = fract(p * 9.0) - 0.5;
-			float d = length(cell);
-			float tw = 0.5 + 0.5 * sin(flow * 1.5 + (floor(p.x * 9.0) + floor(p.y * 9.0)) * 1.7);
-			phase = p.x * 5.0 - p.y * 5.0 + flow;
-			glare = smoothstep(0.32, 0.0, d) * tw;
-		} else if (uPattern == 2) {
-			float r = length(p - 0.5);
-			phase = r * 9.0 + flow;
-			glare = smoothstep(0.6, 1.0, sin(r * 34.0 + flow * 2.0 + fres * 4.0));
-		} else {
-			vec2 c = p - 0.5;
-			float a = atan(c.y, c.x);
-			float r = length(c);
-			phase = a * 1.5 + r * 4.0 + flow;
-			glare = smoothstep(0.6, 1.0, sin(a * 8.0 + flow + r * 10.0));
+			// slide the foil with the tilt so its colours travel as the card angles.
+			// the foil texture uses MIRRORED-repeat wrapping, so this offset reflects
+			// at the texture edge instead of showing a hard seam running onto the card.
+			vec2 huv = vUv + tilt * 0.22;
+			vec3 foil = texture2D(uHoloTex, huv).rgb;
+
+			// screen-blend the foil over the base (reads as reflective foil, not paint),
+			// scaled by region, how much the card is revealed, and the viewing angle so
+			// it's subtle head-on and blooms at grazing angles.
+			float amt = uStrength * region * uReveal * (0.18 + 0.6 * fres);
+			col = 1.0 - (1.0 - col) * (1.0 - foil * amt);
+			// a touch of extra additive sparkle right at the edge
+			col += foil * region * uStrength * fres * 0.22 * uReveal;
 		}
 
-		vec3 rainbow = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.33, 0.67) + phase + fres * 3.0));
-		vec3 col = base.rgb;
-		col += rainbow * uHolo * (0.3 + fres) * base.a * uReveal;
-		col += mix(rainbow, vec3(1.0), 0.25) * glare * uSheen * base.a * uReveal;
+		// cards behind the focused one are dimmed a touch so they recede
 		col *= mix(0.55, 1.0, uReveal);
 		gl_FragColor = vec4(lin2srgb(col), base.a * uOpacity);
-	}
-`;
-
-// Extra floating holo sheet for the top tier (additive, layered-depth shimmer).
-export const HOLO_OVERLAY_FRAG = `
-	uniform float uOpacity;
-	varying vec2 vUv;
-	varying vec3 vNormal;
-	varying vec3 vViewPos;
-	void main() {
-		vec3 N = normalize(vNormal);
-		vec3 V = normalize(vViewPos);
-		float fres = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 2.0);
-		vec2 tilt = N.xy;
-		float flow = (tilt.x + tilt.y) * 9.0;
-		vec2 p = vUv + tilt * 0.18;
-		vec2 c = p - 0.5;
-		float a = atan(c.y, c.x);
-		float r = length(c);
-		float band = sin(a * 10.0 + flow + r * 14.0);
-		float mask = smoothstep(0.45, 1.0, band) * (0.25 + fres);
-		vec3 rainbow = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.33, 0.67) + a + flow * 0.3));
-		gl_FragColor = vec4(rainbow * mask, mask * uOpacity * 0.07);
 	}
 `;

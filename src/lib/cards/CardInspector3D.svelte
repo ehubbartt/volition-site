@@ -2,8 +2,13 @@
 	import { onMount } from 'svelte';
 	import * as THREE from 'three';
 	import { RARITY_BY_KEY, DEFAULT_RARITY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
-	import { FINISH_BY_KEY, type CardFinish } from '$lib/cards/finishes';
-	import { HOLO_VERT, HOLO_FRAG, HOLO_OVERLAY_FRAG } from '$lib/cards/holo';
+	import {
+		FINISH_BY_KEY,
+		HOLO_TEXTURE_URL,
+		HOLO_MASK_URL,
+		type CardFinish
+	} from '$lib/cards/finishes';
+	import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG } from '$lib/cards/holo';
 
 	let {
 		card,
@@ -60,13 +65,31 @@
 			const group = new THREE.Group();
 			scene.add(group);
 
+			// 1x1 white stand-in so the foil/mask samplers are always bound, even for
+			// a Normal card (uHas = 0 means the shader never reads them).
+			const dummy = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+			dummy.needsUpdate = true;
+
+			// Holo foil (colour, sRGB) + region mask (alpha, data) for this finish.
+			let holoTex: THREE.Texture | null = null;
+			let maskTex: THREE.Texture | null = null;
+			if (fin.placement && fin.texture) {
+				holoTex = loader.load(HOLO_TEXTURE_URL[fin.texture]);
+				holoTex.colorSpace = THREE.SRGBColorSpace;
+				// mirrored repeat so the tilt-driven UV offset never shows a hard seam
+				holoTex.wrapS = holoTex.wrapT = THREE.MirroredRepeatWrapping;
+				maskTex = loader.load(HOLO_MASK_URL[fin.placement]);
+				maskTex.wrapS = maskTex.wrapT = THREE.ClampToEdgeWrapping;
+			}
+
 			// Front: holo shader plane.
 			const frontMat = new THREE.ShaderMaterial({
 				uniforms: {
 					map: { value: null },
-					uHolo: { value: fin.holo },
-					uSheen: { value: fin.sheen },
-					uPattern: { value: fin.pattern },
+					uHoloTex: { value: holoTex ?? dummy },
+					uMask: { value: maskTex ?? dummy },
+					uHas: { value: fin.placement ? 1 : 0 },
+					uStrength: { value: fin.strength },
 					uReveal: { value: 1 },
 					uOpacity: { value: 1 }
 				},
@@ -102,21 +125,46 @@
 			back.position.z = -(CARD_D + 0.006);
 			group.add(back);
 
-			// Prism gets the extra floating shimmer sheet.
-			let overlayMat: THREE.ShaderMaterial | null = null;
-			if (fin.pattern === 3) {
-				overlayMat = new THREE.ShaderMaterial({
-					uniforms: { uOpacity: { value: 1 } },
+			// Stacked 3D depth layers above the front. Each layer is raised in z (so
+			// rotating parallaxes them apart) AND casts a soft drop shadow onto the
+			// card base, thrown toward a fixed light by its height — that grounds it so
+			// it reads as popping OUT of the card rather than floating above it.
+			const LAYER_DEPTH = 0.08; // how far each layer sits above the card (small = subtle)
+			const SHADOW_DIR = new THREE.Vector2(0.6, -0.8); // light upper-left → shadow lower-right
+			const layerMats: THREE.MeshBasicMaterial[] = [];
+			(card.layers ?? []).forEach((ly, i) => {
+				const h = (i + 1) * LAYER_DEPTH;
+				const lm = new THREE.MeshBasicMaterial({ transparent: true });
+				const sm = new THREE.ShaderMaterial({
+					uniforms: {
+						map: { value: null },
+						uOpacity: { value: 0.5 },
+						uBlur: { value: new THREE.Vector2(0.012 * (i + 1), 0.012 * (i + 1)) }
+					},
 					vertexShader: HOLO_VERT,
-					fragmentShader: HOLO_OVERLAY_FRAG,
+					fragmentShader: LAYER_SHADOW_FRAG,
 					transparent: true,
-					depthWrite: false,
-					blending: THREE.AdditiveBlending
+					depthWrite: false
 				});
-				const ov = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), overlayMat);
-				ov.position.z = 0.02;
-				group.add(ov);
-			}
+				loader.load(ly.url, (t) => {
+					t.colorSpace = THREE.SRGBColorSpace;
+					lm.map = t;
+					lm.needsUpdate = true;
+					sm.uniforms.map.value = t; // shadow reuses the layer texture (alpha)
+				});
+				// Force draw order front(0) → shadow(1) → layer(2) so the transparency
+				// sort never flips the shadow behind the front (which made it vanish).
+				const shadow = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), sm);
+				shadow.position.set(SHADOW_DIR.x * h * 1.1, SHADOW_DIR.y * h * 1.1, 0.002 + i * 0.0015);
+				shadow.renderOrder = 1;
+				group.add(shadow);
+				// the layer itself, raised above the card
+				const lp = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), lm);
+				lp.position.z = h;
+				lp.renderOrder = 2;
+				group.add(lp);
+				layerMats.push(lm);
+			});
 
 			// ---- Interaction: drag to rotate, tap to flip ----
 			let targetRotY = 0;
@@ -204,6 +252,10 @@
 				});
 				frontMat.uniforms.map.value?.dispose?.();
 				backMat.map?.dispose?.();
+				holoTex?.dispose();
+				maskTex?.dispose();
+				layerMats.forEach((m) => m.map?.dispose?.());
+				dummy.dispose();
 				renderer.dispose();
 			};
 		})();
