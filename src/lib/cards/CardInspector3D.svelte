@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import * as THREE from 'three';
 	import { RARITY_BY_KEY, DEFAULT_RARITY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
 	import {
@@ -12,17 +12,31 @@
 
 	let {
 		card,
-		onClose
+		onClose,
+		allowFinishToggle = false
 	}: {
 		card: Card & { finish?: CardFinish; quantity?: number | null };
 		onClose: () => void;
+		// When true, show a Normal/Holo/Reverse switcher (admin preview); the foil
+		// is swapped live without rebuilding the scene.
+		allowFinishToggle?: boolean;
 	} = $props();
 
 	let canvas: HTMLCanvasElement;
 
 	let rarity = $derived(RARITY_BY_KEY[card.rarity] ?? RARITY_BY_KEY[DEFAULT_RARITY]);
-	let finish = $derived(card.finish ? FINISH_BY_KEY[card.finish] : null);
-	let isHolo = $derived(!!finish && finish.key !== 'normal');
+	// The finish currently being shown (live-switchable when allowFinishToggle).
+	// untrack: capture only the initial finish — the inspector remounts per card.
+	let activeFinish = $state<CardFinish>(untrack(() => card.finish ?? 'normal'));
+	let finishMeta = $derived(FINISH_BY_KEY[activeFinish] ?? FINISH_BY_KEY.normal);
+	let isHolo = $derived(finishMeta.key !== 'normal');
+
+	// Imperative bridge: set by onMount so the toggle can update the 3D material.
+	let applyFinish: (f: CardFinish) => void = () => {};
+	function setFinish(f: CardFinish) {
+		activeFinish = f;
+		applyFinish(f);
+	}
 
 	function onKey(e: KeyboardEvent) {
 		if (e.key === 'Escape') onClose();
@@ -48,8 +62,6 @@
 			const dims = await loadDims(frontUrl, { w: 5, h: 7 });
 			if (disposed) return;
 
-			const fin = card.finish ? FINISH_BY_KEY[card.finish] : FINISH_BY_KEY.normal;
-
 			const CARD_H = 4;
 			const CARD_W = CARD_H * (dims.w / dims.h);
 			const CARD_D = 0.04;
@@ -70,26 +82,29 @@
 			const dummy = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
 			dummy.needsUpdate = true;
 
-			// Holo foil (colour, sRGB) + region mask (alpha, data) for this finish.
-			let holoTex: THREE.Texture | null = null;
-			let maskTex: THREE.Texture | null = null;
-			if (fin.placement && fin.texture) {
-				holoTex = loader.load(HOLO_TEXTURE_URL[fin.texture]);
-				holoTex.colorSpace = THREE.SRGBColorSpace;
-				// mirrored repeat so the tilt-driven UV offset never shows a hard seam
-				holoTex.wrapS = holoTex.wrapT = THREE.MirroredRepeatWrapping;
-				maskTex = loader.load(HOLO_MASK_URL[fin.placement]);
-				maskTex.wrapS = maskTex.wrapT = THREE.ClampToEdgeWrapping;
+			// Holo foil + mask textures, cached by URL so switching finishes (the admin
+			// toggle) reuses them instead of reloading.
+			const texCache = new Map<string, THREE.Texture>();
+			function holoTexFor(url: string, srgb: boolean, mirror: boolean) {
+				const hit = texCache.get(url);
+				if (hit) return hit;
+				const t = loader.load(url);
+				if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+				t.wrapS = t.wrapT = mirror
+					? THREE.MirroredRepeatWrapping
+					: THREE.ClampToEdgeWrapping;
+				texCache.set(url, t);
+				return t;
 			}
 
-			// Front: holo shader plane.
+			// Front: holo shader plane. Foil uniforms are filled by applyFinish below.
 			const frontMat = new THREE.ShaderMaterial({
 				uniforms: {
 					map: { value: null },
-					uHoloTex: { value: holoTex ?? dummy },
-					uMask: { value: maskTex ?? dummy },
-					uHas: { value: fin.placement ? 1 : 0 },
-					uStrength: { value: fin.strength },
+					uHoloTex: { value: dummy },
+					uMask: { value: dummy },
+					uHas: { value: 0 },
+					uStrength: { value: 0 },
 					uReveal: { value: 1 },
 					uOpacity: { value: 1 }
 				},
@@ -97,6 +112,19 @@
 				fragmentShader: HOLO_FRAG,
 				transparent: true
 			});
+			// Swap the foil/mask for a finish (live — used by the toggle and at init).
+			applyFinish = (f: CardFinish) => {
+				const meta = FINISH_BY_KEY[f] ?? FINISH_BY_KEY.normal;
+				frontMat.uniforms.uHas.value = meta.placement ? 1 : 0;
+				frontMat.uniforms.uStrength.value = meta.strength;
+				frontMat.uniforms.uHoloTex.value = meta.texture
+					? holoTexFor(HOLO_TEXTURE_URL[meta.texture], true, true)
+					: dummy;
+				frontMat.uniforms.uMask.value = meta.placement
+					? holoTexFor(HOLO_MASK_URL[meta.placement], false, false)
+					: dummy;
+			};
+			applyFinish(activeFinish);
 			loader.load(frontUrl, (t) => {
 				t.colorSpace = THREE.SRGBColorSpace;
 				frontMat.uniforms.map.value = t;
@@ -252,8 +280,7 @@
 				});
 				frontMat.uniforms.map.value?.dispose?.();
 				backMat.map?.dispose?.();
-				holoTex?.dispose();
-				maskTex?.dispose();
+				texCache.forEach((t) => t.dispose());
 				layerMats.forEach((m) => m.map?.dispose?.());
 				dummy.dispose();
 				renderer.dispose();
@@ -281,8 +308,8 @@
 			<span class="rarity" style="--rarity:{rarity.color}">
 				{rarity.label}{#if card.level} · lvl {card.level}{/if}
 			</span>
-			{#if finish}
-				<span class="badge" class:holo-badge={isHolo}>{finish.label}</span>
+			{#if isHolo}
+				<span class="badge holo-badge">{finishMeta.label}</span>
 			{/if}
 			{#if card.quantity && card.quantity > 0}
 				<span class="badge owned">×{card.quantity} owned</span>
@@ -302,6 +329,20 @@
 			{#if card.flavor}
 				<p class="flavor">"{card.flavor}"</p>
 			{/if}
+		</div>
+	{/if}
+
+	{#if allowFinishToggle}
+		<div class="finish-toggle">
+			<button type="button" class:active={activeFinish === 'normal'} onclick={() => setFinish('normal')}>
+				Normal
+			</button>
+			<button type="button" class:active={activeFinish === 'holo'} onclick={() => setFinish('holo')}>
+				Holo
+			</button>
+			<button type="button" class:active={activeFinish === 'reverse'} onclick={() => setFinish('reverse')}>
+				Reverse Holo
+			</button>
 		</div>
 	{/if}
 
@@ -465,6 +506,40 @@
 		font-size: 0.8rem;
 		pointer-events: none;
 		text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+	}
+
+	/* Finish preview switcher (admin). Interactive, so it opts back into pointer events. */
+	.finish-toggle {
+		position: absolute;
+		bottom: 2.5rem;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 2;
+		display: flex;
+		gap: 0.3rem;
+		pointer-events: auto;
+	}
+
+	.finish-toggle button {
+		min-height: auto;
+		padding: 0.3rem 0.75rem;
+		font-size: 0.8rem;
+		background: rgba(0, 0, 0, 0.55);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		color: var(--muted);
+		cursor: pointer;
+	}
+
+	.finish-toggle button:hover {
+		color: var(--text);
+		border-color: var(--border-strong);
+	}
+
+	.finish-toggle button.active {
+		color: var(--accent);
+		border-color: var(--accent);
+		background: var(--accent-soft, rgba(255, 152, 31, 0.16));
 	}
 
 	@media (max-width: 560px) {

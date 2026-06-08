@@ -612,7 +612,7 @@
 </section>
 
 {#if inspecting}
-	<CardInspector3D card={inspecting} onClose={() => (inspecting = null)} />
+	<CardInspector3D card={inspecting} onClose={() => (inspecting = null)} allowFinishToggle />
 {/if}
 
 <style>
