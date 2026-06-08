@@ -43,6 +43,16 @@ export interface Card {
 	layers?: CardLayer[];
 	// Full-art card: art covers the whole card, so holo/reverse-holo never apply.
 	full_art?: boolean;
+	// Optional per-card holo foil texture. For full-art cards only — when set, the
+	// foil covers the whole card (on the base front, below any depth layers).
+	holo_url?: string | null;
+	// Optional sound that plays when the card is revealed in the pack opener.
+	sound_url?: string | null;
+	// Effective per-pack holo foil textures for the masked finishes (regular /
+	// reverse). When set on the card's pack, holo cards from that pack use these
+	// instead of the shared static star/ripple foils. Resolved by the loaders.
+	holo_regular_url?: string | null;
+	holo_reverse_url?: string | null;
 }
 
 // A card the user owns, with how many copies. `finish` is the holo variant —

@@ -1,4 +1,5 @@
 import { db } from './db';
+import { RARITIES } from '$lib/cards/rarity';
 import type { CardFinish } from '$lib/cards/finishes';
 
 export interface CardGrant {
@@ -44,6 +45,69 @@ export function makeSlotRoller<T extends { rarity: string }>(
 		const g = groups.get(rarities[idx])!;
 		return g[Math.floor(Math.random() * g.length)];
 	};
+}
+
+// Rolls ONE pack open and assigns finishes — the single source of truth for the
+// open logic, shared by the real /gamba open and the admin simulator so their odds
+// match exactly. `pick` is a makeSlotRoller() roller (build it once, reuse across
+// many opens). Each of `cardsPerPack` cards is rolled by its SLOT's weights
+// (falling back to the per-pack `rarityWeights`, then uniform).
+//
+// Finishes: if `slotFinishes` is configured, each slot's card rolls Holo/Reverse by
+// that slot's percentages (remainder Normal). If it's empty (a pack not yet set up
+// in the new editor), it falls back to the LEGACY positional rule: the last card is
+// Holo and the second-to-last is Reverse. Full-art cards always stay Normal.
+//
+// Reveal/return order: slot order when any per-slot config exists, else rarest-last.
+export interface PackRollConfig {
+	cardsPerPack: number;
+	slotWeights: Record<string, number>[];
+	rarityWeights: Record<string, number> | null;
+	slotFinishes: { holo: number; reverse: number }[];
+}
+
+export function rollOnePack<T extends { rarity: string; full_art?: boolean | null }>(
+	pick: (weights: Record<string, number> | null | undefined) => T,
+	config: PackRollConfig
+): { card: T; finish: CardFinish }[] {
+	const n = Math.max(1, config.cardsPerPack);
+	const hasSlots = config.slotWeights.some((s) => s && Object.keys(s).length > 0);
+	const useSlotFinishes = config.slotFinishes.length > 0;
+
+	const rolled: { card: T; finish: CardFinish }[] = [];
+	for (let i = 0; i < n; i++) {
+		const slot = config.slotWeights[i];
+		const w = slot && Object.keys(slot).length > 0 ? slot : config.rarityWeights;
+		const card = pick(w);
+
+		let finish: CardFinish = 'normal';
+		// Full-art cards never get a holo finish (the masks don't apply to them).
+		if (useSlotFinishes && !card.full_art) {
+			const sf = config.slotFinishes[i] ?? { holo: 0, reverse: 0 };
+			const holo = Math.max(0, sf.holo ?? 0);
+			const reverse = Math.max(0, sf.reverse ?? 0);
+			const r = Math.random() * 100;
+			if (r < holo) finish = 'holo';
+			else if (r < holo + reverse) finish = 'reverse';
+		}
+		rolled.push({ card, finish });
+	}
+
+	// Reveal order: rarest-last only for fully-unconfigured packs; any per-slot
+	// config means the slot order IS the reveal order.
+	if (!hasSlots && !useSlotFinishes) {
+		const rank = new Map(RARITIES.map((r, i) => [r.key as string, i]));
+		rolled.sort((a, b) => (rank.get(a.card.rarity) ?? 0) - (rank.get(b.card.rarity) ?? 0));
+	}
+
+	// Legacy positional finishes when slot finishes aren't configured.
+	if (!useSlotFinishes) {
+		const m = rolled.length;
+		if (m >= 1 && !rolled[m - 1].card.full_art) rolled[m - 1].finish = 'holo';
+		if (m >= 2 && !rolled[m - 2].card.full_art) rolled[m - 2].finish = 'reverse';
+	}
+
+	return rolled;
 }
 
 // Grants rolled cards to a user's collection (vs_user_cards), incrementing

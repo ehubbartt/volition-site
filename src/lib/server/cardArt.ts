@@ -4,7 +4,10 @@ import {
 	MAX_UPLOAD_BYTES,
 	ALLOWED_MIME,
 	EXT_BY_MIME,
-	MAX_CARD_LAYERS
+	MAX_CARD_LAYERS,
+	MAX_AUDIO_BYTES,
+	ALLOWED_AUDIO_MIME,
+	EXT_BY_AUDIO_MIME
 } from '$lib/cards/config';
 
 // Shared art upload for the card game. Cards and packs both live in the
@@ -40,6 +43,33 @@ export async function removeCardArt(path: string | null | undefined): Promise<vo
 	if (path) await db().storage.from(CARD_ART_BUCKET).remove([path]);
 }
 
+// Uploads a card's open sound (audio) to the same bucket. Returns {path, url}.
+export async function uploadCardSound(
+	id: string,
+	file: File
+): Promise<{ path: string; url: string } | { error: string }> {
+	if (file.size > MAX_AUDIO_BYTES) {
+		const mb = Math.round(MAX_AUDIO_BYTES / 1_000_000);
+		return { error: `Sound too large (max ${mb} MB)` };
+	}
+	if (!(ALLOWED_AUDIO_MIME as readonly string[]).includes(file.type)) {
+		return { error: 'Unsupported audio type (use MP3, WAV, OGG, or M4A)' };
+	}
+	const ext = EXT_BY_AUDIO_MIME[file.type];
+	if (!ext) return { error: 'Unsupported audio type' };
+
+	const path = `cards/${id}-sound-${Date.now()}.${ext}`;
+	const storage = db().storage.from(CARD_ART_BUCKET);
+	const { error: upErr } = await storage.upload(path, file, {
+		contentType: file.type,
+		upsert: false
+	});
+	if (upErr) return { error: upErr.message };
+
+	const { data: pub } = storage.getPublicUrl(path);
+	return { path, url: pub.publicUrl };
+}
+
 // Uploads an ordered set of 3D depth-layer images for a card and returns their
 // {path, url} entries (bottom→top, in the order given). On any error, anything
 // uploaded in this call is rolled back. Empty file slots are skipped.
@@ -68,10 +98,11 @@ export async function uploadCardLayers(
 	return { layers, uploadedPaths };
 }
 
-// Uploads the optional `front` / `back` files from a form for a card or pack and
-// returns the matching column update ({front_path, front_url, back_path, back_url}
-// for whichever were provided), plus the new storage paths for cleanup on failure.
-// On any upload error, anything already uploaded in this call is rolled back.
+// Uploads the optional `front` / `back` / `holo` files from a form for a card or
+// pack and returns the matching column update ({front_path, front_url, …} for
+// whichever were provided), plus the new storage paths for cleanup on failure. The
+// `holo` face is card-only (the full-art holo texture); packs never send it. On any
+// upload error, anything already uploaded in this call is rolled back.
 export async function uploadCardFaces(
 	prefix: 'cards' | 'packs',
 	id: string,
@@ -80,7 +111,7 @@ export async function uploadCardFaces(
 	const update: Record<string, string> = {};
 	const uploadedPaths: string[] = [];
 
-	for (const face of ['front', 'back'] as const) {
+	for (const face of ['front', 'back', 'holo', 'holo_regular', 'holo_reverse'] as const) {
 		const file = form.get(face);
 		if (!(file instanceof File) || file.size === 0) continue;
 

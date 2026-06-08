@@ -29,6 +29,12 @@
 			title: 'Pack Tester',
 			desc: 'Open any pack infinitely to test the 3D opener — nothing saved.',
 			show: data.cardTester
+		},
+		{
+			href: '/admin/pack-sim',
+			title: 'Pack Simulator',
+			desc: 'Bulk-open a pack thousands of times and see the drop-rate results.',
+			show: data.cardTester
 		}
 	]);
 

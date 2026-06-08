@@ -51,6 +51,68 @@
   );
   let currentHolo = $derived(holoLabels[focusIndex] ?? "");
 
+  // ---- Per-card open sound + volume ----
+  let volume = $state(1); // 0..1
+  let lastVolume = 1; // level to restore when un-muting via the speaker icon
+  const soundCache = new Map<string, HTMLAudioElement>();
+  function playCardSound(c: OpenerCard | null | undefined) {
+    if (volume <= 0 || !c?.sound_url) return;
+    try {
+      let a = soundCache.get(c.sound_url);
+      if (!a) {
+        a = new Audio(c.sound_url);
+        a.preload = "auto";
+        soundCache.set(c.sound_url, a);
+      }
+      a.volume = volume;
+      a.currentTime = 0;
+      void a.play().catch(() => {});
+    } catch {
+      /* autoplay/format issues are non-fatal */
+    }
+  }
+  function toggleMute() {
+    if (volume > 0) {
+      lastVolume = volume;
+      volume = 0;
+    } else {
+      volume = lastVolume > 0 ? lastVolume : 1;
+    }
+  }
+  onMount(() => {
+    try {
+      const v = parseFloat(localStorage.getItem("vs_po_volume") ?? "1");
+      if (Number.isFinite(v)) volume = Math.min(1, Math.max(0, v));
+      if (volume > 0) lastVolume = volume;
+    } catch {
+      /* ignore */
+    }
+  });
+  // Persist the volume and apply it live to any loaded/playing clips.
+  $effect(() => {
+    try {
+      localStorage.setItem("vs_po_volume", String(volume));
+    } catch {
+      /* ignore */
+    }
+    soundCache.forEach((a) => {
+      a.volume = volume;
+      if (volume <= 0) a.pause();
+    });
+  });
+  // Play the focused card's sound as it's revealed in the deck (and the first card
+  // when the deck appears). Re-firing on a volume change is a no-op (same index).
+  let lastSoundIndex = -1;
+  $effect(() => {
+    if (stage !== "cards") {
+      lastSoundIndex = -1;
+      return;
+    }
+    if (currentIndex === lastSoundIndex) return;
+    lastSoundIndex = currentIndex;
+    playCardSound(cards[currentIndex]);
+  });
+
   // Imperative bridges so the DOM HUD can drive the 3D scene.
   let goTo: (i: number) => void = () => {};
   let triggerRip: () => void = () => {};
@@ -523,30 +585,34 @@
           m.geometry.attributes.position.array as ArrayLike<number>,
         ),
       }));
-      // Peel the lid to the RIGHT, in the direction of the rip: the tear front is a
-      // vertical line sweeping left→right, and the already-torn material to its left
-      // curls up toward the viewer and folds over to the right. progress 0..1.
-      function peelLid(progress: number) {
-        const aMax = 2.3; // curl angle — toward the viewer and over to the right
+      // Peel the lid in the direction of the rip (dir = +1 left→right, -1 right→left):
+      // the tear front is a vertical line sweeping toward the dir edge, and the
+      // already-torn material behind it curls up toward the viewer and folds over in
+      // the dir direction. progress 0..1.
+      function peelLid(progress: number, dir: number) {
+        const aMax = 2.3; // curl angle — toward the viewer and over
         const span = 0.55; // width of the curling tear front
-        const xFront = -W / 2 + progress * (W + span); // sweeps past the right edge
+        // front starts at the −dir edge and sweeps past the +dir edge
+        const xFront =
+          dir > 0 ? -W / 2 + progress * (W + span) : W / 2 - progress * (W + span);
         for (const { geo, base } of lidPeel) {
           const pos = geo.attributes.position;
           for (let i = 0; i < pos.count; i++) {
             const bx = base[i * 3],
               by = base[i * 3 + 1],
               bz = base[i * 3 + 2];
-            if (bx >= xFront) {
-              pos.setXYZ(i, bx, by, bz); // still attached to the right of the front
+            const dx = bx - xFront;
+            if (dx * dir >= 0) {
+              pos.setXYZ(i, bx, by, bz); // still attached, ahead of the tear front
               continue;
             }
             // how far through the curl this column is (1 = fully folded over)
-            const a = aMax * Math.min(1, (xFront - bx) / span);
+            const a = aMax * Math.min(1, Math.abs(dx) / span);
             const ca = Math.cos(a),
               sa = Math.sin(a);
-            const dx = bx - xFront;
-            // rotate about the vertical tear front (y-axis at xFront)
-            pos.setXYZ(i, xFront + dx * ca + bz * sa, by, -dx * sa + bz * ca);
+            // rotate about the vertical tear front (y-axis at xFront); dir flips the
+            // fold so it curls over toward whichever way you're tearing
+            pos.setXYZ(i, xFront + dx * ca + dir * bz * sa, by, -dir * dx * sa + bz * ca);
           }
           pos.needsUpdate = true;
           geo.computeVertexNormals();
@@ -680,22 +746,32 @@
         url: string | null,
         fallback: string,
         level: FinishMeta,
+        c: OpenerCard,
       ) {
+        // Full-art card with its own holo image → foil over the WHOLE card (mask =
+        // dummyTex, alpha 1 everywhere). Otherwise the finish's masked foil.
+        const fullArtHolo = !!c.full_art && !!c.holo_url;
+        // The foil: a full-art card uses its own holo; otherwise the pack's per-finish
+        // holo override (holo_regular_url / holo_reverse_url) if set, else the default.
+        const holoTexVal = fullArtHolo
+          ? holoTexFor(c.holo_url as string, true, true)
+          : level.placement === "regular"
+            ? holoTexFor(c.holo_regular_url ?? HOLO_TEXTURE_URL.star, true, true)
+            : level.placement === "reverse"
+              ? holoTexFor(c.holo_reverse_url ?? HOLO_TEXTURE_URL.ripple, true, true)
+              : dummyTex;
+        const maskVal = fullArtHolo
+          ? dummyTex
+          : level.placement
+            ? holoTexFor(HOLO_MASK_URL[level.placement], false, false)
+            : dummyTex;
         const mat = new THREE.ShaderMaterial({
           uniforms: {
             map: { value: null },
-            uHoloTex: {
-              value: level.texture
-                ? holoTexFor(HOLO_TEXTURE_URL[level.texture], true, true)
-                : dummyTex,
-            },
-            uMask: {
-              value: level.placement
-                ? holoTexFor(HOLO_MASK_URL[level.placement], false, false)
-                : dummyTex,
-            },
-            uHas: { value: level.placement ? 1 : 0 },
-            uStrength: { value: level.strength },
+            uHoloTex: { value: holoTexVal },
+            uMask: { value: maskVal },
+            uHas: { value: fullArtHolo || level.placement ? 1 : 0 },
+            uStrength: { value: fullArtHolo ? 1 : level.strength },
             uReveal: { value: 1 },
             uOpacity: { value: 0 },
           },
@@ -754,10 +830,11 @@
       };
       const cardMeshes: THREE.Mesh[] = cards.map((c, i) => {
         const level: FinishMeta = finishFor(c, i);
-        labels.push(level.label);
+        // A full-art card with its own holo image reads as "Holo" in the HUD.
+        labels.push(c.full_art && c.holo_url ? 'Holo' : level.label);
         const m = new THREE.Mesh(
           cardGeo,
-          makeCardMat(c.front_url, DEFAULT_CARD_BACK, level),
+          makeCardMat(c.front_url, DEFAULT_CARD_BACK, level, c),
         );
         m.position.set(0, -1.5, 0);
 
@@ -869,6 +946,7 @@
       let lastX = 0,
         lastY = 0;
       let ripPull = 0; // accumulated horizontal swipe (px)
+      let ripDir = 1; // +1 = tear left→right, -1 = right→left (set by the drag)
       let rip = 0,
         ripTarget = 0; // 0..1 current / target tear progress
       let committing = false;
@@ -937,6 +1015,8 @@
         if (!dragging) return;
         if (stage === "pack") {
           if (locked && ripActive && !flinging) {
+            // the first horizontal move sets which way the pack tears
+            if (ripPull === 0 && dx !== 0) ripDir = dx > 0 ? 1 : -1;
             ripPull += Math.abs(dx);
             ripTarget = Math.min(ripPull / RIP_DISTANCE, 1);
             if (ripTarget >= 1) committing = true;
@@ -1173,22 +1253,25 @@
           const PEEL_SPAN = 0.55;
           const left = -W / 2 + EDGE;
           const right = W / 2 - EDGE;
+          // tear front sweeps from the −ripDir edge toward the +ripDir edge
+          const startX = ripDir > 0 ? -W / 2 : W / 2;
           const xFront = Math.max(
             left,
-            Math.min(right, -W / 2 + ripX * (W + PEEL_SPAN)),
+            Math.min(right, startX + ripDir * ripX * (W + PEEL_SPAN)),
           );
           star.position.x = xFront;
           star.scale.setScalar(0.16 + 0.03 * Math.sin(now / 110));
           starMat.opacity = lerp(starMat.opacity, fxOn ? 1 : 0, 0.3);
-          const cut = Math.max(0.001, xFront - left);
+          // glow trails from the starting edge up to the tear front
+          const startEdge = ripDir > 0 ? left : right;
+          const cut = Math.max(0.001, Math.abs(xFront - startEdge));
           trail.scale.x = cut;
-          trail.position.x = left + cut / 2;
+          trail.position.x = (startEdge + xFront) / 2;
           trailMat.opacity = lerp(trailMat.opacity, fxOn ? 0.85 : 0, 0.2);
 
           if (!flinging) {
-            // the top peels open: tears from the left, folding forward, the tear
-            // front sweeping right as you swipe
-            peelLid(rip);
+            // the top peels open in the rip direction, folding forward toward you
+            peelLid(rip, ripDir);
 
             const torn = rip > 0.05;
             if (torn !== ripping) ripping = torn;
@@ -1200,10 +1283,10 @@
           } else {
             // fully torn: the folded flap drops away toward the viewer and fades,
             // then the cards slide up out of the pack
-            peelLid(1);
+            peelLid(1, ripDir);
             const tt = Math.min((now - flingStart) / 450, 1);
             const e = 1 - Math.pow(1 - tt, 3);
-            lidGroup.position.x = e * 2.6; // slide off to the right, where it peeled
+            lidGroup.position.x = e * 2.6 * ripDir; // slide off where it peeled
             lidGroup.position.z = e * 0.6;
             fade(lidGroup, 1 - e);
             if (tt >= 1 && !sliding) {
@@ -1253,16 +1336,21 @@
           // the WHOLE stack rotates together when you inspect (so cards don't clip
           // into each other), and the group settles to a centred resting spot
           const DECK_Y = 0.4;
-          // how far the top card has peeled toward a swipe (0 = seated, 1 = committed)
-          const sep = THREE.MathUtils.clamp(
-            (Math.abs(dragDX) - SEP_START) / (SWIPE_COMMIT - SEP_START),
+          // Leftward drag ADVANCES: the top card peels off to the left (0 = seated,
+          // 1 = committed). Rightward drag GOES BACK: the top card stays put and the
+          // previous card slides back on top instead (only if there is one).
+          const nextSep = THREE.MathUtils.clamp(
+            (-dragDX - SEP_START) / (SWIPE_COMMIT - SEP_START),
             0,
             1.1,
           );
-          const sepDir = Math.sign(dragDX);
-          // the inspect turn eases back toward front as the card peels off, so the
-          // swipe reads cleanly instead of flinging a tilted stack
-          const turn = 1 - Math.min(1, sep);
+          const prevSep =
+            currentIndex > 0
+              ? THREE.MathUtils.clamp((dragDX - SEP_START) / (SWIPE_COMMIT - SEP_START), 0, 1.1)
+              : 0;
+          // advancing eases the tilt back so the swipe reads cleanly; going back keeps
+          // the deck tilted while the previous card flies in.
+          const turn = 1 - Math.min(1, nextSep);
           const inspectRX = (pointerY * 0.14 + tiltX) * turn;
           const inspectRY = (pointerX * 0.14 + tiltY) * turn;
           // inspecting TURNS the whole stack (revealing its side/edge) rather than
@@ -1285,7 +1373,16 @@
               ry = 0,
               op = 0,
               sc = 1;
-            if (rel < 0) {
+            if (rel === -1 && prevSep > 0) {
+              // going back: the previous card flies in from the left to land on top,
+              // so you can see it's coming back (instead of moving the top card right).
+              const k = Math.min(1, prevSep);
+              tx = -12 * (1 - k);
+              tz = 0.06 + k * 0.7;
+              rz = 0.18 * (1 - k);
+              op = k;
+              ry = flipped[i] ? Math.PI : 0;
+            } else if (rel < 0) {
               // swiped away — flies off to the left and fades
               tx = -12;
               tz = 2;
@@ -1304,13 +1401,13 @@
               sc = 1 - rel * 0.012;
               op = 1; // solid stack — under cards are blurred, not see-through
               ry = flipped[i] ? Math.PI : 0; // tapped cards show their back
-              if (rel === 0) {
-                // seated normally; dragging past SEP_START peels it off the stack
-                // (slides aside + lifts toward you) so you can SEE it's about to
-                // swipe. Release before SWIPE_COMMIT and it lerps back into place.
-                tx = sepDir * sep * 2.2;
-                tz = 0.06 + sep * 0.7;
-                rz = -sepDir * sep * 0.14;
+              if (rel === 0 && nextSep > 0) {
+                // peel the top card off to the LEFT to advance; release before
+                // SWIPE_COMMIT and it lerps back into place. Rightward drag leaves it
+                // seated (the previous card moves instead).
+                tx = -nextSep * 2.2;
+                tz = 0.06 + nextSep * 0.7;
+                rz = nextSep * 0.14;
               }
             }
             m.position.x = lerp(m.position.x, tx, 0.14);
@@ -1331,12 +1428,11 @@
               op,
               0.14,
             );
-            // only the front card is revealed; the rest stay blurred
-            mat.uniforms.uReveal.value = lerp(
-              mat.uniforms.uReveal.value,
-              rel === 0 ? 1 : 0,
-              0.18,
-            );
+            // only the front card is revealed; the rest stay blurred — but the
+            // previous card sharpens as it flies back on top.
+            const revealTarget =
+              rel === 0 ? 1 : rel === -1 && prevSep > 0 ? Math.min(1, prevSep) : 0;
+            mat.uniforms.uReveal.value = lerp(mat.uniforms.uReveal.value, revealTarget, 0.18);
             edgeMats[i].opacity = mat.uniforms.uOpacity.value;
             backMats[i].opacity = mat.uniforms.uOpacity.value;
             layerMats[i].forEach((lm) => (lm.opacity = mat.uniforms.uOpacity.value));
@@ -1507,6 +1603,25 @@
   aria-label="Opening {pack.name}"
 >
   <button class="close" onclick={onClose} aria-label="Close">✕</button>
+  <div class="volume">
+    <button
+      class="vol-icon"
+      onclick={toggleMute}
+      aria-label={volume === 0 ? 'Unmute' : 'Mute'}
+      title={volume === 0 ? 'Unmute' : 'Mute'}
+    >
+      {volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊'}
+    </button>
+    <input
+      class="vol-slider"
+      type="range"
+      min="0"
+      max="1"
+      step="0.01"
+      bind:value={volume}
+      aria-label="Volume"
+    />
+  </div>
 
   <canvas bind:this={canvas}></canvas>
 
@@ -1620,6 +1735,45 @@
   .close:hover {
     border-color: var(--accent);
     color: var(--accent);
+  }
+
+  .volume {
+    position: absolute;
+    top: 1rem;
+    right: 3.75rem;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    height: 2.5rem;
+    padding: 0 0.6rem 0 0.25rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--border-strong);
+  }
+
+  .vol-icon {
+    min-height: 0;
+    width: 1.9rem;
+    height: 1.9rem;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 1rem;
+    cursor: pointer;
+  }
+
+  .vol-slider {
+    width: 6rem;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  @media (max-width: 560px) {
+    .vol-slider {
+      width: 4.5rem;
+    }
   }
 
   .hud {

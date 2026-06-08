@@ -23,6 +23,9 @@ interface UserCardRow {
 		back_url: string | null;
 		layers: unknown;
 		full_art: boolean | null;
+		holo_url: string | null;
+		sound_url: string | null;
+		vs_card_packs: { holo_regular_url: string | null; holo_reverse_url: string | null } | null;
 	} | null;
 }
 
@@ -46,7 +49,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		getWalletItems(locals.user.discord_id),
 		db()
 			.from('vs_user_cards')
-			.select('quantity, finish, vs_cards(id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art)')
+			.select('quantity, finish, vs_cards(id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url, vs_card_packs(holo_regular_url, holo_reverse_url))')
 			.eq('user_id', locals.user.id)
 			.order('first_acquired_at', { ascending: false }),
 		db()
@@ -71,6 +74,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 				back_url: c.back_url,
 				layers: toCardLayers(c.layers),
 				full_art: !!c.full_art,
+				holo_url: c.holo_url,
+				holo_regular_url: c.vs_card_packs?.holo_regular_url ?? null,
+				holo_reverse_url: c.vs_card_packs?.holo_reverse_url ?? null,
 				quantity: row.quantity,
 				finish: (isValidFinish(row.finish) ? row.finish : 'normal') as CardFinish
 			};

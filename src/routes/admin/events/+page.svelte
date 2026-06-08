@@ -1,9 +1,14 @@
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	// Keep pre-filled values after a successful save (SvelteKit's default enhance
+	// resets the form, which blanks Svelte-set input values). See admin/cards.
+	const keepValues: SubmitFunction = () => async ({ update }) => update({ reset: false });
 
 	function toLocalInput(iso: string | null): string {
 		if (!iso) return '';
@@ -120,7 +125,7 @@
 
 					<details class="dates-block">
 						<summary><strong>Dates</strong> <span class="muted small">(update without touching other fields)</span></summary>
-						<form method="POST" action="?/updateDates" use:enhance class="dates-form">
+						<form method="POST" action="?/updateDates" use:enhance={keepValues} class="dates-form">
 							<input type="hidden" name="id" value={ev.id} />
 							<div class="row">
 								<label>
@@ -164,7 +169,7 @@
 
 					<details class="edit-block">
 						<summary>Edit details</summary>
-						<form method="POST" action="?/update" use:enhance class="edit-form">
+						<form method="POST" action="?/update" use:enhance={keepValues} class="edit-form">
 							<input type="hidden" name="id" value={ev.id} />
 							<label>
 								<span>Slug (URL)</span>

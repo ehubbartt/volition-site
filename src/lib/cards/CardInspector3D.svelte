@@ -29,8 +29,11 @@
 	// untrack: capture only the initial finish — the inspector remounts per card.
 	let activeFinish = $state<CardFinish>(untrack(() => card.finish ?? 'normal'));
 	let finishMeta = $derived(FINISH_BY_KEY[activeFinish] ?? FINISH_BY_KEY.normal);
-	// Full-art cards never show holo, whatever finish is selected/stored.
-	let isHolo = $derived(!card.full_art && finishMeta.key !== 'normal');
+	// Full-art cards ignore the finish masks, but a full-art card WITH an uploaded
+	// holo image shows a whole-card foil (intrinsic, not a rolled finish).
+	let fullArtHolo = $derived(!!card.full_art && !!card.holo_url);
+	let isHolo = $derived(fullArtHolo || (!card.full_art && finishMeta.key !== 'normal'));
+	let finishLabel = $derived(fullArtHolo ? 'Holo' : finishMeta.label);
 
 	// Imperative bridge: set by onMount so the toggle can update the 3D material.
 	let applyFinish: (f: CardFinish) => void = () => {};
@@ -115,13 +118,29 @@
 			});
 			// Swap the foil/mask for a finish (live — used by the toggle and at init).
 			applyFinish = (f: CardFinish) => {
-				// Full-art cards never show the foil, regardless of the selected finish.
-				const meta = card.full_art ? FINISH_BY_KEY.normal : (FINISH_BY_KEY[f] ?? FINISH_BY_KEY.normal);
+				// Full-art card: no masked foil — but if it has an uploaded holo image,
+				// apply that foil over the WHOLE card (mask = dummy, alpha 1 everywhere).
+				if (card.full_art) {
+					if (card.holo_url) {
+						frontMat.uniforms.uHas.value = 1;
+						frontMat.uniforms.uStrength.value = 1;
+						frontMat.uniforms.uHoloTex.value = holoTexFor(card.holo_url, true, true);
+						frontMat.uniforms.uMask.value = dummy;
+					} else {
+						frontMat.uniforms.uHas.value = 0;
+					}
+					return;
+				}
+				const meta = FINISH_BY_KEY[f] ?? FINISH_BY_KEY.normal;
 				frontMat.uniforms.uHas.value = meta.placement ? 1 : 0;
 				frontMat.uniforms.uStrength.value = meta.strength;
-				frontMat.uniforms.uHoloTex.value = meta.texture
-					? holoTexFor(HOLO_TEXTURE_URL[meta.texture], true, true)
-					: dummy;
+				// Foil = the card's pack holo override for this finish, else the default.
+				frontMat.uniforms.uHoloTex.value =
+					meta.placement === 'regular'
+						? holoTexFor(card.holo_regular_url ?? HOLO_TEXTURE_URL.star, true, true)
+						: meta.placement === 'reverse'
+							? holoTexFor(card.holo_reverse_url ?? HOLO_TEXTURE_URL.ripple, true, true)
+							: dummy;
 				frontMat.uniforms.uMask.value = meta.placement
 					? holoTexFor(HOLO_MASK_URL[meta.placement], false, false)
 					: dummy;
@@ -311,7 +330,7 @@
 				{rarity.label}{#if card.level} · lvl {card.level}{/if}
 			</span>
 			{#if isHolo}
-				<span class="badge holo-badge">{finishMeta.label}</span>
+				<span class="badge holo-badge">{finishLabel}</span>
 			{/if}
 			{#if card.quantity && card.quantity > 0}
 				<span class="badge owned">×{card.quantity} owned</span>
@@ -347,7 +366,7 @@
 			</button>
 		</div>
 	{:else if allowFinishToggle && card.full_art}
-		<p class="full-art-note">Full art — holo not available</p>
+		<p class="full-art-note">{card.holo_url ? 'Full art — full-card holo' : 'Full art — no holo'}</p>
 	{/if}
 
 	<p class="hint">Drag to rotate · tap to flip · Esc to close</p>

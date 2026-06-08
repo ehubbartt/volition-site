@@ -2,8 +2,8 @@ import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isCardTester } from '$lib/server/auth';
 import { getPlayerVp, spendPlayerVp, grantPlayerVp } from '$lib/server/playerStats';
-import { grantCards, makeSlotRoller, type CardGrant } from '$lib/server/gamba';
-import { isValidRarity, RARITIES, DEFAULT_RARITY, toCardLayers, type Card, type CardAbility, type CardRarity } from '$lib/cards/rarity';
+import { grantCards, makeSlotRoller, rollOnePack, type CardGrant } from '$lib/server/gamba';
+import { isValidRarity, DEFAULT_RARITY, toCardLayers, type Card, type CardAbility, type CardRarity } from '$lib/cards/rarity';
 import { type CardFinish } from '$lib/cards/finishes';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -18,6 +18,8 @@ interface CardRow {
 	back_url: string | null;
 	layers: unknown;
 	full_art: boolean | null;
+	holo_url: string | null;
+	sound_url: string | null;
 }
 
 // Player-facing pack store. Gated to card testers for now (CARD_TESTER_DISCORD_IDS)
@@ -63,7 +65,7 @@ export const actions: Actions = {
 		// Pack must exist AND be released.
 		const { data: pack, error: pErr } = await db()
 			.from('vs_card_packs')
-			.select('id, name, cost_vp, cards_per_pack, rarity_weights, slot_weights, front_url, back_url, released')
+			.select('id, name, cost_vp, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, holo_regular_url, holo_reverse_url')
 			.eq('id', packId)
 			.maybeSingle();
 		if (pErr) return fail(500, { error: pErr.message });
@@ -72,7 +74,7 @@ export const actions: Actions = {
 		// Card pool for this set.
 		const { data: poolRows, error: poolErr } = await db()
 			.from('vs_cards')
-			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art')
+			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url')
 			.eq('pack_id', packId);
 		if (poolErr) return fail(500, { error: poolErr.message });
 		const pool = (poolRows ?? []) as CardRow[];
@@ -81,46 +83,21 @@ export const actions: Actions = {
 		const cost = pack.cost_vp ?? 0;
 		const n = Math.max(1, pack.cards_per_pack ?? 5);
 
-		// Roll each of the n cards by its SLOT's rarity drop rates (slot_weights is
-		// an array indexed by slot, 0-based). A slot with no configured weights
-		// falls back to the legacy per-pack rarity_weights, then to uniform.
-		const slotWeights = (Array.isArray(pack.slot_weights) ? pack.slot_weights : []) as Record<
-			string,
-			number
-		>[];
-		const hasSlots = slotWeights.some((s) => s && Object.keys(s).length > 0);
-		const legacyWeights = pack.rarity_weights as Record<string, number> | null;
+		// Roll the pack — shared logic with the admin simulator (see gamba.ts) so the
+		// odds match: per-slot rarity weights, slot/rarest-last order, and the
+		// positional Holo / Reverse-Holo finishes (full-art cards stay Normal).
 		const pick = makeSlotRoller(pool);
-
-		const rolledCards: CardRow[] = [];
-		for (let i = 0; i < n; i++) {
-			const slot = slotWeights[i];
-			const w = slot && Object.keys(slot).length > 0 ? slot : legacyWeights;
-			rolledCards.push(pick(w));
-		}
-
-		// Reveal order: when slots are configured the admin controls the per-slot
-		// progression, so reveal in SLOT order (slot 1 first → slot n last). Legacy
-		// per-pack packs have no slot ordering, so fall back to rarest-last for a
-		// climactic reveal.
-		if (!hasSlots) {
-			const rarityRank = new Map(RARITIES.map((r, i) => [r.key as string, i]));
-			rolledCards.sort(
-				(a, b) => (rarityRank.get(a.rarity) ?? 0) - (rarityRank.get(b.rarity) ?? 0)
-			);
-		}
-
-		// Finishes (temporary rule — see CLAUDE.md): the LAST card is a guaranteed
-		// Holo and the second-to-last a guaranteed Reverse Holo; the rest Normal.
-		// Reveal order is fixed above, so these land on the final two cards opened.
-		const rolled = rolledCards.map((card, i) => {
-			let finish: CardFinish = 'normal';
-			// Full-art cards never get a holo finish (the masks don't apply to them).
-			if (!card.full_art) {
-				if (i === rolledCards.length - 1) finish = 'holo';
-				else if (i === rolledCards.length - 2) finish = 'reverse';
-			}
-			return { card, finish };
+		const rolled = rollOnePack<CardRow>(pick, {
+			cardsPerPack: n,
+			slotWeights: (Array.isArray(pack.slot_weights) ? pack.slot_weights : []) as Record<
+				string,
+				number
+			>[],
+			rarityWeights: (pack.rarity_weights as Record<string, number> | null) ?? null,
+			slotFinishes: (Array.isArray(pack.slot_finishes) ? pack.slot_finishes : []) as {
+				holo: number;
+				reverse: number;
+			}[]
 		});
 
 		// 1) Spend VP (optimistic — only if affordable and unchanged).
@@ -155,6 +132,10 @@ export const actions: Actions = {
 			back_url: r.card.back_url,
 			layers: toCardLayers(r.card.layers),
 			full_art: !!r.card.full_art,
+			holo_url: r.card.holo_url,
+			sound_url: r.card.sound_url,
+			holo_regular_url: (pack.holo_regular_url as string | null) ?? null,
+			holo_reverse_url: (pack.holo_reverse_url as string | null) ?? null,
 			finish: r.finish
 		}));
 
