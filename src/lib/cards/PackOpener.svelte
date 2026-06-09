@@ -1032,12 +1032,12 @@
                 mesh: lp,
                 baseZ: h,
                 index: li,
-                makeGlow: () => {
+                makeGlow: ({ blur }) => {
                   const gmat = new THREE.ShaderMaterial({
                     uniforms: {
                       map: { value: lm.map },
                       uIntensity: { value: 0 },
-                      uBlur: { value: new THREE.Vector2(0.02, 0.02) },
+                      uBlur: { value: new THREE.Vector2(blur, blur) },
                       uFeather: { value: new THREE.Vector2(0.12, 0.12) },
                       uTint: { value: new THREE.Color(1, 1, 1) },
                     },

@@ -14,7 +14,7 @@
 // three.js objects (which structurally satisfy the Fx* interfaces) plus a small set
 // of primitives the effects need (e.g. makeGlow, which builds a three.js mesh).
 
-export type LayerEffect = 'spin' | 'grow' | 'glow';
+export type LayerEffect = 'spin' | 'grow' | 'glow' | 'spark';
 
 export interface LayerEffectMeta {
 	key: LayerEffect;
@@ -26,7 +26,8 @@ export interface LayerEffectMeta {
 export const LAYER_EFFECTS: LayerEffectMeta[] = [
 	{ key: 'spin', label: 'Spin', description: 'Layer rotates while you spin the card.' },
 	{ key: 'grow', label: 'Grow / shrink', description: 'Layer swells while you spin the card.' },
-	{ key: 'glow', label: 'Glow', description: 'Layer lights up (along its shape) while you spin the card.' }
+	{ key: 'glow', label: 'Glow', description: 'Soft halo along the layer shape while you spin the card.' },
+	{ key: 'spark', label: 'Spark', description: 'Crisp, flickering electric glow (lightning-like) while you spin the card.' }
 ];
 
 export const LAYER_EFFECT_KEYS: LayerEffect[] = LAYER_EFFECTS.map((e) => e.key);
@@ -72,10 +73,11 @@ export interface LayerEffectSetup {
 	mesh: FxMesh; // the layer plane
 	baseZ: number; // its resting z height
 	index: number; // layer index (bottom→top)
-	// Build an additive, soft glow copy of this layer and return a handle to drive
-	// its intensity (only the 'glow' effect calls this). May return null if the
+	// Build an additive glow copy of this layer and return a handle to drive its
+	// intensity (the 'glow' / 'spark' effects call this). `blur` is the halo spread
+	// in uv — large = soft glow, near-zero = crisp/sharp. May return null if the
 	// renderer can't make one.
-	makeGlow: () => GlowHandle | null;
+	makeGlow: (opts: { blur: number }) => GlowHandle | null;
 }
 
 // Per-frame inputs.
@@ -97,7 +99,10 @@ export interface LayerEffectHandle {
 // How strongly each effect responds to spin.
 const SPIN_SPEED = 7; // rad/sec of layer rotation at full spin
 const GROW_AMOUNT = 0.22; // +22% scale at full spin
-const GLOW_GAIN = 1.0; // glow intensity per unit spin
+const GLOW_GAIN = 1.0; // soft-glow intensity per unit spin
+const GLOW_BLUR = 0.02; // soft-glow halo spread (uv)
+const SPARK_GAIN = 2.2; // sharp-glow intensity per unit spin (bright, extreme)
+const SPARK_BLUR = 0.006; // crisp — barely any spread, hard lightning edges
 
 // Build the live effect for one layer. Each effect reads only `spin` (and `dt` for
 // the accumulating spin), so layers sit still until the card is turned.
@@ -121,9 +126,29 @@ export function createLayerEffect(effect: LayerEffect, setup: LayerEffectSetup):
 			};
 		}
 		case 'glow': {
-			const glow = setup.makeGlow();
+			const glow = setup.makeGlow({ blur: GLOW_BLUR });
 			return {
 				update: ({ spin, hostOpacity }) => glow?.setIntensity(spin * GLOW_GAIN * (hostOpacity ?? 1)),
+				dispose: () => glow?.dispose()
+			};
+		}
+		case 'spark': {
+			// Like glow but crisp (almost no blur) and FLICKERING — reads as electric /
+			// lightning rather than a smooth aura. A VIOLENT flicker: three out-of-phase
+			// sines multiplied then sharpened, so it sits mostly dim with brief, bright
+			// strobe flashes (overshooting past 1 for hot peaks) — never a steady pulse.
+			const glow = setup.makeGlow({ blur: SPARK_BLUR });
+			let t = 0;
+			return {
+				update: ({ dt, spin, hostOpacity }) => {
+					t += dt;
+					const a = 0.5 + 0.5 * Math.sin(t * 50);
+					const b = 0.5 + 0.5 * Math.sin(t * 27.7 + 2.1);
+					const c = 0.5 + 0.5 * Math.sin(t * 71.3 + 0.6);
+					const strobe = Math.pow(a * b * c, 2);
+					const flick = 0.18 + 2.6 * strobe;
+					glow?.setIntensity(spin * SPARK_GAIN * flick * (hostOpacity ?? 1));
+				},
 				dispose: () => glow?.dispose()
 			};
 		}
