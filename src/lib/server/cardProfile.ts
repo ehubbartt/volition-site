@@ -81,6 +81,15 @@ export interface CardProfile {
 		cardsPulled: number;
 		cardsOwned: number;
 	};
+	crateStats: {
+		totalOpens: number;
+		freeOpens: number;
+		paidOpens: number;
+		vpWon: number;
+		vpSpent: number;
+		biggestWin: number;
+		lastOpen: string | null;
+	};
 }
 
 export async function loadCardProfile(user: {
@@ -88,7 +97,7 @@ export async function loadCardProfile(user: {
 	discord_id: string;
 	rsn: string | null;
 }): Promise<CardProfile> {
-	const [vp_balance, wallet, inventoryRes, packsRes, catalogRes, opensRes] = await Promise.all([
+	const [vp_balance, wallet, inventoryRes, packsRes, catalogRes, opensRes, crateRes] = await Promise.all([
 		getPlayerVp(user.discord_id, user.rsn),
 		getWalletItems(user.discord_id),
 		db()
@@ -106,7 +115,13 @@ export async function loadCardProfile(user: {
 			.from('vs_cards')
 			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url, vs_card_packs!inner(released, holo_regular_url, holo_reverse_url)')
 			.eq('vs_card_packs.released', true),
-		db().from('vs_pack_opens').select('cost_vp, card_count').eq('user_id', user.id)
+		db().from('vs_pack_opens').select('cost_vp, card_count').eq('user_id', user.id),
+		// Gamba-crate lifetime stats from the bot's aggregate table (keyed by discord_id).
+		db()
+			.from('lootcrate_user_stats')
+			.select('total_opens, free_opens, paid_opens, total_vp_won, total_vp_spent, biggest_win, last_open_date')
+			.eq('user_id', user.discord_id)
+			.maybeSingle()
 	]);
 
 	// Owned entries — one per (card, finish).
@@ -186,6 +201,16 @@ export async function loadCardProfile(user: {
 	const cardsOwned = owned.reduce((sum, c) => sum + (c.quantity ?? 0), 0);
 	const opens = (opensRes.data ?? []) as { cost_vp: number | null; card_count: number | null }[];
 
+	const cr = crateRes.data as {
+		total_opens: number | null;
+		free_opens: number | null;
+		paid_opens: number | null;
+		total_vp_won: number | null;
+		total_vp_spent: number | null;
+		biggest_win: number | null;
+		last_open_date: string | null;
+	} | null;
+
 	return {
 		vp_balance,
 		wallet,
@@ -198,6 +223,15 @@ export async function loadCardProfile(user: {
 			vpSpent: opens.reduce((sum, o) => sum + (o.cost_vp ?? 0), 0),
 			cardsPulled: opens.reduce((sum, o) => sum + (o.card_count ?? 0), 0),
 			cardsOwned
+		},
+		crateStats: {
+			totalOpens: cr?.total_opens ?? 0,
+			freeOpens: cr?.free_opens ?? 0,
+			paidOpens: cr?.paid_opens ?? 0,
+			vpWon: cr?.total_vp_won ?? 0,
+			vpSpent: cr?.total_vp_spent ?? 0,
+			biggestWin: cr?.biggest_win ?? 0,
+			lastOpen: cr?.last_open_date ?? null
 		}
 	};
 }

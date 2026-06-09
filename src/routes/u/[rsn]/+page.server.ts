@@ -26,6 +26,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		collectionOwned: profile.collectionOwned,
 		collectionTotal: profile.collectionTotal,
 		stats: profile.stats,
+		crateStats: profile.crateStats,
 		packs: profile.packs
 	};
 };

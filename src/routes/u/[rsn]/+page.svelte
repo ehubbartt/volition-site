@@ -10,7 +10,7 @@
 
 	let { data }: { data: PageData } = $props();
 
-	type Tab = 'collection' | 'packs' | 'wallet';
+	type Tab = 'collection' | 'stats' | 'wallet';
 	let tab = $state<Tab>('collection');
 
 	// Collection card the viewer modal is showing (null = closed).
@@ -18,7 +18,7 @@
 
 	let tabs: { id: Tab; label: string }[] = [
 		{ id: 'collection', label: 'Collection' },
-		{ id: 'packs', label: 'Packs' },
+		{ id: 'stats', label: 'Stats' },
 		{ id: 'wallet', label: 'Wallet' }
 	];
 
@@ -57,32 +57,11 @@
 		<p class="self-note muted">This is your public profile. <a href="/me">Edit your profile →</a></p>
 	{/if}
 
-	<div class="mini-stats">
-		<div class="ms">
-			<span class="ms-num">{data.stats.packsOpened}</span>
-			<span class="ms-lbl">Packs opened</span>
-		</div>
-		<div class="ms">
-			<span class="ms-num">{data.stats.vpSpent.toLocaleString()}</span>
-			<span class="ms-lbl">VP spent</span>
-		</div>
-		<div class="ms">
-			<span class="ms-num">{data.stats.cardsOwned}</span>
-			<span class="ms-lbl">Cards owned</span>
-		</div>
-		<div class="ms">
-			<span class="ms-num">{data.collectionOwned} / {data.collectionTotal}</span>
-			<span class="ms-lbl">Collected</span>
-		</div>
-	</div>
-
 	<nav class="tabs">
 		{#each tabs as t}
 			<button type="button" class="tab" class:active={tab === t.id} onclick={() => (tab = t.id)}>
 				{t.label}
-				{#if t.id === 'packs' && packTotal}
-					<span class="count">{packTotal}</span>
-				{:else if t.id === 'collection' && data.collectionOwned}
+				{#if t.id === 'collection' && data.collectionOwned}
 					<span class="count">{data.collectionOwned}</span>
 				{:else if t.id === 'wallet' && walletTotal}
 					<span class="count">{walletTotal}</span>
@@ -93,40 +72,89 @@
 
 	{#if tab === 'collection'}
 		<div class="panel">
-			{#if data.collection.length === 0}
+			{#if data.collection.length === 0 && data.packs.length === 0}
 				<div class="empty">
-					<p>No cards to show.</p>
+					<p>Nothing to show yet.</p>
 				</div>
 			{:else}
-				<div class="card-grid">
-					{#each data.collection as card (card.id + '-' + card.finish)}
-						{#if card.owned}
-							<button type="button" class="thumb-btn" onclick={() => (viewing = card)}>
-								<CardThumb {card} quantity={card.quantity} finish={card.finish} flip={false} />
-							</button>
-						{:else}
-							<div class="thumb-btn locked" title="Not owned">
-								<div class="dim"><CardThumb {card} flip={false} /></div>
-							</div>
-						{/if}
-					{/each}
-				</div>
+				{#if data.packs.length > 0}
+					<h3 class="section-head">Unopened packs <span class="count">{packTotal}</span></h3>
+					<div class="card-grid packs-grid">
+						{#each data.packs as pack (pack.id)}
+							<PackThumb {pack} quantity={pack.quantity} />
+						{/each}
+					</div>
+				{/if}
+
+				<h3 class="section-head">
+					Cards <span class="count-text muted">{data.collectionOwned} / {data.collectionTotal} collected</span>
+				</h3>
+				{#if data.collection.length === 0}
+					<p class="muted">No cards yet.</p>
+				{:else}
+					<div class="card-grid">
+						{#each data.collection as card (card.id + '-' + card.finish)}
+							{#if card.owned}
+								<button type="button" class="thumb-btn" onclick={() => (viewing = card)}>
+									<CardThumb {card} quantity={card.quantity} finish={card.finish} flip={false} />
+								</button>
+							{:else}
+								<div class="thumb-btn locked" title="Not owned">
+									<div class="dim"><CardThumb {card} flip={false} /></div>
+								</div>
+							{/if}
+						{/each}
+					</div>
+				{/if}
 			{/if}
 		</div>
-	{:else if tab === 'packs'}
+	{:else if tab === 'stats'}
 		<div class="panel">
-			{#if data.packs.length === 0}
-				<div class="empty">
-					<p>No packs.</p>
-					<p class="muted">{displayName} has no unopened packs.</p>
-				</div>
-			{:else}
-				<div class="card-grid">
-					{#each data.packs as pack (pack.id)}
-						<PackThumb {pack} quantity={pack.quantity} />
-					{/each}
-				</div>
-			{/if}
+			<div class="stats-grid">
+				<section class="stat-card">
+					<h3>Volition Points</h3>
+					<div class="mini-stats">
+						<div class="ms"><span class="ms-num">{data.vp_balance.toLocaleString()}</span><span class="ms-lbl">Current VP</span></div>
+					</div>
+				</section>
+
+				<section class="stat-card">
+					<h3>Cards</h3>
+					<div class="mini-stats">
+						<div class="ms"><span class="ms-num">{data.stats.cardsOwned}</span><span class="ms-lbl">Cards owned</span></div>
+						<div class="ms"><span class="ms-num">{data.collectionOwned} / {data.collectionTotal}</span><span class="ms-lbl">Unique collected</span></div>
+					</div>
+				</section>
+
+				<section class="stat-card">
+					<h3>Packs</h3>
+					<div class="mini-stats">
+						<div class="ms"><span class="ms-num">{packTotal}</span><span class="ms-lbl">Unopened</span></div>
+						<div class="ms"><span class="ms-num">{data.stats.packsOpened}</span><span class="ms-lbl">Opened</span></div>
+						<div class="ms"><span class="ms-num">{data.stats.cardsPulled}</span><span class="ms-lbl">Cards pulled</span></div>
+						<div class="ms"><span class="ms-num">{data.stats.vpSpent.toLocaleString()}</span><span class="ms-lbl">VP spent</span></div>
+					</div>
+				</section>
+
+				<section class="stat-card">
+					<h3>Gamba crates</h3>
+					<div class="mini-stats">
+						<div class="ms"><span class="ms-num">{data.crateStats.totalOpens}</span><span class="ms-lbl">Opened</span></div>
+						<div class="ms"><span class="ms-num">{data.crateStats.freeOpens}</span><span class="ms-lbl">Free</span></div>
+						<div class="ms"><span class="ms-num">{data.crateStats.paidOpens}</span><span class="ms-lbl">Paid</span></div>
+						<div class="ms"><span class="ms-num">{data.crateStats.vpWon.toLocaleString()}</span><span class="ms-lbl">VP won</span></div>
+						<div class="ms"><span class="ms-num">{data.crateStats.vpSpent.toLocaleString()}</span><span class="ms-lbl">VP spent</span></div>
+						<div class="ms"><span class="ms-num">{data.crateStats.biggestWin.toLocaleString()}</span><span class="ms-lbl">Biggest win</span></div>
+					</div>
+				</section>
+
+				<section class="stat-card">
+					<h3>Wallet</h3>
+					<div class="mini-stats">
+						<div class="ms"><span class="ms-num">{walletTotal}</span><span class="ms-lbl">Unpaid items</span></div>
+					</div>
+				</section>
+			</div>
 		</div>
 	{:else if tab === 'wallet'}
 		<div class="panel">
@@ -226,7 +254,41 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
 		gap: 0.75rem;
-		margin: 1.25rem 0;
+		margin: 0;
+	}
+
+	.section-head {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 1.5rem 0 0.75rem;
+		font-size: 1.05rem;
+	}
+
+	.section-head:first-child {
+		margin-top: 0;
+	}
+
+	.count-text {
+		font-size: 0.8rem;
+		font-weight: normal;
+	}
+
+	.packs-grid {
+		margin-bottom: 0.5rem;
+	}
+
+	.stats-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.stat-card h3 {
+		margin: 0 0 0.6rem;
+		font-size: 1rem;
+		color: var(--accent);
+		text-shadow: var(--ts);
 	}
 
 	.ms {
