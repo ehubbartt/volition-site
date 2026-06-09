@@ -12,7 +12,7 @@ import { grantCards, logPackOpen, makeSlotRoller, rollOnePack, type CardGrant } 
 import { getLootConfig, rollLoot, type LootConfig, type LootResult } from '$lib/server/lootcrate';
 import { logLootcrateOpen } from '$lib/server/lootcrateAnalytics';
 import { sendBotMessage } from '$lib/server/botBridge';
-import { isValidRarity, DEFAULT_RARITY, RARE_RARITIES, toCardLayers, type Card, type CardAbility, type CardLayer, type CardRarity } from '$lib/cards/rarity';
+import { isValidRarity, DEFAULT_RARITY, RARE_RARITIES, RARITIES, toCardLayers, type Card, type CardAbility, type CardLayer, type CardRarity } from '$lib/cards/rarity';
 import { isValidFinish, type CardFinish } from '$lib/cards/finishes';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -29,6 +29,41 @@ interface CardRow {
 	full_art: boolean | null;
 	holo_url: string | null;
 	sound_url: string | null;
+}
+
+// A card row for the "view cards" pack-contents grid (no drop rates).
+interface PackCardRow {
+	id: string;
+	name: string;
+	level: number | null;
+	rarity: string;
+	abilities: CardAbility[] | null;
+	flavor: string | null;
+	front_url: string | null;
+	back_url: string | null;
+	layers: unknown;
+	full_art: boolean | null;
+	holo_url: string | null;
+	pack_id: string | null;
+}
+
+function toPackCard(r: PackCardRow): Card {
+	return {
+		id: r.id,
+		name: r.name,
+		level: r.level,
+		rarity: (isValidRarity(r.rarity) ? r.rarity : DEFAULT_RARITY) as CardRarity,
+		abilities: r.abilities ?? [],
+		flavor: r.flavor,
+		front_url: r.front_url,
+		back_url: r.back_url,
+		layers: toCardLayers(r.layers),
+		full_art: !!r.full_art,
+		holo_url: r.holo_url,
+		sound_url: null,
+		holo_regular_url: null,
+		holo_reverse_url: null
+	};
 }
 
 interface RarePullRow {
@@ -206,7 +241,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 			.select('id, name, description, cost_vp, cards_per_pack, front_url, back_url')
 			.eq('released', true)
 			.order('cost_vp', { ascending: true }),
-		db().from('vs_cards').select('pack_id'),
+		db()
+			.from('vs_cards')
+			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, pack_id'),
 		// Recently opened rares (rune+), newest first — the live drop ticker. Reads
 		// the pack-open line items directly (the rarity filter is a plain indexed query).
 		db()
@@ -261,16 +298,22 @@ export const load: PageServerLoad = async ({ locals }) => {
 	}
 	const recentCrateDrops: CrateDrop[] = crateDropRows.map((r) => resolveCrateDrop(r, lootConfig, nameMap));
 
-	// How many cards each set has, so we can flag/disable empty packs.
-	const counts = new Map<string, number>();
-	for (const r of cardsRes.data ?? []) {
-		if (r.pack_id) counts.set(r.pack_id, (counts.get(r.pack_id) ?? 0) + 1);
+	// Group each set's cards (for the count + the "view cards" contents grid).
+	const byPack = new Map<string, Card[]>();
+	for (const r of (cardsRes.data ?? []) as PackCardRow[]) {
+		if (!r.pack_id) continue;
+		const arr = byPack.get(r.pack_id) ?? [];
+		arr.push(toPackCard(r));
+		byPack.set(r.pack_id, arr);
 	}
+	const rarityRank = new Map(RARITIES.map((r, i) => [r.key as string, i]));
 
-	const packs = (packsRes.data ?? []).map((p) => ({
-		...p,
-		card_count: counts.get(p.id) ?? 0
-	}));
+	const packs = (packsRes.data ?? []).map((p) => {
+		const cards = (byPack.get(p.id) ?? []).sort(
+			(a, b) => (rarityRank.get(b.rarity) ?? 0) - (rarityRank.get(a.rarity) ?? 0) || a.name.localeCompare(b.name)
+		);
+		return { ...p, card_count: cards.length, cards };
+	});
 
 	const recentRares: RarePull[] = ((raresRes.data ?? []) as unknown as RarePullRow[]).map((r) => ({
 		id: r.id,
