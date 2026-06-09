@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isValidClan, CLAN_OPTIONS } from '$lib/clans';
 import { isValidAccountType, ACCOUNT_TYPES } from '$lib/accountTypes';
+import { isRsnTaken } from '$lib/server/users';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals }) => {
@@ -53,14 +54,7 @@ export const actions: Actions = {
 
 		const supabase = db();
 
-		const { data: collision } = await supabase
-			.from('vs_users')
-			.select('id')
-			.ilike('rsn', rsn)
-			.neq('id', locals.user.id)
-			.maybeSingle();
-
-		if (collision) {
+		if (await isRsnTaken(rsn, locals.user.id)) {
 			return fail(409, {
 				error: 'That RSN is already registered to another account',
 				rsn,

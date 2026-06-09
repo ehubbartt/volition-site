@@ -89,6 +89,9 @@ export const actions: Actions = {
 		if (poolErr) return fail(500, { error: poolErr.message });
 		const pool = (poolRows ?? []) as PoolRow[];
 		if (pool.length === 0) return fail(400, { error: 'This pack has no cards.' });
+		// Normalize legacy/invalid rarities (see gamba open) so they group + weight as
+		// Bronze rather than forming an unreachable 0-weight group.
+		for (const c of pool) if (!isValidRarity(c.rarity)) c.rarity = DEFAULT_RARITY;
 
 		const cardsPerPack = Math.max(1, pack.cards_per_pack ?? 5);
 		const slotWeights = (Array.isArray(pack.slot_weights) ? pack.slot_weights : []) as Record<

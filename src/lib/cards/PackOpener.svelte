@@ -15,6 +15,7 @@
     type FinishMeta,
   } from "$lib/cards/finishes";
   import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG } from "$lib/cards/holo";
+  import { SFX_OPENING, SFX_PULL_DRAGON, SFX_PULL_SR } from "$lib/cards/sfx";
   import { DEFAULT_PACK_FRONT, DEFAULT_PACK_BACK } from "$lib/cards/packs";
 
   interface OpenerPack {
@@ -55,21 +56,49 @@
   let volume = $state(1); // 0..1
   let lastVolume = 1; // level to restore when un-muting via the speaker icon
   const soundCache = new Map<string, HTMLAudioElement>();
-  function playCardSound(c: OpenerCard | null | undefined) {
-    if (volume <= 0 || !c?.sound_url) return;
+  let currentCardAudio: HTMLAudioElement | null = null; // the focused card's sound
+  function playSfx(url: string | null | undefined): HTMLAudioElement | null {
+    if (volume <= 0 || !url) return null;
     try {
-      let a = soundCache.get(c.sound_url);
+      let a = soundCache.get(url);
       if (!a) {
-        a = new Audio(c.sound_url);
+        a = new Audio(url);
         a.preload = "auto";
-        soundCache.set(c.sound_url, a);
+        soundCache.set(url, a);
       }
       a.volume = volume;
       a.currentTime = 0;
       void a.play().catch(() => {});
+      return a;
     } catch {
       /* autoplay/format issues are non-fatal */
+      return null;
     }
+  }
+  function stopCardSound() {
+    if (currentCardAudio) {
+      try {
+        currentCardAudio.pause();
+        currentCardAudio.currentTime = 0;
+      } catch {
+        /* ignore */
+      }
+      currentCardAudio = null;
+    }
+  }
+  // Which sound a revealed card plays: its own first, else a rarity default
+  // (Dragon / SR), else nothing.
+  function cardSoundUrl(c: OpenerCard | null | undefined): string | null {
+    if (!c) return null;
+    if (c.sound_url) return c.sound_url;
+    if (c.rarity === "sr") return SFX_PULL_SR;
+    if (c.rarity === "dragon") return SFX_PULL_DRAGON;
+    return null;
+  }
+  function playCardSound(c: OpenerCard | null | undefined) {
+    // Swiping to another card cuts off the previous card's sound.
+    stopCardSound();
+    currentCardAudio = playSfx(cardSoundUrl(c));
   }
   function toggleMute() {
     if (volume > 0) {
@@ -105,18 +134,23 @@
   let lastSoundIndex = -1;
   $effect(() => {
     if (stage !== "cards") {
+      // leaving the deck (grid / closed) stops the focused card's sound too
+      if (lastSoundIndex !== -1) stopCardSound();
       lastSoundIndex = -1;
       return;
     }
     if (currentIndex === lastSoundIndex) return;
     lastSoundIndex = currentIndex;
     playCardSound(cards[currentIndex]);
+    sparkleFor(cards[currentIndex]);
   });
 
   // Imperative bridges so the DOM HUD can drive the 3D scene.
   let goTo: (i: number) => void = () => {};
   let triggerRip: () => void = () => {};
   let goBackToGrid: () => void = () => {};
+  // Burst sparkles from the focused card on a Dragon/SR pull (set in onMount).
+  let sparkleFor: (c: OpenerCard | null | undefined) => void = () => {};
 
   onMount(() => {
     let disposed = false;
@@ -942,6 +976,167 @@
       });
       holoLabels = labels;
 
+      // ---- Sparkle burst (Dragon / SR pulls) ----
+      // Additive point particles that fly out of the focused card on reveal. More
+      // for SR than Dragon. A ring buffer of SPARK_MAX particles, updated per frame.
+      const SPARK_MAX = 260;
+      const sparkPos = new Float32Array(SPARK_MAX * 3);
+      const sparkCol = new Float32Array(SPARK_MAX * 3);
+      const sparkA = new Float32Array(SPARK_MAX); // alpha (0 = dead)
+      const sparkSz = new Float32Array(SPARK_MAX); // current point size (px)
+      const sparkVel = new Float32Array(SPARK_MAX * 3);
+      const sparkLife = new Float32Array(SPARK_MAX);
+      const sparkTtl = new Float32Array(SPARK_MAX);
+      const sparkBase = new Float32Array(SPARK_MAX); // base size
+      let sparkCursor = 0;
+      let sparkAlive = false;
+      let sparkPrevT = performance.now();
+
+      function makeSparkleTexture() {
+        const s = 64;
+        const cv = document.createElement("canvas");
+        cv.width = cv.height = s;
+        const ctx = cv.getContext("2d");
+        if (ctx) {
+          const cx = s / 2;
+          const g = ctx.createRadialGradient(cx, cx, 0, cx, cx, cx);
+          g.addColorStop(0, "rgba(255,255,255,1)");
+          g.addColorStop(0.3, "rgba(255,255,255,0.55)");
+          g.addColorStop(1, "rgba(255,255,255,0)");
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, s, s);
+          // soft 4-point star flare
+          ctx.globalCompositeOperation = "lighter";
+          ctx.strokeStyle = "rgba(255,255,255,0.6)";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(cx, 4);
+          ctx.lineTo(cx, s - 4);
+          ctx.moveTo(4, cx);
+          ctx.lineTo(s - 4, cx);
+          ctx.stroke();
+        }
+        const t = new THREE.CanvasTexture(cv);
+        t.colorSpace = THREE.SRGBColorSpace;
+        return t;
+      }
+      const sparkTex = makeSparkleTexture();
+
+      const sparkGeo = new THREE.BufferGeometry();
+      sparkGeo.setAttribute("position", new THREE.BufferAttribute(sparkPos, 3));
+      sparkGeo.setAttribute("aColor", new THREE.BufferAttribute(sparkCol, 3));
+      sparkGeo.setAttribute("aAlpha", new THREE.BufferAttribute(sparkA, 1));
+      sparkGeo.setAttribute("aSize", new THREE.BufferAttribute(sparkSz, 1));
+      const sparkMat = new THREE.ShaderMaterial({
+        uniforms: { uTex: { value: sparkTex } },
+        vertexShader: `
+          attribute vec3 aColor;
+          attribute float aAlpha;
+          attribute float aSize;
+          varying vec3 vColor;
+          varying float vAlpha;
+          void main() {
+            vColor = aColor;
+            vAlpha = aAlpha;
+            vec4 mv = modelViewMatrix * vec4(position, 1.0);
+            gl_PointSize = aSize * (8.0 / max(0.001, -mv.z));
+            gl_Position = projectionMatrix * mv;
+          }
+        `,
+        fragmentShader: `
+          uniform sampler2D uTex;
+          varying vec3 vColor;
+          varying float vAlpha;
+          void main() {
+            vec4 t = texture2D(uTex, gl_PointCoord);
+            gl_FragColor = vec4(vColor, t.a * vAlpha);
+          }
+        `,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const sparkPoints = new THREE.Points(sparkGeo, sparkMat);
+      sparkPoints.frustumCulled = false;
+      sparkPoints.renderOrder = 20;
+      scene.add(sparkPoints);
+
+      const _sparkWP = new THREE.Vector3();
+      function burstSparkles(count: number, hex: string) {
+        const m = cardMeshes[currentIndex];
+        if (!m || count <= 0) return;
+        m.getWorldPosition(_sparkWP);
+        const col = new THREE.Color(hex);
+        for (let n = 0; n < count; n++) {
+          const i = sparkCursor;
+          sparkCursor = (sparkCursor + 1) % SPARK_MAX;
+          // spawn across the card face, just in front of it
+          sparkPos[i * 3] = _sparkWP.x + (Math.random() - 0.5) * CARD_W * 0.9;
+          sparkPos[i * 3 + 1] = _sparkWP.y + (Math.random() - 0.5) * CARD_H * 0.9;
+          sparkPos[i * 3 + 2] = _sparkWP.z + 0.2 + Math.random() * 0.4;
+          // velocity: spread outward, biased up and toward the viewer
+          const ang = Math.random() * Math.PI * 2;
+          const spd = 1.4 + Math.random() * 2.6;
+          sparkVel[i * 3] = Math.cos(ang) * spd * 0.6;
+          sparkVel[i * 3 + 1] = Math.sin(ang) * spd * 0.6 + 1.1;
+          sparkVel[i * 3 + 2] = 1.4 + Math.random() * 2.2;
+          const ttl = 0.7 + Math.random() * 0.9;
+          sparkLife[i] = ttl;
+          sparkTtl[i] = ttl;
+          sparkBase[i] = 16 + Math.random() * 26;
+          sparkA[i] = 1;
+          sparkSz[i] = sparkBase[i];
+          // colour: rarity hue mixed toward white for a bright spark
+          const w = 0.45 + Math.random() * 0.45;
+          sparkCol[i * 3] = col.r * (1 - w) + w;
+          sparkCol[i * 3 + 1] = col.g * (1 - w) + w;
+          sparkCol[i * 3 + 2] = col.b * (1 - w) + w;
+        }
+        sparkAlive = true;
+      }
+      sparkleFor = (c) => {
+        if (!c) return;
+        if (c.rarity === "sr") burstSparkles(120, RARITY_BY_KEY.sr.color);
+        else if (c.rarity === "dragon") burstSparkles(55, RARITY_BY_KEY.dragon.color);
+      };
+
+      function updateSparkles(now: number) {
+        const dt = Math.min(0.05, (now - sparkPrevT) / 1000);
+        sparkPrevT = now;
+        if (!sparkAlive) return;
+        let alive = 0;
+        const drag = Math.pow(0.1, dt);
+        for (let i = 0; i < SPARK_MAX; i++) {
+          if (sparkLife[i] <= 0) {
+            sparkA[i] = 0;
+            continue;
+          }
+          sparkLife[i] -= dt;
+          if (sparkLife[i] <= 0) {
+            sparkA[i] = 0;
+            sparkSz[i] = 0;
+            continue;
+          }
+          alive++;
+          sparkVel[i * 3 + 1] -= 2.4 * dt; // gravity
+          sparkVel[i * 3] *= drag;
+          sparkVel[i * 3 + 1] *= drag;
+          sparkVel[i * 3 + 2] *= drag;
+          sparkPos[i * 3] += sparkVel[i * 3] * dt;
+          sparkPos[i * 3 + 1] += sparkVel[i * 3 + 1] * dt;
+          sparkPos[i * 3 + 2] += sparkVel[i * 3 + 2] * dt;
+          const t = sparkLife[i] / sparkTtl[i];
+          sparkA[i] = Math.min(1, t * 1.6); // hold bright, fade at the end
+          sparkSz[i] = sparkBase[i] * (0.35 + 0.65 * t);
+        }
+        sparkAlive = alive > 0;
+        sparkGeo.attributes.position.needsUpdate = true;
+        sparkGeo.attributes.aColor.needsUpdate = true;
+        sparkGeo.attributes.aAlpha.needsUpdate = true;
+        sparkGeo.attributes.aSize.needsUpdate = true;
+      }
+
       // ---- Interaction state ----
       let targetRotY = 0,
         targetRotX = -0.05;
@@ -953,6 +1148,7 @@
       let rip = 0,
         ripTarget = 0; // 0..1 current / target tear progress
       let committing = false;
+      let openSfxFired = false; // the "opening a pack" sound plays once, on commit
       let ripActive = false; // true only when the swipe started at the pack's top
       let flinging = false;
       let flingStart = 0;
@@ -1172,6 +1368,13 @@
           packGroup.rotation.y = lerp(packGroup.rotation.y, targetRotY, 0.12);
           packGroup.rotation.x = lerp(packGroup.rotation.x, targetRotX, 0.12);
           rip = lerp(rip, ripTarget, 0.2);
+
+          // Fire the "opening a pack" sound once the tear commits — works whether the
+          // pack was ripped slowly (drag) or fast ("Rip open" / quick swipe).
+          if (committing && !openSfxFired) {
+            openSfxFired = true;
+            playSfx(SFX_OPENING);
+          }
 
           // how fast the cursor itself is moving (drives the "as it passes" ripple)
           const hoverVel =
@@ -1547,6 +1750,7 @@
           }
         }
 
+        updateSparkles(now);
         renderer.render(scene, camera);
       }
 
@@ -1598,6 +1802,9 @@
         pmrem.dispose();
         texCache.forEach((t) => t.dispose());
         dummyTex.dispose();
+        sparkGeo.dispose();
+        sparkMat.dispose();
+        sparkTex.dispose();
         renderer.dispose();
         // Actively release the WebGL context. dispose() alone leaves the context
         // alive until GC, so repeated opens pile up contexts (browsers cap ~16) and

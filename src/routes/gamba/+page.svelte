@@ -4,9 +4,24 @@
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import PackOpener from '$lib/cards/PackOpener.svelte';
 	import { DEFAULT_PACK_FRONT } from '$lib/cards/packs';
-	import type { Card } from '$lib/cards/rarity';
+	import { RARITY_BY_KEY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
+	import { rsnToSlug } from '$lib/rsn';
 
 	let { data }: { data: PageData } = $props();
+
+	function timeAgo(iso: string): string {
+		const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+		if (s < 60) return 'just now';
+		const m = Math.floor(s / 60);
+		if (m < 60) return `${m}m ago`;
+		const h = Math.floor(m / 60);
+		if (h < 24) return `${h}h ago`;
+		return `${Math.floor(h / 24)}d ago`;
+	}
+
+	function finishLabel(finish: string): string {
+		return finish === 'holo' ? 'Holo' : finish === 'reverse' ? 'Reverse' : '';
+	}
 
 	let openerOpen = $state(false);
 	let opened = $state<Card[]>([]);
@@ -100,6 +115,40 @@
 					</div>
 				</article>
 			{/each}
+		</div>
+	{/if}
+
+	{#if data.recentRares.length > 0}
+		<div class="rares">
+			<h2>Recently opened rares</h2>
+			<div class="rare-strip">
+				{#each data.recentRares as pull (pull.id)}
+					{@const meta = RARITY_BY_KEY[pull.rarity]}
+					<article class="rare" style="--rare-color:{meta.color}">
+						<div class="rare-art">
+							<img src={pull.frontUrl || DEFAULT_CARD_BACK} alt={pull.cardName} />
+							{#if finishLabel(pull.finish)}
+								<span class="finish">{finishLabel(pull.finish)}</span>
+							{/if}
+						</div>
+						<div class="rare-info">
+							<strong class="rare-name" title={pull.cardName}>{pull.cardName}</strong>
+							<span class="rare-rarity" style="color:{meta.color}">{meta.label}</span>
+							{#if pull.packName}
+								<span class="rare-pack muted" title={pull.packName}>from {pull.packName}</span>
+							{/if}
+							<span class="rare-by muted">
+								{#if pull.rsn}
+									<a href="/u/{rsnToSlug(pull.rsn)}">{pull.by}</a>
+								{:else}
+									{pull.by}
+								{/if}
+								· {timeAgo(pull.pulledAt)}
+							</span>
+						</div>
+					</article>
+				{/each}
+			</div>
 		</div>
 	{/if}
 </section>
@@ -251,5 +300,119 @@
 	.warn {
 		color: var(--danger);
 		text-align: center;
+	}
+
+	.rares {
+		margin-top: 2.5rem;
+		padding-top: 1.5rem;
+		border-top: 1px solid var(--border);
+	}
+
+	.rares h2 {
+		margin: 0 0 1rem;
+		font-size: 1.2rem;
+		color: var(--accent);
+		text-shadow: var(--ts);
+	}
+
+	.rare-strip {
+		display: flex;
+		gap: 0.85rem;
+		overflow-x: auto;
+		padding-bottom: 0.75rem;
+		scroll-snap-type: x proximity;
+	}
+
+	.rare {
+		flex: 0 0 9.5rem;
+		display: flex;
+		flex-direction: column;
+		background: var(--surface-alt);
+		border: 1px solid var(--rare-color);
+		border-radius: var(--radius);
+		overflow: hidden;
+		scroll-snap-align: start;
+		box-shadow: 0 0 0.5rem -0.1rem var(--rare-color);
+	}
+
+	.rare-art {
+		position: relative;
+		width: 100%;
+		aspect-ratio: 5 / 7;
+		background: #0008;
+	}
+
+	.rare-art img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.finish {
+		position: absolute;
+		top: 0.35rem;
+		right: 0.35rem;
+		padding: 0.05rem 0.4rem;
+		background: rgba(0, 0, 0, 0.7);
+		border: 1px solid var(--rare-color);
+		border-radius: 999px;
+		font-size: 0.65rem;
+		color: var(--rare-color);
+	}
+
+	.rare-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		padding: 0.5rem 0.6rem 0.6rem;
+	}
+
+	.rare-name {
+		font-size: 0.9rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.rare-rarity {
+		font-size: 0.75rem;
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+	}
+
+	.rare-pack {
+		font-size: 0.72rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.rare-by {
+		font-size: 0.72rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	/* On phones the single full-width column made each pack (and its button) fill
+	   the screen — drop to a compact 2-up grid. */
+	@media (max-width: 540px) {
+		.pack-grid {
+			grid-template-columns: repeat(2, 1fr);
+			gap: 0.75rem;
+		}
+
+		.body {
+			padding: 0.6rem;
+			gap: 0.3rem;
+		}
+
+		.name {
+			font-size: 0.95rem;
+		}
+
+		button.primary {
+			font-size: 0.85rem;
+			padding: 0.5rem 0.35rem;
+		}
 	}
 </style>

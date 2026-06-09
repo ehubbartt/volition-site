@@ -90,6 +90,24 @@ export function isValidRarity(value: unknown): value is CardRarity {
 	return typeof value === 'string' && value in RARITY_BY_KEY;
 }
 
+// "Rare" = rune rarity and up (rune, dragon, sr, and the elemental event tier) —
+// the threshold for the /gamba recent-rares feed. Compared by position in
+// RARITIES so reordering/adding tiers stays consistent.
+export const RARE_MIN_RARITY: CardRarity = 'rune';
+const RARE_MIN_INDEX = RARITIES.findIndex((r) => r.key === RARE_MIN_RARITY);
+
+export function isRareRarity(value: unknown): boolean {
+	if (typeof value !== 'string') return false;
+	const i = RARITIES.findIndex((r) => r.key === value);
+	return i >= 0 && i >= RARE_MIN_INDEX;
+}
+
+// The rarity keys that count as "rare" (rune+), for querying the rare-pull feed
+// (vs_pack_open_cards) with a simple `.in('rarity', RARE_RARITIES)`.
+export const RARE_RARITIES: CardRarity[] = RARITIES.filter((_, i) => i >= RARE_MIN_INDEX).map(
+	(r) => r.key
+);
+
 // Normalises a stored `vs_cards.layers` jsonb value (an array of {path, url}) to
 // the client-safe CardLayer[] (urls only), dropping anything without a url.
 export function toCardLayers(raw: unknown): CardLayer[] {

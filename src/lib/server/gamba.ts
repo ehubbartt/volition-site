@@ -167,3 +167,54 @@ export async function grantCards(
 	if (upErr) return { ok: false, error: upErr.message };
 	return { ok: true };
 }
+
+// Records a pack open: a header row in vs_pack_opens (the open event) plus one
+// vs_pack_open_cards line row per card pulled (the normalized pull history that
+// powers player stats AND the rare-pull feed). Best-effort: the open has already
+// succeeded (VP spent, cards granted) by the time this runs, so a logging failure
+// must NOT undo it — we just note it server-side and move on. The open id is
+// generated here so the header + lines share it without a round-trip.
+export interface PackOpenCard {
+	card_id: string;
+	card_name: string;
+	rarity: string;
+	finish: CardFinish;
+}
+
+export async function logPackOpen(args: {
+	userId: string;
+	packId: string;
+	packName: string;
+	costVp: number;
+	cards: PackOpenCard[];
+}): Promise<void> {
+	const sb = db();
+	const openId = crypto.randomUUID();
+	const now = new Date().toISOString();
+
+	const { error: hErr } = await sb.from('vs_pack_opens').insert({
+		id: openId,
+		user_id: args.userId,
+		pack_id: args.packId,
+		pack_name: args.packName,
+		cost_vp: args.costVp,
+		card_count: args.cards.length,
+		opened_at: now
+	});
+	if (hErr) {
+		console.error('[pack-opens] failed to log open header:', hErr.message);
+		return;
+	}
+
+	const rows = args.cards.map((c) => ({
+		open_id: openId,
+		user_id: args.userId,
+		card_id: c.card_id,
+		card_name: c.card_name,
+		rarity: c.rarity,
+		finish: c.finish,
+		pulled_at: now
+	}));
+	const { error: lErr } = await sb.from('vs_pack_open_cards').insert(rows);
+	if (lErr) console.error('[pack-opens] failed to log open cards:', lErr.message);
+}

@@ -7,6 +7,7 @@
 	import type { UserCard } from '$lib/cards/rarity';
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
+	import { rsnToSlug } from '$lib/rsn';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -57,6 +58,12 @@
 		</div>
 	</header>
 
+	{#if data.isCardTester && data.user.rsn}
+		<p class="profile-link muted">
+			<a href="/u/{rsnToSlug(data.user.rsn)}">View your public profile →</a>
+		</p>
+	{/if}
+
 	<nav class="tabs">
 		{#each tabs as t}
 			<button
@@ -68,8 +75,8 @@
 				{t.label}
 				{#if t.id === 'packs' && packTotal}
 					<span class="count">{packTotal}</span>
-				{:else if t.id === 'collection' && data.collection.length}
-					<span class="count">{data.collection.length}</span>
+				{:else if t.id === 'collection' && data.collectionOwned}
+					<span class="count">{data.collectionOwned}</span>
 				{:else if t.id === 'wallet' && walletTotal}
 					<span class="count">{walletTotal}</span>
 				{/if}
@@ -153,11 +160,35 @@
 					<p class="muted">Open a pack to start collecting.</p>
 				</div>
 			{:else}
+				<div class="mini-stats">
+					<div class="ms">
+						<span class="ms-num">{data.myStats.packsOpened}</span>
+						<span class="ms-lbl">Packs opened</span>
+					</div>
+					<div class="ms">
+						<span class="ms-num">{data.myStats.vpSpent.toLocaleString()}</span>
+						<span class="ms-lbl">VP spent</span>
+					</div>
+					<div class="ms">
+						<span class="ms-num">{data.myStats.cardsOwned}</span>
+						<span class="ms-lbl">Cards owned</span>
+					</div>
+					<div class="ms">
+						<span class="ms-num">{data.collectionOwned} / {data.collectionTotal}</span>
+						<span class="ms-lbl">Collected</span>
+					</div>
+				</div>
 				<div class="card-grid">
 					{#each data.collection as card (card.id + '-' + card.finish)}
-						<button type="button" class="thumb-btn" onclick={() => (viewing = card)}>
-							<CardThumb {card} quantity={card.quantity} finish={card.finish} flip={false} />
-						</button>
+						{#if card.owned}
+							<button type="button" class="thumb-btn" onclick={() => (viewing = card)}>
+								<CardThumb {card} quantity={card.quantity} finish={card.finish} flip={false} />
+							</button>
+						{:else}
+							<div class="thumb-btn locked" title="Not owned">
+								<div class="dim"><CardThumb {card} flip={false} /></div>
+							</div>
+						{/if}
 					{/each}
 				</div>
 			{/if}
@@ -249,6 +280,11 @@
 
 	.vp-label {
 		color: var(--accent);
+		font-size: 0.85rem;
+	}
+
+	.profile-link {
+		margin: 0.75rem 0 0;
 		font-size: 0.85rem;
 	}
 
@@ -447,6 +483,46 @@
 		border: none;
 		text-align: inherit;
 		cursor: pointer;
+		position: relative;
+	}
+
+	/* Unowned cards: greyed out, not interactive, with a lock badge. */
+	.thumb-btn.locked {
+		cursor: default;
+	}
+
+	.thumb-btn.locked .dim {
+		filter: grayscale(1) brightness(0.55);
+		opacity: 0.9;
+	}
+
+	.mini-stats {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+		gap: 0.75rem;
+		margin: 0 0 1.25rem;
+	}
+
+	.ms {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		padding: 0.7rem 0.9rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+	}
+
+	.ms-num {
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-size: 1.3rem;
+		color: var(--accent);
+		text-shadow: var(--ts);
+	}
+
+	.ms-lbl {
+		font-size: 0.78rem;
+		color: var(--muted);
 	}
 
 	.empty {

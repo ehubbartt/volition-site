@@ -35,6 +35,12 @@
 			title: 'Pack Simulator',
 			desc: 'Bulk-open a pack thousands of times and see the drop-rate results.',
 			show: data.cardTester
+		},
+		{
+			href: '/admin/player-stats',
+			title: 'Player Stats',
+			desc: 'Per-player pack opens, VP spent, and collections across all players.',
+			show: data.cardTester
 		}
 	]);
 
