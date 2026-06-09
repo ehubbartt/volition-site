@@ -317,10 +317,11 @@ export async function loadCardProfile(user: {
 		vp_balance,
 		wallet,
 		collection,
-		// Counts stay per unique CARD (a card is "collected" if any finish is owned),
-		// not per variant slot — the grid shows the finish breakdown within each card.
-		collectionOwned: ownedIds.size,
-		collectionTotal: allCardIds.size,
+		// Count every VARIANT slot (one per finish a card can have) so it matches the
+		// grid: owned variants over total obtainable variants. An undiscovered secret
+		// rare is a single mystery slot until a finish of it is owned.
+		collectionOwned: collection.filter((c) => c.owned).length,
+		collectionTotal: collection.length,
 		packs,
 		stats: {
 			packsOpened: opens.length,

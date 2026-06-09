@@ -1277,6 +1277,8 @@
 
       function goToIndex(i: number) {
         if (i >= total) {
+          // Swiping the LAST card away to the summary still gets a whoosh.
+          playSfx(SFX_NEXT_CARD);
           resetFlips();
           stage = "grid"; // past the last card → summary grid
           return;
@@ -1390,11 +1392,8 @@
           if (tap && currentIndex < total) {
             flipped[currentIndex] = !flipped[currentIndex]; // tap flips the card
           } else if (dragDX < -SWIPE_COMMIT) {
-            if (currentIndex >= total - 1) {
-              resetFlips();
-              stage = "grid"; // swiped past the last card → summary grid
-            }
-            else goToIndex(currentIndex + 1);
+            // goToIndex handles the last-card → summary grid case (with whoosh) itself.
+            goToIndex(currentIndex + 1);
           } else if (dragDX > SWIPE_COMMIT && currentIndex > 0) {
             goToIndex(currentIndex - 1);
           }
