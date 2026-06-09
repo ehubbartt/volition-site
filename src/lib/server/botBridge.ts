@@ -20,22 +20,44 @@ export interface GrantRolePayload {
 
 type PayloadFor<T extends BotMessageType> = T extends 'grant_role' ? GrantRolePayload : Record<string, unknown>;
 
-export async function sendBotMessage<T extends BotMessageType>(type: T, payload: PayloadFor<T>): Promise<boolean> {
-	const url = env.DISCORD_BOT_BRIDGE_WEBHOOK_URL;
-	if (!url) {
-		console.error('[bot-bridge] DISCORD_BOT_BRIDGE_WEBHOOK_URL not set — dropping', type, payload);
-		return false;
-	}
+export function isBridgeConfigured(): boolean {
+	return !!env.DISCORD_BOT_BRIDGE_WEBHOOK_URL;
+}
 
-	// A machine-parseable embed: the bot reads the fields; the description is a
-	// human-readable audit line. content carries a compact JSON copy as a backstop.
-	const body = {
+export interface WebhookResult {
+	ok: boolean;
+	status?: number;
+	error?: string;
+}
+
+// Low-level POST to the bridge webhook. Returns a structured result so callers can
+// report it (the test page) or just check ok (the open flow).
+async function postToWebhook(body: unknown): Promise<WebhookResult> {
+	const url = env.DISCORD_BOT_BRIDGE_WEBHOOK_URL;
+	if (!url) return { ok: false, error: 'DISCORD_BOT_BRIDGE_WEBHOOK_URL is not set' };
+	try {
+		const res = await fetch(url, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(body)
+		});
+		if (!res.ok) return { ok: false, status: res.status, error: (await res.text().catch(() => '')) || `HTTP ${res.status}` };
+		return { ok: true, status: res.status };
+	} catch (e) {
+		return { ok: false, error: e instanceof Error ? e.message : String(e) };
+	}
+}
+
+// Builds the standard bridge message body: a machine-parseable JSON code block in
+// `content` (what the bot parses) plus a human-readable embed for the audit log.
+function buildBody(type: string, payload: Record<string, unknown>) {
+	return {
 		username: 'Volition Site Bridge',
 		content: `\`\`\`json\n${JSON.stringify({ type, ...payload })}\n\`\`\``,
 		embeds: [
 			{
 				title: `bridge:${type}`,
-				description: `Site requested **${type}**${payload && 'username' in payload && payload.username ? ` for ${payload.username}` : ''}.`,
+				description: `Site requested **${type}**${payload && payload.username ? ` for ${payload.username}` : ''}.`,
 				fields: Object.entries(payload).map(([name, value]) => ({
 					name,
 					value: String(value ?? '—'),
@@ -44,20 +66,16 @@ export async function sendBotMessage<T extends BotMessageType>(type: T, payload:
 			}
 		]
 	};
+}
 
-	try {
-		const res = await fetch(url, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(body)
-		});
-		if (!res.ok) {
-			console.error('[bot-bridge] webhook returned', res.status, await res.text().catch(() => ''));
-			return false;
-		}
-		return true;
-	} catch (e) {
-		console.error('[bot-bridge] webhook post failed:', e instanceof Error ? e.message : e);
-		return false;
-	}
+export async function sendBotMessage<T extends BotMessageType>(type: T, payload: PayloadFor<T>): Promise<boolean> {
+	const res = await postToWebhook(buildBody(type, payload as Record<string, unknown>));
+	if (!res.ok) console.error('[bot-bridge] send failed:', type, res.status ?? '', res.error ?? '');
+	return res.ok;
+}
+
+// Harmless connectivity test: posts a `ping` message to the bridge channel and
+// returns the detailed result. No side effects (the bot can ack/ignore `ping`).
+export async function sendBridgeTest(note: string): Promise<WebhookResult> {
+	return postToWebhook(buildBody('ping', { note, at: new Date().toISOString() }));
 }

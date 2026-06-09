@@ -41,6 +41,12 @@
 			title: 'Player Stats',
 			desc: 'Per-player pack opens, VP spent, and collections across all players.',
 			show: data.cardTester
+		},
+		{
+			href: '/admin/bridge-test',
+			title: 'Bot Bridge Test',
+			desc: 'Send a test message through the site→bot Discord webhook bridge.',
+			show: data.cardTester
 		}
 	]);
 
