@@ -7,6 +7,7 @@
 	import CardThumb from '$lib/cards/CardThumb.svelte';
 	import PackDisplay3D from '$lib/cards/PackDisplay3D.svelte';
 	import { RARITY_BY_KEY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
+	import { SFX_CRATE_SPIN, SFX_TICK, SFX_TOCK } from '$lib/cards/sfx';
 	import { rsnToSlug } from '$lib/rsn';
 
 	let { data }: { data: PageData } = $props();
@@ -88,7 +89,195 @@
 	const CELL_GAP = 10;
 	const STRIDE = CELL_W + CELL_GAP;
 	const STRIP_LEN = 64;
-	const SPIN_MS = 4200;
+	const SPIN_MS = 4700; // matches the ~4.7s slot-machine sound so the reel lands as it ends
+
+	// ---- Crate spin sound ----
+	let crateAudio: HTMLAudioElement | null = null;
+	let crateAudioPrimed = false;
+	function crateVolume(): number {
+		// Reuse the pack-opener's saved volume so the two stay consistent.
+		try {
+			const v = parseFloat(localStorage.getItem('vs_po_volume') ?? '1');
+			return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
+		} catch {
+			return 1;
+		}
+	}
+	function ensureCrateAudio(): HTMLAudioElement | null {
+		if (typeof Audio === 'undefined') return null;
+		if (!crateAudio) {
+			crateAudio = new Audio(SFX_CRATE_SPIN);
+			crateAudio.preload = 'auto';
+			try {
+				crateAudio.load();
+			} catch {
+				/* ignore */
+			}
+		}
+		return crateAudio;
+	}
+	// Unlock audio within the open-button gesture (mobile autoplay): play+pause muted
+	// synchronously. The spin itself starts after the action's network round-trip, so
+	// without this the play() would be outside the gesture and get blocked.
+	function primeCrateAudio() {
+		if (crateAudioPrimed) return;
+		crateAudioPrimed = true;
+		const a = ensureCrateAudio();
+		if (!a) return;
+		try {
+			a.muted = true;
+			void a.play().catch(() => {});
+			a.pause();
+			a.currentTime = 0;
+			a.muted = false;
+		} catch {
+			a.muted = false;
+		}
+	}
+	function playCrateSpin() {
+		const a = ensureCrateAudio();
+		if (!a) return;
+		const vol = crateVolume();
+		if (vol <= 0) return;
+		try {
+			a.muted = false;
+			a.volume = vol;
+			a.currentTime = 0;
+			void a.play().catch(() => {});
+		} catch {
+			/* ignore */
+		}
+	}
+	function stopCrateSpin() {
+		if (crateAudio) {
+			try {
+				crateAudio.pause();
+				crateAudio.currentTime = 0;
+			} catch {
+				/* ignore */
+			}
+		}
+	}
+
+	// ---- Per-cell tick/tock (preferred): a click each time a reel cell crosses the
+	// marker, alternating tick↔tock. Auto-syncs to the reel's deceleration. Each is
+	// a small round-robin pool so rapid clicks at the start can overlap. Falls back
+	// to the single slot-machine clip if the tick/tock files aren't present.
+	type ClickPool = { available: () => boolean; play: (v: number) => void; prime: () => void; stop: () => void };
+	function makeClickPool(url: string, size = 5): ClickPool {
+		if (typeof Audio === 'undefined') return { available: () => false, play() {}, prime() {}, stop() {} };
+		let errored = false;
+		const pool: HTMLAudioElement[] = [];
+		for (let i = 0; i < size; i++) {
+			const a = new Audio(url);
+			a.preload = 'auto';
+			a.addEventListener('error', () => (errored = true), { once: true });
+			try {
+				a.load();
+			} catch {
+				/* ignore */
+			}
+			pool.push(a);
+		}
+		let idx = 0;
+		return {
+			available: () => !errored,
+			play: (v) => {
+				const a = pool[idx];
+				idx = (idx + 1) % size;
+				try {
+					a.muted = false;
+					a.volume = v;
+					a.currentTime = 0;
+					void a.play().catch(() => {});
+				} catch {
+					/* ignore */
+				}
+			},
+			prime: () => {
+				for (const a of pool) {
+					try {
+						a.muted = true;
+						void a.play().catch(() => {});
+						a.pause();
+						a.currentTime = 0;
+						a.muted = false;
+					} catch {
+						a.muted = false;
+					}
+				}
+			},
+			stop: () => {
+				for (const a of pool) {
+					try {
+						a.pause();
+						a.currentTime = 0;
+					} catch {
+						/* ignore */
+					}
+				}
+			}
+		};
+	}
+	let tickPool: ClickPool | null = null;
+	let tockPool: ClickPool | null = null;
+	let tickRaf = 0;
+	function ensureClicks() {
+		if (!tickPool) tickPool = makeClickPool(SFX_TICK);
+		if (!tockPool) tockPool = makeClickPool(SFX_TOCK);
+	}
+	function clicksAvailable(): boolean {
+		ensureClicks();
+		return !!(tickPool?.available() && tockPool?.available());
+	}
+	function startTickLoop() {
+		const el = stripEl;
+		const vol = crateVolume();
+		if (!el || vol <= 0) return;
+		ensureClicks();
+		// The marker sits at the viewport's horizontal center; the strip point under
+		// it is (half - translateX). A box's left edge is at a multiple of STRIDE, so
+		// a tick fires exactly when the marker line crosses a box edge (not mid-box).
+		const half = (el.parentElement?.clientWidth || el.clientWidth || 320) / 2;
+		let lastEdge = Math.floor(half / STRIDE); // strip starts at translateX ≈ 0
+		let toggle = false;
+		let lastAt = 0;
+		const loop = (now: number) => {
+			if (!crateSpinning) return; // stops on land / close
+			let tx = 0;
+			try {
+				const t = getComputedStyle(el).transform;
+				if (t && t !== 'none') tx = new DOMMatrix(t).m41;
+			} catch {
+				/* ignore */
+			}
+			const edge = Math.floor((half - tx) / STRIDE); // box edge currently under the marker
+			if (edge > lastEdge) {
+				lastEdge = edge;
+				if (now - lastAt >= 28) {
+					// cap to keep the fast start from machine-gunning
+					lastAt = now;
+					(toggle ? tockPool : tickPool)?.play(vol);
+					toggle = !toggle;
+				}
+			}
+			tickRaf = requestAnimationFrame(loop);
+		};
+		tickRaf = requestAnimationFrame(loop);
+	}
+	function stopTickLoop() {
+		if (tickRaf) {
+			cancelAnimationFrame(tickRaf);
+			tickRaf = 0;
+		}
+		tickPool?.stop();
+		tockPool?.stop();
+	}
+
+	$effect(() => {
+		ensureCrateAudio(); // preload on mount so the spin sound is instant
+		ensureClicks();
+	});
 
 	let crateStrip = $state<ReelCell[]>([]);
 	let winIndex = $state(0);
@@ -121,6 +310,8 @@
 			spinAnim.cancel();
 			spinAnim = null;
 		}
+		stopCrateSpin();
+		stopTickLoop();
 		winIndex = STRIP_LEN - 8;
 		crateStrip = Array.from({ length: STRIP_LEN }, (_, i) =>
 			i === winIndex ? rewardCell(reward) : randomCell()
@@ -150,6 +341,13 @@
 
 			// Web Animations API — animates reliably without CSS-transition reflow tricks.
 			if (typeof el.animate === 'function') {
+				// Sound, synced to the spin (skipped for the shortened reduce-motion
+				// spin so it doesn't overrun): per-cell tick/tock if those clips exist,
+				// else the single slot-machine clip.
+				if (!reduce) {
+					if (clicksAvailable()) startTickLoop();
+					else playCrateSpin();
+				}
 				spinAnim = el.animate(
 					[{ transform: 'translateX(0px)' }, { transform: `translateX(${target}px)` }],
 					{ duration: dur, easing: 'cubic-bezier(0.05, 0.8, 0.15, 1)', fill: 'forwards' }
@@ -172,6 +370,7 @@
 		if (crateLanded) return;
 		crateSpinning = false;
 		crateLanded = true;
+		stopTickLoop();
 	}
 
 	function closeReveal() {
@@ -181,6 +380,8 @@
 			spinAnim.cancel();
 			spinAnim = null;
 		}
+		stopCrateSpin();
+		stopTickLoop();
 		crateReward = null;
 		crateSpinning = false;
 		crateLanded = false;
@@ -221,6 +422,11 @@
 		return () => {
 			crateBusy = which;
 			crateError = null;
+			// Unlock the spin sounds within this click gesture (mobile autoplay).
+			primeCrateAudio();
+			ensureClicks();
+			tickPool?.prime();
+			tockPool?.prime();
 			return async ({ result, update }) => {
 				if (result.type === 'success' && result.data?.crateOk) {
 					startSpin(result.data.reward as CrateReward);

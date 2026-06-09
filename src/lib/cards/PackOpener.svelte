@@ -86,6 +86,7 @@
     try {
       const a = ensureAudio(url);
       if (!a) return null;
+      a.muted = false; // undo any earlier priming-mute so it's always audible
       a.volume = volume;
       a.currentTime = 0;
       void a.play().catch(() => {});
@@ -97,27 +98,19 @@
   }
   // Unlock audio inside the first user gesture (mobile Safari / autoplay policies
   // block programmatic play() until an element has been played from a gesture).
-  // Briefly play each preloaded clip muted, then reset — silent, runs once.
+  // play()+pause() SYNCHRONOUSLY (not in a .then) so it can't race a real play()
+  // that happens in the same gesture — the old async unmute could leave the tear
+  // clip muted or pause it mid-play. Runs once.
   function primeAudio() {
     if (audioPrimed) return;
     audioPrimed = true;
     soundCache.forEach((a) => {
       try {
         a.muted = true;
-        const p = a.play();
-        if (p && typeof p.then === "function") {
-          p.then(() => {
-            a.pause();
-            a.currentTime = 0;
-            a.muted = false;
-          }).catch(() => {
-            a.muted = false;
-          });
-        } else {
-          a.pause();
-          a.currentTime = 0;
-          a.muted = false;
-        }
+        void a.play().catch(() => {});
+        a.pause();
+        a.currentTime = 0;
+        a.muted = false;
       } catch {
         a.muted = false;
       }
@@ -1246,6 +1239,12 @@
           committing = true;
           ripTarget = 1;
           rip = Math.max(rip, 0.08); // tear is visible the instant you click
+          // Play the tear sound HERE, inside the click gesture — mobile/strict
+          // autoplay blocks the deferred play in the render loop below.
+          if (!openSfxFired) {
+            openSfxFired = true;
+            playSfx(SFX_OPENING);
+          }
         }
       };
       goBackToGrid = () => {
@@ -1323,6 +1322,11 @@
           if (rip >= 0.5) {
             committing = true;
             ripTarget = 1;
+            // Play the tear sound inside this pointer-up gesture (autoplay-safe).
+            if (!openSfxFired) {
+              openSfxFired = true;
+              playSfx(SFX_OPENING);
+            }
           } else {
             ripTarget = 0;
             ripPull = 0;
