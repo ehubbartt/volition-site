@@ -193,8 +193,11 @@
         canvas,
         antialias: true,
         alpha: true,
+        powerPreference: "high-performance",
       });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      // Cap at 1.5 — a full-screen canvas at DPR 2 with MSAA is ~4× the pixels of
+      // DPR 1 and was the dominant per-frame cost. 1.5 keeps cards crisp for far less.
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 
       // Step 3: a faint, NEARLY-UNIFORM environment for subtle metallic reflection.
       // Kept very low-contrast on purpose so the curved bulge doesn't sweep through
@@ -1546,6 +1549,27 @@
 
         renderer.render(scene, camera);
       }
+
+      // Pre-warm GPU shader programs for the torn pack + cards. They're hidden until
+      // you tear, so their first draw (mid-tear) is when they'd otherwise compile —
+      // that's the one-time hitch on the first rip. compileAsync compiles them now,
+      // in parallel (non-blocking), while the pack just idles/spins. Visibility is
+      // flipped only so the compile pass sees these materials, then restored before
+      // the first render — so nothing actually draws in this state.
+      {
+        const wasTorn = tornGroup.visible;
+        const wasCards = cardsGroup.visible;
+        tornGroup.visible = true;
+        cardsGroup.visible = true;
+        try {
+          renderer.compileAsync?.(scene, camera);
+        } catch {
+          /* unsupported → first tear just pays the compile, as before */
+        }
+        tornGroup.visible = wasTorn;
+        cardsGroup.visible = wasCards;
+      }
+
       frame();
 
       teardown = () => {
@@ -1575,6 +1599,24 @@
         texCache.forEach((t) => t.dispose());
         dummyTex.dispose();
         renderer.dispose();
+        // Actively release the WebGL context. dispose() alone leaves the context
+        // alive until GC, so repeated opens pile up contexts (browsers cap ~16) and
+        // the whole tab gets progressively laggier. forceContextLoss frees it now.
+        try {
+          renderer.forceContextLoss();
+        } catch {
+          /* ignore */
+        }
+        // Stop and release any preloaded card sounds.
+        soundCache.forEach((a) => {
+          try {
+            a.pause();
+            a.src = "";
+          } catch {
+            /* ignore */
+          }
+        });
+        soundCache.clear();
       };
     })();
 
