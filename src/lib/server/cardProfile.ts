@@ -5,6 +5,7 @@ import {
 	DEFAULT_RARITY,
 	RARITIES,
 	toCardLayers,
+	hiddenCard,
 	type UserCard,
 	type CardAbility,
 	type CardRarity
@@ -150,32 +151,44 @@ export async function loadCardProfile(user: {
 			};
 		});
 
-	// Greyed-out placeholders for catalog cards the player doesn't own at all.
-	// SR ("secret rare") cards are HIDDEN until pulled — no greyed placeholder and
-	// not counted in the total, so they stay a surprise. Once owned they show
-	// normally (they're in `owned` above).
+	// Placeholders for catalog cards the player doesn't own. Cards below SR show a
+	// greyed-out preview of the real art. SR ("secret rare") cards instead get a
+	// REDACTED mystery spot — the slot is shown (and counted) but its look is
+	// stripped server-side so it stays a surprise until pulled. Once owned, an SR
+	// shows normally (it's in `owned` above).
 	const ownedIds = new Set(owned.map((c) => c.id));
 	const unowned: CollectionCard[] = ((catalogRes.data ?? []) as unknown as CatalogRow[])
-		.filter((c) => !ownedIds.has(c.id) && c.rarity !== 'sr')
-		.map((c) => ({
-			id: c.id,
-			name: c.name,
-			level: c.level,
-			rarity: (isValidRarity(c.rarity) ? c.rarity : DEFAULT_RARITY) as CardRarity,
-			abilities: c.abilities ?? [],
-			flavor: c.flavor,
-			front_url: c.front_url,
-			back_url: c.back_url,
-			layers: toCardLayers(c.layers),
-			full_art: !!c.full_art,
-			holo_url: c.holo_url,
-			sound_url: c.sound_url,
-			holo_regular_url: c.vs_card_packs?.holo_regular_url ?? null,
-			holo_reverse_url: c.vs_card_packs?.holo_reverse_url ?? null,
-			quantity: 0,
-			finish: 'normal' as CardFinish,
-			owned: false
-		}));
+		.filter((c) => !ownedIds.has(c.id))
+		.map((c) => {
+			const rarity = (isValidRarity(c.rarity) ? c.rarity : DEFAULT_RARITY) as CardRarity;
+			if (rarity === 'sr') {
+				return {
+					...hiddenCard(c.id, rarity),
+					quantity: 0,
+					finish: 'normal' as CardFinish,
+					owned: false
+				};
+			}
+			return {
+				id: c.id,
+				name: c.name,
+				level: c.level,
+				rarity,
+				abilities: c.abilities ?? [],
+				flavor: c.flavor,
+				front_url: c.front_url,
+				back_url: c.back_url,
+				layers: toCardLayers(c.layers),
+				full_art: !!c.full_art,
+				holo_url: c.holo_url,
+				sound_url: c.sound_url,
+				holo_regular_url: c.vs_card_packs?.holo_regular_url ?? null,
+				holo_reverse_url: c.vs_card_packs?.holo_reverse_url ?? null,
+				quantity: 0,
+				finish: 'normal' as CardFinish,
+				owned: false
+			};
+		});
 
 	// Sort rarest-first; within a rarity, owned before missing, then by name.
 	const rank = new Map(RARITIES.map((r, i) => [r.key as string, i]));

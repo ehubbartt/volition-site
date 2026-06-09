@@ -12,7 +12,7 @@ import { grantCards, logPackOpen, makeSlotRoller, rollOnePack, type CardGrant } 
 import { getLootConfig, rollLoot, type LootConfig, type LootResult } from '$lib/server/lootcrate';
 import { logLootcrateOpen } from '$lib/server/lootcrateAnalytics';
 import { sendBotMessage } from '$lib/server/botBridge';
-import { isValidRarity, DEFAULT_RARITY, RARE_RARITIES, RARITIES, toCardLayers, type Card, type CardAbility, type CardLayer, type CardRarity } from '$lib/cards/rarity';
+import { isValidRarity, DEFAULT_RARITY, RARE_RARITIES, RARITIES, toCardLayers, hiddenCard, type Card, type CardAbility, type CardLayer, type CardRarity } from '$lib/cards/rarity';
 import { isValidFinish, type CardFinish } from '$lib/cards/finishes';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -243,7 +243,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
 	if (!isCardTester(locals.user)) throw error(403, 'Not allowed');
 
-	const [vp_balance, packsRes, cardsRes, raresRes, lastLootDate, lootConfig, crateDropsRes] = await Promise.all([
+	const [vp_balance, packsRes, cardsRes, ownedRes, raresRes, lastLootDate, lootConfig, crateDropsRes] = await Promise.all([
 		getPlayerVp(locals.user.discord_id, locals.user.rsn),
 		db()
 			.from('vs_card_packs')
@@ -253,7 +253,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 		db()
 			.from('vs_cards')
 			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, pack_id'),
-		// Recently opened rares (rune+), newest first — the live drop ticker. Reads
+		// Which cards this player owns — so a secret rare they've pulled is revealed
+		// in the set preview instead of staying a mystery spot.
+		db().from('vs_user_cards').select('card_id').eq('user_id', locals.user.id),
+		// Recently opened rares (dragon+), newest first — the live drop ticker. Reads
 		// the pack-open line items directly (the rarity filter is a plain indexed query).
 		db()
 			.from('vs_pack_open_cards')
@@ -328,14 +331,19 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const recentCrateDrops: CrateDrop[] = crateDropRows.map((r) => resolveCrateDrop(r, lootConfig, nameMap));
 
 	// Group each set's cards (for the count + the "view cards" contents grid).
-	// SR ("secret rare") cards are hidden from the viewer + count — they stay a
-	// surprise until pulled. They're excluded server-side so their data never even
-	// reaches the client (the roll still includes them; see the `open` action).
+	// SR ("secret rare") cards stay a surprise: an unowned SR shows as a REDACTED
+	// mystery spot (its real data never reaches the client), while one the player
+	// has already pulled is revealed normally.
+	const ownedCardIds = new Set(
+		((ownedRes.data ?? []) as { card_id: string }[]).map((r) => r.card_id)
+	);
 	const byPack = new Map<string, Card[]>();
 	for (const r of (cardsRes.data ?? []) as PackCardRow[]) {
-		if (!r.pack_id || r.rarity === 'sr') continue;
+		if (!r.pack_id) continue;
+		const card =
+			r.rarity === 'sr' && !ownedCardIds.has(r.id) ? hiddenCard(r.id, 'sr') : toPackCard(r);
 		const arr = byPack.get(r.pack_id) ?? [];
-		arr.push(toPackCard(r));
+		arr.push(card);
 		byPack.set(r.pack_id, arr);
 	}
 	const rarityRank = new Map(RARITIES.map((r, i) => [r.key as string, i]));

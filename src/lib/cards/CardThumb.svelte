@@ -14,33 +14,48 @@
 	let isHolo = $derived(!!finishMeta && finishMeta.key !== 'normal');
 	let front = $derived(card.front_url || DEFAULT_CARD_BACK);
 	let back = $derived(card.back_url || DEFAULT_CARD_BACK);
+	let hidden = $derived(!!card.hidden);
 </script>
 
-<div class="card-thumb" class:no-flip={!flip} style="--rarity: {rarity.color}" title={card.name}>
-	<div class="art">
-		<div class="flip">
-			<div class="face front">
-				<img src={front} alt={card.name} loading="lazy" />
-				{#each card.layers ?? [] as ly}
-					<img class="layer" src={ly.url} alt="" loading="lazy" />
-				{/each}
-			</div>
-			<div class="face back">
-				<img src={back} alt="" loading="lazy" />
+{#if hidden}
+	<div class="card-thumb no-flip mystery" style="--rarity: {rarity.color}" title="Undiscovered — pull it to reveal">
+		<div class="art">
+			<div class="mystery-face">
+				<span class="mystery-glyph">?</span>
 			</div>
 		</div>
-		{#if quantity && quantity > 1}
-			<span class="qty">×{quantity}</span>
-		{/if}
-		{#if isHolo}
-			<span class="finish-badge">{finishMeta?.label}</span>
-		{/if}
+		<div class="info">
+			<span class="name">Undiscovered</span>
+			<span class="rarity">{rarity.label}</span>
+		</div>
 	</div>
-	<div class="info">
-		<span class="name">{card.name}</span>
-		<span class="rarity">{rarity.label}{#if card.level} · lvl {card.level}{/if}</span>
+{:else}
+	<div class="card-thumb" class:no-flip={!flip} style="--rarity: {rarity.color}" title={card.name}>
+		<div class="art">
+			<div class="flip">
+				<div class="face front">
+					<img src={front} alt={card.name} loading="lazy" />
+					{#each card.layers ?? [] as ly}
+						<img class="layer" src={ly.url} alt="" loading="lazy" />
+					{/each}
+				</div>
+				<div class="face back">
+					<img src={back} alt="" loading="lazy" />
+				</div>
+			</div>
+			{#if quantity && quantity > 1}
+				<span class="qty">×{quantity}</span>
+			{/if}
+			{#if isHolo}
+				<span class="finish-badge">{finishMeta?.label}</span>
+			{/if}
+		</div>
+		<div class="info">
+			<span class="name">{card.name}</span>
+			<span class="rarity">{rarity.label}{#if card.level} · lvl {card.level}{/if}</span>
+		</div>
 	</div>
-</div>
+{/if}
 
 <style>
 	.card-thumb {
@@ -68,6 +83,31 @@
 		aspect-ratio: 5 / 7;
 		background: #000;
 		perspective: 900px;
+	}
+
+	/* Undiscovered card: a mystery "?" spot tinted by the (still-known) rarity. */
+	.card-thumb.mystery {
+		border-style: dashed;
+	}
+
+	.mystery-face {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background:
+			radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--rarity) 22%, transparent), transparent 70%),
+			repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.03) 0 8px, transparent 8px 16px),
+			#0c0c10;
+	}
+
+	.mystery-glyph {
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-size: 2.6rem;
+		color: var(--rarity);
+		opacity: 0.85;
+		text-shadow: 0 0 12px color-mix(in srgb, var(--rarity) 60%, transparent), 2px 2px #000;
 	}
 
 	.flip {

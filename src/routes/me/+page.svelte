@@ -164,6 +164,10 @@
 								<button type="button" class="thumb-btn" onclick={() => (viewing = card)}>
 									<CardThumb {card} quantity={card.quantity} finish={card.finish} flip={false} />
 								</button>
+							{:else if card.hidden}
+								<div class="thumb-btn mystery-slot" title="Secret rare — undiscovered">
+									<CardThumb {card} flip={false} />
+								</div>
 							{:else}
 								<div class="thumb-btn locked" title="Not owned">
 									<div class="dim"><CardThumb {card} flip={false} /></div>
@@ -517,6 +521,11 @@
 
 	/* Unowned cards: greyed out, not interactive, with a lock badge. */
 	.thumb-btn.locked {
+		cursor: default;
+	}
+
+	/* Undiscovered secret rares: a mystery spot, not interactive. */
+	.thumb-btn.mystery-slot {
 		cursor: default;
 	}
 

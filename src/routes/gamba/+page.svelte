@@ -528,7 +528,7 @@
 
 		{#if data.recentRares.length > 0}
 			<aside class="rail">
-				<h2 class="rail-title"><span class="live"></span> Live drops</h2>
+				<h2 class="rail-title"><span class="live"></span> Live rare drops</h2>
 				<div class="rail-list">
 					{#each data.recentRares as pull (pull.id)}
 						{@const meta = RARITY_BY_KEY[pull.rarity]}
@@ -573,7 +573,7 @@
 
 		<div class="crate-wrap">
 			<article class="crate">
-				<div class="crate-icon">📦</div>
+				<img class="crate-icon" src="/loot-box.png" alt="Loot crate" />
 				<div class="crate-body">
 					<h2>Gamba Crate</h2>
 					<p class="muted">Roll for VP, rare items, or glory — the same odds as the Discord crate.</p>
@@ -1070,9 +1070,8 @@
 		flex: 0 0 auto;
 		width: 5rem;
 		height: 5rem;
-		display: grid;
-		place-items: center;
-		font-size: 3rem;
+		object-fit: contain;
+		padding: 0.4rem;
 		background: var(--accent-soft);
 		border: 1px solid var(--accent);
 		border-radius: var(--radius);
