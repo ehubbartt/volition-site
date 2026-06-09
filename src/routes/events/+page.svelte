@@ -27,6 +27,50 @@
 	<title>Events · Volition</title>
 </svelte:head>
 
+{#snippet eventCard(ev: PageData['events'][number], past: boolean)}
+	{@const isBingo = ev.slug === BINGO_EVENT_SLUG}
+	{@const isDraft = ev.status === 'draft'}
+	{@const isPreview = ev.status === 'preview'}
+	<li>
+		<a
+			href={hrefFor(ev.slug)}
+			class="event-card"
+			class:bingo={isBingo}
+			class:draft={isDraft}
+			class:preview={isPreview}
+			class:past
+		>
+			<div class="event-name">{ev.name}</div>
+			{#if ev.description_preview}
+				<p class="muted">{ev.description_preview}</p>
+			{/if}
+			{#if ev.status_line}
+				<div class="status-line">
+					<span class="label">{ev.status_line.label}</span>
+					<span class="when">{fmtDate(ev.status_line.date)}</span>
+				</div>
+			{/if}
+			<div
+				class="badge"
+				class:bingo={isBingo && !isDraft && !isPreview && !past}
+				class:open={ev.status === 'open' && !isBingo}
+				class:draft={isDraft}
+				class:preview={isPreview}
+			>
+				{isDraft
+					? 'Draft · admin only'
+					: isPreview
+						? 'Preview · admin only'
+						: past
+							? 'Closed'
+							: isBingo
+								? 'Bingo'
+								: ev.status}
+			</div>
+		</a>
+	</li>
+{/snippet}
+
 <section>
 	<h1>Active events</h1>
 
@@ -35,52 +79,48 @@
 	{:else}
 		<ul class="events">
 			{#each data.events as ev}
-				{@const isBingo = ev.slug === BINGO_EVENT_SLUG}
-				{@const isDraft = ev.status === 'draft'}
-				{@const isPreview = ev.status === 'preview'}
-				<li>
-					<a
-						href={hrefFor(ev.slug)}
-						class="event-card"
-						class:bingo={isBingo}
-						class:draft={isDraft}
-						class:preview={isPreview}
-					>
-						<div class="event-name">{ev.name}</div>
-						{#if ev.description_preview}
-							<p class="muted">{ev.description_preview}</p>
-						{/if}
-						{#if ev.status_line}
-							<div class="status-line">
-								<span class="label">{ev.status_line.label}</span>
-								<span class="when">{fmtDate(ev.status_line.date)}</span>
-							</div>
-						{/if}
-						<div
-							class="badge"
-							class:bingo={isBingo && !isDraft && !isPreview}
-							class:open={ev.status === 'open' && !isBingo}
-							class:draft={isDraft}
-							class:preview={isPreview}
-						>
-							{isDraft
-								? 'Draft · admin only'
-								: isPreview
-									? 'Preview · admin only'
-									: isBingo
-										? 'Bingo'
-										: ev.status}
-						</div>
-					</a>
-				</li>
+				{@render eventCard(ev, false)}
 			{/each}
 		</ul>
 	{/if}
 </section>
 
+{#if data.pastEvents.length > 0}
+	<section class="past-section">
+		<h2>Past events</h2>
+		<ul class="events">
+			{#each data.pastEvents as ev}
+				{@render eventCard(ev, true)}
+			{/each}
+		</ul>
+	</section>
+{/if}
+
 <style>
 	h1 {
 		margin-bottom: 1.25rem;
+	}
+
+	.past-section {
+		margin-top: 2.5rem;
+	}
+
+	.past-section h2 {
+		margin-bottom: 1.25rem;
+		color: var(--muted);
+	}
+
+	.event-card.past {
+		opacity: 0.6;
+		filter: saturate(0.7);
+	}
+
+	.event-card.past:hover {
+		opacity: 1;
+	}
+
+	.event-card.past .event-name {
+		color: var(--muted);
 	}
 
 	.muted {

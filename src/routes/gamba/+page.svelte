@@ -4,7 +4,7 @@
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import PackOpener from '$lib/cards/PackOpener.svelte';
 	import CardThumb from '$lib/cards/CardThumb.svelte';
-	import { DEFAULT_PACK_FRONT } from '$lib/cards/packs';
+	import PackDisplay3D from '$lib/cards/PackDisplay3D.svelte';
 	import { RARITY_BY_KEY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
 	import { rsnToSlug } from '$lib/rsn';
 
@@ -171,7 +171,7 @@
 						{@const affordable = data.vp_balance >= pack.cost_vp}
 						<article class="pack" class:dim={!affordable || pack.card_count === 0}>
 							<div class="pack-art">
-								<img src={pack.front_url || DEFAULT_PACK_FRONT} alt={pack.name} />
+								<PackDisplay3D front={pack.front_url} back={pack.back_url} name={pack.name} />
 								<span class="pack-tag">{pack.cards_per_pack} per open</span>
 							</div>
 							<div class="body">
@@ -524,44 +524,29 @@
 		border-radius: var(--radius);
 		box-shadow: var(--shadow-card);
 		overflow: hidden;
-		transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
 	}
 
-	.pack:hover {
-		border-color: var(--accent);
-		transform: translateY(-3px);
-		box-shadow: 0 8px 20px -6px rgba(255, 152, 31, 0.4), var(--shadow-card);
-	}
+	/* No hover lift/glow: the card itself isn't clickable — only the View cards and
+	   Rip open buttons act. */
 
 	.pack.dim {
 		opacity: 0.6;
-	}
-
-	.pack.dim:hover {
-		transform: none;
-		border-color: var(--border);
-		box-shadow: var(--shadow-card);
 	}
 
 	.pack-art {
 		position: relative;
 		width: 100%;
 		aspect-ratio: 5 / 7;
-		background: #0008;
+		background: #120d08;
 		border-bottom: 1px solid var(--border);
-	}
-
-	.pack-art img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		display: block;
+		overflow: hidden;
 	}
 
 	.pack-tag {
 		position: absolute;
 		top: 0.5rem;
 		left: 0.5rem;
+		z-index: 2;
 		padding: 0.1rem 0.5rem;
 		background: rgba(0, 0, 0, 0.7);
 		border: 1px solid var(--accent);

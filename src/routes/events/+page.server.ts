@@ -76,8 +76,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const admin = isAdmin(locals.user);
 	const visibleStatuses = admin
-		? ['draft', 'preview', 'open', 'locked']
-		: ['open', 'locked'];
+		? ['draft', 'preview', 'open', 'locked', 'closed']
+		: ['open', 'locked', 'closed'];
 
 	const { data: events, error } = await db()
 		.from('vs_events')
@@ -90,26 +90,35 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const now = Date.now();
 
-	const items = (events ?? [])
-		.map((ev) => {
-			const startsAt = startsAtFor(ev.slug, ev.starts_at, ev.signup_opens_at);
-			const endsAt = endsAtFor(ev.slug, startsAt, ev.ends_at, ev.signup_closes_at);
-			return {
-				...ev,
-				description_preview: markdownPreview(ev.description, 160),
-				resolved_starts_at: startsAt,
-				resolved_ends_at: endsAt,
-				status_line: pickStatusLine(
-					now,
-					ev.signup_opens_at,
-					ev.signup_closes_at,
-					startsAt,
-					endsAt
-				),
-				_sort_key: sortKey(now, ev.signup_opens_at, ev.signup_closes_at, startsAt, endsAt)
-			};
-		})
-		.sort((a, b) => a._sort_key - b._sort_key);
+	const items = (events ?? []).map((ev) => {
+		const startsAt = startsAtFor(ev.slug, ev.starts_at, ev.signup_opens_at);
+		const endsAt = endsAtFor(ev.slug, startsAt, ev.ends_at, ev.signup_closes_at);
+		const allDates = [ev.signup_opens_at, ev.signup_closes_at, startsAt, endsAt]
+			.filter((s): s is string => Boolean(s))
+			.map((s) => new Date(s).getTime());
+		return {
+			...ev,
+			description_preview: markdownPreview(ev.description, 160),
+			resolved_starts_at: startsAt,
+			resolved_ends_at: endsAt,
+			status_line: pickStatusLine(
+				now,
+				ev.signup_opens_at,
+				ev.signup_closes_at,
+				startsAt,
+				endsAt
+			),
+			_sort_key: sortKey(now, ev.signup_opens_at, ev.signup_closes_at, startsAt, endsAt),
+			_recent_key: allDates.length > 0 ? Math.max(...allDates) : 0
+		};
+	});
 
-	return { events: items };
+	const active = items
+		.filter((ev) => ev.status !== 'closed')
+		.sort((a, b) => a._sort_key - b._sort_key);
+	const past = items
+		.filter((ev) => ev.status === 'closed')
+		.sort((a, b) => b._recent_key - a._recent_key);
+
+	return { events: active, pastEvents: past };
 };
