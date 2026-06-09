@@ -75,6 +75,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 				layers: toCardLayers(c.layers),
 				full_art: !!c.full_art,
 				holo_url: c.holo_url,
+				sound_url: c.sound_url,
 				holo_regular_url: c.vs_card_packs?.holo_regular_url ?? null,
 				holo_reverse_url: c.vs_card_packs?.holo_reverse_url ?? null,
 				quantity: row.quantity,

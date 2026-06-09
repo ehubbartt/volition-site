@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, untrack } from 'svelte';
+	import { onMount, onDestroy, untrack } from 'svelte';
 	import * as THREE from 'three';
 	import { RARITY_BY_KEY, DEFAULT_RARITY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
 	import {
@@ -41,6 +41,46 @@
 		activeFinish = f;
 		applyFinish(f);
 	}
+
+	// Play the card's open sound on demand (if it has one), at the chosen volume.
+	// Volume is shared with the pack opener (same localStorage key) and persisted.
+	let audio: HTMLAudioElement | null = null;
+	let volume = $state(1); // 0..1
+	function playSound() {
+		if (!card.sound_url) return;
+		try {
+			if (!audio) audio = new Audio(card.sound_url);
+			audio.volume = volume;
+			audio.currentTime = 0;
+			void audio.play().catch(() => {});
+		} catch {
+			/* autoplay/format issues are non-fatal */
+		}
+	}
+	onMount(() => {
+		try {
+			const v = parseFloat(localStorage.getItem('vs_po_volume') ?? '1');
+			if (Number.isFinite(v)) volume = Math.min(1, Math.max(0, v));
+		} catch {
+			/* ignore */
+		}
+	});
+	$effect(() => {
+		try {
+			localStorage.setItem('vs_po_volume', String(volume));
+		} catch {
+			/* ignore */
+		}
+		if (audio) audio.volume = volume;
+	});
+	onDestroy(() => {
+		try {
+			audio?.pause();
+			if (audio) audio.src = '';
+		} catch {
+			/* ignore */
+		}
+	});
 
 	function onKey(e: KeyboardEvent) {
 		if (e.key === 'Escape') onClose();
@@ -335,6 +375,22 @@
 			{#if card.quantity && card.quantity > 0}
 				<span class="badge owned">×{card.quantity} owned</span>
 			{/if}
+			{#if card.sound_url}
+				<span class="sound-ctl">
+					<button class="sound-btn" onclick={playSound} title="Play sound">
+						{volume === 0 ? '🔇' : '🔊'} Play
+					</button>
+					<input
+						class="sound-vol"
+						type="range"
+						min="0"
+						max="1"
+						step="0.01"
+						bind:value={volume}
+						aria-label="Sound volume"
+					/>
+				</span>
+			{/if}
 		</div>
 	</div>
 
@@ -479,6 +535,37 @@
 
 	.badge.owned {
 		color: var(--text);
+	}
+
+	/* Interactive, so it opts back into pointer events (the HUD is non-interactive). */
+	.sound-ctl {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		pointer-events: auto;
+	}
+
+	.sound-btn {
+		min-height: auto;
+		padding: 0.12rem 0.6rem;
+		border-radius: 999px;
+		border: 1px solid var(--border-strong);
+		background: rgba(0, 0, 0, 0.5);
+		color: var(--text);
+		font-size: 0.75rem;
+		cursor: pointer;
+		pointer-events: auto;
+	}
+
+	.sound-btn:hover {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+
+	.sound-vol {
+		width: 5rem;
+		accent-color: var(--accent);
+		cursor: pointer;
 	}
 
 	.info.detail {
