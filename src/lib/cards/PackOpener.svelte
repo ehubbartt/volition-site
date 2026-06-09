@@ -15,7 +15,13 @@
     type FinishMeta,
   } from "$lib/cards/finishes";
   import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG } from "$lib/cards/holo";
-  import { SFX_OPENING, SFX_PULL_DRAGON, SFX_PULL_SR } from "$lib/cards/sfx";
+  import {
+    SFX_OPENING,
+    SFX_PULL_DRAGON,
+    SFX_PULL_SR,
+    SFX_PACK_SHINE,
+    SFX_NEXT_CARD,
+  } from "$lib/cards/sfx";
   import { DEFAULT_PACK_FRONT, DEFAULT_PACK_BACK } from "$lib/cards/packs";
 
   interface OpenerPack {
@@ -57,15 +63,29 @@
   let lastVolume = 1; // level to restore when un-muting via the speaker icon
   const soundCache = new Map<string, HTMLAudioElement>();
   let currentCardAudio: HTMLAudioElement | null = null; // the focused card's sound
+  let audioPrimed = false;
+  // Create + start loading an <audio> for a url (cached). Preloading up front means
+  // the reveal sound is ready instantly instead of downloading on first play.
+  function ensureAudio(url: string | null | undefined): HTMLAudioElement | null {
+    if (!url) return null;
+    let a = soundCache.get(url);
+    if (!a) {
+      a = new Audio(url);
+      a.preload = "auto";
+      soundCache.set(url, a);
+      try {
+        a.load();
+      } catch {
+        /* ignore */
+      }
+    }
+    return a;
+  }
   function playSfx(url: string | null | undefined): HTMLAudioElement | null {
     if (volume <= 0 || !url) return null;
     try {
-      let a = soundCache.get(url);
-      if (!a) {
-        a = new Audio(url);
-        a.preload = "auto";
-        soundCache.set(url, a);
-      }
+      const a = ensureAudio(url);
+      if (!a) return null;
       a.volume = volume;
       a.currentTime = 0;
       void a.play().catch(() => {});
@@ -74,6 +94,34 @@
       /* autoplay/format issues are non-fatal */
       return null;
     }
+  }
+  // Unlock audio inside the first user gesture (mobile Safari / autoplay policies
+  // block programmatic play() until an element has been played from a gesture).
+  // Briefly play each preloaded clip muted, then reset — silent, runs once.
+  function primeAudio() {
+    if (audioPrimed) return;
+    audioPrimed = true;
+    soundCache.forEach((a) => {
+      try {
+        a.muted = true;
+        const p = a.play();
+        if (p && typeof p.then === "function") {
+          p.then(() => {
+            a.pause();
+            a.currentTime = 0;
+            a.muted = false;
+          }).catch(() => {
+            a.muted = false;
+          });
+        } else {
+          a.pause();
+          a.currentTime = 0;
+          a.muted = false;
+        }
+      } catch {
+        a.muted = false;
+      }
+    });
   }
   function stopCardSound() {
     if (currentCardAudio) {
@@ -116,6 +164,18 @@
     } catch {
       /* ignore */
     }
+    // Preload every sound this open can play (pack shine, tear sound, swipe whoosh,
+    // rarity defaults, and each card's own sound) so reveals — including swiping
+    // back to a card — are instant, not waiting on a first-play download.
+    ensureAudio(SFX_PACK_SHINE);
+    ensureAudio(SFX_OPENING);
+    ensureAudio(SFX_NEXT_CARD);
+    ensureAudio(SFX_PULL_DRAGON);
+    ensureAudio(SFX_PULL_SR);
+    for (const c of cards) ensureAudio(cardSoundUrl(c));
+
+    // Pack shine: plays as the unopened pack first appears (before it's ripped).
+    playSfx(SFX_PACK_SHINE);
   });
   // Persist the volume and apply it live to any loaded/playing clips.
   $effect(() => {
@@ -1175,7 +1235,10 @@
           stage = "grid"; // past the last card → summary grid
           return;
         }
-        currentIndex = Math.max(0, Math.min(total - 1, i));
+        const next = Math.max(0, Math.min(total - 1, i));
+        // Swipe whoosh on every card-to-card move (forward or back).
+        if (next !== currentIndex) playSfx(SFX_NEXT_CARD);
+        currentIndex = next;
       }
       goTo = goToIndex;
       triggerRip = () => {
@@ -1193,6 +1256,7 @@
       };
 
       function onDown(e: PointerEvent) {
+        primeAudio(); // unlock audio within this gesture (mobile autoplay)
         dragging = true;
         lastX = e.clientX;
         lastY = e.clientY;
@@ -1891,7 +1955,7 @@
         >
           {locked ? "🔒 Rotation locked" : "🔓 Rotation free"}
         </button>
-        <button class="rip" onclick={() => triggerRip()}>Rip open</button>
+        <button class="rip" onclick={() => { primeAudio(); triggerRip(); }}>Rip open</button>
       </div>
     {:else if stage === "cards"}
       {#if currentCard}

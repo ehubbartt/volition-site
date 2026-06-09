@@ -151,9 +151,12 @@ export async function loadCardProfile(user: {
 		});
 
 	// Greyed-out placeholders for catalog cards the player doesn't own at all.
+	// SR ("secret rare") cards are HIDDEN until pulled — no greyed placeholder and
+	// not counted in the total, so they stay a surprise. Once owned they show
+	// normally (they're in `owned` above).
 	const ownedIds = new Set(owned.map((c) => c.id));
 	const unowned: CollectionCard[] = ((catalogRes.data ?? []) as unknown as CatalogRow[])
-		.filter((c) => !ownedIds.has(c.id))
+		.filter((c) => !ownedIds.has(c.id) && c.rarity !== 'sr')
 		.map((c) => ({
 			id: c.id,
 			name: c.name,

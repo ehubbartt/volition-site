@@ -328,9 +328,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const recentCrateDrops: CrateDrop[] = crateDropRows.map((r) => resolveCrateDrop(r, lootConfig, nameMap));
 
 	// Group each set's cards (for the count + the "view cards" contents grid).
+	// SR ("secret rare") cards are hidden from the viewer + count — they stay a
+	// surprise until pulled. They're excluded server-side so their data never even
+	// reaches the client (the roll still includes them; see the `open` action).
 	const byPack = new Map<string, Card[]>();
 	for (const r of (cardsRes.data ?? []) as PackCardRow[]) {
-		if (!r.pack_id) continue;
+		if (!r.pack_id || r.rarity === 'sr') continue;
 		const arr = byPack.get(r.pack_id) ?? [];
 		arr.push(toPackCard(r));
 		byPack.set(r.pack_id, arr);
