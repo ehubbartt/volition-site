@@ -4,6 +4,7 @@ import { db } from '$lib/server/db';
 import { isValidClan, CLAN_OPTIONS } from '$lib/clans';
 import { isValidAccountType, ACCOUNT_TYPES } from '$lib/accountTypes';
 import { isRsnTaken } from '$lib/server/users';
+import { ensureWelcomePack } from '$lib/server/welcomePack';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals }) => {
@@ -71,6 +72,17 @@ export const actions: Actions = {
 		if (error) {
 			return fail(500, { error: error.message, rsn, clan_allegiance, account_type });
 		}
+
+		// New signup → grant the welcome pack now if they're a verified Volition
+		// member. If not (e.g. they join the clan later), ensureWelcomePack runs again
+		// on the home load and grants it then. Best-effort + never throws, so it's safe
+		// before the redirect (which throws to control flow).
+		await ensureWelcomePack({
+			id: locals.user.id,
+			discord_id: locals.user.discord_id,
+			rsn,
+			welcome_pack_granted: locals.user.welcome_pack_granted
+		});
 
 		throw redirect(303, '/events');
 	}

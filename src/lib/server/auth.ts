@@ -12,6 +12,7 @@ export interface SessionUser {
 	rsn: string | null;
 	clan_allegiance: string | null;
 	account_type: string | null;
+	welcome_pack_granted: boolean;
 }
 
 function randomToken(bytes = 32): string {
@@ -50,7 +51,7 @@ export async function readSession(
 	const { data, error } = await db()
 		.from('vs_sessions')
 		.select(
-			'id, expires_at, vs_users(id, discord_id, discord_username, rsn, clan_allegiance, account_type)'
+			'id, expires_at, vs_users(id, discord_id, discord_username, rsn, clan_allegiance, account_type, welcome_pack_granted)'
 		)
 		.eq('id', sessionId)
 		.maybeSingle();

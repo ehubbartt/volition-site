@@ -2,6 +2,7 @@ import { redirect, error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
+import { ensureWelcomePack } from '$lib/server/welcomePack';
 import { loadCalendarItems } from '$lib/server/calendar';
 import { CATEGORY_OPTIONS } from '$lib/calendar';
 import { RANK_ORDER, RANK_LABEL, RANK_COLOR, rankIndex } from '$lib/ranks';
@@ -93,6 +94,26 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const siteRsns = new Set(siteUsers.map((u) => normRsn(u.rsn)).filter(Boolean));
 	const hasProfile = (p: PlayerRow) =>
 		(p.discord_id != null && siteDiscordIds.has(p.discord_id)) || siteRsns.has(normRsn(p.rsn));
+
+	// Welcome pack: if this member hasn't received theirs yet and is now in the
+	// Volition roster (e.g. they signed up before joining, then joined), grant it.
+	// Reuses the roster already loaded above, so it's a no-op (no query) once granted.
+	if (!user.welcome_pack_granted) {
+		const userIsMember = playerRows.some(
+			(p) =>
+				(p.discord_id != null && p.discord_id === user.discord_id) ||
+				normRsn(p.rsn) === normRsn(user.rsn)
+		);
+		await ensureWelcomePack(
+			{
+				id: user.id,
+				discord_id: user.discord_id,
+				rsn: user.rsn,
+				welcome_pack_granted: user.welcome_pack_granted
+			},
+			userIsMember
+		);
+	}
 
 	const members = playerRows
 		.map((p) => ({

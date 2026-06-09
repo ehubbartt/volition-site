@@ -9,7 +9,7 @@ import type { LootResult } from './lootcrate';
 const RARE_VP_AMOUNT = 100;
 const RARE_CHANCE_PERCENT = 5;
 
-function isRareDrop(result: LootResult): boolean {
+export function isRareDrop(result: LootResult): boolean {
 	if (result.kind === 'role' || result.kind === 'item') return true;
 	if (result.kind === 'vp' && result.amount >= RARE_VP_AMOUNT) return true;
 	if (result.chance > 0 && result.chance <= RARE_CHANCE_PERCENT) return true;

@@ -168,6 +168,32 @@ export async function grantCards(
 	return { ok: true };
 }
 
+// Adds `qty` of a pack to a user's unopened inventory (vs_user_packs), incrementing
+// if they already hold it or inserting otherwise. The increment-mirror of the
+// gamba consumeUserPack. Used by the admin grant tool and the open-flow refund.
+export async function grantUserPack(
+	userId: string,
+	packId: string,
+	qty = 1
+): Promise<boolean> {
+	const sb = db();
+	const { data: row } = await sb
+		.from('vs_user_packs')
+		.select('id, quantity')
+		.eq('user_id', userId)
+		.eq('pack_id', packId)
+		.maybeSingle();
+	if (row) {
+		const { error } = await sb
+			.from('vs_user_packs')
+			.update({ quantity: (row.quantity ?? 0) + qty, updated_at: new Date().toISOString() })
+			.eq('id', row.id);
+		return !error;
+	}
+	const { error } = await sb.from('vs_user_packs').insert({ user_id: userId, pack_id: packId, quantity: qty });
+	return !error;
+}
+
 // Records a pack open: a header row in vs_pack_opens (the open event) plus one
 // vs_pack_open_cards line row per card pulled (the normalized pull history that
 // powers player stats AND the rare-pull feed). Best-effort: the open has already

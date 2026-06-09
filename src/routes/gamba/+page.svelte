@@ -481,10 +481,14 @@
 				<div class="pack-grid">
 					{#each data.packs as pack (pack.id)}
 						{@const affordable = data.vp_balance >= pack.cost_vp}
-						<article class="pack" class:dim={!affordable || pack.card_count === 0}>
+						{@const owned = pack.owned ?? 0}
+						<article class="pack" class:dim={(!affordable && owned === 0) || pack.card_count === 0}>
 							<div class="pack-art">
 								<PackDisplay3D front={pack.front_url} back={pack.back_url} name={pack.name} />
 								<span class="pack-tag">{pack.cards_per_pack} per open</span>
+								{#if owned > 0}
+									<span class="owned-tag">{owned} in inventory</span>
+								{/if}
 							</div>
 							<div class="body">
 								<strong class="name">{pack.name}</strong>
@@ -503,21 +507,48 @@
 									</button>
 								{/if}
 
-								<form method="POST" action="?/open" use:enhance={submitOpen} class="open-form">
-									<input type="hidden" name="pack_id" value={pack.id} />
-									<button type="submit" class="primary" disabled={!canOpen(pack)}>
-										{#if opening === pack.id}
-											Opening…
-										{:else if pack.card_count === 0}
-											No cards yet
-										{:else}
-											Rip open · {pack.cost_vp.toLocaleString()} VP
-										{/if}
-									</button>
-								</form>
+								{#if owned > 0}
+									<!-- Player owns one+ — offer a FREE open from inventory first. -->
+									<div class="pack-actions">
+										<form method="POST" action="?/openOwned" use:enhance={submitOpen}>
+											<input type="hidden" name="pack_id" value={pack.id} />
+											<button type="submit" class="primary" disabled={opening !== null || pack.card_count === 0}>
+												{#if opening === pack.id}
+													Opening…
+												{:else if pack.card_count === 0}
+													No cards yet
+												{:else}
+													Open from inventory - {owned}
+												{/if}
+											</button>
+										</form>
+										<form method="POST" action="?/open" use:enhance={submitOpen}>
+											<input type="hidden" name="pack_id" value={pack.id} />
+											<button type="submit" class="buy-more" disabled={!canOpen(pack)}>
+												Buy another · {pack.cost_vp.toLocaleString()} VP
+											</button>
+										</form>
+									</div>
+									{#if !affordable}
+										<span class="warn small">Not enough VP to buy more</span>
+									{/if}
+								{:else}
+									<form method="POST" action="?/open" use:enhance={submitOpen} class="open-form">
+										<input type="hidden" name="pack_id" value={pack.id} />
+										<button type="submit" class="primary" disabled={!canOpen(pack)}>
+											{#if opening === pack.id}
+												Opening…
+											{:else if pack.card_count === 0}
+												No cards yet
+											{:else}
+												Rip open · {pack.cost_vp.toLocaleString()} VP
+											{/if}
+										</button>
+									</form>
 
-								{#if !affordable && pack.card_count > 0}
-									<span class="warn small">Not enough VP</span>
+									{#if !affordable && pack.card_count > 0}
+										<span class="warn small">Not enough VP</span>
+									{/if}
 								{/if}
 							</div>
 						</article>
@@ -885,12 +916,46 @@
 		text-shadow: var(--ts);
 	}
 
+	.owned-tag {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.5rem;
+		z-index: 2;
+		padding: 0.1rem 0.5rem;
+		background: var(--accent);
+		color: #1a1206;
+		border-radius: 999px;
+		font-size: 0.7rem;
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		box-shadow: 0 0 0.6rem -0.1rem var(--accent);
+	}
+
 	.body {
 		display: flex;
 		flex-direction: column;
 		gap: 0.4rem;
 		padding: 0.85rem;
 		flex: 1;
+	}
+
+	.pack-actions {
+		margin-top: auto;
+		padding-top: 0.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.45rem;
+	}
+
+	/* Inventory-open + buy-another share one size (override .primary's rsbold/size). */
+	.pack-actions button {
+		width: 100%;
+		font-size: 0.85rem;
+		font-family: var(--font-body);
+	}
+
+	.pack-actions button:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.name {

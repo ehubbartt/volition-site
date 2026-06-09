@@ -25,6 +25,12 @@
 			show: data.cardTester
 		},
 		{
+			href: '/admin/grant-packs',
+			title: 'Grant Packs',
+			desc: 'Award card packs to a member or everyone.',
+			show: data.cardTester
+		},
+		{
 			href: '/admin/pack-tester',
 			title: 'Pack Tester',
 			desc: 'Open any pack infinitely to test the 3D opener — nothing saved.',

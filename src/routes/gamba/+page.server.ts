@@ -8,11 +8,12 @@ import {
 	claimFreeLootDay,
 	getLastLootDate
 } from '$lib/server/playerStats';
-import { grantCards, logPackOpen, makeSlotRoller, rollOnePack, type CardGrant } from '$lib/server/gamba';
+import { grantCards, grantUserPack, logPackOpen, makeSlotRoller, rollOnePack, type CardGrant } from '$lib/server/gamba';
 import { getLootConfig, rollLoot, type LootConfig, type LootResult } from '$lib/server/lootcrate';
-import { logLootcrateOpen } from '$lib/server/lootcrateAnalytics';
+import { logLootcrateOpen, isRareDrop } from '$lib/server/lootcrateAnalytics';
 import { sendBotMessage } from '$lib/server/botBridge';
-import { isValidRarity, DEFAULT_RARITY, RARE_RARITIES, RARITIES, toCardLayers, hiddenCard, type Card, type CardAbility, type CardLayer, type CardRarity } from '$lib/cards/rarity';
+import { postCardDrop, postCrateDrop } from '$lib/server/dropsFeed';
+import { isValidRarity, isRareRarity, DEFAULT_RARITY, RARE_RARITIES, RARITIES, toCardLayers, hiddenCard, type Card, type CardAbility, type CardLayer, type CardRarity } from '$lib/cards/rarity';
 import { isValidFinish, type CardFinish } from '$lib/cards/finishes';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -160,6 +161,33 @@ async function applyCrateReward(user: SessionUser, isFree: boolean, result: Loot
 		});
 	}
 	await logLootcrateOpen(user.discord_id, isFree, result, user.discord_username);
+
+	// Forward notable crate rewards (items, role, big VP) to the Discord drops
+	// channel — same threshold the rare-drops log uses. Best-effort.
+	// TEMP (testing): forward EVERY crate open, not just rares. Set back to
+	// `isRareDrop(result)` to restore normal behaviour.
+	const FORWARD_ALL_CRATE_DROPS = true;
+	if (FORWARD_ALL_CRATE_DROPS || isRareDrop(result)) {
+		const reward =
+			result.kind === 'vp'
+				? `${result.amount.toLocaleString()} VP`
+				: result.kind === 'item'
+					? result.itemName ?? 'Item'
+					: (result.label || 'Role').replace(/ role$/i, '');
+		// `result.label` already carries the tier/table name (e.g. "Common (1–3 VP)").
+		// Read the post-grant balance for "New Total VP" (best-effort, like the bot).
+		const newTotalVp = await getPlayerVp(user.discord_id, user.rsn);
+		await postCrateDrop({
+			by: user.rsn || user.discord_username || 'Someone',
+			reward,
+			isFree,
+			colorHex: result.colorHex,
+			imageUrl: result.image,
+			lootTable: result.label || null,
+			dropRate: result.chance,
+			newTotalVp
+		});
+	}
 }
 
 // --- Crate "Live drops" feed (from the bot's lootcrate_rare_drops log) ---------
@@ -243,7 +271,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
 	if (!isCardTester(locals.user)) throw error(403, 'Not allowed');
 
-	const [vp_balance, packsRes, cardsRes, ownedRes, raresRes, lastLootDate, lootConfig, crateDropsRes] = await Promise.all([
+	const [vp_balance, packsRes, cardsRes, ownedRes, raresRes, lastLootDate, lootConfig, crateDropsRes, ownedPacksRes] = await Promise.all([
 		getPlayerVp(locals.user.discord_id, locals.user.rsn),
 		db()
 			.from('vs_card_packs')
@@ -274,7 +302,15 @@ export const load: PageServerLoad = async ({ locals }) => {
 			.from('lootcrate_rare_drops')
 			.select('id, user_id, username, drop_type, item_name, amount, was_free, timestamp')
 			.order('timestamp', { ascending: false })
-			.limit(50)
+			.limit(50),
+		// Packs this player already owns (unopened) — so the store can offer a free
+		// "open from inventory" instead of buying. Join the pack details so owned
+		// packs that aren't in the released store list can still be shown + opened.
+		db()
+			.from('vs_user_packs')
+			.select('quantity, vs_card_packs(id, name, description, cost_vp, cards_per_pack, front_url, back_url)')
+			.eq('user_id', locals.user.id)
+			.gt('quantity', 0)
 	]);
 
 	if (packsRes.error) throw error(500, packsRes.error.message);
@@ -347,13 +383,55 @@ export const load: PageServerLoad = async ({ locals }) => {
 		byPack.set(r.pack_id, arr);
 	}
 	const rarityRank = new Map(RARITIES.map((r, i) => [r.key as string, i]));
-
-	const packs = (packsRes.data ?? []).map((p) => {
-		const cards = (byPack.get(p.id) ?? []).sort(
+	const sortSetCards = (packId: string) =>
+		(byPack.get(packId) ?? []).sort(
 			(a, b) => (rarityRank.get(b.rarity) ?? 0) - (rarityRank.get(a.rarity) ?? 0) || a.name.localeCompare(b.name)
 		);
-		return { ...p, card_count: cards.length, cards };
+
+	// How many of each pack this player owns (unopened), for the free inventory open.
+	const ownedPackRows = (ownedPacksRes.data ?? []) as unknown as {
+		quantity: number;
+		vs_card_packs: {
+			id: string;
+			name: string;
+			description: string | null;
+			cost_vp: number;
+			cards_per_pack: number;
+			front_url: string | null;
+			back_url: string | null;
+		} | null;
+	}[];
+	const ownedQty = new Map<string, number>();
+	for (const r of ownedPackRows) if (r.vs_card_packs) ownedQty.set(r.vs_card_packs.id, r.quantity);
+
+	const releasedPacks = (packsRes.data ?? []).map((p) => {
+		const cards = sortSetCards(p.id);
+		return { ...p, card_count: cards.length, cards, owned: ownedQty.get(p.id) ?? 0 };
 	});
+
+	// Owned packs not in the released store list (e.g. a granted / unreleased pack) —
+	// surface them too so the player can open what they hold.
+	const releasedIds = new Set(releasedPacks.map((p) => p.id));
+	const extraOwnedPacks = ownedPackRows
+		.filter((r) => r.vs_card_packs && !releasedIds.has(r.vs_card_packs.id))
+		.map((r) => {
+			const p = r.vs_card_packs!;
+			const cards = sortSetCards(p.id);
+			return {
+				id: p.id,
+				name: p.name,
+				description: p.description,
+				cost_vp: p.cost_vp,
+				cards_per_pack: p.cards_per_pack,
+				front_url: p.front_url,
+				back_url: p.back_url,
+				card_count: cards.length,
+				cards,
+				owned: r.quantity
+			};
+		});
+
+	const packs = [...releasedPacks, ...extraOwnedPacks];
 
 	const recentRares: RarePull[] = ((raresRes.data ?? []) as unknown as RarePullRow[]).map((r) => ({
 		id: r.id,
@@ -372,6 +450,126 @@ export const load: PageServerLoad = async ({ locals }) => {
 	return { vp_balance, packs, recentRares, crate, recentCrateDrops };
 };
 
+// A pack's roll-relevant columns (shared by the VP open and the inventory open).
+interface OpenablePack {
+	id: string;
+	name: string;
+	cost_vp: number | null;
+	cards_per_pack: number | null;
+	rarity_weights: unknown;
+	slot_weights: unknown;
+	slot_finishes: unknown;
+	front_url: string | null;
+	back_url: string | null;
+	holo_regular_url: string | null;
+	holo_reverse_url: string | null;
+}
+
+// Shared open core: roll the pack, grant the cards, log it, forward rare pulls, and
+// build the reveal payload. Used by both the VP buy (`open`) and the inventory open
+// (`openOwned`). The CALLER handles the cost side (spend VP / consume a pack) and
+// refunds it if this returns an error. `costVp` is recorded on the open (0 = free).
+async function rollGrantReveal(
+	user: SessionUser,
+	pack: OpenablePack,
+	costVp: number
+): Promise<{ ok: true; opened: (Card & { finish: CardFinish })[] } | { ok: false; error: string }> {
+	const { data: poolRows, error: poolErr } = await db()
+		.from('vs_cards')
+		.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url')
+		.eq('pack_id', pack.id);
+	if (poolErr) return { ok: false, error: poolErr.message };
+	const pool = (poolRows ?? []) as CardRow[];
+	if (pool.length === 0) return { ok: false, error: 'This pack has no cards yet.' };
+	for (const c of pool) if (!isValidRarity(c.rarity)) c.rarity = DEFAULT_RARITY;
+
+	const n = Math.max(1, pack.cards_per_pack ?? 5);
+	const pick = makeSlotRoller(pool);
+	const rolled = rollOnePack<CardRow>(pick, {
+		cardsPerPack: n,
+		slotWeights: (Array.isArray(pack.slot_weights) ? pack.slot_weights : []) as Record<string, number>[],
+		rarityWeights: (pack.rarity_weights as Record<string, number> | null) ?? null,
+		slotFinishes: (Array.isArray(pack.slot_finishes) ? pack.slot_finishes : []) as { holo: number; reverse: number }[]
+	});
+
+	const grants: CardGrant[] = rolled.map((r) => ({ card_id: r.card.id, finish: r.finish }));
+	const grant = await grantCards(user.id, grants);
+	if (!grant.ok) return { ok: false, error: 'Could not add the cards to your collection' };
+
+	await logPackOpen({
+		userId: user.id,
+		packId: pack.id,
+		packName: pack.name,
+		costVp,
+		cards: rolled.map((r) => ({ card_id: r.card.id, card_name: r.card.name, rarity: r.card.rarity, finish: r.finish }))
+	});
+
+	// Forward rare pulls (dragon+) to the Discord drops channel. Best-effort.
+	const dropBy = user.rsn || user.discord_username || 'Someone';
+	for (const r of rolled) {
+		if (!isRareRarity(r.card.rarity)) continue;
+		await postCardDrop({
+			by: dropBy,
+			cardName: r.card.name,
+			rarity: r.card.rarity,
+			finish: r.finish,
+			packName: pack.name,
+			imageUrl: r.card.front_url,
+			layerUrls: toCardLayers(r.card.layers).map((l) => l.url)
+		});
+	}
+
+	const opened: (Card & { finish: CardFinish })[] = rolled.map((r) => ({
+		id: r.card.id,
+		name: r.card.name,
+		level: r.card.level,
+		rarity: (isValidRarity(r.card.rarity) ? r.card.rarity : DEFAULT_RARITY) as CardRarity,
+		abilities: r.card.abilities ?? [],
+		flavor: r.card.flavor,
+		front_url: r.card.front_url,
+		back_url: r.card.back_url,
+		layers: toCardLayers(r.card.layers),
+		full_art: !!r.card.full_art,
+		holo_url: r.card.holo_url,
+		sound_url: r.card.sound_url,
+		holo_regular_url: pack.holo_regular_url,
+		holo_reverse_url: pack.holo_reverse_url,
+		finish: r.finish
+	}));
+	return { ok: true, opened };
+}
+
+// Consume one owned pack — race-safe optimistic decrement (deletes the row at 0).
+// Returns false if the player has none (or a concurrent open beat us to it).
+async function consumeUserPack(userId: string, packId: string): Promise<boolean> {
+	const { data: row } = await db()
+		.from('vs_user_packs')
+		.select('id, quantity')
+		.eq('user_id', userId)
+		.eq('pack_id', packId)
+		.maybeSingle();
+	if (!row || (row.quantity ?? 0) < 1) return false;
+	if (row.quantity <= 1) {
+		const { error: dErr, count } = await db()
+			.from('vs_user_packs')
+			.delete({ count: 'exact' })
+			.eq('id', row.id)
+			.eq('quantity', row.quantity);
+		return !dErr && !!count;
+	}
+	const { error: uErr, count } = await db()
+		.from('vs_user_packs')
+		.update({ quantity: row.quantity - 1, updated_at: new Date().toISOString() }, { count: 'exact' })
+		.eq('id', row.id)
+		.eq('quantity', row.quantity);
+	return !uErr && !!count;
+}
+
+// Give one pack back (refund after a failed owned-open).
+async function refundUserPack(userId: string, packId: string): Promise<void> {
+	await grantUserPack(userId, packId, 1);
+}
+
 export const actions: Actions = {
 	open: async ({ locals, request }) => {
 		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
@@ -389,40 +587,10 @@ export const actions: Actions = {
 		if (pErr) return fail(500, { error: pErr.message });
 		if (!pack || !pack.released) return fail(404, { error: 'That pack is not available.' });
 
-		// Card pool for this set.
-		const { data: poolRows, error: poolErr } = await db()
-			.from('vs_cards')
-			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url')
-			.eq('pack_id', packId);
-		if (poolErr) return fail(500, { error: poolErr.message });
-		const pool = (poolRows ?? []) as CardRow[];
-		if (pool.length === 0) return fail(400, { error: 'This pack has no cards yet.' });
-		// Normalize legacy/invalid rarities so they group + weight correctly. A card
-		// whose stored rarity isn't a current key shows as Bronze in admin (fallback)
-		// but would otherwise form its own 0-weight group in the roller and never drop.
-		for (const c of pool) if (!isValidRarity(c.rarity)) c.rarity = DEFAULT_RARITY;
-
 		const cost = pack.cost_vp ?? 0;
-		const n = Math.max(1, pack.cards_per_pack ?? 5);
 
-		// Roll the pack — shared logic with the admin simulator (see gamba.ts) so the
-		// odds match: per-slot rarity weights, slot/rarest-last order, and the
-		// positional Holo / Reverse-Holo finishes (full-art cards stay Normal).
-		const pick = makeSlotRoller(pool);
-		const rolled = rollOnePack<CardRow>(pick, {
-			cardsPerPack: n,
-			slotWeights: (Array.isArray(pack.slot_weights) ? pack.slot_weights : []) as Record<
-				string,
-				number
-			>[],
-			rarityWeights: (pack.rarity_weights as Record<string, number> | null) ?? null,
-			slotFinishes: (Array.isArray(pack.slot_finishes) ? pack.slot_finishes : []) as {
-				holo: number;
-				reverse: number;
-			}[]
-		});
-
-		// 1) Spend VP (optimistic — only if affordable and unchanged).
+		// Spend VP first (optimistic — only if affordable and unchanged), then roll +
+		// grant; refund the VP if the roll/grant fails.
 		const spend = await spendPlayerVp(locals.user.discord_id, locals.user.rsn, cost);
 		if (!spend.ok) {
 			const msg =
@@ -434,53 +602,53 @@ export const actions: Actions = {
 			return fail(400, { error: msg, balance: spend.balance });
 		}
 
-		// 2) Grant the cards (each card + finish is a separate inventory entry). If
-		// that fails, refund the VP.
-		const grants: CardGrant[] = rolled.map((r) => ({ card_id: r.card.id, finish: r.finish }));
-		const grant = await grantCards(locals.user.id, grants);
-		if (!grant.ok) {
+		const res = await rollGrantReveal(locals.user, pack, cost);
+		if (!res.ok) {
 			await grantPlayerVp(locals.user.discord_id, locals.user.rsn, cost);
-			return fail(500, { error: 'Could not add the cards to your collection — your VP was refunded.' });
+			return fail(500, { error: `${res.error} — your VP was refunded.` });
 		}
-
-		// 3) Log the open — header + one line per card (powers player stats and the
-		// rare-pull feed). Best-effort: never undoes the already-completed open.
-		await logPackOpen({
-			userId: locals.user.id,
-			packId: pack.id,
-			packName: pack.name,
-			costVp: cost,
-			cards: rolled.map((r) => ({
-				card_id: r.card.id,
-				card_name: r.card.name,
-				rarity: r.card.rarity,
-				finish: r.finish
-			}))
-		});
-
-		const opened: (Card & { finish: CardFinish })[] = rolled.map((r) => ({
-			id: r.card.id,
-			name: r.card.name,
-			level: r.card.level,
-			rarity: (isValidRarity(r.card.rarity) ? r.card.rarity : DEFAULT_RARITY) as CardRarity,
-			abilities: r.card.abilities ?? [],
-			flavor: r.card.flavor,
-			front_url: r.card.front_url,
-			back_url: r.card.back_url,
-			layers: toCardLayers(r.card.layers),
-			full_art: !!r.card.full_art,
-			holo_url: r.card.holo_url,
-			sound_url: r.card.sound_url,
-			holo_regular_url: (pack.holo_regular_url as string | null) ?? null,
-			holo_reverse_url: (pack.holo_reverse_url as string | null) ?? null,
-			finish: r.finish
-		}));
 
 		return {
 			ok: true,
-			opened,
+			opened: res.opened,
 			pack: { name: pack.name, front_url: pack.front_url, back_url: pack.back_url },
 			balance: spend.balance
+		};
+	},
+
+	// Open a pack the player already OWNS (consume a vs_user_packs row — no VP cost).
+	openOwned: async ({ locals, request }) => {
+		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
+
+		const form = await request.formData();
+		const packId = form.get('pack_id')?.toString();
+		if (!packId) return fail(400, { error: 'Missing pack' });
+
+		const { data: pack, error: pErr } = await db()
+			.from('vs_card_packs')
+			.select('id, name, cost_vp, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, holo_regular_url, holo_reverse_url')
+			.eq('id', packId)
+			.maybeSingle();
+		if (pErr) return fail(500, { error: pErr.message });
+		if (!pack) return fail(404, { error: 'That pack no longer exists.' });
+
+		// Consume one of the player's owned packs (race-safe). Refund it if the open
+		// then fails so they never lose a pack for nothing.
+		const consumed = await consumeUserPack(locals.user.id, packId);
+		if (!consumed) return fail(400, { error: "You don't have that pack to open." });
+
+		const res = await rollGrantReveal(locals.user, pack, 0);
+		if (!res.ok) {
+			await refundUserPack(locals.user.id, packId);
+			return fail(500, { error: `${res.error} — your pack was refunded.` });
+		}
+
+		const balance = await getPlayerVp(locals.user.discord_id, locals.user.rsn);
+		return {
+			ok: true,
+			opened: res.opened,
+			pack: { name: pack.name, front_url: pack.front_url, back_url: pack.back_url },
+			balance
 		};
 	},
 
