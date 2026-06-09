@@ -15,6 +15,7 @@
 		type CardAbility,
 		type CardRarity
 	} from '$lib/cards/rarity';
+	import { LAYER_EFFECTS } from '$lib/cards/layerEffects';
 	import type { CardPack } from '$lib/cards/packs';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -344,7 +345,22 @@
 					</span>
 					<input name="layer" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" />
 				</label>
-				{#if layerCount(raw)}
+				{#if card.layers && card.layers.length}
+					<fieldset class="layer-fx">
+						<legend>Layer effects <span class="muted small">(plays in 3D)</span></legend>
+						{#each card.layers as ly, i}
+							<div class="layer-fx-row">
+								<img class="layer-fx-thumb" src={ly.url} alt="Layer {i + 1}" />
+								<span class="muted small">Layer {i + 1} (bottom→top)</span>
+								<select name="existing_layer_effect">
+									<option value="" selected={!ly.effect}>None</option>
+									{#each LAYER_EFFECTS as fx}
+										<option value={fx.key} selected={ly.effect === fx.key}>{fx.label}</option>
+									{/each}
+								</select>
+							</div>
+						{/each}
+					</fieldset>
 					<label class="check">
 						<input type="checkbox" name="clear_layers" />
 						<span>Remove all 3D layers</span>
@@ -884,6 +900,38 @@
 		display: grid;
 		grid-template-columns: 1fr 2fr;
 		gap: 0.5rem;
+	}
+
+	.layer-fx {
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 0.75rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin: 0;
+	}
+
+	.layer-fx legend {
+		font-size: 0.8rem;
+		color: var(--muted);
+		padding: 0 0.35rem;
+	}
+
+	.layer-fx-row {
+		display: grid;
+		grid-template-columns: auto 1fr auto;
+		align-items: center;
+		gap: 0.6rem;
+	}
+
+	.layer-fx-thumb {
+		width: 2rem;
+		height: 2rem;
+		object-fit: cover;
+		border-radius: 0.3rem;
+		border: 1px solid var(--border);
+		background: var(--surface);
 	}
 
 	.rates {

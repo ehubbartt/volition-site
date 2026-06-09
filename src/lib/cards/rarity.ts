@@ -1,6 +1,8 @@
 // Client-safe card metadata. Card content is NOT secret (unlike bingo tiles),
 // so this lives outside src/lib/server and can be imported anywhere.
 
+import { isLayerEffect, type LayerEffect } from './layerEffects';
+
 // OSRS metal-tier progression (bronze → SR), plus a separate Elemental tier used
 // for event cards (it's a valid rarity but isn't part of the normal pull ladder).
 export type CardRarity =
@@ -25,9 +27,12 @@ export interface CardAbility {
 	description: string;
 }
 
-// An extra image stacked above the front face for the 3D depth effect.
+// An extra image stacked above the front face for the 3D depth effect. May carry
+// an optional animation `effect` (see src/lib/cards/layerEffects.ts) that the 3D
+// renderers play on that layer.
 export interface CardLayer {
 	url: string;
+	effect?: LayerEffect | null;
 }
 
 export interface Card {
@@ -134,14 +139,18 @@ export const RARE_RARITIES: CardRarity[] = RARITIES.filter((_, i) => i >= RARE_M
 	(r) => r.key
 );
 
-// Normalises a stored `vs_cards.layers` jsonb value (an array of {path, url}) to
-// the client-safe CardLayer[] (urls only), dropping anything without a url.
+// Normalises a stored `vs_cards.layers` jsonb value (an array of {path, url, effect})
+// to the client-safe CardLayer[] (url + optional effect), dropping anything without
+// a url and invalid effect keys.
 export function toCardLayers(raw: unknown): CardLayer[] {
 	if (!Array.isArray(raw)) return [];
 	const out: CardLayer[] = [];
 	for (const l of raw) {
 		const url = (l as { url?: unknown })?.url;
-		if (typeof url === 'string' && url) out.push({ url });
+		if (typeof url === 'string' && url) {
+			const effect = (l as { effect?: unknown })?.effect;
+			out.push({ url, effect: isLayerEffect(effect) ? effect : null });
+		}
 	}
 	return out;
 }

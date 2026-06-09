@@ -5,6 +5,7 @@
 	import PackThumb from '$lib/cards/PackThumb.svelte';
 	import CardInspector3D from '$lib/cards/CardInspector3D.svelte';
 	import type { UserCard } from '$lib/cards/rarity';
+	import { FINISH_BY_KEY } from '$lib/cards/finishes';
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
 
@@ -98,9 +99,13 @@
 								<button type="button" class="thumb-btn" onclick={() => (viewing = card)}>
 									<CardThumb {card} quantity={card.quantity} finish={card.finish} flip={false} />
 								</button>
+							{:else if card.hidden}
+								<div class="thumb-btn mystery-slot" title="Secret rare — undiscovered">
+									<CardThumb {card} flip={false} />
+								</div>
 							{:else}
-								<div class="thumb-btn locked" title="Not owned">
-									<div class="dim"><CardThumb {card} flip={false} /></div>
+								<div class="thumb-btn locked" title="Not owned · {FINISH_BY_KEY[card.finish]?.label ?? 'Normal'}">
+									<div class="dim"><CardThumb {card} finish={card.finish} flip={false} /></div>
 								</div>
 							{/if}
 						{/each}
@@ -389,6 +394,10 @@
 	}
 
 	.thumb-btn.locked {
+		cursor: default;
+	}
+
+	.thumb-btn.mystery-slot {
 		cursor: default;
 	}
 

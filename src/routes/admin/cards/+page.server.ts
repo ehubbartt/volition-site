@@ -4,6 +4,7 @@ import { db } from '$lib/server/db';
 import { isCardTester } from '$lib/server/auth';
 import { uploadCardFaces, uploadCardLayers, uploadCardSound, removeCardArt } from '$lib/server/cardArt';
 import { isValidRarity, RARITIES, DEFAULT_RARITY, type CardAbility } from '$lib/cards/rarity';
+import { isLayerEffect } from '$lib/cards/layerEffects';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -104,10 +105,12 @@ export const actions: Actions = {
 		const update: Record<string, unknown> = { ...faces.update };
 		const cleanupPaths = [...faces.uploadedPaths];
 
-		// Optional 3D depth layers (multi-file, bottom→top in upload order).
+		// Optional 3D depth layers (multi-file, bottom→top in upload order). Effects
+		// can be assigned afterwards via the per-layer dropdowns in the Edit form.
 		const layerFiles = form.getAll('layer').filter((f): f is File => f instanceof File && f.size > 0);
 		if (layerFiles.length) {
-			const up = await uploadCardLayers(inserted.id, layerFiles);
+			const layerEffects = form.getAll('layer_effect').map((v) => v.toString());
+			const up = await uploadCardLayers(inserted.id, layerFiles, layerEffects);
 			if ('error' in up) {
 				for (const p of cleanupPaths) await removeCardArt(p);
 				return fail(400, { error: `Card created, but layer upload failed: ${up.error}` });
@@ -207,8 +210,10 @@ export const actions: Actions = {
 			update.holo_url = null;
 		}
 
-		// 3D depth layers: the "clear" toggle empties them; otherwise uploading any
-		// layer files REPLACES the whole set (bottom→top in upload order).
+		// 3D depth layers: the "clear" toggle empties them; uploading any layer files
+		// REPLACES the whole set (bottom→top in upload order); otherwise the per-layer
+		// effect dropdowns update each existing layer's animation effect IN PLACE
+		// (keeping its image, so no re-upload is needed just to change an effect).
 		const clearLayers = form.get('clear_layers') === 'on';
 		const layerFiles = form.getAll('layer').filter((f): f is File => f instanceof File && f.size > 0);
 		let replacedLayers = false;
@@ -216,13 +221,24 @@ export const actions: Actions = {
 			update.layers = [];
 			replacedLayers = true;
 		} else if (layerFiles.length) {
-			const up = await uploadCardLayers(id, layerFiles);
+			const layerEffects = form.getAll('layer_effect').map((v) => v.toString());
+			const up = await uploadCardLayers(id, layerFiles, layerEffects);
 			if ('error' in up) {
 				for (const p of faces.uploadedPaths) await removeCardArt(p);
 				return fail(400, { error: up.error });
 			}
 			update.layers = up.layers;
 			replacedLayers = true;
+		} else {
+			// No new files / not clearing — apply per-existing-layer effect edits.
+			const effects = form.getAll('existing_layer_effect').map((v) => v.toString());
+			if (effects.length && Array.isArray(prev?.layers) && prev.layers.length) {
+				update.layers = (prev.layers as { path?: string; url?: string }[]).map((l, i) => ({
+					path: l.path,
+					url: l.url,
+					effect: isLayerEffect(effects[i]) ? effects[i] : null
+				}));
+			}
 		}
 
 		const { error: updErr } = await db().from('vs_cards').update(update).eq('id', id);

@@ -14,7 +14,9 @@
     type CardFinish,
     type FinishMeta,
   } from "$lib/cards/finishes";
-  import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG } from "$lib/cards/holo";
+  import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG, LAYER_GLOW_FRAG } from "$lib/cards/holo";
+  import { createLayerEffect, type LayerEffectHandle } from "$lib/cards/layerEffects";
+  import { makeEdgeFade } from "$lib/cards/edgeFade";
   import {
     SFX_OPENING,
     SFX_PULL_DRAGON,
@@ -903,9 +905,14 @@
       const layerMats: THREE.MeshBasicMaterial[][] = [];
       const shadowMats: THREE.ShaderMaterial[][] = [];
       const depthObjs: THREE.Object3D[][] = [];
+      // Per-card live layer effects (parallel to cardMeshes), updated each frame.
+      const layerFx: LayerEffectHandle[][] = [];
       const LAYER_DEPTH = 0.08; // how far each layer sits above the card (small = subtle)
       const SHADOW_STRENGTH = 0.5;
       const SHADOW_DIR = new THREE.Vector2(0.6, -0.8); // light upper-left → shadow lower-right
+      // Soft edge-fade mask so layer art that reaches the card border feathers out
+      // instead of hard-cutting. Shared across every card's layers.
+      const edgeFade = cards.some((c) => (c.layers ?? []).length) ? makeEdgeFade() : null;
       const flipped: boolean[] = cards.map(() => false); // per-card flip state
       // the summary grid always shows fronts, so clear any flips when entering it
       const resetFlips = () => flipped.fill(false);
@@ -973,9 +980,11 @@
         const myLayerMats: THREE.MeshBasicMaterial[] = [];
         const myShadowMats: THREE.ShaderMaterial[] = [];
         const myDepthObjs: THREE.Object3D[] = [];
-        ((c.layers ?? []) as { url: string }[]).forEach((ly, li) => {
+        const myLayerFx: LayerEffectHandle[] = [];
+        (c.layers ?? []).forEach((ly, li) => {
           const h = (li + 1) * LAYER_DEPTH;
           const lm = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
+          if (edgeFade) lm.alphaMap = edgeFade;
           const sm = new THREE.ShaderMaterial({
             uniforms: {
               map: { value: null },
@@ -987,11 +996,14 @@
             transparent: true,
             depthWrite: false,
           });
+          // Glow-effect materials for this layer share the texture once it loads.
+          const glowMaps: { value: THREE.Texture | null }[] = [];
           const applyLayer = (t: THREE.Texture) => {
             t.colorSpace = THREE.SRGBColorSpace;
             lm.map = t;
             lm.needsUpdate = true;
             sm.uniforms.map.value = t; // shadow reuses the layer texture (alpha)
+            for (const g of glowMaps) g.value = t;
             if (!disposed) {
               try {
                 renderer.initTexture(t);
@@ -1014,10 +1026,49 @@
           m.add(lp);
           myLayerMats.push(lm);
           myDepthObjs.push(shadow, lp);
+          if (ly.effect) {
+            myLayerFx.push(
+              createLayerEffect(ly.effect, {
+                mesh: lp,
+                baseZ: h,
+                index: li,
+                makeGlow: () => {
+                  const gmat = new THREE.ShaderMaterial({
+                    uniforms: {
+                      map: { value: lm.map },
+                      uIntensity: { value: 0 },
+                      uBlur: { value: new THREE.Vector2(0.02, 0.02) },
+                      uFeather: { value: new THREE.Vector2(0.12, 0.12) },
+                      uTint: { value: new THREE.Color(1, 1, 1) },
+                    },
+                    vertexShader: HOLO_VERT,
+                    fragmentShader: LAYER_GLOW_FRAG,
+                    transparent: true,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                  });
+                  glowMaps.push(gmat.uniforms.map);
+                  const gmesh = new THREE.Mesh(cardGeo, gmat);
+                  gmesh.position.z = h + 0.002;
+                  gmesh.renderOrder = 3;
+                  m.add(gmesh);
+                  myDepthObjs.push(gmesh);
+                  return {
+                    setIntensity: (v) => (gmat.uniforms.uIntensity.value = v),
+                    dispose: () => {
+                      m.remove(gmesh);
+                      gmat.dispose();
+                    },
+                  };
+                },
+              }),
+            );
+          }
         });
         layerMats.push(myLayerMats);
         shadowMats.push(myShadowMats);
         depthObjs.push(myDepthObjs);
+        layerFx.push(myLayerFx);
 
         // The holo is the masked foil on the front itself — no separate overlay
         // sheet. overlayMats stays parallel to cardMeshes (always null) so the
@@ -1028,6 +1079,8 @@
         return m;
       });
       holoLabels = labels;
+      // Skip the per-frame effect loop entirely unless some layer has an effect.
+      const anyLayerFx = layerFx.some((a) => a.length > 0);
 
       // ---- Sparkle burst (Dragon / SR pulls) ----
       // Additive point particles that fly out of the focused card on reveal. More
@@ -1414,6 +1467,12 @@
       const pokePoint = new THREE.Vector3();
       let prevPx = 0,
         prevPy = 0;
+      // Spin speed (drag-rotate velocity), smoothed — drives the layer effects so
+      // they only animate while you actually turn a card.
+      let prevTiltX = 0,
+        prevTiltY = 0;
+      let fxSpin = 0;
+      let lastFxNow = performance.now();
 
       let raf = 0;
       function frame() {
@@ -1818,6 +1877,27 @@
           }
         }
 
+        // Play any per-layer animation effects. Driven by how fast a card is being
+        // turned (drag-rotate velocity) — they're static until you spin it. Each
+        // card's glow is gated by its own visibility so behind cards never glow.
+        if (anyLayerFx) {
+          const dt = Math.min(0.05, (now - lastFxNow) / 1000);
+          const d = Math.abs(tiltX - prevTiltX) + Math.abs(tiltY - prevTiltY);
+          prevTiltX = tiltX;
+          prevTiltY = tiltY;
+          // Fast attack / slow release so the effects hold steady between the spiky
+          // per-frame drag samples and glide down when you stop (no flicker).
+          const target = Math.min(1, d * 12);
+          fxSpin = lerp(fxSpin, target, target > fxSpin ? 0.25 : 0.05);
+          for (let i = 0; i < layerFx.length; i++) {
+            if (!layerFx[i].length) continue;
+            const hostOpacity = (cardMeshes[i].material as THREE.ShaderMaterial)
+              .uniforms.uOpacity.value;
+            for (const fx of layerFx[i]) fx.update({ dt, spin: fxSpin, hostOpacity });
+          }
+        }
+        lastFxNow = now;
+
         updateSparkles(now);
         renderer.render(scene, camera);
       }
@@ -1847,6 +1927,8 @@
       teardown = () => {
         cancelAnimationFrame(raf);
         ro.disconnect();
+        layerFx.forEach((hs) => hs.forEach((h) => h.dispose()));
+        edgeFade?.dispose();
         canvas.removeEventListener("pointerdown", onDown);
         canvas.removeEventListener("pointermove", onMove);
         canvas.removeEventListener("pointerup", onUp);

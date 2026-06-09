@@ -63,7 +63,13 @@ interface CatalogRow {
 	full_art: boolean | null;
 	holo_url: string | null;
 	sound_url: string | null;
-	vs_card_packs: { holo_regular_url: string | null; holo_reverse_url: string | null } | null;
+	vs_card_packs: {
+		holo_regular_url: string | null;
+		holo_reverse_url: string | null;
+		slot_finishes: { holo?: number | null; reverse?: number | null }[] | null;
+		slot_weights: Record<string, number>[] | null;
+		rarity_weights: Record<string, number> | null;
+	} | null;
 }
 
 // Collection entries carry an `owned` flag — unowned catalog cards show greyed out.
@@ -114,7 +120,7 @@ export async function loadCardProfile(user: {
 		// Full set of obtainable cards (from released packs), to show what's missing.
 		db()
 			.from('vs_cards')
-			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url, vs_card_packs!inner(released, holo_regular_url, holo_reverse_url)')
+			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url, vs_card_packs!inner(released, holo_regular_url, holo_reverse_url, slot_finishes, slot_weights, rarity_weights)')
 			.eq('vs_card_packs.released', true),
 		db().from('vs_pack_opens').select('cost_vp, card_count').eq('user_id', user.id),
 		// Gamba-crate lifetime stats from the bot's aggregate table (keyed by discord_id).
@@ -151,52 +157,132 @@ export async function loadCardProfile(user: {
 			};
 		});
 
-	// Placeholders for catalog cards the player doesn't own. Cards below SR show a
-	// greyed-out preview of the real art. SR ("secret rare") cards instead get a
-	// REDACTED mystery spot — the slot is shown (and counted) but its look is
-	// stripped server-side so it stays a surprise until pulled. Once owned, an SR
-	// shows normally (it's in `owned` above).
+	// Index what the player owns, by card and by (card, finish).
 	const ownedIds = new Set(owned.map((c) => c.id));
-	const unowned: CollectionCard[] = ((catalogRes.data ?? []) as unknown as CatalogRow[])
-		.filter((c) => !ownedIds.has(c.id))
-		.map((c) => {
-			const rarity = (isValidRarity(c.rarity) ? c.rarity : DEFAULT_RARITY) as CardRarity;
-			if (rarity === 'sr') {
-				return {
-					...hiddenCard(c.id, rarity),
-					quantity: 0,
-					finish: 'normal' as CardFinish,
-					owned: false
-				};
-			}
-			return {
-				id: c.id,
-				name: c.name,
-				level: c.level,
-				rarity,
-				abilities: c.abilities ?? [],
-				flavor: c.flavor,
-				front_url: c.front_url,
-				back_url: c.back_url,
-				layers: toCardLayers(c.layers),
-				full_art: !!c.full_art,
-				holo_url: c.holo_url,
-				sound_url: c.sound_url,
-				holo_regular_url: c.vs_card_packs?.holo_regular_url ?? null,
-				holo_reverse_url: c.vs_card_packs?.holo_reverse_url ?? null,
+	const ownedByKey = new Map<string, CollectionCard>(owned.map((c) => [`${c.id}|${c.finish}`, c]));
+	const ownedFinishes = new Map<string, Set<CardFinish>>();
+	const ownedSample = new Map<string, CollectionCard>();
+	for (const c of owned) {
+		(ownedFinishes.get(c.id) ?? ownedFinishes.set(c.id, new Set()).get(c.id)!).add(c.finish);
+		if (!ownedSample.has(c.id)) ownedSample.set(c.id, c);
+	}
+
+	const catalogById = new Map<string, CatalogRow>(
+		((catalogRes.data ?? []) as unknown as CatalogRow[]).map((c) => [c.id, c])
+	);
+
+	// Can a slot ever roll a given rarity? Mirrors the roller's fallback chain
+	// (gamba.ts makeSlotRoller): a slot's own weights, else the pack's rarity_weights,
+	// else uniform over every rarity the pack actually has cards in.
+	const hasPositive = (w: Record<string, number> | null | undefined): boolean =>
+		!!w && Object.values(w).some((v) => Number(v) > 0);
+	const slotCanRollRarity = (
+		pack: NonNullable<CatalogRow['vs_card_packs']>,
+		slotIndex: number,
+		rarity: string
+	): boolean => {
+		const sw = Array.isArray(pack.slot_weights) ? pack.slot_weights[slotIndex] : null;
+		if (hasPositive(sw)) return Number(sw![rarity] ?? 0) > 0;
+		if (hasPositive(pack.rarity_weights)) return Number(pack.rarity_weights![rarity] ?? 0) > 0;
+		return true; // uniform over present rarities — the card's own rarity is present
+	};
+
+	// Which finishes a card can actually have, ordered Holo → Reverse Holo → Normal.
+	// Normal is always possible. Holo/Reverse only if the card ISN'T full-art (the
+	// foil masks never apply to full-art) AND its pack can produce that finish FOR
+	// THIS card's rarity: with no slot_finishes the legacy positional rule lets any
+	// non-full-art card land Holo/Reverse; otherwise some slot must both offer the
+	// finish (>0%) AND be able to roll the card's rarity.
+	const possibleFinishes = (c: CatalogRow): CardFinish[] => {
+		if (c.full_art || !c.vs_card_packs) return ['normal'];
+		const pack = c.vs_card_packs;
+		const sf = Array.isArray(pack.slot_finishes) ? pack.slot_finishes : [];
+		const legacy = sf.length === 0;
+		const offers = (kind: 'holo' | 'reverse'): boolean => {
+			if (legacy) return true;
+			return sf.some(
+				(s, i) => ((kind === 'holo' ? s?.holo : s?.reverse) ?? 0) > 0 && slotCanRollRarity(pack, i, c.rarity)
+			);
+		};
+		const out: CardFinish[] = [];
+		if (offers('holo')) out.push('holo');
+		if (offers('reverse')) out.push('reverse');
+		out.push('normal');
+		return out;
+	};
+
+	const greyVariant = (c: CatalogRow, rarity: CardRarity, finish: CardFinish): CollectionCard => ({
+		id: c.id,
+		name: c.name,
+		level: c.level,
+		rarity,
+		abilities: c.abilities ?? [],
+		flavor: c.flavor,
+		front_url: c.front_url,
+		back_url: c.back_url,
+		layers: toCardLayers(c.layers),
+		full_art: !!c.full_art,
+		holo_url: c.holo_url,
+		sound_url: c.sound_url,
+		holo_regular_url: c.vs_card_packs?.holo_regular_url ?? null,
+		holo_reverse_url: c.vs_card_packs?.holo_reverse_url ?? null,
+		quantity: 0,
+		finish,
+		owned: false
+	});
+
+	// Build the collection: one slot per finish a card can have (owned → the real
+	// card, otherwise a greyed placeholder). SR ("secret rare") cards stay a single
+	// REDACTED mystery spot until the player owns any finish of one — then it's
+	// "discovered" and expands to its real variant slots.
+	const FINISH_ORDER: CardFinish[] = ['holo', 'reverse', 'normal'];
+	const finishRank: Record<CardFinish, number> = { holo: 0, reverse: 1, normal: 2 };
+	const collection: CollectionCard[] = [];
+	const allCardIds = new Set<string>([...catalogById.keys(), ...ownedIds]);
+
+	for (const id of allCardIds) {
+		const cat = catalogById.get(id);
+		const discovered = ownedIds.has(id);
+		const rarity = (
+			cat
+				? isValidRarity(cat.rarity)
+					? cat.rarity
+					: DEFAULT_RARITY
+				: ownedSample.get(id)?.rarity ?? DEFAULT_RARITY
+		) as CardRarity;
+
+		if (rarity === 'sr' && !discovered) {
+			collection.push({
+				...hiddenCard(id, rarity),
 				quantity: 0,
 				finish: 'normal' as CardFinish,
 				owned: false
-			};
-		});
+			});
+			continue;
+		}
 
-	// Sort rarest-first; within a rarity, owned before missing, then by name.
+		// Finish slots to show: the ones the card can have, plus any the player owns
+		// (so a copy is never hidden even if the pack's odds later dropped that finish).
+		const slots = new Set<CardFinish>(cat ? possibleFinishes(cat) : []);
+		for (const f of ownedFinishes.get(id) ?? []) slots.add(f);
+
+		for (const finish of FINISH_ORDER) {
+			if (!slots.has(finish)) continue;
+			const ownedEntry = ownedByKey.get(`${id}|${finish}`);
+			if (ownedEntry) collection.push(ownedEntry);
+			else if (cat) collection.push(greyVariant(cat, rarity, finish));
+		}
+	}
+
+	// Rarest-first; within a rarity group each card's variants stay together, ordered
+	// Holo → Reverse Holo → Normal.
 	const rank = new Map(RARITIES.map((r, i) => [r.key as string, i]));
-	const collection: CollectionCard[] = [...owned, ...unowned].sort((a, b) => {
+	collection.sort((a, b) => {
 		const rr = (rank.get(b.rarity) ?? 0) - (rank.get(a.rarity) ?? 0);
 		if (rr !== 0) return rr;
-		if (a.owned !== b.owned) return a.owned ? -1 : 1;
-		return a.name.localeCompare(b.name);
+		const nn = a.name.localeCompare(b.name);
+		if (nn !== 0) return nn;
+		return finishRank[a.finish] - finishRank[b.finish];
 	});
 
 	const packs: UserPack[] = ((packsRes.data ?? []) as unknown as UserPackRow[])
@@ -231,8 +317,10 @@ export async function loadCardProfile(user: {
 		vp_balance,
 		wallet,
 		collection,
+		// Counts stay per unique CARD (a card is "collected" if any finish is owned),
+		// not per variant slot — the grid shows the finish breakdown within each card.
 		collectionOwned: ownedIds.size,
-		collectionTotal: ownedIds.size + unowned.length,
+		collectionTotal: allCardIds.size,
 		packs,
 		stats: {
 			packsOpened: opens.length,

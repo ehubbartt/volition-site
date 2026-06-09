@@ -8,7 +8,9 @@
 		HOLO_MASK_URL,
 		type CardFinish
 	} from '$lib/cards/finishes';
-	import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG } from '$lib/cards/holo';
+	import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG, LAYER_GLOW_FRAG } from '$lib/cards/holo';
+	import { createLayerEffect, type LayerEffectHandle } from '$lib/cards/layerEffects';
+	import { makeEdgeFade } from '$lib/cards/edgeFade';
 
 	let {
 		card,
@@ -220,10 +222,17 @@
 			// it reads as popping OUT of the card rather than floating above it.
 			const LAYER_DEPTH = 0.08; // how far each layer sits above the card (small = subtle)
 			const SHADOW_DIR = new THREE.Vector2(0.6, -0.8); // light upper-left → shadow lower-right
+			// Soft edge-fade mask: layer art that reaches the card border feathers out
+			// instead of hard-cutting into a straight line, and the square plane corners
+			// don't poke past the card's rounded silhouette. Shared by all layers.
+			const edgeFade = (card.layers ?? []).length ? makeEdgeFade() : null;
 			const layerMats: THREE.MeshBasicMaterial[] = [];
+			// Live per-layer animation effects (see layerEffects.ts), updated each frame.
+			const fxHandles: LayerEffectHandle[] = [];
 			(card.layers ?? []).forEach((ly, i) => {
 				const h = (i + 1) * LAYER_DEPTH;
 				const lm = new THREE.MeshBasicMaterial({ transparent: true });
+				if (edgeFade) lm.alphaMap = edgeFade;
 				const sm = new THREE.ShaderMaterial({
 					uniforms: {
 						map: { value: null },
@@ -235,11 +244,14 @@
 					transparent: true,
 					depthWrite: false
 				});
+				// Glow-effect materials for this layer share the layer texture once it loads.
+				const glowMaps: { value: THREE.Texture | null }[] = [];
 				loader.load(ly.url, (t) => {
 					t.colorSpace = THREE.SRGBColorSpace;
 					lm.map = t;
 					lm.needsUpdate = true;
 					sm.uniforms.map.value = t; // shadow reuses the layer texture (alpha)
+					for (const m of glowMaps) m.value = t;
 				});
 				// Force draw order front(0) → shadow(1) → layer(2) so the transparency
 				// sort never flips the shadow behind the front (which made it vanish).
@@ -253,6 +265,45 @@
 				lp.renderOrder = 2;
 				group.add(lp);
 				layerMats.push(lm);
+
+				if (ly.effect) {
+					fxHandles.push(
+						createLayerEffect(ly.effect, {
+							mesh: lp,
+							baseZ: h,
+							index: i,
+							makeGlow: () => {
+								const gmat = new THREE.ShaderMaterial({
+									uniforms: {
+										map: { value: lm.map },
+										uIntensity: { value: 0 },
+										uBlur: { value: new THREE.Vector2(0.02, 0.02) },
+										uFeather: { value: new THREE.Vector2(0.12, 0.12) },
+										uTint: { value: new THREE.Color(1, 1, 1) }
+									},
+									vertexShader: HOLO_VERT,
+									fragmentShader: LAYER_GLOW_FRAG,
+									transparent: true,
+									blending: THREE.AdditiveBlending,
+									depthWrite: false
+								});
+								glowMaps.push(gmat.uniforms.map);
+								const gmesh = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), gmat);
+								gmesh.position.z = h + 0.002;
+								gmesh.renderOrder = 3;
+								group.add(gmesh);
+								return {
+									setIntensity: (v) => (gmat.uniforms.uIntensity.value = v),
+									dispose: () => {
+										group.remove(gmesh);
+										gmesh.geometry.dispose();
+										gmat.dispose();
+									}
+								};
+							}
+						})
+					);
+				}
 			});
 
 			// ---- Interaction: drag to rotate, tap to flip ----
@@ -313,6 +364,12 @@
 
 			let raf = 0;
 			const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+			// Track how fast the card is being turned (drag rotation, not idle sway),
+			// smoothed, to drive the layer effects — they only play while you spin it.
+			let prevSpinY = 0;
+			let prevSpinX = 0;
+			let spinSpeed = 0;
+			let lastNow = performance.now();
 			function frame() {
 				raf = requestAnimationFrame(frame);
 				const now = performance.now();
@@ -322,6 +379,21 @@
 				const sway = dragging ? 0 : 1;
 				group.rotation.y = spinY + sway * Math.sin(now * 0.0009) * 0.05;
 				group.rotation.x = spinX + sway * Math.sin(now * 0.0007) * 0.03;
+				// Drive per-layer effects by spin speed (0 at rest → no animation).
+				// The raw drag velocity is spiky (pointer events don't land every frame),
+				// so smooth it with a fast attack / slow release: it ramps up quickly,
+				// holds steady between input spikes, and glides back down when you stop —
+				// otherwise the effects flicker.
+				if (fxHandles.length) {
+					const dt = Math.min(0.05, (now - lastNow) / 1000);
+					const d = Math.abs(spinY - prevSpinY) + Math.abs(spinX - prevSpinX);
+					prevSpinY = spinY;
+					prevSpinX = spinX;
+					const target = Math.min(1, d * 12);
+					spinSpeed = lerp(spinSpeed, target, target > spinSpeed ? 0.25 : 0.05);
+					for (const fx of fxHandles) fx.update({ dt, spin: spinSpeed });
+				}
+				lastNow = now;
 				renderer.render(scene, camera);
 			}
 			frame();
@@ -329,6 +401,7 @@
 			teardown = () => {
 				cancelAnimationFrame(raf);
 				ro.disconnect();
+				fxHandles.forEach((fx) => fx.dispose());
 				canvas.removeEventListener('pointerdown', onDown);
 				canvas.removeEventListener('pointermove', onMove);
 				canvas.removeEventListener('pointerup', onUp);
@@ -343,6 +416,7 @@
 				backMat.map?.dispose?.();
 				texCache.forEach((t) => t.dispose());
 				layerMats.forEach((m) => m.map?.dispose?.());
+				edgeFade?.dispose();
 				dummy.dispose();
 				renderer.dispose();
 			};
