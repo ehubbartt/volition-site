@@ -79,12 +79,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		throw error(404, 'Not found');
 	}
 
-	if (
-		!event ||
-		event.status === 'draft' ||
-		event.status === 'closed' ||
-		(event.status === 'preview' && !admin)
-	) {
+	if (!event || event.status === 'draft' || (event.status === 'preview' && !admin)) {
 		const redactedTiles: BingoTile[] = BINGO_TILES.map((t) => ({
 			...t,
 			name: 'nice try',
@@ -99,6 +94,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					}
 				: null,
 			running: false as const,
+			archived: false as const,
 			state: null,
 			tiles: redactedTiles,
 			isClanMember: memberOfClan,
@@ -109,7 +105,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		};
 	}
 
-	const state = getBingoState((event.starts_at ?? event.signup_opens_at), new Date());
+	// A closed event becomes a read-only archive: the whole board is revealed
+	// (force the state to 'ended' → every tile is 'past-locked', so names/details
+	// are shown but no submissions are accepted), with the final leaderboard and
+	// each player's own submissions kept visible to look back on.
+	const archived = event.status === 'closed';
+	const baseState = getBingoState((event.starts_at ?? event.signup_opens_at), new Date());
+	const state = archived ? { ...baseState, status: 'ended' as const } : baseState;
 
 	const { data: completionsRaw, error: cErr } = await db()
 		.from('vs_bingo_completions')
@@ -233,9 +235,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		return { ...t, details_html: md ? renderMarkdown(md) : null };
 	});
 
-	// Detailed community list (proofs + names) is admin-only.
-	// Regular users still get the count so the modal can show "N completed".
-	const communityForClient = admin ? completionsByTile : {};
+	// Detailed community list (proofs + names) is admin-only while the event runs.
+	// Once it's archived, the whole board is opened up so everyone can look back.
+	// Regular users on a running event still get the count so the modal can show "N completed".
+	const communityForClient = admin || archived ? completionsByTile : {};
 
 	return {
 		event: {
@@ -246,7 +249,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			status: event.status,
 			start_at: (event.starts_at ?? event.signup_opens_at)
 		},
-		running: true as const,
+		running: !archived,
+		archived,
 		state,
 		tiles,
 		isClanMember: memberOfClan,
@@ -361,6 +365,9 @@ export const actions: Actions = {
 
 		const event = await fetchBingoEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
+		if (event.status === 'closed') {
+			return fail(400, { error: 'This event has ended — submissions are locked.' });
+		}
 
 		const form = await request.formData();
 		const submissionId = form.get('submission_id')?.toString() ?? '';

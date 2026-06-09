@@ -133,3 +133,77 @@ export async function getWalletItems(discordId: string | null): Promise<WalletIt
 
 	return Array.from(counts, ([name, quantity]) => ({ name, quantity }));
 }
+
+// --- Lootcrate free daily claim -------------------------------------------
+// The free daily crate is tracked by players.last_loot_date (a date), shared with
+// the bot — claiming on the site or in Discord uses that UTC day's free open.
+
+// Reads the player's last free-claim date (YYYY-MM-DD string) or null.
+export async function getLastLootDate(
+	discordId: string | null,
+	rsn: string | null
+): Promise<string | null> {
+	const sb = db();
+	if (discordId) {
+		const { data } = await sb
+			.from('players')
+			.select('last_loot_date')
+			.eq('discord_id', discordId)
+			.maybeSingle();
+		if (data) return (data.last_loot_date as string | null) ?? null;
+	}
+	if (rsn) {
+		const { data } = await sb.from('players').select('last_loot_date').ilike('rsn', rsn).maybeSingle();
+		if (data) return (data.last_loot_date as string | null) ?? null;
+	}
+	return null;
+}
+
+export type FreeClaimResult = { ok: true } | { ok: false; reason: 'no_player' | 'already' | 'error' };
+
+// Atomically claims today's free crate: sets last_loot_date=todayUtc ONLY if it
+// isn't already today (the concurrency guard against double-claim). The caller
+// grants the rolled winnings (VP/item) after a successful claim.
+export async function claimFreeLootDay(
+	discordId: string | null,
+	rsn: string | null,
+	todayUtc: string
+): Promise<FreeClaimResult> {
+	const sb = db();
+
+	// Locate the player row + its current claim date (by id, so the write targets
+	// exactly one row — same reasoning as locatePlayer).
+	let row: { id: number; last_loot_date: string | null } | null = null;
+	if (discordId) {
+		const { data } = await sb
+			.from('players')
+			.select('id, last_loot_date')
+			.eq('discord_id', discordId)
+			.maybeSingle();
+		if (data) row = data as { id: number; last_loot_date: string | null };
+	}
+	if (!row && rsn) {
+		const { data } = await sb
+			.from('players')
+			.select('id, last_loot_date')
+			.ilike('rsn', rsn)
+			.maybeSingle();
+		if (data) row = data as { id: number; last_loot_date: string | null };
+	}
+	if (!row) return { ok: false, reason: 'no_player' };
+	if (row.last_loot_date === todayUtc) return { ok: false, reason: 'already' };
+
+	// Optimistic claim: only set today's date if last_loot_date is still what we
+	// read (handles null vs a prior date without a LIKE/or filter). A concurrent
+	// claim changes the value and updates 0 rows ⇒ 'already'.
+	let q = sb.from('players').update({ last_loot_date: todayUtc }).eq('id', row.id);
+	q = row.last_loot_date === null ? q.is('last_loot_date', null) : q.eq('last_loot_date', row.last_loot_date);
+	const { data, error } = await q.select('id');
+
+	if (error) {
+		console.error('[free-claim] update failed:', error.message);
+		return { ok: false, reason: 'error' };
+	}
+	if (!data || data.length === 0) return { ok: false, reason: 'already' };
+	return { ok: true };
+}
