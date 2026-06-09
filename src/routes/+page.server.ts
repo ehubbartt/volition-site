@@ -41,8 +41,12 @@ function normRsn(rsn: string | null | undefined): string {
 	return (rsn ?? '').trim().replace(/_/g, ' ').toLowerCase();
 }
 
-export const load: PageServerLoad = async ({ locals }) => {
-	const user = locals.user;
+export const load: PageServerLoad = async ({ parent }) => {
+	// Read the user from the layout load (single source of truth) rather than
+	// resolving it again here. Returning our own `user` key would clobber the
+	// layout's and let the two diverge — that's how a stale client after a deploy
+	// ends up with a logged-in nav but a "please sign in" page body.
+	const { user } = await parent();
 	const sb = db();
 
 	// Logged out → public landing (hero + a light upcoming teaser + headline stats).
@@ -54,8 +58,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 		]);
 		const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
 		return {
-			user: null,
-			isAdmin: false,
 			calendar,
 			members: [] as never[],
 			rankBreakdown: [] as never[],
@@ -124,8 +126,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
 
 	return {
-		user: { rsn: user.rsn },
-		isAdmin: admin,
 		calendar,
 		members,
 		rankBreakdown,

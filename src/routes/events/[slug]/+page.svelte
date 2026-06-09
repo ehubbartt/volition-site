@@ -203,6 +203,21 @@
 				</form>
 			</div>
 		{:else}
+			<div class="card signup-card">
+				<div class="signup-row">
+					<div>
+						<h2>You're signed up</h2>
+						<p class="muted">
+							You're in the player pool. Invite a player or accept an invite to form a duo —
+							or leave the event if you've changed your mind.
+						</p>
+					</div>
+					<form method="POST" action="?/leaveEvent" use:enhance>
+						<button type="submit" class="danger">Leave event</button>
+					</form>
+				</div>
+			</div>
+
 			{#if data.incomingInvites.length > 0}
 				<div class="card">
 					<h2>Pending invites for you</h2>
@@ -710,6 +725,27 @@
 	.team-name-actions {
 		display: flex;
 		gap: 0.4rem;
+	}
+
+	.signup-row {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.signup-row h2 {
+		margin-bottom: 0.4rem;
+	}
+
+	.signup-row p {
+		margin: 0;
+		max-width: 38rem;
+	}
+
+	.signup-row form {
+		flex-shrink: 0;
 	}
 
 	.section-head {

@@ -298,6 +298,51 @@ export const actions: Actions = {
 		return { ok: true };
 	},
 
+	leaveEvent: async ({ params, locals }) => {
+		if (!locals.user) throw redirect(303, '/');
+
+		const supabase = db();
+
+		const { data: event } = await supabase
+			.from('vs_events')
+			.select('id')
+			.eq('slug', params.slug)
+			.maybeSingle();
+
+		if (!event) return fail(404, { error: 'Event not found' });
+
+		const { data: mySignup } = await supabase
+			.from('vs_event_signups')
+			.select('id, team_id')
+			.eq('event_id', event.id)
+			.eq('user_id', locals.user.id)
+			.maybeSingle();
+
+		if (!mySignup) return fail(400, { error: "You haven't joined this event" });
+		if (mySignup.team_id) {
+			return fail(400, { error: 'Leave your team before leaving the event' });
+		}
+
+		// Tidy up any pending invites this player has open (in either direction)
+		// so they don't linger after the signup is gone.
+		await supabase
+			.from('vs_team_invites')
+			.update({ status: 'cancelled', responded_at: new Date().toISOString() })
+			.eq('event_id', event.id)
+			.eq('status', 'pending')
+			.or(`from_user_id.eq.${locals.user.id},to_user_id.eq.${locals.user.id}`);
+
+		const { error: delError } = await supabase
+			.from('vs_event_signups')
+			.delete()
+			.eq('id', mySignup.id)
+			.eq('user_id', locals.user.id);
+
+		if (delError) return fail(500, { error: delError.message });
+
+		return { ok: true };
+	},
+
 	inviteUser: async ({ params, locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
 

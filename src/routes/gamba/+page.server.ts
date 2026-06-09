@@ -98,10 +98,19 @@ export interface CrateOdd {
 	color: string;
 }
 
+// One cell on the spinning reel (every possible reward bucket — VP tiers, items,
+// role). The opener scrolls through these and lands on the won one.
+export interface CrateReelCell {
+	label: string;
+	image: string | null;
+	colorHex: string;
+}
+
 export interface CrateInfo {
 	spinCost: number;
 	freeAvailable: boolean;
 	odds: CrateOdd[];
+	reel: CrateReelCell[];
 }
 
 // Client-safe rolled reward (no roleId) for the reveal modal.
@@ -277,6 +286,26 @@ export const load: PageServerLoad = async ({ locals }) => {
 			{ label: 'Rare item', pct: lootConfig.itemDropChance, color: '#00ff7b' },
 			...(lootConfig.roleReward?.enabled
 				? [{ label: lootConfig.roleReward.label ?? 'Role', pct: lootConfig.roleReward.chance, color: `#${lootConfig.roleReward.color ?? '800080'}` }]
+				: [])
+		],
+		// Every possible reward as a reel cell (VP tiers + enabled items + role).
+		reel: [
+			...lootConfig.vpTiers.map((t) => ({
+				label: t.label,
+				image: t.image ?? null,
+				colorHex: `#${t.color ?? '808080'}`
+			})),
+			...lootConfig.items
+				.filter((i) => i.enabled)
+				.map((i) => ({ label: i.name, image: i.image ?? null, colorHex: `#${i.color ?? '00FF00'}` })),
+			...(lootConfig.roleReward?.enabled
+				? [
+						{
+							label: lootConfig.roleReward.label ?? 'Role',
+							image: lootConfig.roleReward.image ?? null,
+							colorHex: `#${lootConfig.roleReward.color ?? '800080'}`
+						}
+					]
 				: [])
 		]
 	};

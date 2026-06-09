@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import { tick } from 'svelte';
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import PackOpener from '$lib/cards/PackOpener.svelte';
@@ -81,6 +82,111 @@
 	let crateReward = $state<CrateReward | null>(null);
 	let crateError = $state<string | null>(null);
 
+	// ---- Crate spin (CSGO-style reel that lands on the won reward) ----
+	type ReelCell = { label: string; image: string | null; colorHex: string };
+	const CELL_W = 96;
+	const CELL_GAP = 10;
+	const STRIDE = CELL_W + CELL_GAP;
+	const STRIP_LEN = 64;
+	const SPIN_MS = 4200;
+
+	let crateStrip = $state<ReelCell[]>([]);
+	let winIndex = $state(0);
+	let crateSpinning = $state(false);
+	let crateLanded = $state(false);
+	let stripEl = $state<HTMLDivElement | undefined>();
+	let spinTimer: ReturnType<typeof setTimeout> | null = null;
+	let spinAnim: Animation | null = null;
+
+	function rewardCell(r: CrateReward): ReelCell {
+		return {
+			label: r.kind === 'item' ? (r.itemName ?? r.label) : r.label,
+			image: r.image || null,
+			colorHex: r.colorHex
+		};
+	}
+	function randomCell(): ReelCell {
+		const pool = data.crate?.reel ?? [];
+		if (!pool.length) return { label: '?', image: null, colorHex: '#9a8c78' };
+		return pool[Math.floor(Math.random() * pool.length)];
+	}
+
+	function nextFrame(): Promise<void> {
+		return new Promise((r) => requestAnimationFrame(() => r()));
+	}
+
+	async function startSpin(reward: CrateReward) {
+		if (spinTimer) clearTimeout(spinTimer);
+		if (spinAnim) {
+			spinAnim.cancel();
+			spinAnim = null;
+		}
+		winIndex = STRIP_LEN - 8;
+		crateStrip = Array.from({ length: STRIP_LEN }, (_, i) =>
+			i === winIndex ? rewardCell(reward) : randomCell()
+		);
+		crateReward = reward;
+		crateLanded = false;
+		crateSpinning = true;
+
+		// Always guarantee the result shows, even if animation can't run.
+		spinTimer = setTimeout(land, SPIN_MS + 1000);
+
+		try {
+			// Wait for the reel to mount + lay out so we can measure it.
+			await tick();
+			await nextFrame();
+			const el = stripEl;
+			if (!el) return; // safety timer will land
+
+			const vw = el.parentElement?.clientWidth || el.clientWidth || 320;
+			const jitter = (Math.random() * 2 - 1) * (CELL_W * 0.3);
+			const target = vw / 2 - (winIndex * STRIDE + CELL_W / 2) + jitter;
+
+			// Reduce-motion still gets a (shorter) spin — it's a deliberate,
+			// self-contained reveal the user asked for, not ambient motion.
+			const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+			const dur = reduce ? 1500 : SPIN_MS;
+
+			// Web Animations API — animates reliably without CSS-transition reflow tricks.
+			if (typeof el.animate === 'function') {
+				spinAnim = el.animate(
+					[{ transform: 'translateX(0px)' }, { transform: `translateX(${target}px)` }],
+					{ duration: dur, easing: 'cubic-bezier(0.05, 0.8, 0.15, 1)', fill: 'forwards' }
+				);
+				spinAnim.onfinish = () => land();
+			} else {
+				el.style.transform = `translateX(${target}px)`;
+				land();
+			}
+		} catch {
+			land();
+		}
+	}
+
+	function land() {
+		if (spinTimer) {
+			clearTimeout(spinTimer);
+			spinTimer = null;
+		}
+		if (crateLanded) return;
+		crateSpinning = false;
+		crateLanded = true;
+	}
+
+	function closeReveal() {
+		if (spinTimer) clearTimeout(spinTimer);
+		spinTimer = null;
+		if (spinAnim) {
+			spinAnim.cancel();
+			spinAnim = null;
+		}
+		crateReward = null;
+		crateSpinning = false;
+		crateLanded = false;
+		crateStrip = [];
+	}
+
 	function pct(n: number): string {
 		return n < 1 ? n.toFixed(2) : n.toFixed(1);
 	}
@@ -117,7 +223,7 @@
 			crateError = null;
 			return async ({ result, update }) => {
 				if (result.type === 'success' && result.data?.crateOk) {
-					crateReward = result.data.reward as CrateReward;
+					startSpin(result.data.reward as CrateReward);
 				} else if (result.type === 'failure') {
 					crateError = (result.data?.crateError as string) ?? 'Could not open the crate.';
 				} else if (result.type === 'error') {
@@ -351,24 +457,41 @@
 
 {#if crateReward}
 	<div class="reveal-wrap">
-		<button class="reveal-backdrop" aria-label="Close" onclick={() => (crateReward = null)}></button>
+		<button class="reveal-backdrop" aria-label="Close" onclick={closeReveal}></button>
 		<div class="reveal" role="dialog" aria-modal="true" tabindex="-1" style="--c:{crateReward.colorHex}">
-			<div class="reveal-burst"></div>
-			{#if crateReward.image}
-				<img class="reveal-img" src={crateReward.image} alt="" />
+			<div class="reel-viewport">
+				<div class="reel-marker"></div>
+				<div class="reel-strip" bind:this={stripEl}>
+					{#each crateStrip as cell, i (i)}
+						<div class="reel-cell" class:win={crateLanded && i === winIndex} style="--cc:{cell.colorHex}">
+							{#if cell.image}
+								<img src={cell.image} alt="" loading="lazy" />
+							{:else}
+								<span class="reel-text">{cell.label}</span>
+							{/if}
+						</div>
+					{/each}
+				</div>
+				<div class="reel-fade"></div>
+			</div>
+
+			{#if crateLanded}
+				<div class="reveal-burst"></div>
+				<h3 class="reveal-title">{crateReward.title}</h3>
+				<p class="reveal-detail">
+					{#if crateReward.kind === 'vp'}
+						{crateReward.amount > 0 ? `+${crateReward.amount} VP` : 'Nothing this time'}
+					{:else if crateReward.kind === 'item'}
+						{crateReward.itemName}
+					{:else}
+						King Gamba — assigned in Discord shortly
+					{/if}
+				</p>
+				<span class="reveal-chance">{crateReward.label} · {pct(crateReward.chance)}%</span>
+				<button type="button" class="primary reveal-close" onclick={closeReveal}>Nice</button>
+			{:else}
+				<p class="reveal-spinning">Opening…</p>
 			{/if}
-			<h3 class="reveal-title">{crateReward.title}</h3>
-			<p class="reveal-detail">
-				{#if crateReward.kind === 'vp'}
-					{crateReward.amount > 0 ? `+${crateReward.amount} VP` : 'Nothing this time'}
-				{:else if crateReward.kind === 'item'}
-					{crateReward.itemName}
-				{:else}
-					King Gamba — assigned in Discord shortly
-				{/if}
-			</p>
-			<span class="reveal-chance">{crateReward.label} · {pct(crateReward.chance)}%</span>
-			<button type="button" class="primary reveal-close" onclick={() => (crateReward = null)}>Nice</button>
 		</div>
 	</div>
 {/if}
@@ -823,6 +946,9 @@
 		inset: 0;
 		z-index: 100;
 		display: grid;
+		/* minmax(0, 1fr) stops the wide reel strip from blowing out the grid track
+		   (which otherwise pushes the centered modal off-screen). */
+		grid-template-columns: minmax(0, 1fr);
 		place-items: center;
 		padding: 1rem;
 	}
@@ -843,7 +969,10 @@
 	.reveal {
 		position: relative;
 		z-index: 1;
-		width: min(22rem, 100%);
+		width: min(32rem, 100%);
+		max-width: 32rem;
+		min-width: 0;
+		overflow: hidden;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -890,12 +1019,107 @@
 		}
 	}
 
-	.reveal-img {
+	/* ---- Crate spin reel ---- */
+	.reel-viewport {
 		position: relative;
-		width: 9rem;
-		height: 9rem;
+		width: 100%;
+		height: 116px;
+		margin-bottom: 0.4rem;
+		overflow: hidden;
+		background: #0d0a07;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+	}
+
+	.reel-strip {
+		display: flex;
+		gap: 10px;
+		align-items: center;
+		height: 100%;
+		will-change: transform;
+	}
+
+	.reel-cell {
+		flex: 0 0 96px;
+		width: 96px;
+		height: 96px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 6px;
+		border: 1px solid color-mix(in srgb, var(--cc) 50%, #2a2018);
+		background: linear-gradient(180deg, color-mix(in srgb, var(--cc) 28%, #2a2018), #14100a);
+		box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.45);
+		transition: transform 0.25s ease, box-shadow 0.25s ease;
+	}
+
+	.reel-cell img {
+		width: 74%;
+		height: 74%;
 		object-fit: contain;
-		filter: drop-shadow(0 0 0.8rem var(--c));
+	}
+
+	.reel-text {
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-size: 0.78rem;
+		text-align: center;
+		line-height: 1.15;
+		padding: 0 4px;
+		color: var(--cc);
+		text-shadow: var(--ts);
+	}
+
+	.reel-cell.win {
+		border-color: var(--cc);
+		box-shadow: 0 0 14px var(--cc), inset 0 0 0 1px var(--cc);
+		transform: scale(1.06);
+	}
+
+	.reel-marker {
+		position: absolute;
+		top: -2px;
+		bottom: -2px;
+		left: 50%;
+		width: 2px;
+		transform: translateX(-50%);
+		background: var(--accent);
+		box-shadow: 0 0 8px var(--accent);
+		z-index: 2;
+	}
+
+	.reel-marker::before,
+	.reel-marker::after {
+		content: '';
+		position: absolute;
+		left: 50%;
+		transform: translateX(-50%);
+		border-left: 6px solid transparent;
+		border-right: 6px solid transparent;
+	}
+
+	.reel-marker::before {
+		top: -1px;
+		border-top: 7px solid var(--accent);
+	}
+
+	.reel-marker::after {
+		bottom: -1px;
+		border-bottom: 7px solid var(--accent);
+	}
+
+	.reel-fade {
+		position: absolute;
+		inset: 0;
+		z-index: 1;
+		pointer-events: none;
+		background: linear-gradient(90deg, #0d0a07 0%, transparent 14%, transparent 86%, #0d0a07 100%);
+	}
+
+	.reveal-spinning {
+		margin: 0;
+		color: var(--muted);
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		letter-spacing: 1px;
 	}
 
 	.reveal-title {
