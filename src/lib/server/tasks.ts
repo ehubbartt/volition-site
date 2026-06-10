@@ -1,6 +1,6 @@
 import { db } from './db';
 import type { SessionUser } from './auth';
-import { isAdmin } from './auth';
+import { isAdmin, isCardTester } from './auth';
 import { countPendingReview } from './submissions';
 import { getLastLootDate } from './playerStats';
 import { BINGO_TILES } from './bingoTiles';
@@ -330,6 +330,34 @@ async function duoWolfTask(user: SessionUser): Promise<PlayerTask | null> {
 	};
 }
 
+// --- Unopened card packs (vs_user_packs) -----------------------------------
+// Nudge to open any packs sitting in the player's inventory. Card-testers only,
+// since opening packs (the /gamba store) is still gated to them.
+async function unopenedPacksTask(user: SessionUser): Promise<PlayerTask | null> {
+	if (!isCardTester(user)) return null;
+	const { data } = await db()
+		.from('vs_user_packs')
+		.select('quantity')
+		.eq('user_id', user.id)
+		.gt('quantity', 0);
+	const total = ((data ?? []) as Array<{ quantity: number | null }>).reduce(
+		(sum, r) => sum + (Number(r.quantity) || 0),
+		0
+	);
+	if (total <= 0) return null;
+	return {
+		id: 'open-packs',
+		kind: 'packs',
+		status: 'todo',
+		title: 'Open your packs',
+		description: `You have ${total} unopened pack${total === 1 ? '' : 's'}`,
+		href: '/gamba',
+		ctaLabel: 'Open packs',
+		resetAt: null,
+		reward: 'New cards'
+	};
+}
+
 // --- Admin: pending submissions awaiting review ----------------------------
 // Only for admins, and only when something's actually queued. Surfaces the
 // unified review backlog as a top-of-list to-do so admins don't have to poll
@@ -357,7 +385,8 @@ const KIND_ORDER: Record<PlayerTask['kind'], number> = {
 	daily: 0,
 	weekly: 1,
 	event: 2,
-	competition: 3
+	competition: 3,
+	packs: 4
 };
 
 export async function loadPlayerTasks(user: SessionUser): Promise<PlayerTask[]> {
@@ -368,7 +397,8 @@ export async function loadPlayerTasks(user: SessionUser): Promise<PlayerTask[]> 
 		taskEventTasks(user),
 		skillOrKillTask(),
 		bingoTask(user),
-		duoWolfTask(user)
+		duoWolfTask(user),
+		unopenedPacksTask(user)
 	]);
 
 	const tasks: PlayerTask[] = [];

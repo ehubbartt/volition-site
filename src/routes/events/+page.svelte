@@ -49,33 +49,35 @@
 		>
 			<div class="event-name">{ev.name}</div>
 			{#if ev.description_preview}
-				<p class="muted">{ev.description_preview}</p>
+				<p class="desc muted">{ev.description_preview}</p>
 			{/if}
-			{#if ev.status_line}
-				<div class="status-line">
-					<span class="label">{ev.status_line.label}</span>
-					<span class="when">{fmtDate(ev.status_line.date)}</span>
+			<div class="event-foot">
+				{#if ev.status_line}
+					<div class="status-line">
+						<span class="label">{ev.status_line.label}</span>
+						<span class="when">{fmtDate(ev.status_line.date)}</span>
+					</div>
+				{/if}
+				<div
+					class="badge"
+					class:bingo={isBingo && !isDraft && !isPreview && !past && !isUpcoming}
+					class:open={ev.status === 'open' && !isBingo && !isUpcoming}
+					class:upcoming={isUpcoming}
+					class:draft={isDraft}
+					class:preview={isPreview}
+				>
+					{isDraft
+						? 'Draft · admin only'
+						: isPreview
+							? 'Preview · admin only'
+							: past
+								? 'Closed'
+								: isUpcoming
+									? 'Upcoming'
+									: isBingo
+										? 'Bingo'
+										: ev.status}
 				</div>
-			{/if}
-			<div
-				class="badge"
-				class:bingo={isBingo && !isDraft && !isPreview && !past && !isUpcoming}
-				class:open={ev.status === 'open' && !isBingo && !isUpcoming}
-				class:upcoming={isUpcoming}
-				class:draft={isDraft}
-				class:preview={isPreview}
-			>
-				{isDraft
-					? 'Draft · admin only'
-					: isPreview
-						? 'Preview · admin only'
-						: past
-							? 'Closed'
-							: isUpcoming
-								? 'Upcoming'
-								: isBingo
-									? 'Bingo'
-									: ev.status}
 			</div>
 		</a>
 	</li>
@@ -146,8 +148,16 @@
 		grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
 	}
 
+	/* Each li is the grid cell; the card fills it so a whole row matches height. */
+	.events li {
+		display: flex;
+	}
+
 	.event-card {
-		display: block;
+		display: flex;
+		flex-direction: column;
+		width: 100%;
+		min-height: 11rem;
 		padding: 1.25rem;
 		background: linear-gradient(180deg, rgba(58, 48, 36, 0.85), rgba(40, 32, 24, 0.85));
 		border: 1px solid var(--border);
@@ -173,8 +183,26 @@
 		margin-bottom: 0.5rem;
 	}
 
+	/* Clamp the blurb to 2 lines so card height doesn't swing with text length. */
+	.desc {
+		margin: 0;
+		font-size: 0.9rem;
+		line-height: 1.4;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		overflow: hidden;
+	}
+
+	/* Footer (status + badge) pinned to the bottom so every card lines up. */
+	.event-foot {
+		margin-top: auto;
+		padding-top: 0.75rem;
+	}
+
 	.status-line {
-		margin: 0.65rem 0 0;
+		margin: 0 0 0;
 		padding: 0.4rem 0.6rem;
 		background: var(--surface-alt);
 		border: 1px solid var(--border);

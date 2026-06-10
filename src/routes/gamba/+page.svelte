@@ -523,7 +523,7 @@
 
     <div class="store" class:no-rail={data.recentRares.length === 0}>
       <div class="main">
-        {#if data.packs.length === 0}
+        {#if data.packs.length === 0 && data.teaserPacks.length === 0}
           <div class="empty">
             <p>No packs are available right now.</p>
             <p class="muted">Check back soon.</p>
@@ -632,6 +632,23 @@
                       <span class="warn small">Not enough VP</span>
                     {/if}
                   {/if}
+                </div>
+              </article>
+            {/each}
+
+            {#each data.teaserPacks as pack (pack.id)}
+              <article class="pack teaser">
+                <div class="pack-art">
+                  <PackDisplay3D
+                    front={pack.front_url}
+                    back={pack.back_url}
+                    name={pack.name}
+                  />
+                  <span class="lock-tag">🔒 Coming soon</span>
+                </div>
+                <div class="body">
+                  <strong class="name">{pack.name}</strong>
+                  <span class="muted small locked-note">Locked</span>
                 </div>
               </article>
             {/each}
@@ -1104,6 +1121,33 @@
     /* Plain dark drop shadow for separation — the old accent glow bled colour
        around the edges and made it read as fuzzy. */
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Locked "coming soon" teaser pack: art + name only, no actions. */
+  .lock-tag {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 2;
+    padding: 0.1rem 0.5rem;
+    background: rgba(0, 0, 0, 0.72);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    font-size: 0.7rem;
+    color: var(--muted);
+    font-family: ui-sans-serif, system-ui, Arial, sans-serif;
+    font-weight: 600;
+  }
+
+  .pack.teaser {
+    cursor: default;
+  }
+
+  .pack.teaser .locked-note {
+    margin-top: auto;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-family: ui-sans-serif, system-ui, Arial, sans-serif;
   }
 
   /* Live countdown: keep it on one token (never split across lines) + equal-width

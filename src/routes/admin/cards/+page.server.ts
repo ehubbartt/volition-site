@@ -325,7 +325,8 @@ export const actions: Actions = {
 				description: parsed.data.description,
 				cost_vp: parsed.data.cost_vp,
 				cards_per_pack: parsed.data.cards_per_pack,
-				released: form.get('released') === 'on'
+				released: form.get('released') === 'on',
+				teaser: form.get('teaser') === 'on'
 			})
 			.select('id')
 			.single();

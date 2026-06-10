@@ -653,6 +653,10 @@
 					<input type="checkbox" name="released" />
 					<span>Released (visible to players in the Gamba store)</span>
 				</label>
+				<label class="check">
+					<input type="checkbox" name="teaser" />
+					<span>Teaser (show in the store as a locked “coming soon” card — name + art only, can't be opened; ignored once released)</span>
+				</label>
 				<div class="row">
 					<label>
 						<span>Front art (optional — defaults to the standard pack image)</span>

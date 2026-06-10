@@ -2,7 +2,7 @@
 // /tasks page and the home summary card. No server imports — the aggregation that
 // reads the DB lives in $lib/server/tasks.ts.
 
-export type TaskKind = 'daily' | 'weekly' | 'event' | 'competition' | 'admin';
+export type TaskKind = 'daily' | 'weekly' | 'event' | 'competition' | 'admin' | 'packs';
 export type TaskStatus = 'todo' | 'done' | 'active';
 
 export interface PlayerTask {

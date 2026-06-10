@@ -432,6 +432,23 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const packs = [...releasedPacks, ...extraOwnedPacks];
 
+	// Teaser packs: UNRELEASED packs flagged `teaser` → shown in the store as locked
+	// "coming soon" cards. Only their name + art reach the client (no cost / card
+	// count / cards / description) and they can't be opened. Released packs drop out
+	// automatically (they appear as normal openable packs above).
+	const { data: teaserRows } = await db()
+		.from('vs_card_packs')
+		.select('id, name, front_url, back_url')
+		.eq('teaser', true)
+		.eq('released', false)
+		.order('name', { ascending: true });
+	const teaserPacks = (teaserRows ?? []) as {
+		id: string;
+		name: string;
+		front_url: string | null;
+		back_url: string | null;
+	}[];
+
 	const recentRares: RarePull[] = ((raresRes.data ?? []) as unknown as RarePullRow[]).map((r) => ({
 		id: r.id,
 		cardName: r.card_name,
@@ -446,7 +463,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		pulledAt: r.pulled_at
 	}));
 
-	return { vp_balance, packs, recentRares, crate, recentCrateDrops };
+	return { vp_balance, packs, teaserPacks, recentRares, crate, recentCrateDrops };
 };
 
 // A pack's roll-relevant columns (shared by the VP open and the inventory open).
