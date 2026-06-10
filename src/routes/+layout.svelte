@@ -165,8 +165,8 @@
 		height: 1.05rem;
 		padding: 0 0.28rem;
 		box-sizing: border-box;
-		background: #e5484d;
-		color: #fff;
+		background: #ff981f;
+		color: #1c1408;
 		border-radius: 999px;
 		/* Pixel font blurs at this size — use a crisp system font for the count. */
 		font-family: ui-sans-serif, system-ui, Arial, sans-serif;
@@ -174,7 +174,7 @@
 		font-weight: 700;
 		line-height: 1;
 		text-shadow: none;
-		box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.65);
+		box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55);
 		pointer-events: none;
 	}
 
