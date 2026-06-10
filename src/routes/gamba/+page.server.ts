@@ -1,6 +1,6 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { isCardTester, type SessionUser } from '$lib/server/auth';
+import type { SessionUser } from '$lib/server/auth';
 import {
 	getPlayerVp,
 	spendPlayerVp,
@@ -263,11 +263,13 @@ function resolveCrateDrop(
 	};
 }
 
-// Player-facing pack store. Gated to card testers for now (CARD_TESTER_DISCORD_IDS)
-// while the card game is in progress — flip this to "any logged-in user" to launch.
+// Player-facing pack store — open to any onboarded member. (Admin card tooling
+// under /admin/* stays card-tester gated.)
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
-	if (!isCardTester(locals.user)) throw error(403, 'Not allowed');
+	if (!locals.user.rsn || !locals.user.clan_allegiance || !locals.user.account_type) {
+		throw redirect(303, '/onboarding');
+	}
 
 	const [vp_balance, packsRes, cardsRes, ownedRes, raresRes, lastLootDate, lootConfig, crateDropsRes, ownedPacksRes] = await Promise.all([
 		getPlayerVp(locals.user.discord_id, locals.user.rsn),
@@ -590,7 +592,7 @@ async function refundUserPack(userId: string, packId: string): Promise<void> {
 
 export const actions: Actions = {
 	open: async ({ locals, request }) => {
-		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
+		if (!locals.user) throw error(401, 'Sign in first');
 
 		const form = await request.formData();
 		const packId = form.get('pack_id')?.toString();
@@ -636,7 +638,7 @@ export const actions: Actions = {
 
 	// Open a pack the player already OWNS (consume a vs_user_packs row — no VP cost).
 	openOwned: async ({ locals, request }) => {
-		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
+		if (!locals.user) throw error(401, 'Sign in first');
 
 		const form = await request.formData();
 		const packId = form.get('pack_id')?.toString();
@@ -673,7 +675,7 @@ export const actions: Actions = {
 	// Paid gamba-crate open (spend VP → roll → grant → reveal). Mirrors the bot's
 	// paid lootcrate: items + role allowed.
 	openCrate: async ({ locals }) => {
-		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
+		if (!locals.user) throw error(401, 'Sign in first');
 
 		const config = await getLootConfig();
 		// Respect the shared bot_config switch — paid opens can be turned off.
@@ -703,7 +705,7 @@ export const actions: Actions = {
 	// Free daily gamba-crate claim (shared with Discord via players.last_loot_date).
 	// Mirrors the bot's free claim: no role, items per config.freeDropItems.
 	claimFreeCrate: async ({ locals }) => {
-		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
+		if (!locals.user) throw error(401, 'Sign in first');
 
 		const config = await getLootConfig();
 		const todayUtc = new Date().toISOString().slice(0, 10);

@@ -22,16 +22,10 @@
 	// Collection card the viewer modal is showing (null = closed).
 	let viewing = $state<UserCard | null>(null);
 
-	// Collection (cards + unopened packs) and Stats are part of the in-progress card
-	// game — only card testers see them (gated by CARD_TESTER_DISCORD_IDS).
 	let tabs = $derived<{ id: Tab; label: string }[]>([
 		{ id: 'profile', label: 'Profile' },
-		...(data.isCardTester
-			? ([
-					{ id: 'collection', label: 'Collection' },
-					{ id: 'stats', label: 'Stats' }
-				] as { id: Tab; label: string }[])
-			: []),
+		{ id: 'collection', label: 'Collection' },
+		{ id: 'stats', label: 'Stats' },
 		{ id: 'wallet', label: 'Wallet' }
 	]);
 
@@ -63,7 +57,7 @@
 		</div>
 	</header>
 
-	{#if data.isCardTester && data.user.rsn}
+	{#if data.user.rsn}
 		<p class="profile-link muted">
 			<a href="/u/{rsnToSlug(data.user.rsn)}">View your public profile →</a>
 		</p>

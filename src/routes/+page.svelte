@@ -47,7 +47,7 @@
 	let mLink = $state('');
 	let mCat = $state('event');
 
-	let canViewProfiles = $derived(Boolean(page.data.isCardTester));
+	let canViewProfiles = $derived(Boolean(page.data.user));
 
 	function dayKey(d: Date): string {
 		return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;

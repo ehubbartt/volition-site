@@ -1,6 +1,6 @@
 import { db } from './db';
 import type { SessionUser } from './auth';
-import { isAdmin, isCardTester } from './auth';
+import { isAdmin } from './auth';
 import { countPendingReview } from './submissions';
 import { getLastLootDate } from './playerStats';
 import { BINGO_TILES } from './bingoTiles';
@@ -331,10 +331,8 @@ async function duoWolfTask(user: SessionUser): Promise<PlayerTask | null> {
 }
 
 // --- Unopened card packs (vs_user_packs) -----------------------------------
-// Nudge to open any packs sitting in the player's inventory. Card-testers only,
-// since opening packs (the /gamba store) is still gated to them.
+// Nudge to open any packs sitting in the player's inventory (opened at /gamba).
 async function unopenedPacksTask(user: SessionUser): Promise<PlayerTask | null> {
-	if (!isCardTester(user)) return null;
 	const { data } = await db()
 		.from('vs_user_packs')
 		.select('quantity')
