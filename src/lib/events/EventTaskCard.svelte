@@ -19,16 +19,20 @@
 	}
 </script>
 
-<section class="panel task" class:done={task.done}>
+<section class="panel task" class:done={task.done} class:locked={task.locked}>
 	<div class="task-head">
 		<h2>
-			{#if task.done}<span class="check" aria-hidden="true">✓</span>{/if}
+			{#if task.done}<span class="check" aria-hidden="true">✓</span>{:else if task.locked}<span class="lock" aria-hidden="true">🔒</span>{/if}
 			{task.name}
 		</h2>
 		{#if task.reward}<span class="reward" title="Reward">🎁 {task.reward}</span>{/if}
 	</div>
 	{#if task.description_html}
 		<div class="task-desc">{@html task.description_html}</div>
+	{/if}
+
+	{#if task.locked}
+		<p class="locked-note">🔒 Complete the previous task to unlock this one.</p>
 	{/if}
 
 	{#if task.mySubmissions.length > 0}
@@ -89,7 +93,7 @@
 		</div>
 	{/if}
 
-	{#if canSubmit}
+	{#if canSubmit && !task.locked}
 		<form
 			class="submit"
 			method="POST"
@@ -137,6 +141,20 @@
 	}
 	.panel.done {
 		border-color: #7fd18a;
+	}
+	.panel.locked {
+		opacity: 0.7;
+	}
+	.panel.locked .task-head h2 {
+		color: var(--muted);
+	}
+	.lock {
+		font-size: 0.9rem;
+	}
+	.locked-note {
+		margin: 0.5rem 0 0;
+		font-size: 0.85rem;
+		color: var(--muted);
 	}
 	.task-head {
 		display: flex;

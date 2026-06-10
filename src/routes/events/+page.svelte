@@ -1,15 +1,17 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
+	import { isTaskEvent } from '$lib/events/simple';
 
 	let { data }: { data: PageData } = $props();
 
-	// Route by event kind: bingo + duo keep their bespoke pages; everything else
-	// (simple events + future templates) uses the generic /event/[slug] page.
+	// Route by event kind: bingo + duo keep their bespoke pages; task events (open /
+	// sequential) use the generic /event/[slug] page; anything else (legacy/custom)
+	// falls back to the /events/[slug] detail page.
 	function hrefFor(ev: { slug: string; kind?: string | null }): string {
 		if (ev.slug === BINGO_EVENT_SLUG || ev.kind === 'bingo') return `/bingo/${ev.slug}`;
-		if (ev.kind === 'duo') return `/events/${ev.slug}`;
-		return `/event/${ev.slug}`;
+		if (isTaskEvent(ev.kind)) return `/event/${ev.slug}`;
+		return `/events/${ev.slug}`;
 	}
 
 	function fmtDate(iso: string | null): string | null {

@@ -26,6 +26,7 @@
 {#if total > 0}
 	<div class="progress">
 		<span class="count">{data.completedCount}/{total}</span> tasks completed
+		{#if data.event.sequential}<span class="seq-tag">· complete in order</span>{/if}
 		<div class="bar"><div class="fill" style="width:{total ? (data.completedCount / total) * 100 : 0}%"></div></div>
 	</div>
 {/if}
@@ -112,6 +113,9 @@
 		color: var(--accent);
 		font-size: 1.05rem;
 		text-shadow: var(--ts);
+	}
+	.seq-tag {
+		color: var(--muted);
 	}
 	.bar {
 		margin-top: 0.4rem;

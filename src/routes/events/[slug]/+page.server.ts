@@ -5,6 +5,7 @@ import { ACCOUNT_TYPES } from '$lib/accountTypes';
 import { renderMarkdown } from '$lib/markdown';
 import { isAdmin } from '$lib/server/auth';
 import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
+import { isTaskEvent } from '$lib/events/simple';
 import type { Actions, PageServerLoad } from './$types';
 
 interface SignupRow {
@@ -116,9 +117,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 	if (eventErr) throw error(500, eventErr.message);
 	if (!event) throw error(404, 'Event not found');
-	// This page is the bespoke DuoWolf detail; non-duo kinds (simple events + future
-	// templates) live on the generic /event/[slug] page.
-	if (event.kind && event.kind !== 'duo') throw redirect(307, `/event/${params.slug}`);
+	// This page is the bespoke DuoWolf detail; task events (open/sequential) live on
+	// the generic /event/[slug] page. (Custom/legacy events stay here.)
+	if (isTaskEvent(event.kind)) throw redirect(307, `/event/${params.slug}`);
 	if ((event.status === 'preview' || event.status === 'draft') && !isAdmin(locals.user)) {
 		throw error(404, 'Event not found');
 	}

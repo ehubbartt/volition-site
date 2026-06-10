@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import EventsTasksTabs from '$lib/admin/EventsTasksTabs.svelte';
+	import { isTaskEvent } from '$lib/events/simple';
 	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -11,7 +12,10 @@
 	// resets the form, which blanks Svelte-set input values). See admin/cards.
 	const keepValues: SubmitFunction = () => async ({ update }) => update({ reset: false });
 
-	// ── Simple-event creator: a dynamic list of objective tasks ───────────────
+	// ── Event creator ─────────────────────────────────────────────────────────
+	// The type dropdown drives which fields show: 'simple'/'sequential' are
+	// task-based (a list of objectives); 'custom' is the advanced signup-based form.
+	let eventType = $state<'simple' | 'sequential' | 'custom'>('simple');
 	type TaskRow = { name: string; description: string; vp: number; pack: string };
 	const blankTask = (): TaskRow => ({ name: '', description: '', vp: 0, pack: '' });
 	let taskRows = $state<TaskRow[]>([blankTask(), blankTask(), blankTask()]);
@@ -43,115 +47,132 @@
 	{/if}
 
 	<details class="card" open>
-		<summary><strong>Create simple event</strong> <span class="muted small">— solo, image-proof tasks with per-task rewards</span></summary>
-		<form method="POST" action="?/createSimpleEvent" use:enhance>
+		<summary><strong>Create event</strong></summary>
+		<form method="POST" action="?/createEvent" use:enhance>
 			<label>
-				<span>Event name</span>
-				<input name="name" type="text" required placeholder="Summer Boss Hunt" />
+				<span>Event type</span>
+				<select name="kind" bind:value={eventType}>
+					<option value="simple">Open — complete any task, any time</option>
+					<option value="sequential">Sequential — complete tasks in order</option>
+					<option value="custom">Advanced — signup-based / custom</option>
+				</select>
 			</label>
-			<label>
-				<span>Description (markdown ok)</span>
-				<textarea name="description" rows="3" placeholder="What this event is about…"></textarea>
-			</label>
-			<div class="row">
-				<label>
-					<span>Starts at (optional)</span>
-					<input name="starts_at" type="datetime-local" />
-				</label>
-				<label>
-					<span>Ends at (optional)</span>
-					<input name="ends_at" type="datetime-local" />
-				</label>
-			</div>
 
-			<fieldset class="tasks">
-				<legend>Tasks <span class="muted small">(each needs proof + grants its own reward; blank rows are ignored)</span></legend>
-				{#each taskRows as row, i (i)}
-					<div class="task-row">
-						<div class="task-row-head">
-							<strong class="task-num">Task {i + 1}</strong>
-							{#if taskRows.length > 1}
-								<button type="button" class="link-danger" onclick={() => removeTaskRow(i)}>Remove</button>
-							{/if}
+			{#if eventType === 'custom'}
+				<p class="muted small">Advanced: a bespoke / signup-based event (e.g. a future bingo or duo). You wire up its page separately.</p>
+				<label>
+					<span>Slug (URL)</span>
+					<input name="slug" type="text" pattern="[a-z0-9-]+" required placeholder="tile-race-2026" />
+				</label>
+				<label>
+					<span>Name</span>
+					<input name="name" type="text" required placeholder="Tile Race 2026" />
+				</label>
+				<label>
+					<span>Description (markdown ok)</span>
+					<textarea name="description" rows="4"></textarea>
+				</label>
+				<div class="row">
+					<label>
+						<span>Team size</span>
+						<input name="team_size" type="number" min="1" max="20" value="2" />
+					</label>
+					<label>
+						<span>Status</span>
+						<select name="status">
+							<option value="draft">draft</option>
+							<option value="preview">preview (admin-only)</option>
+							<option value="open" selected>open</option>
+							<option value="locked">locked</option>
+							<option value="closed">closed</option>
+						</select>
+					</label>
+				</div>
+				<div class="row">
+					<label>
+						<span>Signups open at</span>
+						<input name="signup_opens_at" type="datetime-local" />
+					</label>
+					<label>
+						<span>Signups close at</span>
+						<input name="signup_closes_at" type="datetime-local" />
+					</label>
+				</div>
+				<div class="row">
+					<label>
+						<span>Event starts at</span>
+						<input name="starts_at" type="datetime-local" />
+					</label>
+					<label>
+						<span>Event ends at</span>
+						<input name="ends_at" type="datetime-local" />
+					</label>
+				</div>
+				<button type="submit" class="primary">Create event</button>
+			{:else}
+				<p class="muted small">
+					{eventType === 'sequential'
+						? 'Players complete the tasks in the order below — each unlocks after the previous is approved.'
+						: 'Players can complete the tasks in any order.'}
+				</p>
+				<label>
+					<span>Event name</span>
+					<input name="name" type="text" required placeholder="Summer Boss Hunt" />
+				</label>
+				<label>
+					<span>Description (markdown ok)</span>
+					<textarea name="description" rows="3" placeholder="What this event is about…"></textarea>
+				</label>
+				<div class="row">
+					<label>
+						<span>Starts at (optional)</span>
+						<input name="starts_at" type="datetime-local" />
+					</label>
+					<label>
+						<span>Ends at (optional)</span>
+						<input name="ends_at" type="datetime-local" />
+					</label>
+				</div>
+
+				<fieldset class="tasks">
+					<legend>
+						Tasks
+						<span class="muted small">
+							(each needs proof + grants its own reward; blank rows ignored{eventType === 'sequential' ? '; unlocked top→bottom' : ''})
+						</span>
+					</legend>
+					{#each taskRows as row, i (i)}
+						<div class="task-row">
+							<div class="task-row-head">
+								<strong class="task-num">Task {i + 1}</strong>
+								{#if taskRows.length > 1}
+									<button type="button" class="link-danger" onclick={() => removeTaskRow(i)}>Remove</button>
+								{/if}
+							</div>
+							<input name="task_name" type="text" placeholder="Task name (e.g. Kill Zulrah)" bind:value={row.name} />
+							<input name="task_desc" type="text" placeholder="Short description / requirement (optional)" bind:value={row.description} />
+							<div class="reward-row">
+								<label class="reward-field">
+									<span>VP reward</span>
+									<input name="task_vp" type="number" min="0" bind:value={row.vp} />
+								</label>
+								<label class="reward-field">
+									<span>Pack reward (optional)</span>
+									<input name="task_pack" type="text" list="pack-names" placeholder="e.g. White Pack" bind:value={row.pack} />
+								</label>
+							</div>
 						</div>
-						<input name="task_name" type="text" placeholder="Task name (e.g. Kill Zulrah)" bind:value={row.name} />
-						<input name="task_desc" type="text" placeholder="Short description / requirement (optional)" bind:value={row.description} />
-						<div class="reward-row">
-							<label class="reward-field">
-								<span>VP reward</span>
-								<input name="task_vp" type="number" min="0" bind:value={row.vp} />
-							</label>
-							<label class="reward-field">
-								<span>Pack reward (optional)</span>
-								<input name="task_pack" type="text" list="pack-names" placeholder="e.g. White Pack" bind:value={row.pack} />
-							</label>
-						</div>
-					</div>
-				{/each}
-				<button type="button" class="add-task" onclick={addTaskRow}>+ Add task</button>
-			</fieldset>
+					{/each}
+					<button type="button" class="add-task" onclick={addTaskRow}>+ Add task</button>
+				</fieldset>
 
-			<datalist id="pack-names">
-				{#each data.packNames as p}<option value={p}></option>{/each}
-			</datalist>
+				<datalist id="pack-names">
+					{#each data.packNames as p}<option value={p}></option>{/each}
+				</datalist>
 
-			<p class="muted small">Created as a draft — open it from its manage page when you're ready for players to submit.</p>
-			<button type="submit" class="primary">Create simple event</button>
-		</form>
-	</details>
-
-	<details class="card">
-		<summary><strong>Create new event</strong> <span class="muted small">— advanced / signup events (bingo, duo, custom)</span></summary>
-		<form method="POST" action="?/create" use:enhance>
-			<label>
-				<span>Slug (URL)</span>
-				<input name="slug" type="text" pattern="[a-z0-9-]+" required placeholder="tile-race-2026" />
-			</label>
-			<label>
-				<span>Name</span>
-				<input name="name" type="text" required placeholder="Tile Race 2026" />
-			</label>
-			<label>
-				<span>Description (markdown ok)</span>
-				<textarea name="description" rows="4"></textarea>
-			</label>
-			<div class="row">
-				<label>
-					<span>Team size</span>
-					<input name="team_size" type="number" min="1" max="20" value="2" />
-				</label>
-				<label>
-					<span>Status</span>
-					<select name="status">
-						<option value="draft">draft</option>
-						<option value="preview">preview (admin-only)</option>
-						<option value="open" selected>open</option>
-						<option value="locked">locked</option>
-						<option value="closed">closed</option>
-					</select>
-				</label>
-			</div>
-			<div class="row">
-				<label>
-					<span>Signups open at</span>
-					<input name="signup_opens_at" type="datetime-local" />
-				</label>
-				<label>
-					<span>Signups close at</span>
-					<input name="signup_closes_at" type="datetime-local" />
-				</label>
-			</div>
-			<div class="row">
-				<label>
-					<span>Event starts at</span>
-					<input name="starts_at" type="datetime-local" />
-				</label>
-				<label>
-					<span>Event ends at</span>
-					<input name="ends_at" type="datetime-local" />
-				</label>
-			</div>
-			<button type="submit" class="primary">Create</button>
+				<p class="muted small">Created as a draft — open it from its manage page when you're ready for players to submit.</p>
+				<button type="submit" class="primary">Create event</button>
+			{/if}
 		</form>
 	</details>
 
@@ -168,7 +189,7 @@
 							<span class="muted">/{ev.slug}</span>
 						</div>
 						<div class="head-actions">
-							{#if ev.kind === 'simple'}
+							{#if isTaskEvent(ev.kind)}
 								<a class="review-link" href="/admin/events/{ev.slug}">Manage tasks →</a>
 							{/if}
 							{#if ev.slug === BINGO_EVENT_SLUG}

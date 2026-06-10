@@ -3,7 +3,7 @@
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import EventsTasksTabs from '$lib/admin/EventsTasksTabs.svelte';
-	import { rewardLabel } from '$lib/events/simple';
+	import { rewardLabel, eventTypeLabel } from '$lib/events/simple';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -35,7 +35,7 @@
 		<div>
 			<h1>{data.event.name}</h1>
 			<p class="muted">
-				Simple event · <code>/{data.event.slug}</code> ·
+				{eventTypeLabel(data.event.kind)} event · <code>/{data.event.slug}</code> ·
 				<span class="status status-{data.event.status}">{data.event.status}</span>
 			</p>
 		</div>
@@ -159,6 +159,13 @@
 	<details class="card">
 		<summary><strong>Edit event details</strong></summary>
 		<form method="POST" action="?/updateEvent" use:enhance={keepValues}>
+			<label>
+				<span>Type</span>
+				<select name="kind">
+					<option value="simple" selected={data.event.kind === 'simple'}>Open — any task, any time</option>
+					<option value="sequential" selected={data.event.kind === 'sequential'}>Sequential — in order</option>
+				</select>
+			</label>
 			<label>
 				<span>Name</span>
 				<input name="name" type="text" required value={data.event.name} />

@@ -1,12 +1,12 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
-import { EVENT_TASK_KIND, SIMPLE_EVENT_KIND } from '$lib/events/simple';
+import { EVENT_TASK_KIND, isTaskEvent } from '$lib/events/simple';
 import type { Actions, PageServerLoad } from './$types';
 
-// Manage a single SIMPLE EVENT: edit meta + status, and CRUD its objective tasks
-// (vs_tasks rows with event_id + kind='event_task'). Reuses the same vs_tasks
-// write patterns as /admin/tasks. isAdmin-gated.
+// Manage a single TASK EVENT (open or sequential): edit meta + status + type, and
+// CRUD its objective tasks (vs_tasks rows with event_id + kind='event_task').
+// Reuses the same vs_tasks write patterns as /admin/tasks. isAdmin-gated.
 
 function intOrZero(v: FormDataEntryValue | null): number {
 	const n = parseInt((v ?? '').toString(), 10);
@@ -29,11 +29,11 @@ async function loadEvent(slug: string) {
 	return ev;
 }
 
-// Guard every action: the slug must resolve to a simple event we own.
-async function requireSimpleEvent(slug: string) {
+// Guard every action: the slug must resolve to a task event (open/sequential) we own.
+async function requireTaskEvent(slug: string) {
 	const ev = await loadEvent(slug);
 	if (!ev) return { error: fail(404, { error: 'Event not found' }) };
-	if (ev.kind !== SIMPLE_EVENT_KIND) return { error: fail(400, { error: 'Not a simple event' }) };
+	if (!isTaskEvent(ev.kind)) return { error: fail(400, { error: 'Not a task event' }) };
 	return { ev };
 }
 
@@ -43,7 +43,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const ev = await loadEvent(params.slug);
 	if (!ev) throw error(404, 'Event not found');
-	if (ev.kind !== SIMPLE_EVENT_KIND) throw redirect(303, '/admin/events');
+	if (!isTaskEvent(ev.kind)) throw redirect(303, '/admin/events');
 
 	const [tasksRes, packsRes, pendingRes] = await Promise.all([
 		db()
@@ -67,22 +67,24 @@ export const actions: Actions = {
 	// Edit event meta (name, description, dates).
 	updateEvent: async ({ locals, request, params }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
-		const guard = await requireSimpleEvent(params.slug);
+		const guard = await requireTaskEvent(params.slug);
 		if (guard.error) return guard.error;
 
 		const form = await request.formData();
 		const name = form.get('name')?.toString().trim() ?? '';
 		if (!name) return fail(400, { error: 'Event name is required' });
 
-		const { error: e } = await db()
-			.from('vs_events')
-			.update({
-				name,
-				description: form.get('description')?.toString().trim() || null,
-				starts_at: normalizeDate(form.get('starts_at')),
-				ends_at: normalizeDate(form.get('ends_at'))
-			})
-			.eq('id', guard.ev.id);
+		// Allow switching the unlock mode (open ↔ sequential); ignore anything else.
+		const kind = form.get('kind')?.toString();
+		const patch: Record<string, unknown> = {
+			name,
+			description: form.get('description')?.toString().trim() || null,
+			starts_at: normalizeDate(form.get('starts_at')),
+			ends_at: normalizeDate(form.get('ends_at'))
+		};
+		if (isTaskEvent(kind)) patch.kind = kind;
+
+		const { error: e } = await db().from('vs_events').update(patch).eq('id', guard.ev.id);
 		if (e) return fail(500, { error: e.message });
 		return { ok: true };
 	},
@@ -90,7 +92,7 @@ export const actions: Actions = {
 	// Flip the event status (draft → open → closed, etc).
 	setStatus: async ({ locals, request, params }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
-		const guard = await requireSimpleEvent(params.slug);
+		const guard = await requireTaskEvent(params.slug);
 		if (guard.error) return guard.error;
 
 		const status = form_status(await request.formData());
@@ -104,7 +106,7 @@ export const actions: Actions = {
 	// Add an objective task to this event.
 	addTask: async ({ locals, request, params }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
-		const guard = await requireSimpleEvent(params.slug);
+		const guard = await requireTaskEvent(params.slug);
 		if (guard.error) return guard.error;
 
 		const form = await request.formData();
@@ -131,7 +133,7 @@ export const actions: Actions = {
 	// Edit an objective task's fields. Scoped to this event's tasks.
 	updateTask: async ({ locals, request, params }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
-		const guard = await requireSimpleEvent(params.slug);
+		const guard = await requireTaskEvent(params.slug);
 		if (guard.error) return guard.error;
 
 		const form = await request.formData();
@@ -157,7 +159,7 @@ export const actions: Actions = {
 	// Delete an objective task. Fails gracefully if it already has submissions.
 	deleteTask: async ({ locals, request, params }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
-		const guard = await requireSimpleEvent(params.slug);
+		const guard = await requireTaskEvent(params.slug);
 		if (guard.error) return guard.error;
 
 		const form = await request.formData();
@@ -179,7 +181,7 @@ export const actions: Actions = {
 	// submissions). The UI surfaces this once tasks are cleared.
 	deleteEvent: async ({ locals, params }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
-		const guard = await requireSimpleEvent(params.slug);
+		const guard = await requireTaskEvent(params.slug);
 		if (guard.error) return guard.error;
 
 		const { count } = await db()

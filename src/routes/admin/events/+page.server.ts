@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { markdownPreview } from '$lib/markdown';
-import { SIMPLE_EVENT_KIND, EVENT_TASK_KIND, slugify } from '$lib/events/simple';
+import { isTaskEvent, EVENT_TASK_KIND, slugify } from '$lib/events/simple';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -69,33 +69,58 @@ function normalizeDate(v: FormDataEntryValue | null): string | null {
 	return d.toISOString();
 }
 
+// Parse the repeatable task rows (task_name[]/task_desc[]/task_vp[]/task_pack[])
+// from the task-event creator into clean objective rows; blank-name rows dropped.
+function parseTaskRows(form: FormData) {
+	const names = form.getAll('task_name').map((v) => v.toString().trim());
+	const descs = form.getAll('task_desc').map((v) => v.toString().trim());
+	const vps = form.getAll('task_vp').map((v) => v.toString());
+	const packs = form.getAll('task_pack').map((v) => v.toString().trim());
+	return names
+		.map((n, i) => ({
+			name: n,
+			description: descs[i]?.trim() || null,
+			vp_reward: Math.max(0, parseInt(vps[i] ?? '0', 10) || 0),
+			pack_reward: packs[i] || null
+		}))
+		.filter((t) => t.name);
+}
+
 export const actions: Actions = {
-	create: async ({ locals, request }) => {
+	// The unified event creator. `kind` (the type dropdown) decides the shape:
+	//   simple / sequential → a TASK EVENT: one vs_events row + N vs_tasks objective
+	//     rows (kind='event_task', event_id set), each with its own VP/pack reward,
+	//     reusing the task pipeline. 'sequential' tasks unlock in creation order.
+	//     Created as a draft → admin opens it from the manage page.
+	//   custom → an ADVANCED signup-based / bespoke event (slug, team_size, status,
+	//     signup dates) — the legacy generic create, kept for one-off events.
+	createEvent: async ({ locals, request }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
 
 		const form = await request.formData();
-		const parsed = eventSchema.safeParse({
-			slug: form.get('slug'),
-			name: form.get('name'),
-			description: form.get('description') || null,
-			team_size: form.get('team_size') ?? '2',
-			status: form.get('status') ?? 'draft',
-			signup_opens_at: form.get('signup_opens_at') || null,
-			signup_closes_at: form.get('signup_closes_at') || null,
-			starts_at: form.get('starts_at') || null,
-			ends_at: form.get('ends_at') || null
-		});
+		const kind = form.get('kind')?.toString() ?? '';
 
-		if (!parsed.success) {
-			return fail(400, { error: parsed.error.issues[0]?.message ?? 'Invalid input' });
-		}
-
-		const { error: insertError } = await db()
-			.from('vs_events')
-			.insert({
+		// ── Advanced / custom (signup-based) ────────────────────────────────
+		if (kind === 'custom') {
+			const parsed = eventSchema.safeParse({
+				slug: form.get('slug'),
+				name: form.get('name'),
+				description: form.get('description') || null,
+				team_size: form.get('team_size') ?? '2',
+				status: form.get('status') ?? 'draft',
+				signup_opens_at: form.get('signup_opens_at') || null,
+				signup_closes_at: form.get('signup_closes_at') || null,
+				starts_at: form.get('starts_at') || null,
+				ends_at: form.get('ends_at') || null
+			});
+			if (!parsed.success) {
+				return fail(400, { error: parsed.error.issues[0]?.message ?? 'Invalid input' });
+			}
+			const { error: insertError } = await db().from('vs_events').insert({
 				slug: parsed.data.slug,
 				name: parsed.data.name,
 				description: parsed.data.description,
+				kind: 'custom',
 				team_size: parsed.data.team_size,
 				status: parsed.data.status,
 				signup_opens_at: normalizeDate(form.get('signup_opens_at')),
@@ -103,43 +128,23 @@ export const actions: Actions = {
 				starts_at: normalizeDate(form.get('starts_at')),
 				ends_at: normalizeDate(form.get('ends_at'))
 			});
-
-		if (insertError) {
-			if (insertError.message.includes('duplicate')) {
-				return fail(409, { error: 'An event with that slug already exists' });
+			if (insertError) {
+				if (insertError.message.includes('duplicate')) {
+					return fail(409, { error: 'An event with that slug already exists' });
+				}
+				return fail(500, { error: insertError.message });
 			}
-			return fail(500, { error: insertError.message });
+			return { ok: true };
 		}
 
-		return { ok: true };
-	},
+		// ── Task event (open / sequential) ──────────────────────────────────
+		if (!isTaskEvent(kind)) return fail(400, { error: 'Pick an event type' });
 
-	// Create a SIMPLE EVENT from the template: one vs_events row (kind='simple') +
-	// N vs_tasks objective rows (kind='event_task', event_id set). Each objective
-	// carries its own VP / pack reward, reusing the task reward pipeline. Created as
-	// a draft — the admin opens it from the manage page when ready.
-	createSimpleEvent: async ({ locals, request }) => {
-		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
-
-		const form = await request.formData();
 		const name = form.get('name')?.toString().trim() ?? '';
 		if (!name) return fail(400, { error: 'Event name is required' });
 		const description = form.get('description')?.toString().trim() || null;
 
-		// Parallel task fields: task_name[] / task_desc[] / task_vp[] / task_pack[].
-		const names = form.getAll('task_name').map((v) => v.toString().trim());
-		const descs = form.getAll('task_desc').map((v) => v.toString().trim());
-		const vps = form.getAll('task_vp').map((v) => v.toString());
-		const packs = form.getAll('task_pack').map((v) => v.toString().trim());
-
-		const tasks = names
-			.map((n, i) => ({
-				name: n,
-				description: descs[i]?.trim() || null,
-				vp_reward: Math.max(0, parseInt(vps[i] ?? '0', 10) || 0),
-				pack_reward: packs[i] || null
-			}))
-			.filter((t) => t.name); // drop blank rows
+		const tasks = parseTaskRows(form);
 		if (tasks.length === 0) return fail(400, { error: 'Add at least one task' });
 
 		const slug = await uniqueEventSlug(name);
@@ -150,7 +155,7 @@ export const actions: Actions = {
 				slug,
 				name,
 				description,
-				kind: SIMPLE_EVENT_KIND,
+				kind,
 				status: 'draft',
 				team_size: 1,
 				starts_at: normalizeDate(form.get('starts_at')),
@@ -160,6 +165,7 @@ export const actions: Actions = {
 			.single();
 		if (insErr || !ev) return fail(500, { error: insErr?.message ?? 'Could not create event' });
 
+		// vs_tasks created in order → for 'sequential' that IS the unlock order.
 		const rows = tasks.map((t) => ({
 			name: t.name,
 			description: t.description,
@@ -175,8 +181,7 @@ export const actions: Actions = {
 		}));
 		const { error: taskErr } = await db().from('vs_tasks').insert(rows);
 		if (taskErr) {
-			// Roll back the orphaned event so a retry starts clean.
-			await db().from('vs_events').delete().eq('id', ev.id);
+			await db().from('vs_events').delete().eq('id', ev.id); // roll back the orphan
 			return fail(500, { error: taskErr.message });
 		}
 

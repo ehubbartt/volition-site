@@ -5,7 +5,7 @@ import { isClanMember } from '$lib/server/clan';
 import { renderMarkdown } from '$lib/markdown';
 import { createSubmission } from '$lib/server/submissions';
 import { BINGO_BUCKET, BINGO_EVENT_SLUG } from '$lib/bingo/config';
-import { SIMPLE_EVENT_KIND, rewardLabel, type SubmissionStatus } from '$lib/events/simple';
+import { SEQUENTIAL_EVENT_KIND, isTaskEvent, rewardLabel, type SubmissionStatus } from '$lib/events/simple';
 import type { Actions, PageServerLoad } from './$types';
 
 // Generic, template-driven event detail page. Today it serves SIMPLE events (a
@@ -66,7 +66,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	// Send the bespoke event types to their own pages.
 	if (ev.slug === BINGO_EVENT_SLUG || ev.kind === 'bingo') throw redirect(303, `/bingo/${ev.slug}`);
 	if (ev.kind === 'duo') throw redirect(303, `/events/${ev.slug}`);
-	if (ev.kind !== SIMPLE_EVENT_KIND) throw error(404, 'Event not found');
+	if (!isTaskEvent(ev.kind)) throw error(404, 'Event not found');
 
 	const admin = isAdmin(locals.user);
 	if ((ev.status === 'draft' || ev.status === 'preview') && !admin) {
@@ -97,14 +97,23 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const memberOfClan = await isClanMember(locals.user.discord_id, locals.user.rsn);
 
+	// Sequential events unlock tasks in creation order: a task is locked until every
+	// task before it is done (approved). Open events never lock.
+	const isSequential = ev.kind === SEQUENTIAL_EVENT_KIND;
+	let prevAllDone = true; // first task is always unlocked
+
 	const eventTasks = tasks.map((t) => {
 		const subs = byTask.get(t.id) ?? [];
+		const done = subs.some((s) => s.status === 'approved');
+		const locked = isSequential ? !prevAllDone : false;
+		prevAllDone = prevAllDone && done; // a later task unlocks only once this is done
 		return {
 			id: t.id,
 			name: t.name,
 			description_html: renderMarkdown(t.description),
 			reward: rewardLabel(t.vp_reward, t.pack_reward),
-			done: subs.some((s) => s.status === 'approved'),
+			done,
+			locked,
 			mySubmissions: subs.map((s) => ({
 				id: s.id,
 				proof_urls: s.proof_urls ?? [],
@@ -120,6 +129,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		event: {
 			slug: ev.slug,
 			name: ev.name,
+			kind: ev.kind,
+			sequential: isSequential,
 			description_html: renderMarkdown(ev.description),
 			status: ev.status,
 			starts_at: ev.starts_at,
@@ -141,7 +152,7 @@ export const actions: Actions = {
 		}
 
 		const ev = await getEvent(params.slug);
-		if (!ev || ev.kind !== SIMPLE_EVENT_KIND) return fail(404, { error: 'Event not found' });
+		if (!ev || !isTaskEvent(ev.kind)) return fail(404, { error: 'Event not found' });
 		if (ev.status !== 'open') return fail(400, { error: 'This event is not open for submissions.' });
 
 		const form = await request.formData();
@@ -157,6 +168,26 @@ export const actions: Actions = {
 			.eq('status', 'open')
 			.maybeSingle();
 		if (!task) return fail(400, { error: 'That task is not part of this event.' });
+
+		// Sequential events: enforce the lock server-side — every task before this one
+		// (in creation order) must already be approved for this player.
+		if (ev.kind === SEQUENTIAL_EVENT_KIND) {
+			const ordered = await getEventTasks(ev.id);
+			const idx = ordered.findIndex((t) => t.id === taskId);
+			const priorIds = ordered.slice(0, Math.max(0, idx)).map((t) => t.id);
+			if (priorIds.length > 0) {
+				const { data: approved } = await db()
+					.from('vs_submissions')
+					.select('task_id')
+					.in('task_id', priorIds)
+					.eq('status', 'approved')
+					.or(`user_id.eq.${locals.user.id},discord_id.eq.${locals.user.discord_id}`);
+				const done = new Set((approved ?? []).map((r) => r.task_id as string));
+				if (!priorIds.every((id) => done.has(id))) {
+					return fail(400, { error: 'Complete the earlier tasks first.' });
+				}
+			}
+		}
 
 		const files = form.getAll('proof').filter((f): f is File => f instanceof File && f.size > 0);
 		const result = await createSubmission({
