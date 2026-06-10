@@ -2,7 +2,6 @@ import { redirect } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { markdownPreview } from '$lib/markdown';
-import { isEventUpcoming } from '$lib/events/simple';
 import {
 	BINGO_EVENT_SLUG,
 	BINGO_ROW_COUNT,
@@ -12,6 +11,7 @@ import type { PageServerLoad } from './$types';
 
 const HOUR_MS = 3_600_000;
 const BINGO_DURATION_MS = BINGO_ROW_COUNT * BINGO_ROW_INTERVAL_HOURS * HOUR_MS;
+const FAR = Number.MAX_SAFE_INTEGER;
 
 function startsAtFor(slug: string, starts: string | null, opens: string | null): string | null {
 	return starts ?? (slug === BINGO_EVENT_SLUG ? opens : null);
@@ -30,43 +30,118 @@ function endsAtFor(
 	return closes;
 }
 
-function pickStatusLine(
-	now: number,
-	opens: string | null,
-	closes: string | null,
-	starts: string | null,
-	ends: string | null
-): { label: string; date: string } | null {
-	const candidates: Array<{ label: string; date: string }> = [];
-	if (opens) candidates.push({ label: 'Signups open', date: opens });
-	if (closes) candidates.push({ label: 'Signups close', date: closes });
-	if (starts) candidates.push({ label: 'Starts', date: starts });
-	if (ends) candidates.push({ label: 'Ends', date: ends });
-
-	const future = candidates
-		.map((c) => ({ ...c, t: new Date(c.date).getTime() }))
-		.filter((c) => c.t > now)
-		.sort((a, b) => a.t - b.t);
-	if (future.length > 0) return { label: future[0].label, date: future[0].date };
-
-	if (ends) return { label: 'Ended', date: ends };
-	return null;
+interface EventRow {
+	id: string;
+	slug: string;
+	name: string;
+	kind: string;
+	description: string | null;
+	status: string;
+	signup_opens_at: string | null;
+	signup_closes_at: string | null;
+	starts_at: string | null;
+	ends_at: string | null;
 }
 
-function sortKey(
+type Section = 'active' | 'upcoming' | 'past';
+interface ActionLine {
+	label: string;
+	date: string | null;
+}
+
+// Only duo (and signup-configured custom) events use the signup flow. bingo/simple/
+// sequential are solo — even if a bingo borrows signup_opens_at as its start alias.
+function hasSignupFlow(ev: EventRow): boolean {
+	return (
+		ev.kind === 'duo' ||
+		(ev.kind === 'custom' && (ev.signup_opens_at != null || ev.signup_closes_at != null))
+	);
+}
+
+// Classify an event FOR THE CURRENT USER: which section it belongs in, a sort key
+// (ascending = the soonest thing the user needs to act on comes first), and the line
+// to display. "Action" = the next step for this user: submit before it ends, sign up
+// before signups close, or just wait for it to start. For signup events this depends
+// on whether the user is already signed up (then it's about the start, not signups).
+function classify(
+	ev: EventRow,
+	startsAt: string | null,
+	endsAt: string | null,
 	now: number,
-	opens: string | null,
-	closes: string | null,
-	starts: string | null,
-	ends: string | null
-): number {
-	const all = [opens, closes, starts, ends]
-		.filter((s): s is string => Boolean(s))
-		.map((s) => new Date(s).getTime());
-	const future = all.filter((t) => t > now);
-	if (future.length > 0) return Math.min(...future);
-	if (all.length > 0) return Math.max(...all) + 1e13;
-	return Number.MAX_SAFE_INTEGER;
+	signedUp: boolean
+): { section: Section; sortKey: number; line: ActionLine | null } {
+	const startMs = startsAt ? new Date(startsAt).getTime() : null;
+	const endMs = endsAt ? new Date(endsAt).getTime() : null;
+	const sOpen = ev.signup_opens_at ? new Date(ev.signup_opens_at).getTime() : null;
+	const sClose = ev.signup_closes_at ? new Date(ev.signup_closes_at).getTime() : null;
+
+	// Closed → past, most-recently-ended first.
+	if (ev.status === 'closed') {
+		return {
+			section: 'past',
+			sortKey: -(endMs ?? startMs ?? 0),
+			line: endsAt ? { label: 'Ended', date: endsAt } : null
+		};
+	}
+
+	// Admin-only pre-launch states aren't live yet → upcoming.
+	if (ev.status === 'draft' || ev.status === 'preview') {
+		return {
+			section: 'upcoming',
+			sortKey: startMs ?? FAR,
+			line: startsAt ? { label: 'Starts', date: startsAt } : null
+		};
+	}
+
+	const started = startMs == null || now >= startMs; // open + past its start = live
+
+	// Signup event the user HASN'T joined → the action is about signing up.
+	if (hasSignupFlow(ev) && !signedUp) {
+		const signupsOpen = (sOpen == null || now >= sOpen) && (sClose == null || now <= sClose);
+		if (signupsOpen) {
+			return {
+				section: 'active',
+				sortKey: sClose ?? endMs ?? FAR,
+				line: ev.signup_closes_at
+					? { label: 'Sign up by', date: ev.signup_closes_at }
+					: { label: 'Sign up now', date: null }
+			};
+		}
+		if (sOpen != null && now < sOpen) {
+			return {
+				section: 'upcoming',
+				sortKey: sOpen,
+				line: { label: 'Signups open', date: ev.signup_opens_at }
+			};
+		}
+		// Signups have closed and they never joined — nothing to act on.
+		if (started) {
+			return {
+				section: 'active',
+				sortKey: endMs ?? FAR,
+				line: endsAt ? { label: 'Ends', date: endsAt } : { label: 'Running', date: null }
+			};
+		}
+		return {
+			section: 'upcoming',
+			sortKey: startMs ?? FAR,
+			line: startsAt ? { label: 'Starts', date: startsAt } : null
+		};
+	}
+
+	// Solo event, OR a signup event the user is already in → it's about the event itself.
+	if (started) {
+		return {
+			section: 'active',
+			sortKey: endMs ?? FAR,
+			line: endsAt ? { label: 'Ends', date: endsAt } : { label: 'Open now', date: null }
+		};
+	}
+	return {
+		section: 'upcoming',
+		sortKey: startMs ?? FAR,
+		line: startsAt ? { label: 'Starts', date: startsAt } : null
+	};
 }
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -92,39 +167,48 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	if (error) throw new Error(error.message);
 
+	const rows = (events ?? []) as EventRow[];
 	const now = Date.now();
 
-	const items = (events ?? []).map((ev) => {
+	// Which of these the current user has signed up for (signup events only) — drives
+	// the signed-up vs not-signed-up sorting/display.
+	const eventIds = rows.map((e) => e.id);
+	let signedUpIds = new Set<string>();
+	if (eventIds.length) {
+		const { data: sus } = await db()
+			.from('vs_event_signups')
+			.select('event_id')
+			.eq('user_id', locals.user.id)
+			.in('event_id', eventIds);
+		signedUpIds = new Set((sus ?? []).map((r) => r.event_id as string));
+	}
+
+	const items = rows.map((ev) => {
 		const startsAt = startsAtFor(ev.slug, ev.starts_at, ev.signup_opens_at);
 		const endsAt = endsAtFor(ev.slug, startsAt, ev.ends_at, ev.signup_closes_at);
-		const allDates = [ev.signup_opens_at, ev.signup_closes_at, startsAt, endsAt]
-			.filter((s): s is string => Boolean(s))
-			.map((s) => new Date(s).getTime());
+		const signedUp = signedUpIds.has(ev.id);
+		const { section, sortKey, line } = classify(ev, startsAt, endsAt, now, signedUp);
 		return {
-			...ev,
+			id: ev.id,
+			slug: ev.slug,
+			name: ev.name,
+			kind: ev.kind,
+			status: ev.status,
 			description_preview: markdownPreview(ev.description, 160),
-			resolved_starts_at: startsAt,
-			resolved_ends_at: endsAt,
-			// Published (open) but not started yet → flagged "Upcoming" in the list.
-			upcoming: isEventUpcoming(ev.status, startsAt, now),
-			status_line: pickStatusLine(
-				now,
-				ev.signup_opens_at,
-				ev.signup_closes_at,
-				startsAt,
-				endsAt
-			),
-			_sort_key: sortKey(now, ev.signup_opens_at, ev.signup_closes_at, startsAt, endsAt),
-			_recent_key: allDates.length > 0 ? Math.max(...allDates) : 0
+			status_line: line,
+			hasSignup: hasSignupFlow(ev),
+			signedUp,
+			section,
+			_sort: sortKey
 		};
 	});
 
-	const active = items
-		.filter((ev) => ev.status !== 'closed')
-		.sort((a, b) => a._sort_key - b._sort_key);
-	const past = items
-		.filter((ev) => ev.status === 'closed')
-		.sort((a, b) => b._recent_key - a._recent_key);
+	const bySection = (s: Section) =>
+		items.filter((i) => i.section === s).sort((a, b) => a._sort - b._sort);
 
-	return { events: active, pastEvents: past };
+	return {
+		activeEvents: bySection('active'),
+		upcomingEvents: bySection('upcoming'),
+		pastEvents: bySection('past')
+	};
 };

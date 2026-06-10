@@ -33,11 +33,12 @@
 	<title>Events · Volition</title>
 </svelte:head>
 
-{#snippet eventCard(ev: PageData['events'][number], past: boolean)}
+{#snippet eventCard(ev: PageData['activeEvents'][number], section: 'active' | 'upcoming' | 'past')}
+	{@const past = section === 'past'}
 	{@const isBingo = ev.slug === BINGO_EVENT_SLUG}
 	{@const isDraft = ev.status === 'draft'}
 	{@const isPreview = ev.status === 'preview'}
-	{@const isUpcoming = ev.upcoming && !isDraft && !isPreview && !past}
+	{@const isUpcoming = section === 'upcoming' && !isDraft && !isPreview}
 	<li>
 		<a
 			href={hrefFor(ev)}
@@ -55,28 +56,35 @@
 				{#if ev.status_line}
 					<div class="status-line">
 						<span class="label">{ev.status_line.label}</span>
-						<span class="when">{fmtDate(ev.status_line.date)}</span>
+						{#if ev.status_line.date}
+							<span class="when">{fmtDate(ev.status_line.date)}</span>
+						{/if}
 					</div>
 				{/if}
-				<div
-					class="badge"
-					class:bingo={isBingo && !isDraft && !isPreview && !past && !isUpcoming}
-					class:open={ev.status === 'open' && !isBingo && !isUpcoming}
-					class:upcoming={isUpcoming}
-					class:draft={isDraft}
-					class:preview={isPreview}
-				>
-					{isDraft
-						? 'Draft · admin only'
-						: isPreview
-							? 'Preview · admin only'
-							: past
-								? 'Closed'
-								: isUpcoming
-									? 'Upcoming'
-									: isBingo
-										? 'Bingo'
-										: ev.status}
+				<div class="foot-tags">
+					<div
+						class="badge"
+						class:bingo={isBingo && !isDraft && !isPreview && !past && !isUpcoming}
+						class:open={ev.status === 'open' && !isBingo && !isUpcoming}
+						class:upcoming={isUpcoming}
+						class:draft={isDraft}
+						class:preview={isPreview}
+					>
+						{isDraft
+							? 'Draft · admin only'
+							: isPreview
+								? 'Preview · admin only'
+								: past
+									? 'Closed'
+									: isUpcoming
+										? 'Upcoming'
+										: isBingo
+											? 'Bingo'
+											: ev.status}
+					</div>
+					{#if ev.signedUp && !past}
+						<span class="signed">✓ Signed up</span>
+					{/if}
 				</div>
 			</div>
 		</a>
@@ -86,23 +94,34 @@
 <section>
 	<h1>Active events</h1>
 
-	{#if data.events.length === 0}
-		<p class="muted">No active events right now. Check back soon.</p>
+	{#if data.activeEvents.length === 0}
+		<p class="muted">No events need your attention right now.</p>
 	{:else}
 		<ul class="events">
-			{#each data.events as ev}
-				{@render eventCard(ev, false)}
+			{#each data.activeEvents as ev (ev.id)}
+				{@render eventCard(ev, 'active')}
 			{/each}
 		</ul>
 	{/if}
 </section>
 
+{#if data.upcomingEvents.length > 0}
+	<section class="upcoming-section">
+		<h2>Upcoming events</h2>
+		<ul class="events">
+			{#each data.upcomingEvents as ev (ev.id)}
+				{@render eventCard(ev, 'upcoming')}
+			{/each}
+		</ul>
+	</section>
+{/if}
+
 {#if data.pastEvents.length > 0}
 	<section class="past-section">
 		<h2>Past events</h2>
 		<ul class="events">
-			{#each data.pastEvents as ev}
-				{@render eventCard(ev, true)}
+			{#each data.pastEvents as ev (ev.id)}
+				{@render eventCard(ev, 'past')}
 			{/each}
 		</ul>
 	</section>
@@ -110,6 +129,14 @@
 
 <style>
 	h1 {
+		margin-bottom: 1.25rem;
+	}
+
+	.upcoming-section {
+		margin-top: 2.5rem;
+	}
+
+	.upcoming-section h2 {
 		margin-bottom: 1.25rem;
 	}
 
@@ -227,6 +254,29 @@
 		color: var(--yellow);
 		font-family: var(--font-heading);
 		text-shadow: var(--ts);
+	}
+
+	.foot-tags {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		margin-top: 0.75rem;
+	}
+
+	.foot-tags .badge {
+		margin-top: 0;
+	}
+
+	.signed {
+		padding: 0.1rem 0.5rem;
+		font-size: 0.72rem;
+		border-radius: 999px;
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		color: var(--accent);
+		font-family: ui-sans-serif, system-ui, Arial, sans-serif;
+		white-space: nowrap;
 	}
 
 	.badge {
