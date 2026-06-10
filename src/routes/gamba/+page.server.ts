@@ -164,10 +164,7 @@ async function applyCrateReward(user: SessionUser, isFree: boolean, result: Loot
 
 	// Forward notable crate rewards (items, role, big VP) to the Discord drops
 	// channel — same threshold the rare-drops log uses. Best-effort.
-	// TEMP (testing): forward EVERY crate open, not just rares. Set back to
-	// `isRareDrop(result)` to restore normal behaviour.
-	const FORWARD_ALL_CRATE_DROPS = true;
-	if (FORWARD_ALL_CRATE_DROPS || isRareDrop(result)) {
+	if (isRareDrop(result)) {
 		const reward =
 			result.kind === 'vp'
 				? `${result.amount.toLocaleString()} VP`

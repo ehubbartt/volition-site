@@ -1,9 +1,10 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
-import { isAdmin } from '$lib/server/auth';
+import { isAdmin, isCardTester } from '$lib/server/auth';
 import { ensureWelcomePack } from '$lib/server/welcomePack';
 import { loadCalendarItems } from '$lib/server/calendar';
+import { loadPlayerTasks } from '$lib/server/tasks';
 import { CATEGORY_OPTIONS } from '$lib/calendar';
 import { RANK_ORDER, RANK_LABEL, RANK_COLOR, rankIndex } from '$lib/ranks';
 import type { Actions, PageServerLoad } from './$types';
@@ -64,6 +65,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 			rankBreakdown: [] as never[],
 			recentMembers: [] as never[],
 			stats: { members: playersRes.count ?? 0, activeEvents: active, totalEvents: total, packsOpened: 0 },
+			taskSummary: null,
 			categoryOptions: CATEGORY_OPTIONS
 		};
 	}
@@ -74,16 +76,28 @@ export const load: PageServerLoad = async ({ parent }) => {
 	}
 
 	const admin = isAdmin(user);
+	const cardTester = isCardTester(user);
 
-	const [calendar, playersRes, siteUsersRes, eventsRes, packsRes] = await Promise.all([
+	const [calendar, playersRes, siteUsersRes, eventsRes, packsRes, tasks] = await Promise.all([
 		loadCalendarItems(admin),
 		sb
 			.from('players')
 			.select('id, rsn, discord_id, rank, points, clan_joined_at, created_at'),
 		sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null),
 		sb.from('vs_events').select('status').in('status', ['draft', 'preview', 'open', 'locked', 'closed']),
-		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true })
+		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true }),
+		// To-do surface is card-testers only for now; skip the work otherwise.
+		cardTester ? loadPlayerTasks(user) : Promise.resolve(null)
 	]);
+
+	// Ship a light summary (not the full array) for the home "Your to-do" card.
+	const taskSummary = tasks
+		? {
+				todoCount: tasks.filter((t) => t.status === 'todo').length,
+				total: tasks.length,
+				hasActive: tasks.some((t) => t.status === 'active')
+			}
+		: null;
 
 	const playerRows = (playersRes.data ?? []) as PlayerRow[];
 	const siteUsers = (siteUsersRes.data ?? []) as SiteUserRow[];
@@ -157,6 +171,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 			totalEvents: total,
 			packsOpened: packsRes.count ?? 0
 		},
+		taskSummary,
 		categoryOptions: CATEGORY_OPTIONS
 	};
 };

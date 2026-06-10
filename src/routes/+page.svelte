@@ -329,6 +329,23 @@
 		</div>
 	</div>
 
+	{#if data.taskSummary}
+		<a class="todo-card" href="/tasks">
+			<div class="todo-text">
+				<span class="todo-label">Your to-do</span>
+				<span class="todo-line">
+					{#if data.taskSummary.todoCount > 0}
+						<strong>{data.taskSummary.todoCount}</strong>
+						{data.taskSummary.todoCount === 1 ? 'thing' : 'things'} to do
+					{:else}
+						All caught up
+					{/if}
+				</span>
+			</div>
+			<span class="todo-go">View all →</span>
+		</a>
+	{/if}
+
 	{#if form?.error}
 		<div class="err">{form.error}</div>
 	{/if}
@@ -758,6 +775,49 @@
 		font-size: 0.8rem;
 		color: var(--muted);
 		text-align: center;
+	}
+
+	/* ── To-do summary card ── */
+	.todo-card {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		margin-bottom: 1rem;
+		padding: 0.85rem 1.1rem;
+		text-decoration: none;
+		color: var(--text);
+		background: linear-gradient(180deg, rgba(255, 152, 31, 0.1), rgba(40, 32, 24, 0.6));
+		border: 1px solid rgba(255, 152, 31, 0.4);
+		border-radius: var(--radius);
+		box-shadow: var(--shadow-card);
+		transition: border-color 0.12s ease, transform 0.12s ease;
+	}
+	.todo-card:hover {
+		border-color: var(--accent);
+		transform: translateY(-1px);
+	}
+	.todo-text {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+	.todo-label {
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--accent);
+	}
+	.todo-line {
+		font-family: var(--font-heading);
+		font-size: 1.05rem;
+		text-shadow: var(--ts);
+	}
+	.todo-go {
+		font-family: var(--font-heading);
+		color: var(--accent);
+		font-size: 0.9rem;
+		white-space: nowrap;
 	}
 
 	/* ── Layout grid ── */

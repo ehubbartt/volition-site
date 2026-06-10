@@ -13,9 +13,9 @@
 			show: data.admin
 		},
 		{
-			href: `/admin/bingo/${data.bingoSlug}/review`,
-			title: 'Bingo review',
-			desc: 'Approve or reject pending bingo submissions.',
+			href: '/admin/submissions',
+			title: 'Review submissions',
+			desc: 'Approve or reject pending image proofs across all events.',
 			show: data.admin
 		},
 		{

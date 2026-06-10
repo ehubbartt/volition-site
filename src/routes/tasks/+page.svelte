@@ -1,0 +1,256 @@
+<script lang="ts">
+	import { formatCountdown, type PlayerTask } from '$lib/tasks';
+	import type { PageData } from './$types';
+
+	let { data }: { data: PageData } = $props();
+
+	// Live clock so the countdowns tick (pattern from the gamba page).
+	let now = $state(Date.now());
+	$effect(() => {
+		const id = setInterval(() => (now = Date.now()), 1000);
+		return () => clearInterval(id);
+	});
+
+	const todoCount = $derived(data.tasks.filter((t) => t.status === 'todo').length);
+
+	const STATUS_LABEL: Record<PlayerTask['status'], string> = {
+		todo: 'To do',
+		active: 'Active',
+		done: 'Done'
+	};
+
+	function resetLabel(t: PlayerTask): string {
+		if (t.status === 'done') return 'Resets in';
+		if (t.kind === 'competition') return 'Ends in';
+		return 'Next unlock in';
+	}
+
+	function countdownFor(t: PlayerTask): string {
+		if (!t.resetAt) return '';
+		return formatCountdown(new Date(t.resetAt).getTime() - now);
+	}
+</script>
+
+<svelte:head><title>To Do · Volition</title></svelte:head>
+
+<section class="head">
+	<div>
+		<h1>To Do</h1>
+		<p class="muted">
+			{#if todoCount > 0}
+				You have <strong>{todoCount}</strong>
+				{todoCount === 1 ? 'thing' : 'things'} to do.
+			{:else}
+				You're all caught up — nice.
+			{/if}
+		</p>
+	</div>
+</section>
+
+{#if data.tasks.length === 0}
+	<div class="panel empty">Nothing time-gated right now. Check back later!</div>
+{:else}
+	<ul class="task-list">
+		{#each data.tasks as t (t.id)}
+			<li>
+				<a
+					class="task panel"
+					class:is-done={t.status === 'done'}
+					href={t.href}
+					target={t.external ? '_blank' : undefined}
+					rel={t.external ? 'noopener noreferrer' : undefined}
+				>
+					<div class="task-main">
+						<div class="task-head">
+							<span class="badge badge-{t.status}">{STATUS_LABEL[t.status]}</span>
+							<span class="task-title">{t.title}</span>
+							{#if t.reward}
+								<span class="reward" title="Reward">🎁 {t.reward}</span>
+							{/if}
+						</div>
+						{#if t.description}
+							<p class="task-desc">{t.description}</p>
+						{/if}
+						{#if t.progress}
+							<div class="bar" aria-hidden="true">
+								<div
+									class="bar-fill"
+									style="width: {t.progress.total
+										? Math.round((t.progress.done / t.progress.total) * 100)
+										: 0}%"
+								></div>
+							</div>
+						{/if}
+					</div>
+
+					<div class="task-cta">
+						{#if t.resetAt}
+							<span class="reset">{resetLabel(t)} <strong>{countdownFor(t)}</strong></span>
+						{/if}
+						<span class="cta">{t.ctaLabel} →</span>
+					</div>
+				</a>
+			</li>
+		{/each}
+	</ul>
+{/if}
+
+<style>
+	.head {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-end;
+		gap: 1rem;
+		margin-bottom: 1.25rem;
+	}
+	.head h1 {
+		font-family: var(--font-heading);
+		font-size: 2rem;
+		margin: 0 0 0.2rem;
+		text-shadow: var(--ts);
+	}
+	.muted {
+		color: var(--muted);
+		margin: 0;
+	}
+
+	.task-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.7rem;
+	}
+
+	.panel {
+		background: linear-gradient(180deg, rgba(58, 48, 36, 0.6), rgba(40, 32, 24, 0.6));
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		box-shadow: var(--shadow-card);
+	}
+	.empty {
+		padding: 1.5rem;
+		text-align: center;
+		color: var(--muted);
+	}
+
+	.task {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 0.9rem 1.1rem;
+		text-decoration: none;
+		color: var(--text);
+		transition: border-color 0.12s ease, transform 0.12s ease;
+	}
+	.task:hover {
+		border-color: var(--border-strong);
+		transform: translateY(-1px);
+	}
+	.task.is-done {
+		opacity: 0.7;
+	}
+
+	.task-main {
+		min-width: 0;
+		flex: 1;
+	}
+	.task-head {
+		display: flex;
+		align-items: center;
+		gap: 0.55rem;
+		flex-wrap: wrap;
+	}
+	.reward {
+		font-size: 0.72rem;
+		color: var(--yellow);
+		background: rgba(255, 255, 0, 0.08);
+		border: 1px solid rgba(255, 255, 0, 0.3);
+		border-radius: var(--radius);
+		padding: 0.1rem 0.45rem;
+		white-space: nowrap;
+	}
+	.task-title {
+		font-family: var(--font-heading);
+		font-size: 1.05rem;
+		text-shadow: var(--ts);
+	}
+	.task-desc {
+		margin: 0.3rem 0 0;
+		color: var(--muted);
+		font-size: 0.9rem;
+	}
+
+	.badge {
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		padding: 0.12rem 0.4rem;
+		border-radius: var(--radius);
+		border: 1px solid transparent;
+		white-space: nowrap;
+	}
+	.badge-todo {
+		color: var(--accent);
+		border-color: rgba(255, 152, 31, 0.45);
+		background: var(--accent-soft);
+	}
+	.badge-active {
+		color: var(--yellow);
+		border-color: rgba(255, 255, 0, 0.35);
+		background: rgba(255, 255, 0, 0.1);
+	}
+	.badge-done {
+		color: #7fd18a;
+		border-color: rgba(127, 209, 138, 0.35);
+		background: rgba(127, 209, 138, 0.1);
+	}
+
+	.bar {
+		margin-top: 0.5rem;
+		height: 5px;
+		background: var(--surface-alt);
+		border-radius: 999px;
+		overflow: hidden;
+		max-width: 320px;
+	}
+	.bar-fill {
+		height: 100%;
+		background: var(--accent);
+		border-radius: 999px;
+	}
+
+	.task-cta {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 0.3rem;
+		text-align: right;
+		white-space: nowrap;
+	}
+	.reset {
+		font-size: 0.8rem;
+		color: var(--muted);
+	}
+	.reset strong {
+		color: var(--text);
+	}
+	.cta {
+		font-family: var(--font-heading);
+		color: var(--accent);
+		font-size: 0.9rem;
+	}
+
+	@media (max-width: 540px) {
+		.task {
+			flex-direction: column;
+			align-items: flex-start;
+		}
+		.task-cta {
+			align-items: flex-start;
+			text-align: left;
+		}
+	}
+</style>

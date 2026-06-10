@@ -79,6 +79,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		? ['draft', 'preview', 'open', 'locked', 'closed']
 		: ['open', 'locked', 'closed'];
 
+	// Tasks live in vs_tasks (their own table / the To Do page), so vs_events is
+	// only "full events" here — no task filtering needed.
 	const { data: events, error } = await db()
 		.from('vs_events')
 		.select(
