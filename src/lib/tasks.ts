@@ -21,6 +21,9 @@ export interface PlayerTask {
 	// What completing it awards, shown as a chip (e.g. "5 VP", "White Pack",
 	// "VP + item drops"). null = no fixed/known reward to advertise.
 	reward?: string | null;
+	// Optional override for the countdown's prefix word (e.g. "Time left", "Ends in").
+	// When unset the /tasks page derives one from status/kind.
+	timerLabel?: string | null;
 	// true → render the link as target=_blank rel=noopener (Discord/WOM).
 	external?: boolean;
 	progress?: { done: number; total: number } | null;

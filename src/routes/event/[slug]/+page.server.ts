@@ -5,7 +5,14 @@ import { isClanMember } from '$lib/server/clan';
 import { renderMarkdown } from '$lib/markdown';
 import { createSubmission } from '$lib/server/submissions';
 import { BINGO_BUCKET, BINGO_EVENT_SLUG } from '$lib/bingo/config';
-import { SEQUENTIAL_EVENT_KIND, isTaskEvent, rewardLabel, type SubmissionStatus } from '$lib/events/simple';
+import {
+	SEQUENTIAL_EVENT_KIND,
+	isTaskEvent,
+	isEventLive,
+	isEventUpcoming,
+	rewardLabel,
+	type SubmissionStatus
+} from '$lib/events/simple';
 import type { Actions, PageServerLoad } from './$types';
 
 // Generic, template-driven event detail page. Today it serves SIMPLE events (a
@@ -142,10 +149,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		completedCount: eventTasks.filter((t) => t.done).length,
 		isClanMember: memberOfClan,
 		// Admins can test-submit while the event is still draft/preview (it's not
-		// visible to players yet); everyone else submits only to an OPEN event as a
-		// clan member.
+		// visible to players yet); everyone else submits only to a LIVE event (open
+		// AND past its start time) as a clan member.
 		adminPreview,
-		canSubmit: adminPreview || (memberOfClan && ev.status === 'open')
+		// Open but not started yet → shown to players as "Upcoming" (no submitting).
+		upcoming: isEventUpcoming(ev.status, ev.starts_at),
+		canSubmit: adminPreview || (memberOfClan && isEventLive(ev.status, ev.starts_at))
 	};
 };
 
@@ -156,11 +165,18 @@ export const actions: Actions = {
 		const ev = await getEvent(params.slug);
 		if (!ev || !isTaskEvent(ev.kind)) return fail(404, { error: 'Event not found' });
 
-		// Admins can test-submit to a draft/preview event; everyone else needs an OPEN
-		// event AND clan membership.
+		// Admins can test-submit to a draft/preview event; everyone else needs a LIVE
+		// event (open AND past its start time) AND clan membership.
 		const adminPreview = isAdmin(locals.user) && (ev.status === 'draft' || ev.status === 'preview');
 		if (!adminPreview) {
-			if (ev.status !== 'open') return fail(400, { error: 'This event is not open for submissions.' });
+			if (!isEventLive(ev.status, ev.starts_at)) {
+				return fail(400, {
+					error:
+						ev.status === 'open'
+							? "This event hasn't started yet."
+							: 'This event is not open for submissions.'
+				});
+			}
 			if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
 				return fail(403, { error: 'Only Volition clan members can submit.' });
 			}

@@ -12,6 +12,7 @@
 // (via createSubmission) and its pending rows show up in /admin/submissions.
 
 import { db } from './db';
+import { grantPlayerVp } from './playerStats';
 import { renderMarkdown } from '$lib/markdown';
 import { CLAN_LABEL } from '$lib/clans';
 import { BINGO_BUCKET, MAX_UPLOAD_BYTES, MAX_IMAGES_PER_SUBMISSION, ALLOWED_MIME } from '$lib/bingo/config';
@@ -500,8 +501,12 @@ export async function loadReviewedSubmissions(limitPerSource = 200): Promise<{
 	};
 }
 
-// Applies a decision to a group of rows in the right source table. Only flips rows
-// still 'pending', so a double-click or stale queue can't clobber a prior review.
+// Applies a decision to a group of rows in the right source table.
+//  - reject: only flips rows still 'pending' (the normal queue reject). To un-approve
+//    an already-approved row, use revokeSubmissions (it also reverses rewards).
+//  - approve: flips 'pending' OR 'rejected' rows (so an admin can re-approve something
+//    that was rejected/revoked). For generic rows that re-approval also RESETS the
+//    bot-side reward flags so the pack is re-granted and the player re-notified.
 export async function decideSubmissions({
 	source,
 	ids,
@@ -519,18 +524,131 @@ export async function decideSubmissions({
 	if (!table) return { error: 'Unknown submission source' };
 	if (ids.length === 0) return { error: 'No submissions to update' };
 
-	const { error } = await db()
-		.from(table)
-		.update({
-			status: decision === 'approve' ? 'approved' : 'rejected',
-			reviewed_at: new Date().toISOString(),
-			reviewed_by: reviewerId,
-			review_note: note
-		})
-		.in('id', ids)
-		.eq('status', 'pending');
+	const base: Record<string, unknown> = {
+		status: decision === 'approve' ? 'approved' : 'rejected',
+		reviewed_at: new Date().toISOString(),
+		reviewed_by: reviewerId,
+		review_note: note
+	};
+	// Re-approving a generic row clears the reward bookkeeping so the bot re-grants the
+	// pack + re-sends the approval notice, and the VP grant runs again (caller).
+	if (decision === 'approve' && source === 'generic') {
+		base.approval_revoked = false;
+		base.pack_awarded = false;
+		base.approval_notified = false;
+		base.rejection_notified = false;
+		base.removal_notified = true; // any prior removal is already handled
+	}
+
+	let q = db().from(table).update(base).in('id', ids);
+	q = decision === 'approve' ? q.in('status', ['pending', 'rejected']) : q.eq('status', 'pending');
+	const { error } = await q;
 
 	return error ? { error: error.message } : {};
+}
+
+// Un-approve ("revoke") already-approved submissions: flip them to rejected and undo
+// the rewards. For generic (task) rows this reverses the VP itself (allowing the
+// balance to go negative) and flags the row so the bot reclaims the pack (if still
+// unopened) and sends a single "reward removed" notice. Bingo/team rows have no
+// VP/pack reward, so it just un-approves them (the leaderboard/progress recomputes).
+export async function revokeSubmissions({
+	source,
+	ids,
+	reviewerId,
+	note
+}: {
+	source: SubmissionSource;
+	ids: string[];
+	reviewerId: string;
+	note: string | null;
+}): Promise<{ error?: string; revoked: number }> {
+	const table = SOURCE_TABLE[source];
+	if (!table) return { error: 'Unknown submission source', revoked: 0 };
+	if (ids.length === 0) return { error: 'No submissions to update', revoked: 0 };
+	const sb = db();
+	const now = new Date().toISOString();
+
+	if (source !== 'generic') {
+		const { data, error } = await sb
+			.from(table)
+			.update({ status: 'rejected', reviewed_at: now, reviewed_by: reviewerId, review_note: note })
+			.in('id', ids)
+			.eq('status', 'approved')
+			.select('id');
+		return error ? { error: error.message, revoked: 0 } : { revoked: data?.length ?? 0 };
+	}
+
+	// Read the currently-approved generic rows first so we can reverse VP afterwards.
+	const { data: rows, error: readErr } = await sb
+		.from('vs_submissions')
+		.select('id, task_id, user_id, discord_id, submitter_name')
+		.in('id', ids)
+		.eq('status', 'approved');
+	if (readErr) return { error: readErr.message, revoked: 0 };
+	const approved = (rows ?? []) as Array<{
+		id: string;
+		task_id: string | null;
+		user_id: string | null;
+		discord_id: string | null;
+		submitter_name: string | null;
+	}>;
+	if (approved.length === 0) return { revoked: 0 };
+	const approvedIds = approved.map((r) => r.id);
+
+	// Flip + flag. rejection_notified=true skips the normal "rejected" notice;
+	// removal_notified=false makes the bot send the "reward removed" notice + reclaim pack.
+	const { error: upErr } = await sb
+		.from('vs_submissions')
+		.update({
+			status: 'rejected',
+			reviewed_at: now,
+			reviewed_by: reviewerId,
+			review_note: note,
+			approval_revoked: true,
+			rejection_notified: true,
+			removal_notified: false
+		})
+		.in('id', approvedIds)
+		.eq('status', 'approved');
+	if (upErr) return { error: upErr.message, revoked: 0 };
+
+	// Reverse VP once per (task, submitter), mirroring grantVpForApproval — only if no
+	// approved row remains for that pair (so they truly lost their credit).
+	const pairs = new Map<
+		string,
+		{ taskId: string; userId: string | null; discordId: string | null; name: string | null }
+	>();
+	for (const r of approved) {
+		if (!r.task_id) continue;
+		const ownerKey = r.user_id ?? r.discord_id ?? r.submitter_name ?? '';
+		pairs.set(`${r.task_id}|${ownerKey}`, {
+			taskId: r.task_id,
+			userId: r.user_id,
+			discordId: r.discord_id,
+			name: r.submitter_name
+		});
+	}
+	for (const p of pairs.values()) {
+		let q = sb.from('vs_submissions').select('id').eq('task_id', p.taskId).eq('status', 'approved');
+		q = p.userId ? q.eq('user_id', p.userId) : q.eq('discord_id', p.discordId ?? '');
+		const { data: remaining } = await q.limit(1);
+		if (remaining && remaining.length > 0) continue; // still has credit → keep VP
+
+		const { data: task } = await sb.from('vs_tasks').select('vp_reward').eq('id', p.taskId).maybeSingle();
+		const vp = Number((task as { vp_reward?: number } | null)?.vp_reward ?? 0);
+		if (vp <= 0) continue;
+
+		let rsn = p.name;
+		if (p.userId) {
+			const { data: u } = await sb.from('vs_users').select('rsn').eq('id', p.userId).maybeSingle();
+			rsn = (u as { rsn?: string | null } | null)?.rsn ?? rsn;
+		}
+		// Negative grant = deduct; intentionally NOT clamped (balance may go negative).
+		await grantPlayerVp(p.discordId, rsn, -vp);
+	}
+
+	return { revoked: approvedIds.length };
 }
 
 // --- Helpers for future events to CREATE submissions ---------------------------

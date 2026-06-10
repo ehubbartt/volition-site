@@ -38,6 +38,26 @@
 <section>
 	<EventsTasksTabs />
 
+	<details class="card status-help">
+		<summary><strong>What do the event statuses mean?</strong></summary>
+		<dl>
+			<dt>draft</dt>
+			<dd>Hidden from players (admin-only). Use it while you build the event and add tasks.</dd>
+			<dt>preview</dt>
+			<dd>Admin-only too, but you can test submissions end-to-end before launch.</dd>
+			<dt>open</dt>
+			<dd>
+				Published &amp; visible to members. Submissions <em>and</em> the Discord announcement go
+				live at the <strong>Starts at</strong> time — set a future start to <strong>schedule</strong>
+				it (it shows as “Upcoming” until then), or leave the start empty/in the past to open right away.
+			</dd>
+			<dt>locked</dt>
+			<dd>Visible but submissions paused (not ended). Use to temporarily halt without archiving.</dd>
+			<dt>closed</dt>
+			<dd>Ended. Moves to “Past events”; no more submissions.</dd>
+		</dl>
+	</details>
+
 	{#if form?.error}
 		<div class="error">{form.error}</div>
 	{/if}
@@ -357,6 +377,33 @@
 		border-radius: var(--radius);
 		margin-bottom: 1rem;
 		box-shadow: var(--shadow-card);
+	}
+
+	.status-help summary {
+		cursor: pointer;
+		color: var(--accent);
+	}
+
+	.status-help dl {
+		margin: 0.85rem 0 0;
+		display: grid;
+		grid-template-columns: auto 1fr;
+		gap: 0.4rem 0.85rem;
+		align-items: baseline;
+	}
+
+	.status-help dt {
+		font-family: var(--font-heading);
+		text-transform: uppercase;
+		font-size: 0.78rem;
+		letter-spacing: 0.05em;
+		color: var(--accent);
+	}
+
+	.status-help dd {
+		margin: 0;
+		color: var(--muted);
+		font-size: 0.9rem;
 	}
 
 	.head-actions {

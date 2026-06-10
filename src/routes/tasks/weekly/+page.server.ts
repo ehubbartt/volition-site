@@ -1,8 +1,9 @@
 import { redirect, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isClanMember } from '$lib/server/clan';
+import { isAdmin } from '$lib/server/auth';
 import { renderMarkdown } from '$lib/markdown';
-import { createSubmission } from '$lib/server/submissions';
+import { createSubmission, decideSubmissions, revokeSubmissions } from '$lib/server/submissions';
 import { loadActiveTaskInstances } from '$lib/server/tasks';
 import { BINGO_BUCKET } from '$lib/bingo/config';
 import type { Actions, PageServerLoad } from './$types';
@@ -19,6 +20,30 @@ interface MySubRow {
 	reviewer: { rsn: string | null; discord_username: string } | null;
 }
 
+// Admin-only "every submission for this task" row (the see-all + un-approve view).
+interface AdminSubRow {
+	id: string;
+	task_id: string;
+	proof_urls: string[] | null;
+	submitted_at: string;
+	status: SubmissionStatus;
+	review_note: string | null;
+	submitter_name: string | null;
+	vs_users: { rsn: string | null; discord_username: string; account_type: string | null } | null;
+	reviewer: { rsn: string | null; discord_username: string } | null;
+}
+
+export interface AdminSub {
+	id: string;
+	proof_urls: string[];
+	submitted_at: string;
+	status: SubmissionStatus;
+	submitter: string;
+	account_type: string | null;
+	reviewed_by_name: string | null;
+	review_note: string | null;
+}
+
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
 	if (!locals.user.rsn || !locals.user.clan_allegiance || !locals.user.account_type) {
@@ -26,6 +51,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	}
 
 	const memberOfClan = await isClanMember(locals.user.discord_id, locals.user.rsn);
+	const admin = isAdmin(locals.user);
 	const instances = await loadActiveTaskInstances();
 
 	// This player's submissions across every active task instance, by event_id.
@@ -68,15 +94,45 @@ export const load: PageServerLoad = async ({ locals }) => {
 		}
 	}
 
+	// Admins also get EVERY submission per task (the see-all + un-approve community view).
+	const adminByTask = new Map<string, AdminSub[]>();
+	if (admin && instances.length > 0) {
+		const ids = instances.map((i) => i.id);
+		const { data } = await db()
+			.from('vs_submissions')
+			.select(
+				'id, task_id, proof_urls, submitted_at, status, review_note, submitter_name, vs_users!user_id(rsn, discord_username, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username)'
+			)
+			.in('task_id', ids)
+			.order('submitted_at', { ascending: true });
+
+		for (const r of (data ?? []) as unknown as AdminSubRow[]) {
+			const arr = adminByTask.get(r.task_id) ?? [];
+			arr.push({
+				id: r.id,
+				proof_urls: r.proof_urls ?? [],
+				submitted_at: r.submitted_at,
+				status: r.status,
+				submitter: r.vs_users ? (r.vs_users.rsn ?? r.vs_users.discord_username) : (r.submitter_name ?? 'Discord member'),
+				account_type: r.vs_users?.account_type ?? null,
+				reviewed_by_name: r.reviewer ? (r.reviewer.rsn ?? r.reviewer.discord_username) : null,
+				review_note: r.review_note ?? null
+			});
+			adminByTask.set(r.task_id, arr);
+		}
+	}
+
 	return {
 		isClanMember: memberOfClan,
+		isAdmin: admin,
 		tasks: instances.map((i) => ({
 			id: i.id,
 			name: i.name,
 			description_html: renderMarkdown(i.description),
 			reward: i.reward,
 			endsAt: i.endsAt,
-			mySubmissions: byEvent.get(i.id) ?? []
+			mySubmissions: byEvent.get(i.id) ?? [],
+			allSubmissions: admin ? (adminByTask.get(i.id) ?? []) : []
 		}))
 	};
 };

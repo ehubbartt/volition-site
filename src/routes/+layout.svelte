@@ -19,16 +19,7 @@
 		{#if data.user}
 			<nav class="primary-nav">
 				<a href="/events" class:active={path.startsWith('/events')}>Events</a>
-				<a href="/tasks" class="todo-link" class:active={path.startsWith('/tasks')}>
-					To Do
-					{#await data.todoCount then count}
-						{#if count > 0}
-							<span class="todo-badge" aria-label={`${count} to-do items not done`}>
-								{count > 9 ? '9+' : count}
-							</span>
-						{/if}
-					{/await}
-				</a>
+				<a href="/tasks" class:active={path.startsWith('/tasks')}>To Do</a>
 				{#if data.isCardTester}
 					<a href="/gamba" class:active={path.startsWith('/gamba')}>Gamba</a>
 				{/if}
@@ -146,36 +137,6 @@
 		color: #ff981f;
 		background: rgba(255, 152, 31, 0.12);
 		border-color: rgba(255, 152, 31, 0.4);
-	}
-
-	/* App-style notification badge on the To Do nav item. */
-	.todo-link {
-		position: relative;
-		overflow: visible;
-	}
-
-	.todo-badge {
-		position: absolute;
-		top: -0.3rem;
-		right: -0.3rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		min-width: 1.05rem;
-		height: 1.05rem;
-		padding: 0 0.28rem;
-		box-sizing: border-box;
-		background: #ff981f;
-		color: #1c1408;
-		border-radius: 999px;
-		/* Pixel font blurs at this size — use a crisp system font for the count. */
-		font-family: ui-sans-serif, system-ui, Arial, sans-serif;
-		font-size: 0.68rem;
-		font-weight: 700;
-		line-height: 1;
-		text-shadow: none;
-		box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55);
-		pointer-events: none;
 	}
 
 	.user-pill {

@@ -37,6 +37,7 @@
 	{@const isBingo = ev.slug === BINGO_EVENT_SLUG}
 	{@const isDraft = ev.status === 'draft'}
 	{@const isPreview = ev.status === 'preview'}
+	{@const isUpcoming = ev.upcoming && !isDraft && !isPreview && !past}
 	<li>
 		<a
 			href={hrefFor(ev)}
@@ -58,8 +59,9 @@
 			{/if}
 			<div
 				class="badge"
-				class:bingo={isBingo && !isDraft && !isPreview && !past}
-				class:open={ev.status === 'open' && !isBingo}
+				class:bingo={isBingo && !isDraft && !isPreview && !past && !isUpcoming}
+				class:open={ev.status === 'open' && !isBingo && !isUpcoming}
+				class:upcoming={isUpcoming}
 				class:draft={isDraft}
 				class:preview={isPreview}
 			>
@@ -69,9 +71,11 @@
 						? 'Preview · admin only'
 						: past
 							? 'Closed'
-							: isBingo
-								? 'Bingo'
-								: ev.status}
+							: isUpcoming
+								? 'Upcoming'
+								: isBingo
+									? 'Bingo'
+									: ev.status}
 			</div>
 		</a>
 	</li>
@@ -214,6 +218,12 @@
 		background: var(--accent-soft);
 		border-color: var(--accent);
 		color: var(--accent);
+	}
+
+	.badge.upcoming {
+		background: transparent;
+		border-color: var(--yellow);
+		color: var(--yellow);
 	}
 
 	.badge.bingo {

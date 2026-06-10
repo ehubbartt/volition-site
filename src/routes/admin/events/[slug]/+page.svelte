@@ -59,8 +59,11 @@
 			</label>
 		</form>
 		<p class="muted small">
-			Players can submit only while <strong>open</strong>. <strong>draft</strong>/<strong>preview</strong>
-			are admin-only; <strong>closed</strong> ends it (shows under past events).
+			Players can submit only while <strong>open</strong> and after the <strong>Starts at</strong>
+			time — set a future start to schedule it (it shows as “Upcoming” and posts to Discord when it
+			starts). <strong>draft</strong>/<strong>preview</strong> are admin-only;
+			<strong>locked</strong> pauses submissions; <strong>closed</strong> ends it (shows under past
+			events).
 		</p>
 	</div>
 

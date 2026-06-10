@@ -58,6 +58,30 @@ export interface EventTask {
 	locked: boolean;
 }
 
+// Time-aware "open": an OPEN event is only LIVE (submittable + announced in Discord)
+// once its start time has arrived. A null/invalid start means "live now". This lets
+// admins publish an event (status=open) that stays visible-but-upcoming until its
+// `starts_at`, then goes live automatically. bingo/duo keep their own timing.
+export function isEventLive(
+	status: string | null | undefined,
+	startsAt: string | null | undefined,
+	now: number = Date.now()
+): boolean {
+	if (status !== 'open') return false;
+	if (!startsAt) return true;
+	const t = new Date(startsAt).getTime();
+	return Number.isNaN(t) || t <= now;
+}
+
+// Published (open) but not started yet → shown to players as "Upcoming".
+export function isEventUpcoming(
+	status: string | null | undefined,
+	startsAt: string | null | undefined,
+	now: number = Date.now()
+): boolean {
+	return status === 'open' && !!startsAt && !isEventLive(status, startsAt, now);
+}
+
 // A task's reward, for display: a card pack and/or VP (either, both, or none).
 // Mirrors rewardLabel() in $lib/server/tasks.ts so the admin + player views match.
 export function rewardLabel(vp: number | null | undefined, pack: string | null | undefined): string | null {

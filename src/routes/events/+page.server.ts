@@ -2,6 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { markdownPreview } from '$lib/markdown';
+import { isEventUpcoming } from '$lib/events/simple';
 import {
 	BINGO_EVENT_SLUG,
 	BINGO_ROW_COUNT,
@@ -104,6 +105,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			description_preview: markdownPreview(ev.description, 160),
 			resolved_starts_at: startsAt,
 			resolved_ends_at: endsAt,
+			// Published (open) but not started yet → flagged "Upcoming" in the list.
+			upcoming: isEventUpcoming(ev.status, startsAt, now),
 			status_line: pickStatusLine(
 				now,
 				ev.signup_opens_at,

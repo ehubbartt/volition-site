@@ -17,6 +17,21 @@ export function isDropsFeedConfigured(): boolean {
 	return !!env.DISCORD_DROPS_WEBHOOK_URL;
 }
 
+// Warn ONCE per process if a notable drop happens but the feed isn't configured —
+// turns a silent no-op into an obvious "set DISCORD_DROPS_WEBHOOK_URL" hint in the
+// server logs (the usual reason drops post in dev but not in production).
+let warnedNoWebhook = false;
+function warnIfUnconfigured(): boolean {
+	if (isDropsFeedConfigured()) return true;
+	if (!warnedNoWebhook) {
+		warnedNoWebhook = true;
+		console.warn(
+			'[drops-feed] a notable drop was not forwarded: DISCORD_DROPS_WEBHOOK_URL is not set in this environment.'
+		);
+	}
+	return false;
+}
+
 // Discord embed colours are integers; convert a CSS hex (with or without '#').
 function hexToInt(hex: string | null | undefined): number | undefined {
 	if (!hex) return undefined;
@@ -112,7 +127,7 @@ export async function postCardDrop(d: {
 	imageUrl?: string | null;
 	layerUrls?: string[];
 }): Promise<void> {
-	if (!isDropsFeedConfigured()) return;
+	if (!warnIfUnconfigured()) return;
 	const meta = RARITY_BY_KEY[isValidRarity(d.rarity) ? d.rarity : DEFAULT_RARITY];
 	const finishLabel = d.finish && FINISH_LABEL[d.finish] ? ` ${FINISH_LABEL[d.finish]}` : '';
 	const from = d.packName ? ` from ${d.packName}` : '';
@@ -157,7 +172,7 @@ export async function postCrateDrop(d: {
 	dropRate?: number | null;
 	newTotalVp?: number | null;
 }): Promise<void> {
-	if (!isDropsFeedConfigured()) return;
+	if (!warnIfUnconfigured()) return;
 	const img = absUrl(d.imageUrl);
 	const fields: { name: string; value: string; inline: boolean }[] = [];
 	if (d.lootTable) fields.push({ name: 'Loot Table', value: d.lootTable, inline: true });

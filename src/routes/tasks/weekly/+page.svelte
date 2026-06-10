@@ -22,7 +22,7 @@
 		</p>
 	{/if}
 	{#each data.tasks as task (task.id)}
-		<WeeklyTaskCard {task} canSubmit={data.isClanMember} />
+		<WeeklyTaskCard {task} canSubmit={data.isClanMember} isAdmin={data.isAdmin} />
 	{/each}
 {/if}
 

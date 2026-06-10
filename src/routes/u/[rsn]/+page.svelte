@@ -105,7 +105,7 @@
 								</div>
 							{:else}
 								<div class="thumb-btn locked" title="Not owned · {FINISH_BY_KEY[card.finish]?.label ?? 'Normal'}">
-									<div class="dim"><CardThumb {card} finish={card.finish} flip={false} /></div>
+									<CardThumb {card} finish={card.finish} backOnly flip={false} />
 								</div>
 							{/if}
 						{/each}
@@ -399,11 +399,6 @@
 
 	.thumb-btn.mystery-slot {
 		cursor: default;
-	}
-
-	.thumb-btn.locked .dim {
-		filter: grayscale(1) brightness(0.55);
-		opacity: 0.9;
 	}
 
 	.empty {

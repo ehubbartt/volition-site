@@ -25,6 +25,9 @@
 	// Reviewed-history view filters (client-side over the loaded history).
 	let reviewedStatus = $state<'all' | 'approved' | 'rejected'>('all');
 	let reviewedEvent = $state('all');
+	// Re-review (un-approve / re-approve) state for the history list.
+	let revBusy = $state<string | null>(null);
+	let revError = $state<string | null>(null);
 
 	const SOURCE_LABEL: Record<string, string> = {
 		generic: 'Submission',
@@ -216,12 +219,61 @@
 						<footer class="rev-foot muted">
 							<span>Submitted {fmt(item.submittedAt)}</span>
 							{#if item.reviewedAt}<span>· Reviewed {fmt(item.reviewedAt)}</span>{/if}
-							{#if item.reviewer}<span>· by {item.reviewer}</span>{/if}
+							{#if item.reviewer}<span>· {item.status === 'approved' ? 'approved' : 'rejected'} by {item.reviewer}</span>{/if}
 							{#if item.reviewNote}<span class="note">· “{item.reviewNote}”</span>{/if}
 						</footer>
+
+						<div class="rev-actions">
+							{#if item.status === 'approved'}
+								<form
+									method="POST"
+									action="?/revoke"
+									use:enhance={({ cancel }) => {
+										if (!confirm('Un-approve this submission and reclaim its rewards (VP always; pack if still unopened)? The player is notified on Discord.')) {
+											cancel();
+											return;
+										}
+										revBusy = item.ids.join(',');
+										revError = null;
+										return async ({ result }) => {
+											revBusy = null;
+											if (result.type === 'success') await invalidateAll();
+											else if (result.type === 'failure') revError = (result.data as { error?: string } | undefined)?.error ?? 'Un-approve failed';
+											else if (result.type === 'error') revError = 'Something went wrong';
+										};
+									}}
+								>
+									<input type="hidden" name="source" value={item.source} />
+									<input type="hidden" name="ids" value={item.ids.join(',')} />
+									<input class="rev-note-input" name="note" placeholder="Reason (optional — shown to the player)" />
+									<button type="submit" class="rev-btn undo" disabled={revBusy !== null}>Un-approve & reclaim</button>
+								</form>
+							{:else}
+								<form
+									method="POST"
+									action="?/decide"
+									use:enhance={() => {
+										revBusy = item.ids.join(',');
+										revError = null;
+										return async ({ result }) => {
+											revBusy = null;
+											if (result.type === 'success') await invalidateAll();
+											else if (result.type === 'failure') revError = (result.data as { error?: string } | undefined)?.error ?? 'Re-approve failed';
+											else if (result.type === 'error') revError = 'Something went wrong';
+										};
+									}}
+								>
+									<input type="hidden" name="source" value={item.source} />
+									<input type="hidden" name="ids" value={item.ids.join(',')} />
+									<input type="hidden" name="decision" value="approve" />
+									<button type="submit" class="rev-btn redo" disabled={revBusy !== null}>Re-approve</button>
+								</form>
+							{/if}
+						</div>
 					</li>
 				{/each}
 			</ul>
+			{#if revError}<p class="error">{revError}</p>{/if}
 			<p class="cap-hint muted">Showing the most recent reviewed submissions.</p>
 		{/if}
 	</section>
@@ -955,6 +1007,70 @@
 	.rev-foot .note {
 		color: var(--text);
 		font-style: italic;
+	}
+
+	.rev-actions {
+		margin-top: 0.6rem;
+		padding-top: 0.6rem;
+		border-top: 1px dashed var(--border);
+	}
+
+	.rev-actions form {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		align-items: center;
+	}
+
+	.rev-note-input {
+		flex: 1 1 14rem;
+		min-width: 0;
+		padding: 0.35rem 0.5rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		color: var(--text);
+		font: inherit;
+		font-size: 0.85rem;
+	}
+
+	.rev-note-input:focus {
+		outline: none;
+		border-color: var(--accent);
+	}
+
+	.rev-btn {
+		min-height: 0;
+		padding: 0.4rem 0.7rem;
+		font-size: 0.82rem;
+		font-family: var(--font-heading);
+		border-radius: 3px;
+		white-space: nowrap;
+	}
+
+	.rev-btn.undo {
+		background: var(--danger-bg);
+		border: 1px solid var(--danger);
+		color: var(--danger);
+	}
+
+	.rev-btn.undo:hover:not(:disabled) {
+		background: rgba(255, 0, 0, 0.2);
+	}
+
+	.rev-btn.redo {
+		background: var(--success-bg);
+		border: 1px solid var(--success);
+		color: var(--success);
+	}
+
+	.rev-btn.redo:hover:not(:disabled) {
+		background: rgba(13, 193, 13, 0.25);
+	}
+
+	.rev-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.cap-hint {

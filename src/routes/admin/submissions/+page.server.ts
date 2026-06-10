@@ -2,7 +2,7 @@ import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { grantPlayerVp } from '$lib/server/playerStats';
-import { loadPendingReview, loadReviewedSubmissions, decideSubmissions } from '$lib/server/submissions';
+import { loadPendingReview, loadReviewedSubmissions, decideSubmissions, revokeSubmissions } from '$lib/server/submissions';
 import type { SubmissionSource, ReviewDecision } from '$lib/submissions';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -89,16 +89,20 @@ export const actions: Actions = {
 				.from('vs_submissions')
 				.select('task_id, user_id, discord_id, submitter_name, status')
 				.in('id', ids);
-			const pending = (rows ?? []).filter(
-				(r) => (r as { status?: string }).status === 'pending' && (r as { task_id?: string }).task_id
+			// Newly-approvable rows = pending OR rejected (re-approval after a revoke).
+			const grantable = (rows ?? []).filter(
+				(r) =>
+					((r as { status?: string }).status === 'pending' ||
+						(r as { status?: string }).status === 'rejected') &&
+					(r as { task_id?: string }).task_id
 			) as Array<{
 				task_id: string;
 				user_id: string | null;
 				discord_id: string | null;
 				submitter_name: string | null;
 			}>;
-			if (pending.length > 0) {
-				const r = pending[0];
+			if (grantable.length > 0) {
+				const r = grantable[0];
 				grantCtx = {
 					taskId: r.task_id,
 					userId: r.user_id ?? null,
@@ -126,5 +130,30 @@ export const actions: Actions = {
 		}
 
 		return { ok: true, decision, ids };
+	},
+
+	// Un-approve an already-approved submission group and reverse its rewards (VP here;
+	// the pack reclaim + "reward removed" Discord notice are done bot-side via flags).
+	revoke: async ({ locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		if (!isAdmin(locals.user)) return fail(403, { error: 'Not allowed' });
+
+		const form = await request.formData();
+		const source = form.get('source')?.toString() ?? '';
+		const ids = (form.get('ids')?.toString() ?? '').split(',').filter(Boolean);
+		const note = form.get('note')?.toString().trim() || null;
+
+		if (!SOURCES.includes(source as SubmissionSource)) return fail(400, { error: 'Unknown source' });
+		if (ids.length === 0) return fail(400, { error: 'No submissions selected' });
+
+		const { error: rErr, revoked } = await revokeSubmissions({
+			source: source as SubmissionSource,
+			ids,
+			reviewerId: locals.user.id,
+			note
+		});
+		if (rErr) return fail(500, { error: rErr });
+
+		return { ok: true, decision: 'revoke', ids, revoked };
 	}
 };

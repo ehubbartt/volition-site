@@ -6,6 +6,7 @@ import { getLastLootDate } from './playerStats';
 import { BINGO_TILES } from './bingoTiles';
 import { getBingoState } from '$lib/bingo/state';
 import { BINGO_EVENT_SLUG, BINGO_ROW_COUNT } from '$lib/bingo/config';
+import { SIMPLE_EVENT_KIND, SEQUENTIAL_EVENT_KIND, isEventLive } from '$lib/events/simple';
 import { type PlayerTask, nextUtcMidnightIso, countOutstandingTasks } from '$lib/tasks';
 
 // Aggregates a player's time-gated / recurring activities into one normalized
@@ -127,6 +128,71 @@ async function taskInstanceTasks(user: SessionUser): Promise<PlayerTask[]> {
 			reward: inst.reward
 		};
 	});
+}
+
+// --- Task events (admin-created simple/sequential events; /event/[slug]) -----
+// Each is a vs_events row (kind simple|sequential) whose objectives are vs_tasks
+// rows (kind=event_task, event_id set). Surfaced once the event is OPEN and live
+// (past its start). One card per event; progress = approved objective submissions
+// / total objectives. Submissions match the site account (user_id) OR Discord id.
+async function taskEventTasks(user: SessionUser): Promise<PlayerTask[]> {
+	const { data: events } = await db()
+		.from('vs_events')
+		.select('id, slug, name, status, starts_at, ends_at')
+		.in('kind', [SIMPLE_EVENT_KIND, SEQUENTIAL_EVENT_KIND])
+		.eq('status', 'open');
+
+	// Open AND started (skip upcoming ones — they aren't actionable yet).
+	const live = ((events ?? []) as Array<Record<string, unknown>>).filter((e) =>
+		isEventLive(e.status as string, e.starts_at as string | null)
+	);
+	if (live.length === 0) return [];
+
+	const eventIds = live.map((e) => e.id as string);
+	const { data: taskRows } = await db()
+		.from('vs_tasks')
+		.select('id, event_id')
+		.in('event_id', eventIds)
+		.eq('status', 'open');
+	const tasks = (taskRows ?? []) as Array<{ id: string; event_id: string }>;
+	if (tasks.length === 0) return [];
+
+	const taskIds = tasks.map((t) => t.id);
+	const { data: subs } = await db()
+		.from('vs_submissions')
+		.select('task_id')
+		.in('task_id', taskIds)
+		.eq('status', 'approved')
+		.or(`user_id.eq.${user.id},discord_id.eq.${user.discord_id}`);
+	const approved = new Set((subs ?? []).map((s) => s.task_id as string));
+
+	const total = new Map<string, number>();
+	const done = new Map<string, number>();
+	for (const t of tasks) {
+		total.set(t.event_id, (total.get(t.event_id) ?? 0) + 1);
+		if (approved.has(t.id)) done.set(t.event_id, (done.get(t.event_id) ?? 0) + 1);
+	}
+
+	return live
+		.filter((e) => (total.get(e.id as string) ?? 0) > 0)
+		.map((e) => {
+			const id = e.id as string;
+			const tot = total.get(id) ?? 0;
+			const dn = done.get(id) ?? 0;
+			const allDone = dn >= tot;
+			return {
+				id: `event-${id}`,
+				kind: 'event' as const,
+				status: allDone ? ('done' as const) : ('todo' as const),
+				title: (e.name as string) || 'Event',
+				description: `${dn}/${tot} tasks done`,
+				href: `/event/${e.slug as string}`,
+				ctaLabel: allDone ? 'View event' : 'Do tasks',
+				resetAt: allDone ? null : ((e.ends_at as string | null) ?? null),
+				timerLabel: 'Time left',
+				progress: { done: dn, total: tot }
+			};
+		});
 }
 
 // --- Skill or Kill (bot events/type=sotw|botw) -----------------------------
@@ -299,6 +365,7 @@ export async function loadPlayerTasks(user: SessionUser): Promise<PlayerTask[]> 
 		adminReviewTask(user),
 		dailyCrateTask(user),
 		taskInstanceTasks(user),
+		taskEventTasks(user),
 		skillOrKillTask(),
 		bingoTask(user),
 		duoWolfTask(user)

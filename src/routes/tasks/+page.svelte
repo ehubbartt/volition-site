@@ -20,6 +20,7 @@
 	};
 
 	function resetLabel(t: PlayerTask): string {
+		if (t.timerLabel) return t.timerLabel; // explicit override (e.g. task events)
 		if (t.status === 'done') return 'Resets in';
 		if (t.kind === 'competition') return 'Ends in';
 		if (t.kind === 'event') return 'Next unlock in'; // bingo row unlock, not a deadline

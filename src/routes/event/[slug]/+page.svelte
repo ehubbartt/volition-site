@@ -1,10 +1,22 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import EventTaskCard from '$lib/events/EventTaskCard.svelte';
+	import { formatCountdown } from '$lib/tasks';
 
 	let { data }: { data: PageData } = $props();
 
 	let total = $derived(data.tasks.length);
+
+	// Live countdown to the event's start (only while it's upcoming).
+	let now = $state(Date.now());
+	$effect(() => {
+		if (!data.upcoming) return;
+		const id = setInterval(() => (now = Date.now()), 1000);
+		return () => clearInterval(id);
+	});
+	let opensInMs = $derived(
+		data.event.starts_at ? new Date(data.event.starts_at).getTime() - now : 0
+	);
 </script>
 
 <svelte:head>
@@ -35,6 +47,15 @@
 	<p class="panel preview-note">
 		👁️ <strong>Preview</strong> — this {data.event.status} event isn't visible to players yet. As an
 		admin you can test submissions here; set it to <strong>open</strong> to launch.
+	</p>
+{:else if data.upcoming}
+	<p class="panel preview-note">
+		🕒 <strong>Upcoming</strong> — submissions
+		{#if opensInMs > 0}
+			open in <strong>{formatCountdown(opensInMs)}</strong>.
+		{:else}
+			are opening now — refresh the page to submit.
+		{/if}
 	</p>
 {:else if !data.isClanMember}
 	<p class="panel note">
