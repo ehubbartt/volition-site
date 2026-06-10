@@ -34,11 +34,14 @@ export interface ActiveTaskInstance {
 	reward: string | null; // display label, e.g. "5 VP"
 }
 
-// VP reward → display label. The site only knows VP rewards; card-pack rewards
-// are configured bot-side, so a 0-VP task simply shows no reward chip here.
-function vpRewardLabel(vpReward: unknown): string | null {
+// A task's reward, for display: a card pack and/or VP (either, both, or none).
+function rewardLabel(vpReward: unknown, packReward: unknown): string | null {
+	const parts: string[] = [];
+	const pack = typeof packReward === 'string' ? packReward.trim() : '';
+	if (pack) parts.push(pack);
 	const vp = Number(vpReward ?? 0);
-	return vp > 0 ? `${vp} VP` : null;
+	if (vp > 0) parts.push(`${vp} VP`);
+	return parts.length ? parts.join(' + ') : null;
 }
 
 // Every currently-open task instance whose deadline hasn't passed, newest first.
@@ -47,7 +50,7 @@ export async function loadActiveTaskInstances(): Promise<ActiveTaskInstance[]> {
 	const nowIso = new Date().toISOString();
 	const { data } = await db()
 		.from('vs_tasks')
-		.select('id, name, description, kind, vp_reward, ends_at')
+		.select('id, name, description, kind, vp_reward, pack_reward, ends_at')
 		.eq('is_template', false)
 		.eq('status', 'open')
 		.in('kind', TASK_KINDS)
@@ -60,7 +63,7 @@ export async function loadActiveTaskInstances(): Promise<ActiveTaskInstance[]> {
 		description: (r.description as string | null) ?? null,
 		kind: (r.kind as string) || 'weekly_task',
 		endsAt: (r.ends_at as string | null) ?? null,
-		reward: vpRewardLabel(r.vp_reward)
+		reward: rewardLabel(r.vp_reward, r.pack_reward)
 	}));
 }
 
