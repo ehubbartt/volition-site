@@ -80,7 +80,9 @@ async function dailyCrateTask(user: SessionUser): Promise<PlayerTask> {
 		description: done ? 'Claimed today' : 'Open your free crate',
 		href: '/gamba',
 		ctaLabel: done ? 'Go to crates' : 'Open crate',
-		resetAt: done ? nextUtcMidnightIso() : null,
+		// Always the next UTC-midnight reset: when done it's "resets in", when not
+		// it's "time left" to still claim today's free crate before it rolls over.
+		resetAt: nextUtcMidnightIso(),
 		reward: 'VP + item drops'
 	};
 }

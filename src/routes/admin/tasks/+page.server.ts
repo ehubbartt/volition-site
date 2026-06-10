@@ -3,6 +3,16 @@ import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import type { Actions, PageServerLoad } from './$types';
 
+// The next Sunday at 00:00 UTC ("Sunday midnight"), strictly in the future — if
+// today is Sunday it rolls to the following week, so a weekly task is ~a full week.
+function nextSundayMidnightIso(): string {
+	const now = new Date();
+	const daysUntilSun = (7 - now.getUTCDay()) % 7 || 7; // Sun(0) → 7
+	return new Date(
+		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSun)
+	).toISOString();
+}
+
 // Admin task manager for vs_tasks: the weekly rotation POOL (templates) + the
 // active task INSTANCES players submit to. Tasks are separate from full events
 // (vs_events); see CLAUDE.md. isAdmin-gated.
@@ -16,10 +26,14 @@ function intOrNull(v: FormDataEntryValue | null): number | null {
 	return Number.isFinite(n) ? n : null;
 }
 
-function endsAtFromDays(v: FormDataEntryValue | null): string | null {
-	const days = intOrNull(v);
-	if (!days || days <= 0) return null;
-	return new Date(Date.now() + days * 86_400_000).toISOString();
+// Deadline for an activated task: an explicit `days` wins; a blank field defaults a
+// WEEKLY task to Sunday midnight (the weekly reset — next Monday 00:00 UTC), like the
+// old weekly post. Other kinds default to no deadline. An explicit 0 = no deadline.
+function activationEndsAt(kind: string, daysField: FormDataEntryValue | null): string | null {
+	const days = intOrNull(daysField);
+	if (days && days > 0) return new Date(Date.now() + days * 86_400_000).toISOString();
+	if (days === 0) return null;
+	return kind === 'weekly_task' ? nextSundayMidnightIso() : null;
 }
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -82,7 +96,7 @@ export const actions: Actions = {
 						in_rotation: false,
 						status: 'open',
 						starts_at: new Date().toISOString(),
-						ends_at: endsAtFromDays(form.get('days'))
+						ends_at: activationEndsAt(kind, form.get('days'))
 					};
 
 		const { error: e } = await db().from('vs_tasks').insert(row);
@@ -106,7 +120,9 @@ export const actions: Actions = {
 		return { ok: true };
 	},
 
-	// Spawn an active instance from a template (make it live now).
+	// Spawn an active instance from a template (make it live now) AND pull the
+	// template out of rotation so the same task isn't picked again (by an admin or
+	// the bot's auto-rotation). Re-enable rotation on it later to cycle it back in.
 	activateTemplate: async ({ locals, request }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
 		const form = await request.formData();
@@ -134,13 +150,19 @@ export const actions: Actions = {
 			template_id: t.id,
 			status: 'open',
 			starts_at: new Date().toISOString(),
-			ends_at: endsAtFromDays(form.get('days'))
+			ends_at: activationEndsAt(t.kind, form.get('days'))
 		});
 		if (e) return fail(500, { error: e.message });
+
+		// Remove the template from the rotation pool so it isn't repeated.
+		await db().from('vs_tasks').update({ in_rotation: false }).eq('id', t.id);
+
 		return { ok: true };
 	},
 
-	// Edit a task's core fields (works for templates and active instances).
+	// Edit a task's core fields (works for templates and active instances). The
+	// active-task edit form also sends `days` to set the deadline: blank = leave the
+	// deadline unchanged, 0 = no deadline, N = ends N days from now.
 	updateTask: async ({ locals, request }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
 		const form = await request.formData();
@@ -149,15 +171,22 @@ export const actions: Actions = {
 		const name = form.get('name')?.toString().trim() ?? '';
 		if (!name) return fail(400, { error: 'Name is required' });
 
-		const { error: e } = await db()
-			.from('vs_tasks')
-			.update({
-				name,
-				description: form.get('description')?.toString().trim() || null,
-				vp_reward: Math.max(0, intOrNull(form.get('vp_reward')) ?? 0),
-				pack_reward: form.get('pack_reward')?.toString().trim() || null
-			})
-			.eq('id', id);
+		const patch: Record<string, unknown> = {
+			name,
+			description: form.get('description')?.toString().trim() || null,
+			vp_reward: Math.max(0, intOrNull(form.get('vp_reward')) ?? 0),
+			pack_reward: form.get('pack_reward')?.toString().trim() || null
+		};
+
+		if (form.has('days')) {
+			const raw = (form.get('days')?.toString() ?? '').trim();
+			if (raw !== '') {
+				const n = parseInt(raw, 10);
+				patch.ends_at = Number.isFinite(n) && n > 0 ? new Date(Date.now() + n * 86_400_000).toISOString() : null;
+			}
+		}
+
+		const { error: e } = await db().from('vs_tasks').update(patch).eq('id', id);
 		if (e) return fail(500, { error: e.message });
 		return { ok: true };
 	},

@@ -22,7 +22,8 @@
 	function resetLabel(t: PlayerTask): string {
 		if (t.status === 'done') return 'Resets in';
 		if (t.kind === 'competition') return 'Ends in';
-		return 'Next unlock in';
+		if (t.kind === 'event') return 'Next unlock in'; // bingo row unlock, not a deadline
+		return 'Time left'; // an incomplete daily/weekly task: how long you have to do it
 	}
 
 	function countdownFor(t: PlayerTask): string {

@@ -78,8 +78,8 @@
 				</label>
 			{:else}
 				<label class="field">
-					<span>Active for (days, blank = no deadline)</span>
-					<input name="days" type="number" min="1" placeholder="7" />
+					<span>Active for (days — blank: weekly ends Sunday midnight)</span>
+					<input name="days" type="number" min="1" placeholder="days" />
 				</label>
 			{/if}
 		</div>
@@ -119,11 +119,15 @@
 							<input type="hidden" name="value" value={(!t.in_rotation).toString()} />
 							<button type="submit">{t.in_rotation ? 'Disable' : 'Enable'} rotation</button>
 						</form>
-						<form method="POST" action="?/activateTemplate" use:enhance class="activate">
-							<input type="hidden" name="id" value={t.id} />
-							<input name="days" type="number" min="1" placeholder="7" title="Active for N days (blank = no deadline)" />
-							<button type="submit" class="primary">Activate now</button>
-						</form>
+						{#if t.in_rotation}
+							<form method="POST" action="?/activateTemplate" use:enhance class="activate">
+								<input type="hidden" name="id" value={t.id} />
+								<input name="days" type="number" min="1" placeholder="days" title="Active for N days. Blank: weekly tasks end Sunday midnight; others have no deadline." />
+								<button type="submit" class="primary">Activate now</button>
+							</form>
+						{:else}
+							<span class="muted small used-note">Used — enable rotation to reuse</span>
+						{/if}
 						<button type="button" onclick={() => (editing = editing === t.id ? null : t.id)}>
 							{editing === t.id ? 'Cancel' : 'Edit'}
 						</button>
@@ -174,11 +178,31 @@
 						{#if t.description}<p class="row-desc muted">{t.description}</p>{/if}
 					</div>
 					<div class="row-actions">
+						<button type="button" onclick={() => (editing = editing === t.id ? null : t.id)}>
+							{editing === t.id ? 'Cancel' : 'Edit'}
+						</button>
 						<form method="POST" action="?/closeTask" use:enhance>
 							<input type="hidden" name="id" value={t.id} />
 							<button type="submit" class="danger">Close</button>
 						</form>
 					</div>
+
+					{#if editing === t.id}
+						<form method="POST" action="?/updateTask" class="edit" use:enhance={() => async ({ result, update }) => {
+							await update();
+							if (result.type === 'success') editing = null;
+						}}>
+							<input type="hidden" name="id" value={t.id} />
+							<div class="grid">
+								<label class="field span2"><span>Name</span><input name="name" value={t.name} required /></label>
+								<label class="field span2"><span>Description</span><textarea name="description" rows="2">{t.description ?? ''}</textarea></label>
+								<label class="field"><span>VP reward</span><input name="vp_reward" type="number" min="0" value={t.vp_reward ?? 0} /></label>
+								<label class="field"><span>Pack reward</span><input name="pack_reward" type="text" value={t.pack_reward ?? ''} /></label>
+								<label class="field span2"><span>Deadline (days from now — blank = unchanged, 0 = none)</span><input name="days" type="number" min="0" placeholder="leave blank to keep" /></label>
+							</div>
+							<div class="actions"><button type="submit" class="primary">Save changes</button></div>
+						</form>
+					{/if}
 				</li>
 			{/each}
 		</ul>
