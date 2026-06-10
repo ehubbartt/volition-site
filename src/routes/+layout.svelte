@@ -19,17 +19,17 @@
 		{#if data.user}
 			<nav class="primary-nav">
 				<a href="/events" class:active={path.startsWith('/events')}>Events</a>
+				<a href="/tasks" class="todo-link" class:active={path.startsWith('/tasks')}>
+					To Do
+					{#await data.todoCount then count}
+						{#if count > 0}
+							<span class="todo-badge" aria-label={`${count} to-do items not done`}>
+								{count > 9 ? '9+' : count}
+							</span>
+						{/if}
+					{/await}
+				</a>
 				{#if data.isCardTester}
-					<a href="/tasks" class="todo-link" class:active={path.startsWith('/tasks')}>
-						To Do
-						{#await data.todoCount then count}
-							{#if count > 0}
-								<span class="todo-badge" aria-label={`${count} to-do items not done`}>
-									{count > 9 ? '9+' : count}
-								</span>
-							{/if}
-						{/await}
-					</a>
 					<a href="/gamba" class:active={path.startsWith('/gamba')}>Gamba</a>
 				{/if}
 				{#if data.isAdmin || data.isCardTester}

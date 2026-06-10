@@ -492,6 +492,9 @@
         Spend VP to rip open a pack — every card you pull lands straight in your
         collection.
       </p>
+      <a class="collection-link" href="/me?tab=collection"
+        >View your collection →</a
+      >
     </div>
     <div class="vp" title="Volition Points">
       <span class="vp-amount">{data.vp_balance.toLocaleString()}</span>
@@ -976,6 +979,27 @@
     max-width: 38rem;
     color: var(--muted);
     font-size: 0.95rem;
+  }
+
+  .collection-link {
+    display: inline-block;
+    margin-top: 0.7rem;
+    padding: 0.4rem 0.85rem;
+    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-size: 0.9rem;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    text-decoration: none;
+    transition:
+      background 0.15s,
+      transform 0.1s;
+  }
+
+  .collection-link:hover {
+    background: rgba(255, 152, 31, 0.22);
+    transform: translateY(-1px);
   }
 
   .vp {

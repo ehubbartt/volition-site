@@ -72,6 +72,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	if ((ev.status === 'draft' || ev.status === 'preview') && !admin) {
 		throw error(404, 'Event not found');
 	}
+	// Admin previewing a not-yet-open event → allow them to test the full flow.
+	const adminPreview = admin && (ev.status === 'draft' || ev.status === 'preview');
 
 	const tasks = await getEventTasks(ev.id);
 
@@ -139,21 +141,30 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		tasks: eventTasks,
 		completedCount: eventTasks.filter((t) => t.done).length,
 		isClanMember: memberOfClan,
-		// Submitting is allowed only to clan members while the event is open.
-		canSubmit: memberOfClan && ev.status === 'open'
+		// Admins can test-submit while the event is still draft/preview (it's not
+		// visible to players yet); everyone else submits only to an OPEN event as a
+		// clan member.
+		adminPreview,
+		canSubmit: adminPreview || (memberOfClan && ev.status === 'open')
 	};
 };
 
 export const actions: Actions = {
 	submitTask: async ({ locals, request, params }) => {
 		if (!locals.user) throw redirect(303, '/');
-		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
-			return fail(403, { error: 'Only Volition clan members can submit.' });
-		}
 
 		const ev = await getEvent(params.slug);
 		if (!ev || !isTaskEvent(ev.kind)) return fail(404, { error: 'Event not found' });
-		if (ev.status !== 'open') return fail(400, { error: 'This event is not open for submissions.' });
+
+		// Admins can test-submit to a draft/preview event; everyone else needs an OPEN
+		// event AND clan membership.
+		const adminPreview = isAdmin(locals.user) && (ev.status === 'draft' || ev.status === 'preview');
+		if (!adminPreview) {
+			if (ev.status !== 'open') return fail(400, { error: 'This event is not open for submissions.' });
+			if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
+				return fail(403, { error: 'Only Volition clan members can submit.' });
+			}
+		}
 
 		const form = await request.formData();
 		const taskId = form.get('task_id')?.toString() ?? '';

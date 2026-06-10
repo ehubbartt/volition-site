@@ -1,7 +1,7 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
-import { isAdmin, isCardTester } from '$lib/server/auth';
+import { isAdmin } from '$lib/server/auth';
 import { ensureWelcomePack } from '$lib/server/welcomePack';
 import { loadCalendarItems } from '$lib/server/calendar';
 import { loadPlayerTasks } from '$lib/server/tasks';
@@ -76,7 +76,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 	}
 
 	const admin = isAdmin(user);
-	const cardTester = isCardTester(user);
 
 	const [calendar, playersRes, siteUsersRes, eventsRes, packsRes, tasks] = await Promise.all([
 		loadCalendarItems(admin),
@@ -86,9 +85,8 @@ export const load: PageServerLoad = async ({ parent }) => {
 		sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null),
 		sb.from('vs_events').select('status').in('status', ['draft', 'preview', 'open', 'locked', 'closed']),
 		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true }),
-		// To-do surface is card-testers only for now (+ admins, for the review-backlog
-		// item); skip the work otherwise.
-		cardTester || admin ? loadPlayerTasks(user) : Promise.resolve(null)
+		// To-do surface is open to all onboarded users — always aggregate it.
+		loadPlayerTasks(user)
 	]);
 
 	// Ship a light summary (not the full array) for the home "Your to-do" card.

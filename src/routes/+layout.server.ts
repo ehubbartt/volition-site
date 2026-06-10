@@ -11,10 +11,9 @@ export const load: LayoutServerLoad = ({ locals }) => {
 		user,
 		isAdmin: isAdmin(user),
 		isCardTester: cardTester,
-		// To Do nav badge count. The To Do nav item is card-tester-gated, so only
-		// compute it for them. Returned as a PROMISE (streamed) — the root layout
-		// wraps every page, so this must never block navigation; the badge fills in
-		// once it resolves.
-		todoCount: cardTester && onboarded && user ? loadTodoBadgeCount(user) : Promise.resolve(0)
+		// To Do nav badge count — for every onboarded user (the To Do list is open to
+		// all). Returned as a PROMISE (streamed) — the root layout wraps every page,
+		// so this must never block navigation; the badge fills in once it resolves.
+		todoCount: onboarded && user ? loadTodoBadgeCount(user) : Promise.resolve(0)
 	};
 };

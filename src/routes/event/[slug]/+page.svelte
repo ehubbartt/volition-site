@@ -31,7 +31,12 @@
 	</div>
 {/if}
 
-{#if !data.isClanMember}
+{#if data.adminPreview}
+	<p class="panel preview-note">
+		👁️ <strong>Preview</strong> — this {data.event.status} event isn't visible to players yet. As an
+		admin you can test submissions here; set it to <strong>open</strong> to launch.
+	</p>
+{:else if !data.isClanMember}
 	<p class="panel note">
 		Only Volition clan members can submit. If you've recently joined, ping an admin to be added to the
 		clan list.
@@ -102,6 +107,10 @@
 	}
 	.note {
 		color: var(--muted);
+	}
+	.preview-note {
+		border-color: var(--accent);
+		background: var(--accent-soft);
 	}
 	.progress {
 		margin-bottom: 1.25rem;

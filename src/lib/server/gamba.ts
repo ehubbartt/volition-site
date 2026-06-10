@@ -115,11 +115,13 @@ export function rollOnePack<T extends { rarity: string; full_art?: boolean | nul
 // inventory row — a Normal copy and a Holo copy of the same card stack apart.
 // Site-owned tables (unlike VP, which lives in the bot's players table — see
 // playerStats.ts). Used by the /gamba open flow after VP has been spent.
+// Returns `newKeys` — the set of `${card_id}|${finish}` pairs the user did NOT own
+// before this grant (i.e. brand-new to their collection), so the opener can flag them.
 export async function grantCards(
 	userId: string,
 	grants: CardGrant[]
-): Promise<{ ok: true } | { ok: false; error: string }> {
-	if (grants.length === 0) return { ok: true };
+): Promise<{ ok: true; newKeys: Set<string> } | { ok: false; error: string }> {
+	if (grants.length === 0) return { ok: true, newKeys: new Set() };
 	const sb = db();
 
 	// Tally how many of each distinct (card, finish) were rolled.
@@ -165,7 +167,11 @@ export async function grantCards(
 		.from('vs_user_cards')
 		.upsert(rows, { onConflict: 'user_id,card_id,finish' });
 	if (upErr) return { ok: false, error: upErr.message };
-	return { ok: true };
+
+	// A pulled (card, finish) is "new" if there was no prior row for it.
+	const newKeys = new Set<string>();
+	for (const key of keys) if (!have.has(key)) newKeys.add(key);
+	return { ok: true, newKeys };
 }
 
 // Adds `qty` of a pack to a user's unopened inventory (vs_user_packs), incrementing

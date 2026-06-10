@@ -470,7 +470,7 @@ async function rollGrantReveal(
 	user: SessionUser,
 	pack: OpenablePack,
 	costVp: number
-): Promise<{ ok: true; opened: (Card & { finish: CardFinish })[] } | { ok: false; error: string }> {
+): Promise<{ ok: true; opened: (Card & { finish: CardFinish; isNew: boolean })[] } | { ok: false; error: string }> {
 	const { data: poolRows, error: poolErr } = await db()
 		.from('vs_cards')
 		.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url')
@@ -492,6 +492,7 @@ async function rollGrantReveal(
 	const grants: CardGrant[] = rolled.map((r) => ({ card_id: r.card.id, finish: r.finish }));
 	const grant = await grantCards(user.id, grants);
 	if (!grant.ok) return { ok: false, error: 'Could not add the cards to your collection' };
+	const newKeys = grant.newKeys;
 
 	await logPackOpen({
 		userId: user.id,
@@ -516,7 +517,7 @@ async function rollGrantReveal(
 		});
 	}
 
-	const opened: (Card & { finish: CardFinish })[] = rolled.map((r) => ({
+	const opened: (Card & { finish: CardFinish; isNew: boolean })[] = rolled.map((r) => ({
 		id: r.card.id,
 		name: r.card.name,
 		level: r.card.level,
@@ -531,7 +532,8 @@ async function rollGrantReveal(
 		sound_url: r.card.sound_url,
 		holo_regular_url: pack.holo_regular_url,
 		holo_reverse_url: pack.holo_reverse_url,
-		finish: r.finish
+		finish: r.finish,
+		isNew: newKeys.has(`${r.card.id}|${r.finish}`)
 	}));
 	return { ok: true, opened };
 }

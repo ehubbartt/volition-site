@@ -34,8 +34,9 @@
   }
 
   // Cards may carry a rolled `finish` (the gamba open flow); without one (the
-  // tester) the opener cycles the holo looks for comparison.
-  type OpenerCard = Card & { finish?: CardFinish };
+  // tester) the opener cycles the holo looks for comparison. `isNew` is set by the
+  // real open flow when the card was not already in the player's collection.
+  type OpenerCard = Card & { finish?: CardFinish; isNew?: boolean };
   let {
     pack,
     cards,
@@ -60,6 +61,7 @@
       : null,
   );
   let currentHolo = $derived(holoLabels[focusIndex] ?? "");
+  let currentIsNew = $derived(!!currentCard?.isNew);
 
   // ---- Per-card open sound + volume ----
   let volume = $state(1); // 0..1
@@ -2050,6 +2052,7 @@
     {:else if stage === "cards"}
       {#if currentCard}
         <p class="card-name" style="--rarity: {currentRarity?.color}">
+          {#if currentIsNew}<span class="new-badge">NEW</span>{/if}
           {currentCard.name}
           <span class="card-sub">
             {currentRarity?.label}{#if currentCard.level}
@@ -2079,6 +2082,7 @@
     {:else if stage === "inspect"}
       {#if currentCard}
         <p class="card-name" style="--rarity: {currentRarity?.color}">
+          {#if currentIsNew}<span class="new-badge">NEW</span>{/if}
           {currentCard.name}
           <span class="card-sub">
             {currentRarity?.label}{#if currentCard.level}
@@ -2221,6 +2225,31 @@
     font-family: "rssmall", ui-sans-serif, Arial, sans-serif;
     font-size: 0.85rem;
     color: rgba(255, 255, 255, 0.7);
+  }
+
+  .new-badge {
+    align-self: center;
+    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-size: 0.8rem;
+    letter-spacing: 1.5px;
+    color: #ff4d4d;
+    border: 2px solid #ff4d4d;
+    border-radius: 4px;
+    padding: 0.05rem 0.45rem;
+    margin-bottom: 0.15rem;
+    text-shadow: none;
+    box-shadow: 0 0 6px rgba(255, 0, 0, 0.55);
+    animation: new-pulse 1.1s ease-in-out infinite;
+  }
+
+  @keyframes new-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 5px rgba(255, 0, 0, 0.45);
+    }
+    50% {
+      box-shadow: 0 0 11px rgba(255, 0, 0, 0.85);
+    }
   }
 
   .holo-tag {

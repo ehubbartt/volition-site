@@ -1,6 +1,5 @@
-import { redirect, error, fail } from '@sveltejs/kit';
+import { redirect, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { isCardTester } from '$lib/server/auth';
 import { isClanMember } from '$lib/server/clan';
 import { renderMarkdown } from '$lib/markdown';
 import { createSubmission } from '$lib/server/submissions';
@@ -25,7 +24,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user.rsn || !locals.user.clan_allegiance || !locals.user.account_type) {
 		throw redirect(303, '/onboarding');
 	}
-	if (!isCardTester(locals.user)) throw error(403, 'Not allowed');
 
 	const memberOfClan = await isClanMember(locals.user.discord_id, locals.user.rsn);
 	const instances = await loadActiveTaskInstances();
@@ -86,7 +84,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 export const actions: Actions = {
 	submit: async ({ locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
-		if (!isCardTester(locals.user)) return fail(403, { error: 'Not allowed' });
 		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
 			return fail(403, { error: 'Only Volition clan members can submit tasks.' });
 		}

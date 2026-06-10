@@ -1,6 +1,5 @@
-import { redirect, error } from '@sveltejs/kit';
+import { redirect } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { isCardTester } from '$lib/server/auth';
 import { fetchCompetition, metricKind, metricLabel } from '$lib/server/wom';
 import type { PageServerLoad } from './$types';
 
@@ -19,7 +18,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user.rsn || !locals.user.clan_allegiance || !locals.user.account_type) {
 		throw redirect(303, '/onboarding');
 	}
-	if (!isCardTester(locals.user)) throw error(403, 'Not allowed');
 
 	const { data: events } = await db()
 		.from('events')

@@ -9,11 +9,15 @@
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
 	import { rsnToSlug } from '$lib/rsn';
+	import { page } from '$app/stores';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	type Tab = 'profile' | 'collection' | 'stats' | 'wallet';
-	let tab = $state<Tab>('profile');
+	// Initial tab can be deep-linked via ?tab= (e.g. /me?tab=collection from the gamba page).
+	const TABS: Tab[] = ['profile', 'collection', 'stats', 'wallet'];
+	const requestedTab = $page.url.searchParams.get('tab') as Tab | null;
+	let tab = $state<Tab>(requestedTab && TABS.includes(requestedTab) ? requestedTab : 'profile');
 
 	// Collection card the viewer modal is showing (null = closed).
 	let viewing = $state<UserCard | null>(null);
