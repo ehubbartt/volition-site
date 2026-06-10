@@ -748,8 +748,8 @@
               </div>
               {#if !data.crate.freeAvailable}
                 <span class="muted small"
-                  >Daily crate already claimed — next free one in <span class="cd"
-                    >{freeCountdown}</span
+                  >Daily crate already claimed — next free one in <span
+                    class="cd">{freeCountdown}</span
                   >
                   (resets midnight UTC).</span
                 >
@@ -778,7 +778,7 @@
 
       {#if data.recentCrateDrops.length > 0}
         <aside class="rail">
-          <h2 class="rail-title"><span class="live"></span> Live drops</h2>
+          <h2 class="rail-title"><span class="live"></span> Live rare drops</h2>
           <div class="rail-list">
             {#each data.recentCrateDrops as drop (drop.id)}
               <article class="drop" style="--rare-color:{drop.colorHex}">
