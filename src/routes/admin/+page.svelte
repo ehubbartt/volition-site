@@ -19,6 +19,12 @@
 			show: data.admin
 		},
 		{
+			href: '/admin/tasks',
+			title: 'Tasks',
+			desc: 'Manage the weekly task pool, activate tasks, and create weekly/custom tasks.',
+			show: data.admin
+		},
+		{
 			href: '/admin/cards',
 			title: 'Cards & Packs',
 			desc: 'Author the TCG card and pack catalog.',
