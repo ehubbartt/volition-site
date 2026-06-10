@@ -1,17 +1,8 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
+import { nextWeeklyResetIso } from '$lib/tasks';
 import type { Actions, PageServerLoad } from './$types';
-
-// The next Sunday at 00:00 UTC ("Sunday midnight"), strictly in the future — if
-// today is Sunday it rolls to the following week, so a weekly task is ~a full week.
-function nextSundayMidnightIso(): string {
-	const now = new Date();
-	const daysUntilSun = (7 - now.getUTCDay()) % 7 || 7; // Sun(0) → 7
-	return new Date(
-		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSun)
-	).toISOString();
-}
 
 // Admin task manager for vs_tasks: the weekly rotation POOL (templates) + the
 // active task INSTANCES players submit to. Tasks are separate from full events
@@ -27,13 +18,13 @@ function intOrNull(v: FormDataEntryValue | null): number | null {
 }
 
 // Deadline for an activated task: an explicit `days` wins; a blank field defaults a
-// WEEKLY task to Sunday midnight (the weekly reset — next Monday 00:00 UTC), like the
-// old weekly post. Other kinds default to no deadline. An explicit 0 = no deadline.
+// WEEKLY task to the weekly reset — Monday 00:00 UTC (i.e. the midnight that ends
+// Sunday). Other kinds default to no deadline. An explicit 0 = no deadline.
 function activationEndsAt(kind: string, daysField: FormDataEntryValue | null): string | null {
 	const days = intOrNull(daysField);
 	if (days && days > 0) return new Date(Date.now() + days * 86_400_000).toISOString();
 	if (days === 0) return null;
-	return kind === 'weekly_task' ? nextSundayMidnightIso() : null;
+	return kind === 'weekly_task' ? nextWeeklyResetIso() : null;
 }
 
 export const load: PageServerLoad = async ({ locals }) => {

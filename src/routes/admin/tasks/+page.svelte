@@ -78,7 +78,7 @@
 				</label>
 			{:else}
 				<label class="field">
-					<span>Active for (days — blank: weekly ends Sunday midnight)</span>
+					<span>Active for (days — blank: weekly ends Monday 00:00 UTC)</span>
 					<input name="days" type="number" min="1" placeholder="days" />
 				</label>
 			{/if}
@@ -122,7 +122,7 @@
 						{#if t.in_rotation}
 							<form method="POST" action="?/activateTemplate" use:enhance class="activate">
 								<input type="hidden" name="id" value={t.id} />
-								<input name="days" type="number" min="1" placeholder="days" title="Active for N days. Blank: weekly tasks end Sunday midnight; others have no deadline." />
+								<input name="days" type="number" min="1" placeholder="days" title="Active for N days. Blank: weekly tasks end Monday 00:00 UTC (end of Sunday); others have no deadline." />
 								<button type="submit" class="primary">Activate now</button>
 							</form>
 						{:else}
