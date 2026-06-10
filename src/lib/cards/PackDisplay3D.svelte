@@ -9,6 +9,7 @@
 		fitPackCamera,
 		loadPackAspect
 	} from '$lib/cards/packScene';
+	import { prefersReducedMotion, detectWebgl } from '$lib/cards/glCapabilities';
 
 	// Per-card idle 3D pack: a real three.js pack (matching the opener's look) that
 	// slowly spins + bobs on a pedestal. The WebGL context is created only while the
@@ -39,15 +40,6 @@
 	let envTex: THREE.Texture | null = null;
 	let ro: ResizeObserver | null = null;
 	let raf = 0;
-
-	function webglSupported(): boolean {
-		try {
-			const c = document.createElement('canvas');
-			return !!(c.getContext('webgl2') || c.getContext('webgl'));
-		} catch {
-			return false;
-		}
-	}
 
 	async function build() {
 		if (built || building || mode !== 'gl') return;
@@ -154,9 +146,11 @@
 	});
 
 	onMount(() => {
-		const reduce =
-			window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-		if (reduce || !webglSupported()) {
+		// Static image instead of live 3D when the user asked for reduced motion, has no
+		// WebGL, or is on a SOFTWARE renderer (no GPU) — the last is the usual cause of
+		// "packs load super slow", so we skip the heavy CPU render entirely. The /gamba
+		// page surfaces a matching hint telling them what to change.
+		if (prefersReducedMotion() || detectWebgl().tier !== 'ok') {
 			mode = 'img';
 			return;
 		}

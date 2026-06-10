@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PageData } from "./$types";
-  import { tick } from "svelte";
+  import { tick, onMount } from "svelte";
   import { enhance } from "$app/forms";
   import type { SubmitFunction } from "@sveltejs/kit";
   import PackOpener from "$lib/cards/PackOpener.svelte";
@@ -12,9 +12,43 @@
   } from "$lib/cards/rarity";
   import { SFX_CRATE_SPIN, SFX_TICK, SFX_TOCK } from "$lib/cards/sfx";
   import { isVideoUrl } from "$lib/cards/config";
+  import { prefersReducedMotion, detectWebgl } from "$lib/cards/glCapabilities";
   import { rsnToSlug } from "$lib/rsn";
 
   let { data }: { data: PageData } = $props();
+
+  // Warn users whose settings make the 3D packs static or slow, and tell them what to
+  // change. 'none' = no WebGL, 'software' = no GPU accel (the "loads super slow" case),
+  // 'reduce' = Reduce motion on. Dismissible per-kind (so a different issue still shows).
+  let perfNotice = $state<null | "none" | "software" | "reduce">(null);
+  const PERF_DISMISS_KEY = "vs_gamba_perf_notice";
+  onMount(() => {
+    const gl = detectWebgl();
+    const kind =
+      gl.tier === "none"
+        ? "none"
+        : prefersReducedMotion()
+          ? "reduce"
+          : gl.tier === "software"
+            ? "software"
+            : null;
+    if (!kind) return;
+    try {
+      if (localStorage.getItem(PERF_DISMISS_KEY) === kind) return;
+    } catch {
+      /* ignore */
+    }
+    perfNotice = kind;
+  });
+  function dismissPerf() {
+    const k = perfNotice;
+    perfNotice = null;
+    try {
+      if (k) localStorage.setItem(PERF_DISMISS_KEY, k);
+    } catch {
+      /* ignore */
+    }
+  }
 
   function timeAgo(iso: string): string {
     const s = Math.max(
@@ -503,6 +537,30 @@
       <span class="vp-label">VP</span>
     </div>
   </header>
+
+  {#if perfNotice}
+    <div class="perf-notice" role="status">
+      <div class="perf-text">
+        {#if perfNotice === "none"}
+          <strong>3D packs aren’t available in this browser</strong>, so they show as
+          static images. Turn on <em>hardware acceleration</em> in your browser settings,
+          or open the site in a normal browser (Chrome/Edge/Firefox/Safari) rather than an
+          in-app browser.
+        {:else if perfNotice === "reduce"}
+          <strong>Pack animations are turned off</strong> because your device has
+          <em>Reduce motion</em> enabled, so packs show as static images. Turn off
+          “Reduce motion” in your system accessibility settings to see the 3D packs.
+        {:else}
+          <strong>3D packs are loading slowly</strong> — your browser looks like it’s
+          rendering without a GPU. Turn on <em>hardware acceleration</em> in your browser
+          settings (then reload) for smooth packs.
+        {/if}
+      </div>
+      <button type="button" class="perf-dismiss" onclick={dismissPerf} aria-label="Dismiss"
+        >✕</button
+      >
+    </div>
+  {/if}
 
   <div class="view-tabs">
     <button
@@ -1031,6 +1089,45 @@
     padding: 0.6rem 0.8rem;
     border-radius: 4px;
     margin-bottom: 1rem;
+  }
+
+  /* Capability/perf hint (no WebGL / no GPU / reduce-motion) */
+  .perf-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin-bottom: 1.25rem;
+    padding: 0.7rem 0.9rem;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+
+  .perf-text {
+    min-width: 0;
+  }
+
+  .perf-text :global(em) {
+    font-style: normal;
+    color: var(--accent);
+  }
+
+  .perf-dismiss {
+    flex: 0 0 auto;
+    min-height: auto;
+    padding: 0.1rem 0.45rem;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--muted);
+    line-height: 1;
+  }
+
+  .perf-dismiss:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
   }
 
   /* ---- Store layout: packs + live-drops rail ---- */
