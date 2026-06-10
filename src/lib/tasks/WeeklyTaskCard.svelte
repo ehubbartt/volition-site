@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { MAX_IMAGES_PER_SUBMISSION } from '$lib/bingo/config';
+	import ImageDropper from '$lib/ImageDropper.svelte';
 
 	type SubmissionStatus = 'pending' | 'approved' | 'rejected';
 
@@ -24,44 +24,10 @@
 
 	let { task, canSubmit }: { task: Task; canSubmit: boolean } = $props();
 
-	let fileInput: HTMLInputElement | null = $state(null);
-	let staged = $state<Array<{ file: File; url: string }>>([]);
-	let dragOver = $state(false);
+	let stagedCount = $state(0);
+	let resetKey = $state(0);
 	let submitting = $state(false);
 	let error = $state<string | null>(null);
-
-	function syncInput() {
-		if (!fileInput) return;
-		const dt = new DataTransfer();
-		for (const s of staged) dt.items.add(s.file);
-		fileInput.files = dt.files;
-	}
-
-	function addFiles(files: FileList | File[]) {
-		error = null;
-		for (const f of Array.from(files)) {
-			if (!f.type.startsWith('image/')) continue;
-			if (staged.length >= MAX_IMAGES_PER_SUBMISSION) {
-				error = `Up to ${MAX_IMAGES_PER_SUBMISSION} images per submission.`;
-				break;
-			}
-			staged = [...staged, { file: f, url: URL.createObjectURL(f) }];
-		}
-		syncInput();
-	}
-
-	function removeStaged(i: number) {
-		const s = staged[i];
-		if (s) URL.revokeObjectURL(s.url);
-		staged = staged.filter((_, idx) => idx !== i);
-		syncInput();
-	}
-
-	function clearStaged() {
-		for (const s of staged) URL.revokeObjectURL(s.url);
-		staged = [];
-		if (fileInput) fileInput.value = '';
-	}
 
 	function fmtDate(iso: string): string {
 		try {
@@ -153,7 +119,7 @@
 				return async ({ result, update }) => {
 					await update({ reset: false });
 					submitting = false;
-					if (result.type === 'success') clearStaged();
+					if (result.type === 'success') resetKey += 1;
 					else if (result.type === 'failure') {
 						const d = result.data as { error?: string } | undefined;
 						error = d?.error ?? 'Submit failed';
@@ -165,55 +131,15 @@
 		>
 			<input type="hidden" name="event_id" value={task.id} />
 			<h3>Submit proof</h3>
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<label
-				class="dropzone"
-				class:drag-over={dragOver}
-				ondragover={(e) => {
-					e.preventDefault();
-					dragOver = true;
-				}}
-				ondragleave={() => (dragOver = false)}
-				ondrop={(e) => {
-					e.preventDefault();
-					dragOver = false;
-					if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
-				}}
-			>
-				<input
-					bind:this={fileInput}
-					type="file"
-					name="proof"
-					accept="image/png,image/jpeg,image/webp,image/gif"
-					multiple
-					onchange={(e) => {
-						const t = e.target as HTMLInputElement;
-						if (t.files?.length) addFiles(t.files);
-					}}
-					hidden
-				/>
-				<span class="big">{staged.length > 0 ? 'Add another image' : 'Drop or choose image'}</span>
-				<span class="hint">up to {MAX_IMAGES_PER_SUBMISSION} images, 10 MB each</span>
-			</label>
-
-			{#if staged.length > 0}
-				<div class="staged">
-					{#each staged as s, i (s.url)}
-						<div class="staged-item">
-							<img src={s.url} alt={`Staged ${i + 1}`} />
-							<button type="button" class="staged-remove" aria-label="Remove image" onclick={() => removeStaged(i)}>×</button>
-						</div>
-					{/each}
-				</div>
-			{/if}
+			<ImageDropper bind:count={stagedCount} bind:error {resetKey} />
 
 			{#if error}<p class="error">{error}</p>{/if}
 
 			<div class="actions">
-				<button type="submit" class="primary" disabled={staged.length === 0 || submitting}>
-					{#if submitting}Submitting…{:else}Submit {staged.length > 1 ? `${staged.length} images` : 'proof'}{/if}
+				<button type="submit" class="primary" disabled={stagedCount === 0 || submitting}>
+					{#if submitting}Submitting…{:else}Submit {stagedCount > 1 ? `${stagedCount} images` : 'proof'}{/if}
 				</button>
-				{#if staged.length > 0}<button type="button" onclick={clearStaged}>Clear</button>{/if}
+				{#if stagedCount > 0}<button type="button" onclick={() => (resetKey += 1)}>Clear</button>{/if}
 			</div>
 		</form>
 	{/if}
@@ -368,72 +294,6 @@
 	}
 	.reject-note strong {
 		color: var(--danger);
-	}
-	.dropzone {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 0.4rem;
-		min-height: 8rem;
-		padding: 1rem;
-		margin: 0.25rem 0 0.75rem;
-		background: var(--surface-alt);
-		border: 2px dashed var(--border-strong);
-		border-radius: var(--radius);
-		text-align: center;
-		cursor: pointer;
-		transition: border-color 0.15s, background 0.15s;
-	}
-	.dropzone:hover,
-	.dropzone.drag-over {
-		border-color: var(--accent);
-		background: var(--accent-soft);
-	}
-	.big {
-		font-family: var(--font-heading);
-		font-size: 1.05rem;
-		color: var(--accent);
-	}
-	.hint {
-		font-size: 0.8rem;
-		color: var(--muted);
-	}
-	.staged {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.4rem;
-		margin-bottom: 0.75rem;
-	}
-	.staged-item {
-		position: relative;
-	}
-	.staged-item img {
-		display: block;
-		width: 5.5rem;
-		height: 5.5rem;
-		object-fit: cover;
-		border-radius: 3px;
-		border: 1px solid var(--border);
-		background: #000;
-	}
-	.staged-remove {
-		position: absolute;
-		top: -6px;
-		right: -6px;
-		width: 20px;
-		height: 20px;
-		min-height: 0;
-		padding: 0;
-		line-height: 1;
-		font-size: 1rem;
-		border-radius: 50%;
-		background: var(--danger);
-		color: #fff;
-		border: 1px solid #000;
-		display: flex;
-		align-items: center;
-		justify-content: center;
 	}
 	.actions {
 		display: flex;
