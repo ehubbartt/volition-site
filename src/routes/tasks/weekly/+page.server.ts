@@ -16,6 +16,7 @@ interface MySubRow {
 	proof_urls: string[] | null;
 	submitted_at: string;
 	status: SubmissionStatus;
+	review_note: string | null;
 	reviewer: { rsn: string | null; discord_username: string } | null;
 }
 
@@ -40,6 +41,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			submitted_at: string;
 			status: SubmissionStatus;
 			reviewed_by_name: string | null;
+			review_note: string | null;
 		}>
 	>();
 
@@ -48,7 +50,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		const { data } = await db()
 			.from('vs_submissions')
 			.select(
-				'id, task_id, proof_urls, submitted_at, status, reviewer:vs_users!reviewed_by(rsn, discord_username)'
+				'id, task_id, proof_urls, submitted_at, status, review_note, reviewer:vs_users!reviewed_by(rsn, discord_username)'
 			)
 			.in('task_id', ids)
 			.or(`user_id.eq.${locals.user.id},discord_id.eq.${locals.user.discord_id}`)
@@ -61,7 +63,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 				proof_urls: r.proof_urls ?? [],
 				submitted_at: r.submitted_at,
 				status: r.status,
-				reviewed_by_name: r.reviewer ? (r.reviewer.rsn ?? r.reviewer.discord_username) : null
+				reviewed_by_name: r.reviewer ? (r.reviewer.rsn ?? r.reviewer.discord_username) : null,
+				review_note: r.review_note ?? null
 			});
 			byEvent.set(r.task_id, arr);
 		}

@@ -14,6 +14,13 @@
 	let error = $state<string | null>(null);
 	let lastAction = $state<null | { kind: 'approve' | 'reject'; rsn: string }>(null);
 	let lightboxSrc = $state<string | null>(null);
+	// Optional reason the admin can attach when rejecting (saved to review_note,
+	// shown in the reviewed-history view). Cleared after each decision.
+	let rejectNote = $state('');
+	// Event submissions require the admin to confirm both checks before approving
+	// (task submissions don't). Reset per card.
+	let womConfirmed = $state(false);
+	let logConfirmed = $state(false);
 
 	// Reviewed-history view filters (client-side over the loaded history).
 	let reviewedStatus = $state<'all' | 'approved' | 'rejected'>('all');
@@ -30,6 +37,7 @@
 	);
 	const current = $derived(filtered[currentIndex] ?? null);
 	const remaining = $derived(filtered.length - currentIndex);
+	const canApprove = $derived(current?.kind !== 'event' || (womConfirmed && logConfirmed));
 
 	const reviewedItems = $derived(data.reviewed?.items ?? []);
 	const reviewedEvents = $derived(data.reviewed?.events ?? []);
@@ -54,6 +62,9 @@
 
 	function onKey(e: KeyboardEvent) {
 		if (busy || !current) return;
+		// Don't hijack arrow keys while the admin is typing a rejection reason.
+		const el = e.target as HTMLElement | null;
+		if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) return;
 		if (e.key === 'ArrowRight') document.getElementById('approve-btn')?.click();
 		else if (e.key === 'ArrowLeft') document.getElementById('reject-btn')?.click();
 	}
@@ -259,6 +270,30 @@
 
 		{#if error}<p class="error">{error}</p>{/if}
 
+		{#if current.kind === 'event'}
+			<fieldset class="approve-checks">
+				<legend>Before approving</legend>
+				<label class="check">
+					<input type="checkbox" bind:checked={womConfirmed} />
+					<span>Has WOM codeword</span>
+				</label>
+				<label class="check">
+					<input type="checkbox" bind:checked={logConfirmed} />
+					<span>Visible Drop/Collection Log</span>
+				</label>
+			</fieldset>
+		{/if}
+
+		<label class="note-field">
+			<span class="note-label">Rejection reason <span class="muted">(optional — shown to the player)</span></span>
+			<textarea
+				bind:value={rejectNote}
+				rows="2"
+				maxlength="500"
+				placeholder="e.g. Screenshot doesn't show the drop — please reupload with the loot visible."
+			></textarea>
+		</label>
+
 		<div class="actions">
 			<form
 				method="POST"
@@ -269,6 +304,9 @@
 						busy = false;
 						if (result.type === 'success') {
 							lastAction = { kind: 'reject', rsn: current?.submitter.rsn ?? current?.submitter.discord_username ?? '' };
+							rejectNote = '';
+							womConfirmed = false;
+							logConfirmed = false;
 							nextCard();
 						} else if (result.type === 'failure') {
 							error = (result.data as { error?: string } | undefined)?.error ?? 'Reject failed';
@@ -281,6 +319,7 @@
 				<input type="hidden" name="source" value={current.source} />
 				<input type="hidden" name="ids" value={current.ids.join(',')} />
 				<input type="hidden" name="decision" value="reject" />
+				<input type="hidden" name="note" value={rejectNote} />
 				<button id="reject-btn" type="submit" class="reject" disabled={busy} title="Reject (←)">
 					<span class="big-icon">✗</span>
 					<span class="label-text">Reject</span>
@@ -296,6 +335,9 @@
 						busy = false;
 						if (result.type === 'success') {
 							lastAction = { kind: 'approve', rsn: current?.submitter.rsn ?? current?.submitter.discord_username ?? '' };
+							rejectNote = '';
+							womConfirmed = false;
+							logConfirmed = false;
 							nextCard();
 						} else if (result.type === 'failure') {
 							error = (result.data as { error?: string } | undefined)?.error ?? 'Approve failed';
@@ -308,7 +350,13 @@
 				<input type="hidden" name="source" value={current.source} />
 				<input type="hidden" name="ids" value={current.ids.join(',')} />
 				<input type="hidden" name="decision" value="approve" />
-				<button id="approve-btn" type="submit" class="approve" disabled={busy} title="Approve (→)">
+				<button
+					id="approve-btn"
+					type="submit"
+					class="approve"
+					disabled={busy || !canApprove}
+					title={canApprove ? 'Approve (→)' : 'Check both boxes to approve'}
+				>
 					<span class="big-icon">✓</span>
 					<span class="label-text">Approve</span>
 				</button>
@@ -642,6 +690,80 @@
 		font-size: 0.85rem;
 	}
 
+	.approve-checks {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		margin: 0.25rem 0 0.6rem;
+		padding: 0.6rem 0.8rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--surface-alt);
+	}
+
+	.approve-checks legend {
+		font-family: var(--font-heading);
+		font-size: 0.72rem;
+		letter-spacing: 1px;
+		text-transform: uppercase;
+		color: var(--muted);
+		padding: 0 0.4rem;
+	}
+
+	.check {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.92rem;
+		cursor: pointer;
+	}
+
+	.check input {
+		width: 1.05rem;
+		height: 1.05rem;
+		accent-color: var(--success);
+		cursor: pointer;
+	}
+
+	.note-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		margin: 0.25rem 0 0.6rem;
+	}
+
+	.note-label {
+		font-family: var(--font-heading);
+		font-size: 0.78rem;
+		letter-spacing: 0.5px;
+		text-transform: uppercase;
+		color: var(--text);
+	}
+
+	.note-label .muted {
+		text-transform: none;
+		letter-spacing: 0;
+		font-family: inherit;
+		font-size: 0.85em;
+	}
+
+	.note-field textarea {
+		width: 100%;
+		resize: vertical;
+		padding: 0.5rem 0.6rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		color: var(--text);
+		font: inherit;
+		font-size: 0.9rem;
+	}
+
+	.note-field textarea:focus {
+		outline: none;
+		border-color: var(--accent);
+	}
+
 	.actions {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
@@ -670,6 +792,11 @@
 
 	.actions button:active:not(:disabled) {
 		transform: scale(0.97);
+	}
+
+	.actions button:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
 
 	.big-icon {

@@ -26,6 +26,20 @@ export interface PlayerTask {
 	progress?: { done: number; total: number } | null;
 }
 
+// Does this task count toward the "To Do" nav notification badge? It still needs
+// attention when it's a 'todo' (not done, actionable), OR it's an 'active' item
+// that has a due date (a countdown to act before). Purely-informational 'active'
+// items with NO due date (e.g. DuoWolf) and 'done' items don't count.
+export function isOutstandingTask(t: PlayerTask): boolean {
+	if (t.status === 'todo') return true;
+	if (t.status === 'active') return t.resetAt != null;
+	return false;
+}
+
+export function countOutstandingTasks(tasks: PlayerTask[]): number {
+	return tasks.filter(isOutstandingTask).length;
+}
+
 // --- Time helpers (single source of truth for the tasks UI) ---------------
 
 // ms from `fromMs` to the next 00:00 UTC — the daily crate reset, matching the

@@ -16,6 +16,9 @@ export type ReviewDecision = 'approve' | 'reject';
 // decision: it updates those rows in that source's table.
 export interface ReviewItem {
 	source: SubmissionSource;
+	// 'event' = a bingo/team/event-scoped proof (needs the pre-approval checklist);
+	// 'task'  = a weekly/custom task submission (no checklist).
+	kind: 'event' | 'task';
 	ids: string[]; // the pending row ids this group covers
 	event: { id: string; slug: string; name: string };
 	submitter: {

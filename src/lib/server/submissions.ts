@@ -247,10 +247,15 @@ export async function loadPendingReview(): Promise<{
 				? { id: r.target_id, label: r.task_name ?? r.target_label ?? 'Task', detail_html: null }
 				: resolveTask(r.source, r.target_id, r.target_label);
 
+		// Task submissions are generic rows linked to a vs_tasks row; everything else
+		// (bingo, team, event-scoped generic) is an event submission → needs the checklist.
+		const isTask = r.source === 'generic' && !!r.task_id;
+
 		let group = groups.get(key);
 		if (!group) {
 			group = {
 				source: r.source,
+				kind: isTask ? 'task' : 'event',
 				ids: [],
 				event: context,
 				submitter,

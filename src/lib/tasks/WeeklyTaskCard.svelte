@@ -10,6 +10,7 @@
 		submitted_at: string;
 		status: SubmissionStatus;
 		reviewed_by_name: string | null;
+		review_note: string | null;
 	}
 
 	interface Task {
@@ -128,8 +129,14 @@
 									<button type="submit" class="danger small">Remove</button>
 								</form>
 							{/if}
-						</div>
-					</li>
+							</div>
+							{#if sub.status === 'rejected' && sub.review_note}
+								<p class="reject-note">
+									<strong>Reason:</strong>
+									{sub.review_note}
+								</p>
+							{/if}
+						</li>
 				{/each}
 			</ul>
 		</div>
@@ -348,6 +355,18 @@
 	.status-pill.status-rejected {
 		background: rgba(255, 0, 0, 0.12);
 		border-color: var(--danger);
+		color: var(--danger);
+	}
+	.reject-note {
+		margin: 0;
+		padding: 0.4rem 0.6rem;
+		background: rgba(255, 0, 0, 0.08);
+		border: 1px solid var(--danger);
+		border-radius: 3px;
+		font-size: 0.82rem;
+		color: var(--text);
+	}
+	.reject-note strong {
 		color: var(--danger);
 	}
 	.dropzone {

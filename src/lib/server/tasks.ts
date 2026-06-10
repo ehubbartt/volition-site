@@ -6,7 +6,7 @@ import { getLastLootDate } from './playerStats';
 import { BINGO_TILES } from './bingoTiles';
 import { getBingoState } from '$lib/bingo/state';
 import { BINGO_EVENT_SLUG, BINGO_ROW_COUNT } from '$lib/bingo/config';
-import { type PlayerTask, nextUtcMidnightIso } from '$lib/tasks';
+import { type PlayerTask, nextUtcMidnightIso, countOutstandingTasks } from '$lib/tasks';
 
 // Aggregates a player's time-gated / recurring activities into one normalized
 // PlayerTask[] for the /tasks page + the home summary card. Modeled on
@@ -317,4 +317,15 @@ export async function loadPlayerTasks(user: SessionUser): Promise<PlayerTask[]> 
 			STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || KIND_ORDER[a.kind] - KIND_ORDER[b.kind]
 	);
 	return tasks;
+}
+
+// Count of outstanding to-dos for the "To Do" nav badge (see isOutstandingTask).
+// Best-effort: never throws, so a DB hiccup just hides the badge instead of
+// breaking the nav on every page (this runs in the root layout load).
+export async function loadTodoBadgeCount(user: SessionUser): Promise<number> {
+	try {
+		return countOutstandingTasks(await loadPlayerTasks(user));
+	} catch {
+		return 0;
+	}
 }
