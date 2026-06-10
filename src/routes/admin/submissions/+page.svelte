@@ -3,6 +3,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import Lightbox from '$lib/Lightbox.svelte';
+	import EventsTasksTabs from '$lib/admin/EventsTasksTabs.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -13,6 +14,10 @@
 	let error = $state<string | null>(null);
 	let lastAction = $state<null | { kind: 'approve' | 'reject'; rsn: string }>(null);
 	let lightboxSrc = $state<string | null>(null);
+
+	// Reviewed-history view filters (client-side over the loaded history).
+	let reviewedStatus = $state<'all' | 'approved' | 'rejected'>('all');
+	let reviewedEvent = $state('all');
 
 	const SOURCE_LABEL: Record<string, string> = {
 		generic: 'Submission',
@@ -25,6 +30,18 @@
 	);
 	const current = $derived(filtered[currentIndex] ?? null);
 	const remaining = $derived(filtered.length - currentIndex);
+
+	const reviewedItems = $derived(data.reviewed?.items ?? []);
+	const reviewedEvents = $derived(data.reviewed?.events ?? []);
+	const approvedCount = $derived(reviewedItems.filter((i) => i.status === 'approved').length);
+	const rejectedCount = $derived(reviewedItems.filter((i) => i.status === 'rejected').length);
+	const filteredReviewed = $derived(
+		reviewedItems.filter(
+			(i) =>
+				(reviewedStatus === 'all' || i.status === reviewedStatus) &&
+				(reviewedEvent === 'all' || i.event.id === reviewedEvent)
+		)
+	);
 
 	function selectEvent(id: string) {
 		selectedEvent = id;
@@ -56,18 +73,30 @@
 
 <svelte:window onkeydown={onKey} />
 
-<nav class="crumbs">
-	<a href="/admin">← Admin</a>
+<EventsTasksTabs />
+
+<nav class="view-tabs">
+	<a href="?view=pending" class="view-tab" class:active={data.view === 'pending'}>
+		Pending queue ({data.stats.pending})
+	</a>
+	<a href="?view=reviewed" class="view-tab" class:active={data.view === 'reviewed'}>
+		Reviewed history
+	</a>
 </nav>
 
 <section class="hero">
-	<h1>Review submissions</h1>
-	<p class="muted">Pending image proofs across every event.</p>
+	<p class="muted">
+		{#if data.view === 'reviewed'}
+			Approved &amp; rejected proofs — most recent first.
+		{:else}
+			Pending image proofs across every event.
+		{/if}
+	</p>
 
 	<div class="stats">
 		<div class="stat">
 			<span class="label">Pending</span>
-			<strong>{remaining}</strong>
+			<strong>{data.view === 'pending' ? remaining : data.stats.pending}</strong>
 		</div>
 		<div class="stat">
 			<span class="label">Approved</span>
@@ -79,7 +108,7 @@
 		</div>
 	</div>
 
-	{#if data.events.length > 1}
+	{#if data.view === 'pending' && data.events.length > 1}
 		<div class="filter">
 			<button type="button" class="chip" class:active={selectedEvent === 'all'} onclick={() => selectEvent('all')}>
 				All events ({data.items.length})
@@ -97,10 +126,95 @@
 		</div>
 	{/if}
 
-	<p class="kbd-hint muted">Use <kbd>←</kbd> to reject, <kbd>→</kbd> to approve</p>
+	{#if data.view === 'pending'}
+		<p class="kbd-hint muted">Use <kbd>←</kbd> to reject, <kbd>→</kbd> to approve</p>
+	{/if}
 </section>
 
-{#if current}
+{#if data.view === 'reviewed'}
+	<section class="reviewed">
+		<div class="filter">
+			<button type="button" class="chip" class:active={reviewedStatus === 'all'} onclick={() => (reviewedStatus = 'all')}>
+				All ({reviewedItems.length})
+			</button>
+			<button type="button" class="chip" class:active={reviewedStatus === 'approved'} onclick={() => (reviewedStatus = 'approved')}>
+				Approved ({approvedCount})
+			</button>
+			<button type="button" class="chip" class:active={reviewedStatus === 'rejected'} onclick={() => (reviewedStatus = 'rejected')}>
+				Rejected ({rejectedCount})
+			</button>
+		</div>
+
+		{#if reviewedEvents.length > 1}
+			<div class="filter">
+				<button type="button" class="chip" class:active={reviewedEvent === 'all'} onclick={() => (reviewedEvent = 'all')}>
+					All events
+				</button>
+				{#each reviewedEvents as ev (ev.id)}
+					<button type="button" class="chip" class:active={reviewedEvent === ev.id} onclick={() => (reviewedEvent = ev.id)}>
+						{ev.name}
+					</button>
+				{/each}
+			</div>
+		{/if}
+
+		{#if filteredReviewed.length === 0}
+			<article class="card done">
+				<h2>Nothing here yet</h2>
+				<p class="muted">No reviewed submissions match this filter.</p>
+			</article>
+		{:else}
+			<ul class="rev-list">
+				{#each filteredReviewed as item (item.ids.join(','))}
+					<li class="rev-card">
+						<header class="rev-head">
+							<div class="who">
+								<AccountIcon type={item.submitter.account_type} size={24} />
+								<div class="who-text">
+									<strong class="rsn">{item.submitter.rsn ?? item.submitter.discord_username}</strong>
+									<span class="muted who-sub">
+										{item.submitter.discord_username}
+										{#if item.submitter.clan_label}· {item.submitter.clan_label}{/if}
+										{#if item.team}· team {item.team.name ?? 'Unnamed'}{/if}
+									</span>
+								</div>
+							</div>
+							<span class="status-badge" class:approved={item.status === 'approved'} class:rejected={item.status === 'rejected'}>
+								{item.status === 'approved' ? '✓ Approved' : '✗ Rejected'}
+							</span>
+						</header>
+
+						<div class="rev-tile">
+							<span class="src-pill">{SOURCE_LABEL[item.source] ?? item.source}</span>
+							<span class="event-name muted">{item.event.name}</span>
+							<span class="rev-task">{item.task.label}</span>
+						</div>
+
+						{#if item.proofUrls.length}
+							<div class="rev-proofs">
+								{#each item.proofUrls as url, idx (url)}
+									<button type="button" class="proof-thumb" onclick={() => (lightboxSrc = url)} aria-label={`View proof ${idx + 1}`}>
+										<img src={url} alt={`Proof ${idx + 1}`} />
+									</button>
+								{/each}
+							</div>
+						{:else}
+							<p class="meta muted">No proof images.</p>
+						{/if}
+
+						<footer class="rev-foot muted">
+							<span>Submitted {fmt(item.submittedAt)}</span>
+							{#if item.reviewedAt}<span>· Reviewed {fmt(item.reviewedAt)}</span>{/if}
+							{#if item.reviewer}<span>· by {item.reviewer}</span>{/if}
+							{#if item.reviewNote}<span class="note">· “{item.reviewNote}”</span>{/if}
+						</footer>
+					</li>
+				{/each}
+			</ul>
+			<p class="cap-hint muted">Showing the most recent reviewed submissions.</p>
+		{/if}
+	</section>
+{:else if current}
 	<article class="card">
 		<header class="card-head">
 			<div class="who">
@@ -229,26 +343,38 @@
 {/if}
 
 <style>
-	.crumbs {
-		margin-bottom: 0.75rem;
-		font-size: 0.9rem;
+	.view-tabs {
+		display: flex;
+		gap: 0.4rem;
+		margin: 0.5rem 0 1rem;
+		flex-wrap: wrap;
 	}
 
-	.crumbs a {
-		color: rgba(255, 255, 255, 0.5);
+	.view-tab {
+		padding: 0.4rem 0.9rem;
+		font-family: var(--font-heading);
+		font-size: 0.85rem;
+		letter-spacing: 0.5px;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		color: var(--muted);
 		text-decoration: none;
 	}
 
-	.crumbs a:hover {
+	.view-tab:hover {
+		border-color: var(--accent);
+		color: var(--text);
+	}
+
+	.view-tab.active {
+		background: var(--accent-soft);
+		border-color: var(--accent);
 		color: var(--accent);
 	}
 
 	.hero {
 		margin-bottom: 1.25rem;
-	}
-
-	.hero h1 {
-		margin: 0 0 0.2rem;
 	}
 
 	.muted {
@@ -590,6 +716,124 @@
 
 	button.primary:hover {
 		background: var(--accent-soft);
+	}
+
+	/* --- Reviewed history --- */
+	.reviewed {
+		max-width: 46rem;
+		margin: 0 auto;
+	}
+
+	.rev-list {
+		list-style: none;
+		margin: 0.75rem 0 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.7rem;
+	}
+
+	.rev-card {
+		padding: 0.85rem 1rem;
+		background: linear-gradient(180deg, rgba(58, 48, 36, 0.85), rgba(40, 32, 24, 0.85));
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		box-shadow: var(--shadow-card);
+	}
+
+	.rev-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		gap: 0.75rem;
+		margin-bottom: 0.6rem;
+		flex-wrap: wrap;
+	}
+
+	.status-badge {
+		font-family: var(--font-heading);
+		font-size: 0.72rem;
+		letter-spacing: 1px;
+		text-transform: uppercase;
+		padding: 0.2rem 0.55rem;
+		border-radius: 999px;
+		white-space: nowrap;
+		border: 1px solid transparent;
+	}
+
+	.status-badge.approved {
+		color: var(--success);
+		border-color: var(--success);
+		background: var(--success-bg);
+	}
+
+	.status-badge.rejected {
+		color: var(--danger);
+		border-color: var(--danger);
+		background: var(--danger-bg);
+	}
+
+	.rev-tile {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.55rem;
+	}
+
+	.rev-task {
+		font-family: var(--font-heading);
+		color: var(--accent);
+		font-size: 1rem;
+	}
+
+	.rev-proofs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+	}
+
+	.proof-thumb {
+		display: block;
+		width: 5.5rem;
+		height: 5.5rem;
+		padding: 0;
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		overflow: hidden;
+		background: #000;
+		cursor: pointer;
+		min-height: 0;
+	}
+
+	.proof-thumb:hover {
+		outline: 1px solid var(--accent);
+	}
+
+	.proof-thumb img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
+	}
+
+	.rev-foot {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		margin: 0.6rem 0 0;
+		font-size: 0.78rem;
+	}
+
+	.rev-foot .note {
+		color: var(--text);
+		font-style: italic;
+	}
+
+	.cap-hint {
+		text-align: center;
+		font-size: 0.78rem;
+		margin: 0.9rem 0 0;
 	}
 
 	@media (max-width: 540px) {

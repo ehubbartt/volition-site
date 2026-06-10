@@ -3,15 +3,19 @@ import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isCardTester } from '$lib/server/auth';
 import { uploadCardFaces, uploadCardLayers, uploadCardSound, removeCardArt } from '$lib/server/cardArt';
+import { grantUserPack } from '$lib/server/gamba';
 import { isValidRarity, RARITIES, DEFAULT_RARITY, type CardAbility } from '$lib/cards/rarity';
 import { isLayerEffect } from '$lib/cards/layerEffects';
 import type { Actions, PageServerLoad } from './$types';
+
+// Cap on a single manual pack grant (the "Grant" tab).
+const MAX_QTY = 100;
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
 	if (!isCardTester(locals.user)) throw error(403, 'Not allowed');
 
-	const [cardsRes, packsRes] = await Promise.all([
+	const [cardsRes, packsRes, membersRes] = await Promise.all([
 		db()
 			.from('vs_cards')
 			.select(
@@ -23,13 +27,17 @@ export const load: PageServerLoad = async ({ locals }) => {
 			.select(
 				'id, name, description, cost_vp, cards_per_pack, released, rarity_weights, slot_weights, slot_finishes, front_path, front_url, back_path, back_url, holo_regular_path, holo_regular_url, holo_reverse_path, holo_reverse_url, created_at'
 			)
-			.order('created_at', { ascending: false })
+			.order('created_at', { ascending: false }),
+		// Grant tab: every member with a site profile (the only grantable targets —
+		// vs_user_packs.user_id FKs vs_users, so bot-roster-only members can't receive).
+		db().from('vs_users').select('id, rsn, discord_username').order('rsn', { ascending: true })
 	]);
 
 	if (cardsRes.error) throw error(500, cardsRes.error.message);
 	if (packsRes.error) throw error(500, packsRes.error.message);
+	if (membersRes.error) throw error(500, membersRes.error.message);
 
-	return { cards: cardsRes.data ?? [], packs: packsRes.data ?? [] };
+	return { cards: cardsRes.data ?? [], packs: packsRes.data ?? [], members: membersRes.data ?? [] };
 };
 
 /* ------------------------------- Cards ------------------------------- */
@@ -481,5 +489,84 @@ export const actions: Actions = {
 		await removeCardArt(existing?.holo_reverse_path as string | null);
 
 		return { ok: true };
+	},
+
+	/* ------------------------------- Grant ------------------------------- */
+
+	// Manually award packs to a member or to everyone. Packs go to vs_user_packs,
+	// whose user_id FKs vs_users — so only members who've SIGNED INTO THE SITE can
+	// receive (the bot's `players` roster alone isn't enough).
+	grantPacks: async ({ locals, request }) => {
+		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
+
+		const form = await request.formData();
+		const packId = form.get('pack_id')?.toString();
+		const target = form.get('target')?.toString(); // 'one' | 'all'
+		const userId = form.get('user_id')?.toString();
+		const qty = Math.floor(Number(form.get('quantity') ?? 1));
+
+		if (!packId) return fail(400, { error: 'Pick a pack.' });
+		if (!Number.isFinite(qty) || qty < 1 || qty > MAX_QTY) {
+			return fail(400, { error: `Quantity must be between 1 and ${MAX_QTY}.` });
+		}
+
+		// Pack must exist (released or not — admins can grant unreleased sets).
+		const { data: pack, error: pErr } = await db()
+			.from('vs_card_packs')
+			.select('id, name')
+			.eq('id', packId)
+			.maybeSingle();
+		if (pErr) return fail(500, { error: pErr.message });
+		if (!pack) return fail(404, { error: 'That pack no longer exists.' });
+
+		const plural = qty === 1 ? 'pack' : 'packs';
+
+		// ── Award to ONE member ──────────────────────────────────────────────
+		if (target !== 'all') {
+			if (!userId) return fail(400, { error: 'Pick a member (or choose Everyone).' });
+			const { data: member, error: mErr } = await db()
+				.from('vs_users')
+				.select('id, rsn, discord_username')
+				.eq('id', userId)
+				.maybeSingle();
+			if (mErr) return fail(500, { error: mErr.message });
+			if (!member) return fail(404, { error: 'That member no longer exists.' });
+
+			const ok = await grantUserPack(userId, packId, qty);
+			if (!ok) return fail(500, { error: 'Could not award the pack — please try again.' });
+
+			const who = member.rsn || member.discord_username || 'that member';
+			return { ok: true, message: `Awarded ${qty} ${pack.name} ${plural} to ${who}.` };
+		}
+
+		// ── Award to EVERYONE (all site members) ─────────────────────────────
+		const { data: users, error: uErr } = await db().from('vs_users').select('id');
+		if (uErr) return fail(500, { error: uErr.message });
+		const ids = (users ?? []).map((u) => u.id);
+		if (ids.length === 0) return fail(400, { error: 'There are no site members to award to.' });
+
+		// Read existing quantities for this pack so the upsert (which SETS quantity)
+		// adds to what each member already has instead of overwriting it.
+		const { data: existing, error: eErr } = await db()
+			.from('vs_user_packs')
+			.select('user_id, quantity')
+			.eq('pack_id', packId);
+		if (eErr) return fail(500, { error: eErr.message });
+		const have = new Map<string, number>();
+		for (const r of existing ?? []) have.set(r.user_id as string, (r.quantity as number) ?? 0);
+
+		const now = new Date().toISOString();
+		const rows = ids.map((id) => ({
+			user_id: id,
+			pack_id: packId,
+			quantity: (have.get(id) ?? 0) + qty,
+			updated_at: now
+		}));
+		const { error: upErr } = await db()
+			.from('vs_user_packs')
+			.upsert(rows, { onConflict: 'user_id,pack_id' });
+		if (upErr) return fail(500, { error: upErr.message });
+
+		return { ok: true, message: `Awarded ${qty} ${pack.name} ${plural} to all ${ids.length} members.` };
 	}
 };

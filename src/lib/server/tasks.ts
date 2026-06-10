@@ -1,5 +1,7 @@
 import { db } from './db';
 import type { SessionUser } from './auth';
+import { isAdmin } from './auth';
+import { countPendingReview } from './submissions';
 import { getLastLootDate } from './playerStats';
 import { BINGO_TILES } from './bingoTiles';
 import { getBingoState } from '$lib/bingo/state';
@@ -262,11 +264,39 @@ async function duoWolfTask(user: SessionUser): Promise<PlayerTask | null> {
 	};
 }
 
+// --- Admin: pending submissions awaiting review ----------------------------
+// Only for admins, and only when something's actually queued. Surfaces the
+// unified review backlog as a top-of-list to-do so admins don't have to poll
+// /admin/submissions. Counts raw pending rows across all submission sources.
+async function adminReviewTask(user: SessionUser): Promise<PlayerTask | null> {
+	if (!isAdmin(user)) return null;
+	const pending = await countPendingReview();
+	if (pending <= 0) return null;
+	return {
+		id: 'admin-review',
+		kind: 'admin',
+		status: 'todo',
+		title: 'Review submissions',
+		description: `${pending} ${pending === 1 ? 'submission' : 'submissions'} awaiting review`,
+		href: '/admin/submissions',
+		ctaLabel: 'Review now',
+		resetAt: null
+	};
+}
+
 const STATUS_ORDER: Record<PlayerTask['status'], number> = { todo: 0, active: 1, done: 2 };
-const KIND_ORDER: Record<PlayerTask['kind'], number> = { daily: 0, weekly: 1, event: 2, competition: 3 };
+// admin first within a status group (review backlog is the priority for admins).
+const KIND_ORDER: Record<PlayerTask['kind'], number> = {
+	admin: -1,
+	daily: 0,
+	weekly: 1,
+	event: 2,
+	competition: 3
+};
 
 export async function loadPlayerTasks(user: SessionUser): Promise<PlayerTask[]> {
 	const results = await Promise.all([
+		adminReviewTask(user),
 		dailyCrateTask(user),
 		taskInstanceTasks(user),
 		skillOrKillTask(),

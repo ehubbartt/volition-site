@@ -2,6 +2,7 @@
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
+	import EventsTasksTabs from '$lib/admin/EventsTasksTabs.svelte';
 	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -24,7 +25,7 @@
 </svelte:head>
 
 <section>
-	<h1>Events admin</h1>
+	<EventsTasksTabs />
 
 	{#if form?.error}
 		<div class="error">{form.error}</div>
@@ -243,10 +244,6 @@
 </section>
 
 <style>
-	h1 {
-		margin-bottom: 1rem;
-	}
-
 	h2 {
 		margin: 2rem 0 1rem;
 	}

@@ -8,56 +8,14 @@
 	let tools = $derived<Tool[]>([
 		{
 			href: '/admin/events',
-			title: 'Events',
-			desc: 'Create and edit events — signups, dates, and status.',
-			show: data.admin
-		},
-		{
-			href: '/admin/submissions',
-			title: 'Review submissions',
-			desc: 'Approve or reject pending image proofs across all events.',
-			show: data.admin
-		},
-		{
-			href: '/admin/tasks',
-			title: 'Tasks',
-			desc: 'Manage the weekly task pool, activate tasks, and create weekly/custom tasks.',
+			title: 'Events & Tasks',
+			desc: 'Manage events, the weekly task pool, and review pending submissions.',
 			show: data.admin
 		},
 		{
 			href: '/admin/cards',
 			title: 'Cards & Packs',
-			desc: 'Author the TCG card and pack catalog.',
-			show: data.cardTester
-		},
-		{
-			href: '/admin/grant-packs',
-			title: 'Grant Packs',
-			desc: 'Award card packs to a member or everyone.',
-			show: data.cardTester
-		},
-		{
-			href: '/admin/pack-tester',
-			title: 'Pack Tester',
-			desc: 'Open any pack infinitely to test the 3D opener — nothing saved.',
-			show: data.cardTester
-		},
-		{
-			href: '/admin/pack-sim',
-			title: 'Pack Simulator',
-			desc: 'Bulk-open a pack thousands of times and see the drop-rate results.',
-			show: data.cardTester
-		},
-		{
-			href: '/admin/player-stats',
-			title: 'Player Stats',
-			desc: 'Per-player pack opens, VP spent, and collections across all players.',
-			show: data.cardTester
-		},
-		{
-			href: '/admin/bridge-test',
-			title: 'Bot Bridge Test',
-			desc: 'Send a test message through the site→bot Discord webhook bridge.',
+			desc: 'Author cards & packs, grant packs, and test/simulate opens.',
 			show: data.cardTester
 		}
 	]);

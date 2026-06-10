@@ -1,7 +1,9 @@
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
+	import { page } from '$app/stores';
 	import type { SubmitFunction } from '@sveltejs/kit';
+	import CardsTabs from '$lib/admin/CardsTabs.svelte';
 	import CardThumb from '$lib/cards/CardThumb.svelte';
 	import PackThumb from '$lib/cards/PackThumb.svelte';
 	import CardInspector3D from '$lib/cards/CardInspector3D.svelte';
@@ -20,12 +22,45 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	type Tab = 'cards' | 'packs';
-	let tab = $state<Tab>('cards');
+	type Tab = 'cards' | 'packs' | 'grant';
+	// The active tab is driven by the URL (?tab=) so the shared CardsTabs bar can
+	// link between it and the sibling tool routes (pack tester/sim/stats).
+	let tab = $derived.by<Tab>(() => {
+		const t = $page.url.searchParams.get('tab');
+		return t === 'packs' || t === 'grant' ? t : 'cards';
+	});
 
 	// Click a card thumbnail to preview it in the full 3D inspector (no need to own
 	// or open it). Finish is unset here, so it shows the base card (no holo).
 	let inspecting = $state<Card | null>(null);
+
+	// ── Grant tab ─────────────────────────────────────────────────────────
+	let grantTarget = $state<'one' | 'all'>('one');
+	let granting = $state(false);
+
+	function memberLabel(m: PageData['members'][number]): string {
+		return m.rsn || m.discord_username || 'Unknown member';
+	}
+
+	// Confirm before a mass grant; keep the form's typed values after submit.
+	const onGrantSubmit: SubmitFunction = ({ formData, cancel }) => {
+		if (formData.get('target') === 'all') {
+			const qty = formData.get('quantity') ?? '1';
+			const packName = data.packs.find((p) => p.id === formData.get('pack_id'))?.name ?? 'this pack';
+			if (!confirm(`Give ${qty} × ${packName} to all ${data.members.length} members?`)) {
+				cancel();
+				return;
+			}
+		}
+		granting = true;
+		return async ({ update }) => {
+			await update({ reset: false });
+			granting = false;
+		};
+	};
+
+	// Only the grantPacks action returns a `message` (success toast for the Grant tab).
+	let grantMsg = $derived(form && 'message' in form ? (form as { message?: string }).message : null);
 
 	// Edit forms: keep the typed values after a successful save. SvelteKit's default
 	// enhance resets the form on success, but Svelte sets the input `value` property
@@ -432,20 +467,14 @@
 {/snippet}
 
 <section>
-	<h1>Cards &amp; Packs</h1>
+	<CardsTabs />
 
 	{#if form?.error}
 		<div class="error">{form.error}</div>
 	{/if}
-
-	<nav class="tabs">
-		<button type="button" class="tab" class:active={tab === 'cards'} onclick={() => (tab = 'cards')}>
-			Cards <span class="count">{data.cards.length}</span>
-		</button>
-		<button type="button" class="tab" class:active={tab === 'packs'} onclick={() => (tab = 'packs')}>
-			Packs <span class="count">{data.packs.length}</span>
-		</button>
-	</nav>
+	{#if grantMsg}
+		<div class="ok">{grantMsg}</div>
+	{/if}
 
 	{#if tab === 'cards'}
 		{#if data.packs.length === 0}
@@ -768,6 +797,56 @@
 				{/each}
 			</ul>
 		{/if}
+	{:else if tab === 'grant'}
+		<p class="muted grant-note">
+			Award card packs to members. Only members who have
+			<strong>signed into the site</strong> can receive packs.
+		</p>
+
+		<form method="POST" action="?/grantPacks" use:enhance={onGrantSubmit} class="grant-form card">
+			<label>
+				<span>Pack</span>
+				<select name="pack_id" required>
+					<option value="" disabled selected>Pick a pack…</option>
+					{#each data.packs as p (p.id)}
+						<option value={p.id}>{p.name}{p.released ? '' : ' · unreleased'}</option>
+					{/each}
+				</select>
+			</label>
+
+			<fieldset class="target">
+				<legend>Award to</legend>
+				<label class="radio">
+					<input type="radio" name="target" value="one" bind:group={grantTarget} />
+					<span>A member</span>
+				</label>
+				<label class="radio">
+					<input type="radio" name="target" value="all" bind:group={grantTarget} />
+					<span>Everyone ({data.members.length} members)</span>
+				</label>
+			</fieldset>
+
+			{#if grantTarget === 'one'}
+				<label>
+					<span>Member</span>
+					<select name="user_id" required>
+						<option value="" disabled selected>Pick a member…</option>
+						{#each data.members as m (m.id)}
+							<option value={m.id}>{memberLabel(m)}</option>
+						{/each}
+					</select>
+				</label>
+			{/if}
+
+			<label>
+				<span>Quantity</span>
+				<input type="number" name="quantity" min="1" max="100" value="1" required />
+			</label>
+
+			<button type="submit" class="primary" disabled={granting}>
+				{granting ? 'Awarding…' : 'Award pack(s)'}
+			</button>
+		</form>
 	{/if}
 </section>
 
@@ -776,10 +855,6 @@
 {/if}
 
 <style>
-	h1 {
-		margin-bottom: 1rem;
-	}
-
 	h2 {
 		margin: 2rem 0 1rem;
 	}
@@ -801,37 +876,48 @@
 		margin-bottom: 1rem;
 	}
 
-	.tabs {
-		display: flex;
-		gap: 0.25rem;
-		margin-bottom: 1.25rem;
-		border-bottom: 1px solid var(--border);
+	.ok {
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		color: var(--text);
+		padding: 0.6rem 0.8rem;
+		border-radius: 4px;
+		margin-bottom: 1rem;
 	}
 
-	.tab {
-		display: inline-flex;
+	.grant-note {
+		margin: 0 0 1rem;
+		max-width: 40rem;
+	}
+
+	.grant-form {
+		max-width: 28rem;
+	}
+
+	.target {
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 0.75rem;
+		display: flex;
+		gap: 1rem;
+		margin: 0;
+	}
+
+	.target legend {
+		font-size: 0.8rem;
+		color: var(--muted);
+		padding: 0 0.35rem;
+	}
+
+	.target .radio {
+		flex-direction: row;
 		align-items: center;
 		gap: 0.4rem;
-		min-height: auto;
-		padding: 0.55rem 1rem;
-		background: transparent;
-		border: none;
-		border-bottom: 2px solid transparent;
-		border-radius: 0;
-		color: var(--muted);
-		font-size: 1rem;
 		cursor: pointer;
-		transition: color 0.15s, border-color 0.15s;
 	}
 
-	.tab:hover {
-		color: var(--text);
-		background: transparent;
-	}
-
-	.tab.active {
-		color: var(--accent);
-		border-bottom-color: var(--accent);
+	.target .radio input {
+		width: auto;
 	}
 
 	.count {

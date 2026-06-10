@@ -86,8 +86,9 @@ export const load: PageServerLoad = async ({ parent }) => {
 		sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null),
 		sb.from('vs_events').select('status').in('status', ['draft', 'preview', 'open', 'locked', 'closed']),
 		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true }),
-		// To-do surface is card-testers only for now; skip the work otherwise.
-		cardTester ? loadPlayerTasks(user) : Promise.resolve(null)
+		// To-do surface is card-testers only for now (+ admins, for the review-backlog
+		// item); skip the work otherwise.
+		cardTester || admin ? loadPlayerTasks(user) : Promise.resolve(null)
 	]);
 
 	// Ship a light summary (not the full array) for the home "Your to-do" card.

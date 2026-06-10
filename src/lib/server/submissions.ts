@@ -18,6 +18,7 @@ import { BINGO_BUCKET, MAX_UPLOAD_BYTES, MAX_IMAGES_PER_SUBMISSION, ALLOWED_MIME
 import { BINGO_TILE_BY_ID, getTileDetails } from '$lib/server/bingoTiles';
 import type {
 	ReviewItem,
+	ReviewedItem,
 	ReviewDecision,
 	SubmissionSource
 } from '$lib/submissions';
@@ -97,6 +98,18 @@ function resolveTask(source: SubmissionSource, targetId: string, targetLabel: st
 		};
 	}
 	return { id: targetId, label: targetLabel?.trim() || targetId, detail_html: null };
+}
+
+// Cheap headcount of pending rows across all three sources — for the admin to-do
+// surface (no embeds, no grouping; just three count queries). Returns total rows.
+export async function countPendingReview(): Promise<number> {
+	const sb = db();
+	const [bingo, team, generic] = await Promise.all([
+		sb.from('vs_bingo_completions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+		sb.from('vs_team_completions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+		sb.from('vs_submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+	]);
+	return (bingo.count ?? 0) + (team.count ?? 0) + (generic.count ?? 0);
 }
 
 // Loads every pending submission across all sources, normalised + grouped into one
@@ -269,6 +282,216 @@ export async function loadPendingReview(): Promise<{
 			approved: approvedRes.count ?? 0,
 			rejected: rejectedRes.count ?? 0
 		}
+	};
+}
+
+// Loads already-reviewed (approved/rejected) submissions across all three sources for
+// the read-only history view, normalised + grouped the same way as the pending queue
+// (plus status / reviewer / reviewed-at / note). Bounded per source (newest reviewed
+// first) so the payload stays reasonable. Also returns the distinct events present.
+export async function loadReviewedSubmissions(limitPerSource = 200): Promise<{
+	items: ReviewedItem[];
+	events: { id: string; slug: string; name: string }[];
+}> {
+	const sb = db();
+	const REVIEWED = ['approved', 'rejected'];
+
+	const [eventsRes, bingoRes, teamRes, genericRes] = await Promise.all([
+		sb.from('vs_events').select('id, slug, name'),
+		sb
+			.from('vs_bingo_completions')
+			.select(
+				'id, event_id, user_id, tile_id, proof_urls, submitted_at, status, reviewed_at, review_note, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), reviewer:vs_users!reviewed_by(rsn, discord_username)'
+			)
+			.in('status', REVIEWED)
+			.order('reviewed_at', { ascending: false })
+			.limit(limitPerSource),
+		sb
+			.from('vs_team_completions')
+			.select(
+				'id, event_id, user_id, team_id, tile_id, proof_urls, submitted_at, status, reviewed_at, review_note, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name), reviewer:vs_users!reviewed_by(rsn, discord_username)'
+			)
+			.in('status', REVIEWED)
+			.order('reviewed_at', { ascending: false })
+			.limit(limitPerSource),
+		sb
+			.from('vs_submissions')
+			.select(
+				'id, event_id, task_id, user_id, discord_id, submitter_name, team_id, target_id, target_label, proof_urls, submitted_at, status, reviewed_at, review_note, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name), vs_tasks!task_id(id, name), reviewer:vs_users!reviewed_by(rsn, discord_username)'
+			)
+			.in('status', REVIEWED)
+			.order('reviewed_at', { ascending: false })
+			.limit(limitPerSource)
+	]);
+
+	const eventById = new Map<string, { id: string; slug: string; name: string }>(
+		(eventsRes.data ?? []).map((e) => [e.id, { id: e.id, slug: e.slug, name: e.name }])
+	);
+
+	interface ReviewedRaw extends RawRow {
+		status: 'approved' | 'rejected';
+		reviewed_at: string | null;
+		review_note: string | null;
+		reviewer: string | null;
+	}
+
+	const reviewerName = (rev: { rsn?: string | null; discord_username?: string | null } | null) =>
+		rev?.rsn ?? rev?.discord_username ?? null;
+
+	const raw: ReviewedRaw[] = [];
+
+	for (const r of (bingoRes.data ?? []) as unknown as Array<
+		Record<string, unknown> & {
+			vs_users: UserEmbed | null;
+			reviewer: { rsn: string | null; discord_username: string | null } | null;
+		}
+	>) {
+		raw.push({
+			source: 'bingo',
+			id: r.id as string,
+			event_id: r.event_id as string,
+			task_id: null,
+			task_name: null,
+			user_id: r.user_id as string,
+			discord_id: null,
+			submitter_name: null,
+			team_id: null,
+			team_name: null,
+			target_id: r.tile_id as string,
+			target_label: null,
+			proof_urls: (r.proof_urls as string[] | null) ?? [],
+			submitted_at: r.submitted_at as string,
+			user: r.vs_users,
+			status: r.status as 'approved' | 'rejected',
+			reviewed_at: (r.reviewed_at as string | null) ?? null,
+			review_note: (r.review_note as string | null) ?? null,
+			reviewer: reviewerName(r.reviewer)
+		});
+	}
+
+	for (const r of (teamRes.data ?? []) as unknown as Array<
+		Record<string, unknown> & {
+			vs_users: UserEmbed | null;
+			vs_teams: { id: string; name: string | null } | null;
+			reviewer: { rsn: string | null; discord_username: string | null } | null;
+		}
+	>) {
+		raw.push({
+			source: 'team',
+			id: r.id as string,
+			event_id: r.event_id as string,
+			task_id: null,
+			task_name: null,
+			user_id: r.user_id as string,
+			discord_id: null,
+			submitter_name: null,
+			team_id: (r.team_id as string | null) ?? null,
+			team_name: r.vs_teams?.name ?? null,
+			target_id: r.tile_id as string,
+			target_label: null,
+			proof_urls: (r.proof_urls as string[] | null) ?? [],
+			submitted_at: r.submitted_at as string,
+			user: r.vs_users,
+			status: r.status as 'approved' | 'rejected',
+			reviewed_at: (r.reviewed_at as string | null) ?? null,
+			review_note: (r.review_note as string | null) ?? null,
+			reviewer: reviewerName(r.reviewer)
+		});
+	}
+
+	for (const r of (genericRes.data ?? []) as unknown as Array<
+		Record<string, unknown> & {
+			vs_users: UserEmbed | null;
+			vs_teams: { id: string; name: string | null } | null;
+			vs_tasks: { id: string; name: string | null } | null;
+			reviewer: { rsn: string | null; discord_username: string | null } | null;
+		}
+	>) {
+		raw.push({
+			source: 'generic',
+			id: r.id as string,
+			event_id: (r.event_id as string | null) ?? null,
+			task_id: (r.task_id as string | null) ?? null,
+			task_name: r.vs_tasks?.name ?? null,
+			user_id: (r.user_id as string | null) ?? null,
+			discord_id: (r.discord_id as string | null) ?? null,
+			submitter_name: (r.submitter_name as string | null) ?? null,
+			team_id: (r.team_id as string | null) ?? null,
+			team_name: r.vs_teams?.name ?? null,
+			target_id: r.target_id as string,
+			target_label: (r.target_label as string | null) ?? null,
+			proof_urls: (r.proof_urls as string[] | null) ?? [],
+			submitted_at: r.submitted_at as string,
+			user: r.vs_users,
+			status: r.status as 'approved' | 'rejected',
+			reviewed_at: (r.reviewed_at as string | null) ?? null,
+			review_note: (r.review_note as string | null) ?? null,
+			reviewer: reviewerName(r.reviewer)
+		});
+	}
+
+	// Group by (source, context, owner, target, STATUS) — status is in the key so a
+	// group is homogeneous (a mixed-decision tile splits into two cards).
+	const groups = new Map<string, ReviewedItem>();
+	for (const r of raw) {
+		const context =
+			r.source === 'generic' && r.task_id
+				? { id: r.task_id, slug: '', name: r.task_name ?? 'Task' }
+				: r.event_id
+					? eventById.get(r.event_id)
+					: undefined;
+		if (!context) continue;
+		const submitter = buildSubmitter(r);
+		if (!submitter) continue;
+		const owner = r.team_id ?? r.user_id ?? r.discord_id ?? r.submitter_name ?? r.id;
+		const key = `${r.source}|${context.id}|${owner}|${r.target_id}|${r.status}`;
+
+		const taskLabel =
+			r.source === 'generic' && r.task_id
+				? { id: r.target_id, label: r.task_name ?? r.target_label ?? 'Task', detail_html: null }
+				: resolveTask(r.source, r.target_id, r.target_label);
+
+		let group = groups.get(key);
+		if (!group) {
+			group = {
+				source: r.source,
+				status: r.status,
+				ids: [],
+				event: context,
+				submitter,
+				team: r.team_id ? { id: r.team_id, name: r.team_name } : null,
+				task: taskLabel,
+				proofUrls: [],
+				submittedAt: r.submitted_at,
+				reviewedAt: r.reviewed_at,
+				reviewer: r.reviewer,
+				reviewNote: r.review_note,
+				count: 0
+			};
+			groups.set(key, group);
+		}
+		group.ids.push(r.id);
+		group.proofUrls.push(...(r.proof_urls ?? []));
+		group.count += 1;
+		if (r.submitted_at < group.submittedAt) group.submittedAt = r.submitted_at;
+		// Keep the most recent review metadata for the group.
+		if (r.reviewed_at && (!group.reviewedAt || r.reviewed_at > group.reviewedAt)) {
+			group.reviewedAt = r.reviewed_at;
+			group.reviewer = r.reviewer;
+			group.reviewNote = r.review_note;
+		}
+	}
+
+	const items = Array.from(groups.values()).sort((a, b) =>
+		(b.reviewedAt ?? '').localeCompare(a.reviewedAt ?? '')
+	);
+
+	const presentEvents = new Map<string, { id: string; slug: string; name: string }>();
+	for (const it of items) presentEvents.set(it.event.id, it.event);
+
+	return {
+		items,
+		events: Array.from(presentEvents.values()).sort((a, b) => a.name.localeCompare(b.name))
 	};
 }
 

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { PageData, ActionData } from './$types';
+	import EventsTasksTabs from '$lib/admin/EventsTasksTabs.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -27,10 +28,9 @@
 
 <svelte:head><title>Tasks · Admin · Volition</title></svelte:head>
 
-<nav class="crumbs"><a href="/admin">← Admin</a></nav>
+<EventsTasksTabs />
 
 <section class="head">
-	<h1>Tasks</h1>
 	<p class="muted">The weekly rotation pool + active tasks. Tasks are separate from full events.</p>
 </section>
 
@@ -210,20 +210,6 @@
 </section>
 
 <style>
-	.crumbs {
-		margin-bottom: 0.75rem;
-		font-size: 0.9rem;
-	}
-	.crumbs a {
-		color: var(--muted);
-		text-decoration: none;
-	}
-	.crumbs a:hover {
-		color: var(--accent);
-	}
-	.head h1 {
-		margin: 0 0 0.2rem;
-	}
 	.muted {
 		color: var(--muted);
 	}

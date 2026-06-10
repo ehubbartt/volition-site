@@ -2,18 +2,23 @@ import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { grantPlayerVp } from '$lib/server/playerStats';
-import { loadPendingReview, decideSubmissions } from '$lib/server/submissions';
+import { loadPendingReview, loadReviewedSubmissions, decideSubmissions } from '$lib/server/submissions';
 import type { SubmissionSource, ReviewDecision } from '$lib/submissions';
 import type { Actions, PageServerLoad } from './$types';
 
 const SOURCES: SubmissionSource[] = ['generic', 'bingo', 'team'];
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	if (!locals.user) throw redirect(303, '/');
 	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
 
+	const view = url.searchParams.get('view') === 'reviewed' ? 'reviewed' : 'pending';
+
 	const { items, events, stats } = await loadPendingReview();
-	return { items, events, stats };
+	// Only fetch the (heavier) reviewed history when that tab is active.
+	const reviewed = view === 'reviewed' ? await loadReviewedSubmissions() : null;
+
+	return { view, items, events, stats, reviewed };
 };
 
 // Grant the event's vp_reward to the submitter the FIRST time one of their generic

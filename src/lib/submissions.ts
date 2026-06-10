@@ -30,3 +30,26 @@ export interface ReviewItem {
 	submittedAt: string; // earliest submission in the group
 	count: number; // number of proof rows in the group
 }
+
+// One already-reviewed submission group, for the read-only history view. Same shape
+// as ReviewItem plus the decision (status), who reviewed it, when, and any note.
+export interface ReviewedItem {
+	source: SubmissionSource;
+	status: 'approved' | 'rejected';
+	ids: string[];
+	event: { id: string; slug: string; name: string };
+	submitter: {
+		rsn: string | null;
+		discord_username: string;
+		account_type: string | null;
+		clan_label: string | null;
+	};
+	team: { id: string; name: string | null } | null;
+	task: { id: string; label: string; detail_html: string | null };
+	proofUrls: string[];
+	submittedAt: string;
+	reviewedAt: string | null;
+	reviewer: string | null; // reviewer rsn or discord username
+	reviewNote: string | null;
+	count: number;
+}
