@@ -17,6 +17,7 @@
   import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG, LAYER_GLOW_FRAG } from "$lib/cards/holo";
   import { createLayerEffect, type LayerEffectHandle } from "$lib/cards/layerEffects";
   import { makeEdgeFade } from "$lib/cards/edgeFade";
+  import { loadLayerTexture, type LayerTextureHandle } from "$lib/cards/layerTexture";
   import {
     SFX_OPENING,
     SFX_PULL_DRAGON,
@@ -907,6 +908,9 @@
       const depthObjs: THREE.Object3D[][] = [];
       // Per-card live layer effects (parallel to cardMeshes), updated each frame.
       const layerFx: LayerEffectHandle[][] = [];
+      // Image/video texture handles across all cards, disposed on teardown (video also
+      // gets paused so it stops decoding once the opener closes).
+      const layerTexHandles: LayerTextureHandle[] = [];
       const LAYER_DEPTH = 0.08; // how far each layer sits above the card (small = subtle)
       const SHADOW_STRENGTH = 0.5;
       const SHADOW_DIR = new THREE.Vector2(0.6, -0.8); // light upper-left → shadow lower-right
@@ -1012,7 +1016,7 @@
               }
             }
           };
-          loader.load(ly.url, applyLayer);
+          layerTexHandles.push(loadLayerTexture(loader, ly.url, applyLayer));
           // Force draw order front(0) → shadow(1) → layer(2) so the transparency
           // sort never flips the shadow behind the front (which made it vanish).
           const shadow = new THREE.Mesh(cardGeo, sm);
@@ -1927,6 +1931,7 @@
         cancelAnimationFrame(raf);
         ro.disconnect();
         layerFx.forEach((hs) => hs.forEach((h) => h.dispose()));
+        layerTexHandles.forEach((h) => h.dispose());
         edgeFade?.dispose();
         canvas.removeEventListener("pointerdown", onDown);
         canvas.removeEventListener("pointermove", onMove);

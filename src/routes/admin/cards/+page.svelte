@@ -18,6 +18,7 @@
 		type CardRarity
 	} from '$lib/cards/rarity';
 	import { LAYER_EFFECTS } from '$lib/cards/layerEffects';
+	import { LAYER_ACCEPT, isVideoLayerUrl } from '$lib/cards/config';
 	import type { CardPack } from '$lib/cards/packs';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -375,17 +376,23 @@
 
 				<label>
 					<span>
-						3D depth layers (optional) — uploading replaces all; stacked bottom→top
+						3D depth layers (optional) — uploading replaces all; stacked bottom→top.
+						Images or WEBM/MP4 video (animated layer).
 						{#if layerCount(raw)} · currently {layerCount(raw)}{/if}
 					</span>
-					<input name="layer" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" />
+					<input name="layer" type="file" multiple accept={LAYER_ACCEPT} />
 				</label>
 				{#if card.layers && card.layers.length}
 					<fieldset class="layer-fx">
 						<legend>Layer effects <span class="muted small">(plays in 3D)</span></legend>
 						{#each card.layers as ly, i}
 							<div class="layer-fx-row">
-								<img class="layer-fx-thumb" src={ly.url} alt="Layer {i + 1}" />
+								{#if isVideoLayerUrl(ly.url)}
+									<!-- svelte-ignore a11y_media_has_caption -->
+									<video class="layer-fx-thumb" src={ly.url} muted autoplay loop playsinline></video>
+								{:else}
+									<img class="layer-fx-thumb" src={ly.url} alt="Layer {i + 1}" />
+								{/if}
 								<span class="muted small">Layer {i + 1} (bottom→top)</span>
 								<select name="existing_layer_effect">
 									<option value="" selected={!ly.effect}>None</option>
@@ -540,8 +547,8 @@
 				</div>
 
 				<label>
-					<span>3D depth layers (optional, multiple — stacked bottom→top above the front)</span>
-					<input name="layer" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" />
+					<span>3D depth layers (optional, multiple — stacked bottom→top above the front). Images or WEBM/MP4 video.</span>
+					<input name="layer" type="file" multiple accept={LAYER_ACCEPT} />
 				</label>
 
 				<label class="check">

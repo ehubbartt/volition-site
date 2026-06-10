@@ -11,6 +11,7 @@
 	import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG, LAYER_GLOW_FRAG } from '$lib/cards/holo';
 	import { createLayerEffect, type LayerEffectHandle } from '$lib/cards/layerEffects';
 	import { makeEdgeFade } from '$lib/cards/edgeFade';
+	import { loadLayerTexture, type LayerTextureHandle } from '$lib/cards/layerTexture';
 
 	let {
 		card,
@@ -226,7 +227,8 @@
 			// instead of hard-cutting into a straight line, and the square plane corners
 			// don't poke past the card's rounded silhouette. Shared by all layers.
 			const edgeFade = (card.layers ?? []).length ? makeEdgeFade() : null;
-			const layerMats: THREE.MeshBasicMaterial[] = [];
+			// Image/video texture handles, disposed on teardown (video also gets paused).
+			const layerTexHandles: LayerTextureHandle[] = [];
 			// Live per-layer animation effects (see layerEffects.ts), updated each frame.
 			const fxHandles: LayerEffectHandle[] = [];
 			(card.layers ?? []).forEach((ly, i) => {
@@ -246,13 +248,15 @@
 				});
 				// Glow-effect materials for this layer share the layer texture once it loads.
 				const glowMaps: { value: THREE.Texture | null }[] = [];
-				loader.load(ly.url, (t) => {
-					t.colorSpace = THREE.SRGBColorSpace;
-					lm.map = t;
-					lm.needsUpdate = true;
-					sm.uniforms.map.value = t; // shadow reuses the layer texture (alpha)
-					for (const m of glowMaps) m.value = t;
-				});
+				layerTexHandles.push(
+					loadLayerTexture(loader, ly.url, (t) => {
+						t.colorSpace = THREE.SRGBColorSpace;
+						lm.map = t;
+						lm.needsUpdate = true;
+						sm.uniforms.map.value = t; // shadow reuses the layer texture (alpha)
+						for (const m of glowMaps) m.value = t;
+					})
+				);
 				// Force draw order front(0) → shadow(1) → layer(2) so the transparency
 				// sort never flips the shadow behind the front (which made it vanish).
 				const shadow = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), sm);
@@ -264,7 +268,6 @@
 				lp.position.z = h;
 				lp.renderOrder = 2;
 				group.add(lp);
-				layerMats.push(lm);
 
 				if (ly.effect) {
 					fxHandles.push(
@@ -415,7 +418,7 @@
 				frontMat.uniforms.map.value?.dispose?.();
 				backMat.map?.dispose?.();
 				texCache.forEach((t) => t.dispose());
-				layerMats.forEach((m) => m.map?.dispose?.());
+				layerTexHandles.forEach((h) => h.dispose());
 				edgeFade?.dispose();
 				dummy.dispose();
 				renderer.dispose();

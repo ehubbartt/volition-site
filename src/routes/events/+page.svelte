@@ -4,8 +4,12 @@
 
 	let { data }: { data: PageData } = $props();
 
-	function hrefFor(slug: string): string {
-		return slug === BINGO_EVENT_SLUG ? `/bingo/${slug}` : `/events/${slug}`;
+	// Route by event kind: bingo + duo keep their bespoke pages; everything else
+	// (simple events + future templates) uses the generic /event/[slug] page.
+	function hrefFor(ev: { slug: string; kind?: string | null }): string {
+		if (ev.slug === BINGO_EVENT_SLUG || ev.kind === 'bingo') return `/bingo/${ev.slug}`;
+		if (ev.kind === 'duo') return `/events/${ev.slug}`;
+		return `/event/${ev.slug}`;
 	}
 
 	function fmtDate(iso: string | null): string | null {
@@ -33,7 +37,7 @@
 	{@const isPreview = ev.status === 'preview'}
 	<li>
 		<a
-			href={hrefFor(ev.slug)}
+			href={hrefFor(ev)}
 			class="event-card"
 			class:bingo={isBingo}
 			class:draft={isDraft}

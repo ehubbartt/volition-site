@@ -5,6 +5,9 @@ import {
 	ALLOWED_MIME,
 	EXT_BY_MIME,
 	MAX_CARD_LAYERS,
+	MAX_LAYER_BYTES,
+	ALLOWED_LAYER_MIME,
+	EXT_BY_LAYER_MIME,
 	MAX_AUDIO_BYTES,
 	ALLOWED_AUDIO_MIME,
 	EXT_BY_AUDIO_MIME
@@ -12,21 +15,33 @@ import {
 import { isLayerEffect, type LayerEffect } from '$lib/cards/layerEffects';
 
 // Shared art upload for the card game. Cards and packs both live in the
-// `vs-card-art` bucket under their own prefix ('cards' / 'packs').
+// `vs-card-art` bucket under their own prefix ('cards' / 'packs'). `opts` lets callers
+// widen the accepted types (e.g. depth layers also allow WEBM/MP4 video).
 export async function uploadCardArt(
 	prefix: 'cards' | 'packs',
 	id: string,
-	file: File
+	file: File,
+	opts: {
+		allowedMime?: readonly string[];
+		maxBytes?: number;
+		extMap?: Record<string, string>;
+		typeError?: string;
+	} = {}
 ): Promise<{ path: string; url: string } | { error: string }> {
-	if (file.size > MAX_UPLOAD_BYTES) {
-		const mb = Math.round(MAX_UPLOAD_BYTES / 1_000_000);
-		return { error: `Art too large (max ${mb} MB)` };
+	const allowedMime = opts.allowedMime ?? ALLOWED_MIME;
+	const maxBytes = opts.maxBytes ?? MAX_UPLOAD_BYTES;
+	const extMap = opts.extMap ?? EXT_BY_MIME;
+	const typeError = opts.typeError ?? 'Unsupported image type (use PNG, JPEG, WEBP, or GIF)';
+
+	if (file.size > maxBytes) {
+		const mb = Math.round(maxBytes / 1_000_000);
+		return { error: `File too large (max ${mb} MB)` };
 	}
-	if (!(ALLOWED_MIME as readonly string[]).includes(file.type)) {
-		return { error: 'Unsupported image type (use PNG, JPEG, WEBP, or GIF)' };
+	if (!(allowedMime as readonly string[]).includes(file.type)) {
+		return { error: typeError };
 	}
-	const ext = EXT_BY_MIME[file.type];
-	if (!ext) return { error: 'Unsupported image type' };
+	const ext = extMap[file.type];
+	if (!ext) return { error: typeError };
 
 	const path = `${prefix}/${id}-${Date.now()}.${ext}`;
 	const storage = db().storage.from(CARD_ART_BUCKET);
@@ -93,7 +108,12 @@ export async function uploadCardLayers(
 	const uploadedPaths: string[] = [];
 
 	for (let i = 0; i < real.length; i++) {
-		const result = await uploadCardArt('cards', `${id}-layer${i}`, real[i]);
+		const result = await uploadCardArt('cards', `${id}-layer${i}`, real[i], {
+			allowedMime: ALLOWED_LAYER_MIME,
+			maxBytes: MAX_LAYER_BYTES,
+			extMap: EXT_BY_LAYER_MIME,
+			typeError: 'Unsupported layer type (use PNG, JPEG, WEBP, GIF, WEBM, or MP4)'
+		});
 		if ('error' in result) {
 			for (const p of uploadedPaths) await removeCardArt(p);
 			return { error: result.error };

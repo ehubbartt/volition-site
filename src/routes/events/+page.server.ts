@@ -84,9 +84,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const { data: events, error } = await db()
 		.from('vs_events')
 		.select(
-			'id, slug, name, description, status, signup_opens_at, signup_closes_at, starts_at, ends_at'
+			'id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, starts_at, ends_at'
 		)
-		.in('status', visibleStatuses);
+		.in('status', visibleStatuses)
+		.neq('slug', 'weekly-tasks'); // internal task container, not a real event
 
 	if (error) throw new Error(error.message);
 

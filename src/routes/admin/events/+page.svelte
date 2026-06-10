@@ -11,6 +11,17 @@
 	// resets the form, which blanks Svelte-set input values). See admin/cards.
 	const keepValues: SubmitFunction = () => async ({ update }) => update({ reset: false });
 
+	// ── Simple-event creator: a dynamic list of objective tasks ───────────────
+	type TaskRow = { name: string; description: string; vp: number; pack: string };
+	const blankTask = (): TaskRow => ({ name: '', description: '', vp: 0, pack: '' });
+	let taskRows = $state<TaskRow[]>([blankTask(), blankTask(), blankTask()]);
+	function addTaskRow() {
+		taskRows = [...taskRows, blankTask()];
+	}
+	function removeTaskRow(i: number) {
+		taskRows = taskRows.filter((_, idx) => idx !== i);
+	}
+
 	function toLocalInput(iso: string | null): string {
 		if (!iso) return '';
 		const d = new Date(iso);
@@ -31,8 +42,66 @@
 		<div class="error">{form.error}</div>
 	{/if}
 
+	<details class="card" open>
+		<summary><strong>Create simple event</strong> <span class="muted small">— solo, image-proof tasks with per-task rewards</span></summary>
+		<form method="POST" action="?/createSimpleEvent" use:enhance>
+			<label>
+				<span>Event name</span>
+				<input name="name" type="text" required placeholder="Summer Boss Hunt" />
+			</label>
+			<label>
+				<span>Description (markdown ok)</span>
+				<textarea name="description" rows="3" placeholder="What this event is about…"></textarea>
+			</label>
+			<div class="row">
+				<label>
+					<span>Starts at (optional)</span>
+					<input name="starts_at" type="datetime-local" />
+				</label>
+				<label>
+					<span>Ends at (optional)</span>
+					<input name="ends_at" type="datetime-local" />
+				</label>
+			</div>
+
+			<fieldset class="tasks">
+				<legend>Tasks <span class="muted small">(each needs proof + grants its own reward; blank rows are ignored)</span></legend>
+				{#each taskRows as row, i (i)}
+					<div class="task-row">
+						<div class="task-row-head">
+							<strong class="task-num">Task {i + 1}</strong>
+							{#if taskRows.length > 1}
+								<button type="button" class="link-danger" onclick={() => removeTaskRow(i)}>Remove</button>
+							{/if}
+						</div>
+						<input name="task_name" type="text" placeholder="Task name (e.g. Kill Zulrah)" bind:value={row.name} />
+						<input name="task_desc" type="text" placeholder="Short description / requirement (optional)" bind:value={row.description} />
+						<div class="reward-row">
+							<label class="reward-field">
+								<span>VP reward</span>
+								<input name="task_vp" type="number" min="0" bind:value={row.vp} />
+							</label>
+							<label class="reward-field">
+								<span>Pack reward (optional)</span>
+								<input name="task_pack" type="text" list="pack-names" placeholder="e.g. White Pack" bind:value={row.pack} />
+							</label>
+						</div>
+					</div>
+				{/each}
+				<button type="button" class="add-task" onclick={addTaskRow}>+ Add task</button>
+			</fieldset>
+
+			<datalist id="pack-names">
+				{#each data.packNames as p}<option value={p}></option>{/each}
+			</datalist>
+
+			<p class="muted small">Created as a draft — open it from its manage page when you're ready for players to submit.</p>
+			<button type="submit" class="primary">Create simple event</button>
+		</form>
+	</details>
+
 	<details class="card">
-		<summary><strong>Create new event</strong></summary>
+		<summary><strong>Create new event</strong> <span class="muted small">— advanced / signup events (bingo, duo, custom)</span></summary>
 		<form method="POST" action="?/create" use:enhance>
 			<label>
 				<span>Slug (URL)</span>
@@ -99,6 +168,9 @@
 							<span class="muted">/{ev.slug}</span>
 						</div>
 						<div class="head-actions">
+							{#if ev.kind === 'simple'}
+								<a class="review-link" href="/admin/events/{ev.slug}">Manage tasks →</a>
+							{/if}
 							{#if ev.slug === BINGO_EVENT_SLUG}
 								<a class="review-link" href="/admin/bingo/{ev.slug}/review">
 									Review submissions →
@@ -352,6 +424,85 @@
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: 0.75rem;
+	}
+
+	.small {
+		font-size: 0.8rem;
+	}
+
+	.tasks {
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 0.85rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.85rem;
+		margin: 0;
+	}
+
+	.tasks legend {
+		font-size: 0.85rem;
+		color: var(--muted);
+		padding: 0 0.35rem;
+	}
+
+	.task-row {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		padding: 0.75rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+	}
+
+	.task-row-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.task-num {
+		font-family: var(--font-heading);
+		font-size: 0.85rem;
+		letter-spacing: 0.5px;
+		color: var(--accent);
+	}
+
+	.reward-row {
+		display: grid;
+		grid-template-columns: 1fr 2fr;
+		gap: 0.6rem;
+	}
+
+	.reward-field {
+		gap: 0.2rem;
+	}
+
+	.link-danger {
+		background: none;
+		border: none;
+		min-height: 0;
+		padding: 0;
+		color: var(--danger);
+		font-size: 0.8rem;
+		cursor: pointer;
+		text-decoration: underline;
+	}
+
+	.link-danger:hover {
+		background: none;
+	}
+
+	.add-task {
+		align-self: flex-start;
+		font-size: 0.85rem;
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+
+	.add-task:hover {
+		background: var(--accent-soft);
 	}
 
 	.event-list {

@@ -110,12 +110,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 	const { data: event, error: eventErr } = await supabase
 		.from('vs_events')
-		.select('id, slug, name, description, status, signup_opens_at, signup_closes_at, team_size')
+		.select('id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, team_size')
 		.eq('slug', params.slug)
 		.maybeSingle();
 
 	if (eventErr) throw error(500, eventErr.message);
 	if (!event) throw error(404, 'Event not found');
+	// This page is the bespoke DuoWolf detail; non-duo kinds (simple events + future
+	// templates) live on the generic /event/[slug] page.
+	if (event.kind && event.kind !== 'duo') throw redirect(307, `/event/${params.slug}`);
 	if ((event.status === 'preview' || event.status === 'draft') && !isAdmin(locals.user)) {
 		throw error(404, 'Event not found');
 	}

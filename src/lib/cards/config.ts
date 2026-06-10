@@ -6,6 +6,34 @@ export const ALLOWED_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif
 // Max stacked depth layers a single card may have (above its front face).
 export const MAX_CARD_LAYERS = 6;
 
+// Depth layers may be still images OR a short animation (WEBM/MP4) — videos render
+// as a looping VideoTexture in the 3D views. Allow a larger cap since video is heavier.
+export const MAX_LAYER_BYTES = 25_000_000;
+export const ALLOWED_LAYER_MIME = [
+	'image/png',
+	'image/jpeg',
+	'image/webp',
+	'image/gif',
+	'video/webm',
+	'video/mp4'
+] as const;
+export const EXT_BY_LAYER_MIME: Record<string, string> = {
+	'image/png': 'png',
+	'image/jpeg': 'jpg',
+	'image/webp': 'webp',
+	'image/gif': 'gif',
+	'video/webm': 'webm',
+	'video/mp4': 'mp4'
+};
+// File-extension list for the admin form's <input accept> (mirrors the MIME list).
+export const LAYER_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,video/webm,video/mp4';
+
+// True if a layer URL points at a video file (→ load as VideoTexture, not an image).
+// Client-safe (pure regex, no three import) so the admin UI can use it too.
+export function isVideoLayerUrl(url: string): boolean {
+	return /\.(webm|mp4|m4v|mov|ogv)(\?|#|$)/i.test(url);
+}
+
 // Per-card open sound (plays when the card is revealed in the pack opener).
 export const MAX_AUDIO_BYTES = 5_000_000;
 export const ALLOWED_AUDIO_MIME = [
