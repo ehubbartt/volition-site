@@ -10,7 +10,10 @@ import {
 	EXT_BY_LAYER_MIME,
 	MAX_AUDIO_BYTES,
 	ALLOWED_AUDIO_MIME,
-	EXT_BY_AUDIO_MIME
+	EXT_BY_AUDIO_MIME,
+	MAX_FRONT_BYTES,
+	ALLOWED_FRONT_MIME,
+	EXT_BY_FRONT_MIME
 } from '$lib/cards/config';
 import { isLayerEffect, type LayerEffect } from '$lib/cards/layerEffects';
 
@@ -143,7 +146,17 @@ export async function uploadCardFaces(
 		const file = form.get(face);
 		if (!(file instanceof File) || file.size === 0) continue;
 
-		const result = await uploadCardArt(prefix, `${id}-${face}`, file);
+		// A CARD's front face may also be a short video (WEBM/MP4); every other face
+		// (and all pack faces) stays image-only.
+		const frontVideoOk = prefix === 'cards' && face === 'front';
+		const result = await uploadCardArt(prefix, `${id}-${face}`, file, frontVideoOk
+			? {
+					allowedMime: ALLOWED_FRONT_MIME,
+					maxBytes: MAX_FRONT_BYTES,
+					extMap: EXT_BY_FRONT_MIME,
+					typeError: 'Unsupported front type (use PNG, JPEG, WEBP, GIF, WEBM, or MP4)'
+				}
+			: {});
 		if ('error' in result) {
 			for (const p of uploadedPaths) await removeCardArt(p);
 			return { error: result.error };

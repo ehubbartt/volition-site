@@ -18,6 +18,7 @@
   import { createLayerEffect, type LayerEffectHandle } from "$lib/cards/layerEffects";
   import { makeEdgeFade } from "$lib/cards/edgeFade";
   import { loadLayerTexture, type LayerTextureHandle } from "$lib/cards/layerTexture";
+  import { isVideoUrl } from "$lib/cards/config";
   import {
     SFX_OPENING,
     SFX_PULL_DRAGON,
@@ -220,6 +221,17 @@
     const loadDims = (url: string | null, fallback: string) =>
       new Promise<{ w: number; h: number }>((resolve) => {
         const probe = (src: string, onFail: () => void) => {
+          if (isVideoUrl(src)) {
+            const v = document.createElement("video");
+            v.preload = "metadata";
+            v.muted = true;
+            v.crossOrigin = "anonymous";
+            v.onloadedmetadata = () =>
+              resolve({ w: v.videoWidth || 5, h: v.videoHeight || 7 });
+            v.onerror = onFail;
+            v.src = src;
+            return;
+          }
           const img = new Image();
           img.crossOrigin = "anonymous";
           img.onload = () =>
@@ -889,9 +901,15 @@
             }
           }
         };
-        loader.load(url || fallback, apply, undefined, () =>
-          loader.load(fallback, apply),
-        );
+        // A video front animates as a looping VideoTexture (handle disposed with the
+        // other layer/video handles on teardown); a still image uses the texture loader.
+        if (isVideoUrl(url)) {
+          layerTexHandles.push(loadLayerTexture(loader, url as string, apply));
+        } else {
+          loader.load(url || fallback, apply, undefined, () =>
+            loader.load(fallback, apply),
+          );
+        }
         return mat;
       }
 

@@ -12,6 +12,7 @@
 	import { createLayerEffect, type LayerEffectHandle } from '$lib/cards/layerEffects';
 	import { makeEdgeFade } from '$lib/cards/edgeFade';
 	import { loadLayerTexture, type LayerTextureHandle } from '$lib/cards/layerTexture';
+	import { isVideoUrl } from '$lib/cards/config';
 
 	let {
 		card,
@@ -92,6 +93,16 @@
 	function loadDims(url: string | null, fallback: { w: number; h: number }) {
 		return new Promise<{ w: number; h: number }>((resolve) => {
 			if (!url) return resolve(fallback);
+			if (isVideoUrl(url)) {
+				const v = document.createElement('video');
+				v.preload = 'metadata';
+				v.muted = true;
+				v.onloadedmetadata = () =>
+					resolve({ w: v.videoWidth || fallback.w, h: v.videoHeight || fallback.h });
+				v.onerror = () => resolve(fallback);
+				v.src = url;
+				return;
+			}
 			const img = new Image();
 			img.onload = () => resolve({ w: img.naturalWidth || fallback.w, h: img.naturalHeight || fallback.h });
 			img.onerror = () => resolve(fallback);
@@ -189,11 +200,19 @@
 					: dummy;
 			};
 			applyFinish(activeFinish);
-			loader.load(frontUrl, (t) => {
+			// A video front animates as a looping VideoTexture (disposed in teardown);
+			// a still image uses the texture loader. The holo shader samples `map` the same.
+			const applyFront = (t: THREE.Texture) => {
 				t.colorSpace = THREE.SRGBColorSpace;
 				frontMat.uniforms.map.value = t;
 				frontMat.needsUpdate = true;
-			});
+			};
+			let frontHandle: LayerTextureHandle | null = null;
+			if (isVideoUrl(frontUrl)) {
+				frontHandle = loadLayerTexture(loader, frontUrl, applyFront);
+			} else {
+				loader.load(frontUrl, applyFront);
+			}
 			const front = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), frontMat);
 			group.add(front);
 
@@ -404,6 +423,7 @@
 			teardown = () => {
 				cancelAnimationFrame(raf);
 				ro.disconnect();
+				frontHandle?.dispose();
 				fxHandles.forEach((fx) => fx.dispose());
 				canvas.removeEventListener('pointerdown', onDown);
 				canvas.removeEventListener('pointermove', onMove);

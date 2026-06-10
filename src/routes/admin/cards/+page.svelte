@@ -18,7 +18,7 @@
 		type CardRarity
 	} from '$lib/cards/rarity';
 	import { LAYER_EFFECTS } from '$lib/cards/layerEffects';
-	import { LAYER_ACCEPT, isVideoLayerUrl } from '$lib/cards/config';
+	import { LAYER_ACCEPT, FRONT_ACCEPT, isVideoLayerUrl } from '$lib/cards/config';
 	import type { CardPack } from '$lib/cards/packs';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -381,8 +381,8 @@
 
 				<div class="row">
 					<label>
-						<span>Replace front art (optional)</span>
-						<input name="front" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+						<span>Replace front art (optional — image or WEBM/MP4 video)</span>
+						<input name="front" type="file" accept={FRONT_ACCEPT} />
 					</label>
 					<label>
 						<span>Replace back art (optional)</span>
@@ -553,8 +553,8 @@
 
 				<div class="row">
 					<label>
-						<span>Front art</span>
-						<input name="front" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+						<span>Front art (image or WEBM/MP4 video)</span>
+						<input name="front" type="file" accept={FRONT_ACCEPT} />
 					</label>
 					<label>
 						<span>Back art (optional — defaults to the Volition card back)</span>

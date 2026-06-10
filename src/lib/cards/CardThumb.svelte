@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { RARITY_BY_KEY, DEFAULT_RARITY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
 	import { FINISH_BY_KEY, type CardFinish } from '$lib/cards/finishes';
+	import { isVideoUrl } from '$lib/cards/config';
 
 	let {
 		card,
@@ -50,7 +51,12 @@
 		<div class="art">
 			<div class="flip">
 				<div class="face front">
-					<img src={front} alt={card.name} loading="lazy" />
+					{#if isVideoUrl(front)}
+						<!-- svelte-ignore a11y_media_has_caption -->
+						<video src={front} autoplay loop muted playsinline></video>
+					{:else}
+						<img src={front} alt={card.name} loading="lazy" />
+					{/if}
 					{#each card.layers ?? [] as ly}
 						<img class="layer" src={ly.url} alt="" loading="lazy" />
 					{/each}
@@ -145,7 +151,8 @@
 		filter: grayscale(0.6) brightness(0.55);
 	}
 
-	.face img {
+	.face img,
+	.face video {
 		width: 100%;
 		height: 100%;
 		object-fit: cover;

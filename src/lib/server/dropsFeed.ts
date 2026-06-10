@@ -1,5 +1,6 @@
 import { env } from '$env/dynamic/private';
 import { RARITY_BY_KEY, DEFAULT_RARITY, isValidRarity } from '$lib/cards/rarity';
+import { isVideoUrl } from '$lib/cards/config';
 
 // Where the embed title links to — the gamba store, so viewers can go open their own.
 // ALWAYS prod: this feed posts to a public Discord channel, so the link must never
@@ -46,24 +47,29 @@ function absUrl(url: string | null | undefined): string | undefined {
 
 // Posts the embed. With `attachment`, the image is uploaded inline (multipart) and
 // the embed should reference it as `attachment://<name>`; otherwise JSON only.
+// `content` (optional) is plain message text — used to drop a bare video URL so
+// Discord renders a playable preview (an embed image can't be a video).
 async function postEmbed(
 	embed: Record<string, unknown>,
-	attachment?: { name: string; data: Buffer }
+	attachment?: { name: string; data: Buffer },
+	content?: string
 ): Promise<void> {
 	const url = env.DISCORD_DROPS_WEBHOOK_URL;
 	if (!url) return;
+	const base: Record<string, unknown> = { username: 'Volition Drops', embeds: [embed] };
+	if (content) base.content = content;
 	try {
 		let res: Response;
 		if (attachment) {
 			const form = new FormData();
-			form.append('payload_json', JSON.stringify({ username: 'Volition Drops', embeds: [embed] }));
+			form.append('payload_json', JSON.stringify(base));
 			form.append('files[0]', new Blob([new Uint8Array(attachment.data)], { type: 'image/png' }), attachment.name);
 			res = await fetch(url, { method: 'POST', body: form }); // fetch sets the multipart boundary
 		} else {
 			res = await fetch(url, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ username: 'Volition Drops', embeds: [embed] })
+				body: JSON.stringify(base)
 			});
 		}
 		if (!res.ok) {
@@ -140,6 +146,12 @@ export async function postCardDrop(d: {
 	};
 
 	const front = absUrl(d.imageUrl);
+	// Video front: sharp can't flatten it and an embed image can't be a video, so post
+	// the embed with the video URL as message content (Discord renders a playable preview).
+	if (front && isVideoUrl(d.imageUrl)) {
+		await postEmbed(embed, undefined, front);
+		return;
+	}
 	// Layered card → flatten front + layers into one image and attach it.
 	if (front && d.layerUrls && d.layerUrls.length) {
 		const flat = await flattenCard(front, d.layerUrls.filter((u): u is string => !!u));

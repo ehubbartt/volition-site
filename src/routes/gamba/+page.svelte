@@ -11,6 +11,7 @@
     type Card,
   } from "$lib/cards/rarity";
   import { SFX_CRATE_SPIN, SFX_TICK, SFX_TOCK } from "$lib/cards/sfx";
+  import { isVideoUrl } from "$lib/cards/config";
   import { rsnToSlug } from "$lib/rsn";
 
   let { data }: { data: PageData } = $props();
@@ -665,12 +666,18 @@
               {@const fin = finishLabel(pull.finish)}
               <article class="drop" style="--rare-color:{meta.color}">
                 <div class="drop-art">
-                  <img
-                    class="front"
-                    src={pull.frontUrl || DEFAULT_CARD_BACK}
-                    alt={pull.cardName}
-                    loading="lazy"
-                  />
+                  {#if isVideoUrl(pull.frontUrl)}
+                    <!-- svelte-ignore a11y_media_has_caption -->
+                    <video class="front" src={pull.frontUrl} autoplay loop muted playsinline
+                    ></video>
+                  {:else}
+                    <img
+                      class="front"
+                      src={pull.frontUrl || DEFAULT_CARD_BACK}
+                      alt={pull.cardName}
+                      loading="lazy"
+                    />
+                  {/if}
                   {#each pull.layers as ly}
                     <img class="layer" src={ly.url} alt="" loading="lazy" />
                   {/each}
