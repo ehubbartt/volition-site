@@ -42,7 +42,15 @@
     pack,
     cards,
     onClose,
-  }: { pack: OpenerPack; cards: OpenerCard[]; onClose: () => void } = $props();
+    onCardView,
+  }: {
+    pack: OpenerPack;
+    cards: OpenerCard[];
+    onClose: () => void;
+    // Fired when the player reveals/swipes to a card in the deck (once per card as it
+    // first becomes the focused card; may re-fire if they swipe back to it).
+    onCardView?: (card: OpenerCard, index: number) => void;
+  } = $props();
 
   let canvas: HTMLCanvasElement;
   let stage = $state<"pack" | "cards" | "grid" | "inspect">("pack");
@@ -202,6 +210,8 @@
     lastSoundIndex = currentIndex;
     playCardSound(cards[currentIndex]);
     sparkleFor(cards[currentIndex]);
+    // The card is now revealed/focused — let the host announce it (rare pulls only).
+    if (cards[currentIndex]) onCardView?.(cards[currentIndex], currentIndex);
   });
 
   // Imperative bridges so the DOM HUD can drive the 3D scene.
@@ -2065,6 +2075,10 @@
 
   <canvas bind:this={canvas}></canvas>
 
+  {#if currentIsNew && (stage === "cards" || stage === "inspect")}
+    <span class="new-badge">NEW</span>
+  {/if}
+
   <div class="hud">
     {#if stage === "pack"}
       <p class="title">{pack.name}</p>
@@ -2087,7 +2101,6 @@
     {:else if stage === "cards"}
       {#if currentCard}
         <p class="card-name" style="--rarity: {currentRarity?.color}">
-          {#if currentIsNew}<span class="new-badge">NEW</span>{/if}
           {currentCard.name}
           <span class="card-sub">
             {currentRarity?.label}{#if currentCard.level}
@@ -2117,7 +2130,6 @@
     {:else if stage === "inspect"}
       {#if currentCard}
         <p class="card-name" style="--rarity: {currentRarity?.color}">
-          {#if currentIsNew}<span class="new-badge">NEW</span>{/if}
           {currentCard.name}
           <span class="card-sub">
             {currentRarity?.label}{#if currentCard.level}
@@ -2262,16 +2274,22 @@
     color: rgba(255, 255, 255, 0.7);
   }
 
+  /* Pinned to the top-left chrome corner (mirrors the close/volume buttons) so it
+     never floats over the centered 3D card. */
   .new-badge {
-    align-self: center;
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    z-index: 2;
+    pointer-events: none;
     font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
     font-size: 0.8rem;
     letter-spacing: 1.5px;
     color: #ff4d4d;
+    background: rgba(0, 0, 0, 0.5);
     border: 2px solid #ff4d4d;
     border-radius: 4px;
-    padding: 0.05rem 0.45rem;
-    margin-bottom: 0.15rem;
+    padding: 0.1rem 0.5rem;
     text-shadow: none;
     box-shadow: 0 0 6px rgba(255, 0, 0, 0.55);
     animation: new-pulse 1.1s ease-in-out infinite;

@@ -219,7 +219,7 @@ export async function logPackOpen(args: {
 	packName: string;
 	costVp: number;
 	cards: PackOpenCard[];
-}): Promise<void> {
+}): Promise<string | null> {
 	const sb = db();
 	const openId = crypto.randomUUID();
 	const now = new Date().toISOString();
@@ -235,7 +235,7 @@ export async function logPackOpen(args: {
 	});
 	if (hErr) {
 		console.error('[pack-opens] failed to log open header:', hErr.message);
-		return;
+		return null;
 	}
 
 	const rows = args.cards.map((c) => ({
@@ -245,8 +245,12 @@ export async function logPackOpen(args: {
 		card_name: c.card_name,
 		rarity: c.rarity,
 		finish: c.finish,
-		pulled_at: now
+		pulled_at: now,
+		// Forwarded to the drops feed later, when the player swipes to this card.
+		announced: false
 	}));
 	const { error: lErr } = await sb.from('vs_pack_open_cards').insert(rows);
 	if (lErr) console.error('[pack-opens] failed to log open cards:', lErr.message);
+
+	return openId;
 }

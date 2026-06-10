@@ -13,7 +13,7 @@ import { getLootConfig, isPaidCrateEnabled, rollLoot, type LootConfig, type Loot
 import { logLootcrateOpen, isRareDrop } from '$lib/server/lootcrateAnalytics';
 import { sendBotMessage } from '$lib/server/botBridge';
 import { postCardDrop, postCrateDrop } from '$lib/server/dropsFeed';
-import { isValidRarity, isRareRarity, DEFAULT_RARITY, RARE_RARITIES, RARITIES, toCardLayers, hiddenCard, type Card, type CardAbility, type CardLayer, type CardRarity } from '$lib/cards/rarity';
+import { isValidRarity, DEFAULT_RARITY, RARE_RARITIES, RARITIES, toCardLayers, hiddenCard, type Card, type CardAbility, type CardLayer, type CardRarity } from '$lib/cards/rarity';
 import { isValidFinish, type CardFinish } from '$lib/cards/finishes';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -491,7 +491,7 @@ async function rollGrantReveal(
 	user: SessionUser,
 	pack: OpenablePack,
 	costVp: number
-): Promise<{ ok: true; opened: (Card & { finish: CardFinish; isNew: boolean })[] } | { ok: false; error: string }> {
+): Promise<{ ok: true; opened: (Card & { finish: CardFinish; isNew: boolean })[]; openId: string | null } | { ok: false; error: string }> {
 	const { data: poolRows, error: poolErr } = await db()
 		.from('vs_cards')
 		.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url')
@@ -515,28 +515,15 @@ async function rollGrantReveal(
 	if (!grant.ok) return { ok: false, error: 'Could not add the cards to your collection' };
 	const newKeys = grant.newKeys;
 
-	await logPackOpen({
+	// Rare pulls are NOT forwarded to the drops feed here — that happens later, via
+	// the announceDrops action, only once the player actually rips the pack open.
+	const openId = await logPackOpen({
 		userId: user.id,
 		packId: pack.id,
 		packName: pack.name,
 		costVp,
 		cards: rolled.map((r) => ({ card_id: r.card.id, card_name: r.card.name, rarity: r.card.rarity, finish: r.finish }))
 	});
-
-	// Forward rare pulls (dragon+) to the Discord drops channel. Best-effort.
-	const dropBy = user.rsn || user.discord_username || 'Someone';
-	for (const r of rolled) {
-		if (!isRareRarity(r.card.rarity)) continue;
-		await postCardDrop({
-			by: dropBy,
-			cardName: r.card.name,
-			rarity: r.card.rarity,
-			finish: r.finish,
-			packName: pack.name,
-			imageUrl: r.card.front_url,
-			layerUrls: toCardLayers(r.card.layers).map((l) => l.url)
-		});
-	}
 
 	const opened: (Card & { finish: CardFinish; isNew: boolean })[] = rolled.map((r) => ({
 		id: r.card.id,
@@ -556,7 +543,7 @@ async function rollGrantReveal(
 		finish: r.finish,
 		isNew: newKeys.has(`${r.card.id}|${r.finish}`)
 	}));
-	return { ok: true, opened };
+	return { ok: true, opened, openId };
 }
 
 // Consume one owned pack — race-safe optimistic decrement (deletes the row at 0).
@@ -631,6 +618,7 @@ export const actions: Actions = {
 		return {
 			ok: true,
 			opened: res.opened,
+			openId: res.openId,
 			pack: { name: pack.name, front_url: pack.front_url, back_url: pack.back_url },
 			balance: spend.balance
 		};
@@ -667,9 +655,70 @@ export const actions: Actions = {
 		return {
 			ok: true,
 			opened: res.opened,
+			openId: res.openId,
 			pack: { name: pack.name, front_url: pack.front_url, back_url: pack.back_url },
 			balance
 		};
+	},
+
+	// Forward ONE rare pull (dragon+) to the Discord drops feed — called by the client
+	// when the player actually SWIPES TO that card in the opener. Re-derives the card
+	// from the server's OWN log (never trusts the client for the card's details) and
+	// atomically claims that card row, so a re-swipe/refresh can't double-post.
+	announceDrops: async ({ locals, request }) => {
+		if (!locals.user) throw error(401, 'Sign in first');
+
+		const form = await request.formData();
+		const openId = form.get('open_id')?.toString();
+		const cardId = form.get('card_id')?.toString();
+		const finish = form.get('finish')?.toString() || 'normal';
+		if (!openId || !cardId) return { ok: false };
+
+		// One not-yet-announced rare line for this exact (open, card, finish) owned by
+		// the caller. Embeds the pack name + card art needed to build the embed.
+		const { data: row } = (await db()
+			.from('vs_pack_open_cards')
+			.select('id, card_name, rarity, finish, vs_cards(front_url, layers), vs_pack_opens(pack_name)')
+			.eq('open_id', openId)
+			.eq('user_id', locals.user.id)
+			.eq('card_id', cardId)
+			.eq('finish', finish)
+			.in('rarity', RARE_RARITIES)
+			.eq('announced', false)
+			.limit(1)
+			.maybeSingle()) as {
+			data: {
+				id: string;
+				card_name: string;
+				rarity: string;
+				finish: CardFinish;
+				vs_cards: { front_url: string | null; layers: unknown } | { front_url: string | null; layers: unknown }[] | null;
+				vs_pack_opens: { pack_name: string | null } | { pack_name: string | null }[] | null;
+			} | null;
+		};
+		if (!row) return { ok: true }; // not theirs / not rare / already announced
+
+		// Claim it before posting (optimistic — loses the race ⇒ someone else posted).
+		const { data: claimed } = await db()
+			.from('vs_pack_open_cards')
+			.update({ announced: true })
+			.eq('id', row.id)
+			.eq('announced', false)
+			.select('id');
+		if (!claimed || claimed.length === 0) return { ok: true };
+
+		const cv = Array.isArray(row.vs_cards) ? row.vs_cards[0] : row.vs_cards;
+		const po = Array.isArray(row.vs_pack_opens) ? row.vs_pack_opens[0] : row.vs_pack_opens;
+		await postCardDrop({
+			by: locals.user.rsn || locals.user.discord_username || 'Someone',
+			cardName: row.card_name,
+			rarity: row.rarity,
+			finish: row.finish,
+			packName: po?.pack_name ?? '',
+			imageUrl: cv?.front_url ?? null,
+			layerUrls: toCardLayers(cv?.layers ?? []).map((l) => l.url)
+		});
+		return { ok: true };
 	},
 
 	// Paid gamba-crate open (spend VP → roll → grant → reveal). Mirrors the bot's

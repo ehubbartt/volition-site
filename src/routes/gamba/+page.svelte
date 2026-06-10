@@ -8,6 +8,7 @@
   import {
     RARITY_BY_KEY,
     DEFAULT_CARD_BACK,
+    isRareRarity,
     type Card,
   } from "$lib/cards/rarity";
   import { SFX_CRATE_SPIN, SFX_TICK, SFX_TOCK } from "$lib/cards/sfx";
@@ -83,6 +84,33 @@
   } | null>(null);
   let opening = $state<string | null>(null); // id of the pack currently opening
   let errorMsg = $state<string | null>(null);
+  // The just-opened pack's server id — a rare pull is forwarded to the Discord drops
+  // feed only once the player actually SWIPES TO that card (see announceCard).
+  let lastOpenId: string | null = null;
+
+  // Fire-and-forget: announce ONE rare card the moment the player reveals/swipes to it.
+  // The server re-derives the card from its own log and claims that card row, so this
+  // can't be forged and won't double-post if they swipe back to the same card.
+  async function announceCard(card: {
+    id: string;
+    rarity: string;
+    finish?: string | null;
+  }) {
+    if (!lastOpenId || !card || !isRareRarity(card.rarity)) return;
+    try {
+      const fd = new FormData();
+      fd.set("open_id", lastOpenId);
+      fd.set("card_id", card.id);
+      fd.set("finish", card.finish ?? "normal");
+      await fetch("?/announceDrops", {
+        method: "POST",
+        body: fd,
+        headers: { "x-sveltekit-action": "true" },
+      });
+    } catch {
+      // best-effort — a failed forward just means the drop isn't posted
+    }
+  }
 
   // The White Pack is the launch set — flag it as "1st edition" in the store.
   function isFirstEdition(name: string): boolean {
@@ -102,6 +130,7 @@
       if (result.type === "success" && result.data?.ok) {
         opened = result.data.opened as Card[];
         openedPack = result.data.pack as typeof openedPack;
+        lastOpenId = (result.data.openId as string | null) ?? null;
         openerOpen = true;
       } else if (result.type === "failure") {
         errorMsg =
@@ -908,6 +937,7 @@
     pack={openedPack}
     cards={opened}
     onClose={() => (openerOpen = false)}
+    onCardView={(c) => announceCard(c)}
   />
 {/if}
 
