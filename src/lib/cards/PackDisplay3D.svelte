@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import * as THREE from 'three';
+	import '$lib/cards/threeSetup'; // THREE.Cache.enabled = true (dedupe texture loads)
 	import { DEFAULT_PACK_FRONT } from '$lib/cards/packs';
 	import {
 		addPackLights,

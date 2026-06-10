@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import * as THREE from 'three';
+	import '$lib/cards/threeSetup'; // THREE.Cache.enabled = true (dedupe texture loads)
 	import { RARITY_BY_KEY, DEFAULT_RARITY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
 	import {
 		FINISH_BY_KEY,

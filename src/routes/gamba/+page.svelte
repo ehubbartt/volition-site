@@ -51,6 +51,22 @@
     }
   }
 
+  // Warm the browser cache for the store packs' art so opening one is instant (even
+  // before it scrolls into view / before three loads it). Skip when there's no WebGL —
+  // those users get static images only, so there's no opener art to prefetch.
+  onMount(() => {
+    if (detectWebgl().tier === "none") return;
+    const urls = new Set<string>();
+    for (const p of [...data.packs, ...data.teaserPacks]) {
+      if (p.front_url) urls.add(p.front_url);
+      if (p.back_url) urls.add(p.back_url);
+    }
+    for (const u of urls) {
+      const img = new Image();
+      img.src = u;
+    }
+  });
+
   function timeAgo(iso: string): string {
     const s = Math.max(
       0,

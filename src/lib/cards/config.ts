@@ -1,5 +1,14 @@
 export const CARD_ART_BUCKET = 'vs-card-art';
 
+// Art is immutable (timestamped filenames), so cache it hard at the CDN/browser.
+export const ART_CACHE_CONTROL = '31536000'; // 1 year, in seconds
+
+// Still-image art is downscaled + re-encoded to WebP on upload (and by the backfill
+// script) — the 3D card/pack planes never need more than ~1024px even in the opener,
+// and the source PNGs are often multi-MB. Videos are left untouched.
+export const MAX_ART_DIMENSION = 1024;
+export const ART_WEBP_QUALITY = 82;
+
 export const MAX_UPLOAD_BYTES = 10_000_000;
 export const ALLOWED_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
 

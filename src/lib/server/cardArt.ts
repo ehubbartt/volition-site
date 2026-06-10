@@ -1,6 +1,9 @@
 import { db } from './db';
 import {
 	CARD_ART_BUCKET,
+	ART_CACHE_CONTROL,
+	MAX_ART_DIMENSION,
+	ART_WEBP_QUALITY,
 	MAX_UPLOAD_BYTES,
 	ALLOWED_MIME,
 	EXT_BY_MIME,
@@ -16,6 +19,29 @@ import {
 	EXT_BY_FRONT_MIME
 } from '$lib/cards/config';
 import { isLayerEffect, type LayerEffect } from '$lib/cards/layerEffects';
+
+// Downscale a still image to MAX_ART_DIMENSION (longest side, never upscale) and
+// re-encode as WebP — the 3D card/pack planes never need more than ~1024px and the
+// source PNGs are often multi-MB. Returns null on any failure so the caller falls
+// back to uploading the original untouched (never blocks an admin upload). Videos
+// must NOT be passed here. Animated GIFs become animated WebP.
+async function optimizeImage(
+	file: File
+): Promise<{ data: Buffer; contentType: string; ext: string } | null> {
+	try {
+		const { default: sharp } = await import('sharp');
+		const input = Buffer.from(await file.arrayBuffer());
+		const data = await sharp(input, { animated: file.type === 'image/gif' })
+			.rotate() // honour EXIF orientation before we drop the metadata
+			.resize(MAX_ART_DIMENSION, MAX_ART_DIMENSION, { fit: 'inside', withoutEnlargement: true })
+			.webp({ quality: ART_WEBP_QUALITY })
+			.toBuffer();
+		return { data, contentType: 'image/webp', ext: 'webp' };
+	} catch (e) {
+		console.error('[cardArt] image optimize failed, uploading original:', e instanceof Error ? e.message : e);
+		return null;
+	}
+}
 
 // Shared art upload for the card game. Cards and packs both live in the
 // `vs-card-art` bucket under their own prefix ('cards' / 'packs'). `opts` lets callers
@@ -43,14 +69,27 @@ export async function uploadCardArt(
 	if (!(allowedMime as readonly string[]).includes(file.type)) {
 		return { error: typeError };
 	}
-	const ext = extMap[file.type];
+	let ext = extMap[file.type];
 	if (!ext) return { error: typeError };
+
+	// Still images → downscale + WebP. Videos (and anything non-image) upload as-is.
+	let body: File | Buffer = file;
+	let contentType = file.type;
+	if (file.type.startsWith('image/')) {
+		const optimized = await optimizeImage(file);
+		if (optimized) {
+			body = optimized.data;
+			contentType = optimized.contentType;
+			ext = optimized.ext;
+		}
+	}
 
 	const path = `${prefix}/${id}-${Date.now()}.${ext}`;
 	const storage = db().storage.from(CARD_ART_BUCKET);
-	const { error: upErr } = await storage.upload(path, file, {
-		contentType: file.type,
-		upsert: false
+	const { error: upErr } = await storage.upload(path, body, {
+		contentType,
+		upsert: false,
+		cacheControl: ART_CACHE_CONTROL
 	});
 	if (upErr) return { error: upErr.message };
 
@@ -81,7 +120,8 @@ export async function uploadCardSound(
 	const storage = db().storage.from(CARD_ART_BUCKET);
 	const { error: upErr } = await storage.upload(path, file, {
 		contentType: file.type,
-		upsert: false
+		upsert: false,
+		cacheControl: ART_CACHE_CONTROL
 	});
 	if (upErr) return { error: upErr.message };
 
