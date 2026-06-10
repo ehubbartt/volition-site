@@ -4,7 +4,6 @@
   import { enhance } from "$app/forms";
   import type { SubmitFunction } from "@sveltejs/kit";
   import PackOpener from "$lib/cards/PackOpener.svelte";
-  import CardThumb from "$lib/cards/CardThumb.svelte";
   import PackDisplay3D from "$lib/cards/PackDisplay3D.svelte";
   import {
     RARITY_BY_KEY,
@@ -50,8 +49,10 @@
   let opening = $state<string | null>(null); // id of the pack currently opening
   let errorMsg = $state<string | null>(null);
 
-  // Pack-contents modal (shows the cards in a set — no drop rates).
-  let viewingPack = $state<{ name: string; cards: Card[] } | null>(null);
+  // The White Pack is the launch set — flag it as "1st edition" in the store.
+  function isFirstEdition(name: string): boolean {
+    return name.trim().toLowerCase() === "white pack";
+  }
 
   function canOpen(pack: PageData["packs"][number]): boolean {
     return (
@@ -549,7 +550,12 @@
                   {/if}
                 </div>
                 <div class="body">
-                  <strong class="name">{pack.name}</strong>
+                  <strong class="name">
+                    {pack.name}
+                    {#if isFirstEdition(pack.name)}
+                      <span class="edition">1st edition</span>
+                    {/if}
+                  </strong>
                   {#if pack.description}
                     <p class="desc muted">{pack.description}</p>
                   {/if}
@@ -557,17 +563,6 @@
                     >{pack.card_count} card{pack.card_count === 1 ? "" : "s"} in
                     set</span
                   >
-
-                  {#if pack.cards.length > 0}
-                    <button
-                      type="button"
-                      class="view-cards"
-                      onclick={() =>
-                        (viewingPack = { name: pack.name, cards: pack.cards })}
-                    >
-                      View cards
-                    </button>
-                  {/if}
 
                   {#if owned > 0}
                     <!-- Player owns one+ — offer a FREE open from inventory first. -->
@@ -730,24 +725,26 @@
                     {/if}
                   </button>
                 </form>
-                <form
-                  method="POST"
-                  action="?/openCrate"
-                  use:enhance={submitCrate("paid")}
-                >
-                  <button
-                    type="submit"
-                    class="primary"
-                    disabled={crateBusy !== null ||
-                      data.vp_balance < data.crate.spinCost}
+                {#if data.crate.paidEnabled}
+                  <form
+                    method="POST"
+                    action="?/openCrate"
+                    use:enhance={submitCrate("paid")}
                   >
-                    {#if crateBusy === "paid"}
-                      Opening…
-                    {:else}
-                      Open · {data.crate.spinCost} VP
-                    {/if}
-                  </button>
-                </form>
+                    <button
+                      type="submit"
+                      class="primary"
+                      disabled={crateBusy !== null ||
+                        data.vp_balance < data.crate.spinCost}
+                    >
+                      {#if crateBusy === "paid"}
+                        Opening…
+                      {:else}
+                        Open · {data.crate.spinCost} VP
+                      {/if}
+                    </button>
+                  </form>
+                {/if}
               </div>
               {#if !data.crate.freeAvailable}
                 <span class="muted small"
@@ -757,7 +754,9 @@
                   (resets midnight UTC).</span
                 >
               {/if}
-              {#if data.vp_balance < data.crate.spinCost}
+              {#if !data.crate.paidEnabled}
+                <span class="muted small">Paid crate opens are currently disabled.</span>
+              {:else if data.vp_balance < data.crate.spinCost}
                 <span class="warn small">Not enough VP for a paid open</span>
               {/if}
             </div>
@@ -884,32 +883,6 @@
       {:else}
         <p class="reveal-spinning">Opening…</p>
       {/if}
-    </div>
-  </div>
-{/if}
-
-{#if viewingPack}
-  <div class="contents-wrap">
-    <button
-      class="contents-backdrop"
-      aria-label="Close"
-      onclick={() => (viewingPack = null)}
-    ></button>
-    <div class="contents" role="dialog" aria-modal="true" tabindex="-1">
-      <header class="contents-head">
-        <h3>{viewingPack.name} · {viewingPack.cards.length} cards</h3>
-        <button
-          type="button"
-          class="contents-close"
-          aria-label="Close"
-          onclick={() => (viewingPack = null)}>✕</button
-        >
-      </header>
-      <div class="contents-grid">
-        {#each viewingPack.cards as card (card.id)}
-          <CardThumb {card} flip={true} />
-        {/each}
-      </div>
     </div>
   </div>
 {/if}
@@ -1172,6 +1145,22 @@
     font-size: 1.1rem;
   }
 
+  .edition {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0.08rem 0.45rem;
+    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-size: 0.62rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    vertical-align: middle;
+    color: var(--yellow);
+    border: 1px solid var(--yellow);
+    border-radius: 999px;
+    text-shadow: none;
+    white-space: nowrap;
+  }
+
   .desc {
     margin: 0;
     font-size: 0.85rem;
@@ -1202,103 +1191,6 @@
   .warn {
     color: var(--danger);
     text-align: center;
-  }
-
-  .view-cards {
-    align-self: flex-start;
-    min-height: auto;
-    padding: 0.3rem 0.7rem;
-    font-size: 0.8rem;
-  }
-
-  /* ---- Pack-contents modal ---- */
-  .contents-wrap {
-    position: fixed;
-    inset: 0;
-    z-index: 100;
-    display: grid;
-    place-items: center;
-    padding: 1rem;
-  }
-
-  .contents-backdrop {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    min-height: 0;
-    padding: 0;
-    border: none;
-    border-radius: 0;
-    background: rgba(0, 0, 0, 0.72);
-    cursor: pointer;
-  }
-
-  .contents {
-    position: relative;
-    z-index: 1;
-    width: min(52rem, 100%);
-    max-height: 85vh;
-    display: flex;
-    flex-direction: column;
-    background: linear-gradient(
-      180deg,
-      rgba(48, 40, 30, 0.98),
-      rgba(30, 24, 18, 0.98)
-    );
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-card);
-    overflow: hidden;
-  }
-
-  .contents-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.9rem 1.1rem;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .contents-head h3 {
-    margin: 0;
-    font-size: 1.1rem;
-    color: var(--accent);
-    text-shadow: var(--ts);
-  }
-
-  .contents-close {
-    min-height: auto;
-    padding: 0.2rem 0.6rem;
-  }
-
-  .contents-grid {
-    padding: 1rem;
-    overflow-y: auto;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
-    gap: 0.9rem;
-    align-items: start; /* don't stretch tiles to equal height (it clips the name) */
-  }
-
-  /* Let full card names wrap here instead of being clipped (CardThumb defaults to
-	   a single ellipsised line). overflow:visible on the thumb stops the wrapped
-	   name being cut off; we re-round the art corners since the thumb no longer clips. */
-  .contents-grid :global(.card-thumb) {
-    overflow: visible;
-  }
-
-  .contents-grid :global(.art) {
-    flex-shrink: 0; /* keep the aspect-ratio art from collapsing (esp. on mobile) */
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    overflow: hidden;
-  }
-
-  .contents-grid :global(.name) {
-    white-space: normal;
-    overflow: visible;
-    text-overflow: clip;
   }
 
   /* ---- Packs / Crates view tabs ---- */

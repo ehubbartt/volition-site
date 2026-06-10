@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import { itemColor, type CalendarItem } from '$lib/calendar';
+	import { datetimeLocalToIso } from '$lib/datetime';
 	import { rankLabel, rankColor, rankIndex, rankImg } from '$lib/ranks';
 	import { rsnToSlug } from '$lib/rsn';
 	import type { PageData, ActionData } from './$types';
@@ -207,7 +208,16 @@
 		showModal = false;
 	}
 
-	const onMutate: SubmitFunction = () => {
+	const onMutate: SubmitFunction = ({ formData }) => {
+		// Convert the local datetime-local values to UTC ISO before POST, so the
+		// server stores the right instant regardless of its timezone (see datetime.ts).
+		for (const f of ['starts_at', 'ends_at']) {
+			const v = formData.get(f);
+			if (typeof v === 'string' && v.trim()) {
+				const iso = datetimeLocalToIso(v);
+				if (iso) formData.set(f, iso);
+			}
+		}
 		saving = true;
 		return async ({ result, update }) => {
 			await update();

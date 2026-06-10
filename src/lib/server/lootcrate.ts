@@ -36,11 +36,21 @@ export interface RoleReward {
 
 export interface LootConfig {
 	spinCost: number;
+	// Paid (VP) crate opens. Disabled by setting loot_tables.paidEnabled = false in
+	// bot_config (mirrors the bot). Absent/true → paid opens allowed; the free daily
+	// claim is unaffected either way.
+	paidEnabled?: boolean;
 	freeDropItems: boolean;
 	vpTiers: VpTier[];
 	itemDropChance: number;
 	roleReward?: RoleReward;
 	items: CrateItem[];
+}
+
+// Whether paid (VP) crate opens are allowed. Matches the bot's `paidEnabled !== false`
+// (so a missing field defaults to enabled).
+export function isPaidCrateEnabled(config: LootConfig): boolean {
+	return config.paidEnabled !== false;
 }
 
 // The single rolled reward. `chance` is the percent (numeric). `colorHex` is a CSS
@@ -61,6 +71,7 @@ export interface LootResult {
 // getLootTables(). Used only if bot_config has no 'loot_tables' row.
 export const DEFAULT_LOOT_TABLES: LootConfig = {
 	spinCost: 5,
+	paidEnabled: true,
 	freeDropItems: true,
 	vpTiers: [
 		{ label: 'Junk', chance: 29.7, min: 0, max: 0, color: '808080', title: 'Loot Crate Result', image: 'https://rrnmckaabbvtkkpoeefg.supabase.co/storage/v1/object/public/lootcrate/junk.png' },

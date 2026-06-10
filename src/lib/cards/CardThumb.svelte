@@ -6,8 +6,17 @@
 		card,
 		quantity = null,
 		finish = null,
-		flip = true
-	}: { card: Card; quantity?: number | null; finish?: CardFinish | null; flip?: boolean } = $props();
+		flip = true,
+		backOnly = false
+	}: {
+		card: Card;
+		quantity?: number | null;
+		finish?: CardFinish | null;
+		flip?: boolean;
+		// backOnly: show only the card back (front art hidden) inside a rarity-colored
+		// border — used for un-collected cards below SR in the collection.
+		backOnly?: boolean;
+	} = $props();
 
 	let rarity = $derived(RARITY_BY_KEY[card.rarity] ?? RARITY_BY_KEY[DEFAULT_RARITY]);
 	let finishMeta = $derived(finish ? FINISH_BY_KEY[finish] : null);
@@ -17,15 +26,22 @@
 	let hidden = $derived(!!card.hidden);
 </script>
 
-{#if hidden}
-	<div class="card-thumb no-flip mystery" style="--rarity: {rarity.color}" title="Undiscovered — pull it to reveal">
+{#if backOnly || hidden}
+	<!-- Un-collected card: show only the (greyed) card back inside a rarity-colored
+	     border. SR cards (`hidden`) come in redacted — name '???', no back_url → the
+	     default back — so this hides their identity while still showing a card back. -->
+	<div
+		class="card-thumb no-flip back-only"
+		style="--rarity: {rarity.color}"
+		title={hidden ? 'Secret rare — pull it to reveal' : 'Undiscovered — not collected yet'}
+	>
 		<div class="art">
-			<div class="mystery-face">
-				<span class="mystery-glyph">?</span>
+			<div class="face back static">
+				<img src={back} alt="" loading="lazy" />
 			</div>
 		</div>
 		<div class="info">
-			<span class="name">Undiscovered</span>
+			<span class="name">???</span>
 			<span class="rarity">{rarity.label}</span>
 		</div>
 	</div>
@@ -85,31 +101,6 @@
 		perspective: 900px;
 	}
 
-	/* Undiscovered card: a mystery "?" spot tinted by the (still-known) rarity. */
-	.card-thumb.mystery {
-		border-style: dashed;
-	}
-
-	.mystery-face {
-		position: absolute;
-		inset: 0;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background:
-			radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--rarity) 22%, transparent), transparent 70%),
-			repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.03) 0 8px, transparent 8px 16px),
-			#0c0c10;
-	}
-
-	.mystery-glyph {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
-		font-size: 2.6rem;
-		color: var(--rarity);
-		opacity: 0.85;
-		text-shadow: 0 0 12px color-mix(in srgb, var(--rarity) 60%, transparent), 2px 2px #000;
-	}
-
 	.flip {
 		position: absolute;
 		inset: 0;
@@ -137,6 +128,21 @@
 
 	.face.back {
 		transform: rotateY(180deg);
+	}
+
+	/* Static back (backOnly mode): face the viewer directly, un-mirrored. */
+	.face.back.static {
+		transform: none;
+	}
+
+	/* Un-collected slot: keep the rarity border bright, but grey the card back so it's
+	   obvious at a glance which cards you actually own vs. which are just backs. */
+	.card-thumb.back-only {
+		border-width: 2px;
+	}
+
+	.card-thumb.back-only .art img {
+		filter: grayscale(0.6) brightness(0.55);
 	}
 
 	.face img {

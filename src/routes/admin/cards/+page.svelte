@@ -150,6 +150,22 @@
 		return groups;
 	});
 
+	// Collapse state for the Existing-cards groups (keyed by pack id, or 'none' for
+	// the orphan bucket) so admins can fold packs away and focus on certain sets.
+	let collapsedGroups = $state(new Set<string>());
+	function toggleGroup(key: string) {
+		const next = new Set(collapsedGroups);
+		if (next.has(key)) next.delete(key);
+		else next.add(key);
+		collapsedGroups = next;
+	}
+	function collapseAllGroups() {
+		collapsedGroups = new Set(cardGroups.map((g) => g.pack?.id ?? 'none'));
+	}
+	function expandAllGroups() {
+		collapsedGroups = new Set();
+	}
+
 	function rarityCount(packId: string, key: string): number {
 		return cardsInPack(packId).filter((c) => cardRarity(c) === key).length;
 	}
@@ -570,26 +586,44 @@
 			</form>
 		</details>
 
-		<h2>Existing cards ({data.cards.length})</h2>
+		<div class="existing-head">
+			<h2>Existing cards ({data.cards.length})</h2>
+			{#if cardGroups.length > 1}
+				<div class="group-controls">
+					<button type="button" class="ghost small" onclick={expandAllGroups}>Expand all</button>
+					<button type="button" class="ghost small" onclick={collapseAllGroups}>Collapse all</button>
+				</div>
+			{/if}
+		</div>
 		{#if data.cards.length === 0}
 			<p class="muted">No cards yet.</p>
 		{:else}
 			{#each cardGroups as group (group.pack?.id ?? 'none')}
+				{@const key = group.pack?.id ?? 'none'}
+				{@const collapsed = collapsedGroups.has(key)}
 				<section class="pack-group">
-					<h3 class="group-head">
+					<button
+						type="button"
+						class="group-head"
+						aria-expanded={!collapsed}
+						onclick={() => toggleGroup(key)}
+					>
+						<span class="chevron" class:collapsed>▾</span>
 						{group.pack?.name ?? 'No set'}
 						<span class="count">{group.cards.length}</span>
-					</h3>
-					{#each byRarity(group.cards) as rg (rg.meta.key)}
-						<div class="rarity-group">
-							<span class="rarity-label" style="--rc: {rg.meta.color}">{rg.meta.label} ({rg.cards.length})</span>
-							<ul class="item-list">
-								{#each rg.cards as raw (raw.id)}
-									{@render cardEntry(raw)}
-								{/each}
-							</ul>
-						</div>
-					{/each}
+					</button>
+					{#if !collapsed}
+						{#each byRarity(group.cards) as rg (rg.meta.key)}
+							<div class="rarity-group">
+								<span class="rarity-label" style="--rc: {rg.meta.color}">{rg.meta.label} ({rg.cards.length})</span>
+								<ul class="item-list">
+									{#each rg.cards as raw (raw.id)}
+										{@render cardEntry(raw)}
+									{/each}
+								</ul>
+							</div>
+						{/each}
+					{/if}
 				</section>
 			{/each}
 		{/if}
@@ -1132,10 +1166,60 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+		width: 100%;
 		margin: 1.5rem 0 0.75rem;
-		padding-bottom: 0.4rem;
+		padding: 0 0 0.4rem;
+		border: 0;
 		border-bottom: 1px solid var(--border);
+		border-radius: 0;
+		background: none;
+		text-align: left;
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
 		font-size: 1.15rem;
+		color: inherit;
+		cursor: pointer;
+		min-height: 0;
+	}
+
+	.group-head:hover {
+		color: var(--accent);
+	}
+
+	.chevron {
+		display: inline-block;
+		font-size: 0.85rem;
+		transition: transform 0.15s;
+	}
+
+	.chevron.collapsed {
+		transform: rotate(-90deg);
+	}
+
+	.existing-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.group-controls {
+		display: flex;
+		gap: 0.4rem;
+	}
+
+	.ghost.small {
+		padding: 0.25rem 0.6rem;
+		font-size: 0.8rem;
+		min-height: 0;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		color: var(--muted);
+	}
+
+	.ghost.small:hover {
+		border-color: var(--accent);
+		color: var(--text);
 	}
 
 	.rarity-group {

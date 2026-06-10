@@ -4,6 +4,7 @@
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import EventsTasksTabs from '$lib/admin/EventsTasksTabs.svelte';
 	import { rewardLabel, eventTypeLabel } from '$lib/events/simple';
+	import { dateFormEnhance } from '$lib/datetime';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -158,7 +159,7 @@
 	<!-- Edit meta -->
 	<details class="card">
 		<summary><strong>Edit event details</strong></summary>
-		<form method="POST" action="?/updateEvent" use:enhance={keepValues}>
+		<form method="POST" action="?/updateEvent" use:enhance={dateFormEnhance}>
 			<label>
 				<span>Type</span>
 				<select name="kind">

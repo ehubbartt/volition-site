@@ -1,16 +1,12 @@
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
 	import EventsTasksTabs from '$lib/admin/EventsTasksTabs.svelte';
 	import { isTaskEvent } from '$lib/events/simple';
+	import { dateFormEnhance } from '$lib/datetime';
 	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
-
-	// Keep pre-filled values after a successful save (SvelteKit's default enhance
-	// resets the form, which blanks Svelte-set input values). See admin/cards.
-	const keepValues: SubmitFunction = () => async ({ update }) => update({ reset: false });
 
 	// ── Event creator ─────────────────────────────────────────────────────────
 	// The type dropdown drives which fields show: 'simple'/'sequential' are
@@ -48,7 +44,7 @@
 
 	<details class="card" open>
 		<summary><strong>Create event</strong></summary>
-		<form method="POST" action="?/createEvent" use:enhance>
+		<form method="POST" action="?/createEvent" use:enhance={dateFormEnhance}>
 			<label>
 				<span>Event type</span>
 				<select name="kind" bind:value={eventType}>
@@ -219,7 +215,7 @@
 
 					<details class="dates-block">
 						<summary><strong>Dates</strong> <span class="muted small">(update without touching other fields)</span></summary>
-						<form method="POST" action="?/updateDates" use:enhance={keepValues} class="dates-form">
+						<form method="POST" action="?/updateDates" use:enhance={dateFormEnhance} class="dates-form">
 							<input type="hidden" name="id" value={ev.id} />
 							<div class="row">
 								<label>
@@ -263,7 +259,7 @@
 
 					<details class="edit-block">
 						<summary>Edit details</summary>
-						<form method="POST" action="?/update" use:enhance={keepValues} class="edit-form">
+						<form method="POST" action="?/update" use:enhance={dateFormEnhance} class="edit-form">
 							<input type="hidden" name="id" value={ev.id} />
 							<label>
 								<span>Slug (URL)</span>

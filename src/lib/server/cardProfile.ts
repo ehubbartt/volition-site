@@ -254,6 +254,9 @@ export async function loadCardProfile(user: {
 		if (rarity === 'sr' && !discovered) {
 			collection.push({
 				...hiddenCard(id, rarity),
+				// Show the card's real back (the reverse side gives nothing away) so SR
+				// slots use the uploaded back, not the default black one. Front/name stay redacted.
+				back_url: cat?.back_url ?? null,
 				quantity: 0,
 				finish: 'normal' as CardFinish,
 				owned: false

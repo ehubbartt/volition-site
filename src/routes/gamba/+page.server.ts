@@ -9,7 +9,7 @@ import {
 	getLastLootDate
 } from '$lib/server/playerStats';
 import { grantCards, grantUserPack, logPackOpen, makeSlotRoller, rollOnePack, type CardGrant } from '$lib/server/gamba';
-import { getLootConfig, rollLoot, type LootConfig, type LootResult } from '$lib/server/lootcrate';
+import { getLootConfig, isPaidCrateEnabled, rollLoot, type LootConfig, type LootResult } from '$lib/server/lootcrate';
 import { logLootcrateOpen, isRareDrop } from '$lib/server/lootcrateAnalytics';
 import { sendBotMessage } from '$lib/server/botBridge';
 import { postCardDrop, postCrateDrop } from '$lib/server/dropsFeed';
@@ -109,6 +109,7 @@ export interface CrateReelCell {
 
 export interface CrateInfo {
 	spinCost: number;
+	paidEnabled: boolean;
 	freeAvailable: boolean;
 	odds: CrateOdd[];
 	reel: CrateReelCell[];
@@ -316,6 +317,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const todayUtc = new Date().toISOString().slice(0, 10);
 	const crate: CrateInfo = {
 		spinCost: lootConfig.spinCost ?? 5,
+		paidEnabled: isPaidCrateEnabled(lootConfig),
 		freeAvailable: lastLootDate !== todayUtc,
 		odds: [
 			...lootConfig.vpTiers.map((t) => ({ label: t.label, pct: t.chance, color: `#${t.color ?? '808080'}` })),
@@ -657,6 +659,10 @@ export const actions: Actions = {
 		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
 
 		const config = await getLootConfig();
+		// Respect the shared bot_config switch — paid opens can be turned off.
+		if (!isPaidCrateEnabled(config)) {
+			return fail(400, { crateError: 'Paid crate opens are currently disabled.' });
+		}
 		const cost = config.spinCost ?? 5;
 
 		const spend = await spendPlayerVp(locals.user.discord_id, locals.user.rsn, cost);
