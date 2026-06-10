@@ -881,6 +881,7 @@
             uStrength: { value: fullArtHolo ? 1 : level.strength },
             uReveal: { value: 1 },
             uOpacity: { value: 0 },
+            uMapSrgb: { value: 0 },
           },
           vertexShader: HOLO_VERT,
           fragmentShader: HOLO_FRAG,
@@ -904,7 +905,23 @@
         // A video front animates as a looping VideoTexture (handle disposed with the
         // other layer/video handles on teardown); a still image uses the texture loader.
         if (isVideoUrl(url)) {
-          layerTexHandles.push(loadLayerTexture(loader, url as string, apply));
+          const applyVideo = (t: THREE.Texture) => {
+            // three doesn't sRGB-decode a VideoTexture on sample, so mark it linear
+            // (no decode) and let the shader decode instead (uMapSrgb) — without this
+            // the video front renders washed-out / too bright.
+            t.colorSpace = THREE.LinearSRGBColorSpace;
+            mat.uniforms.uMapSrgb.value = 1;
+            mat.uniforms.map.value = t;
+            mat.needsUpdate = true;
+            if (!disposed) {
+              try {
+                renderer.initTexture(t);
+              } catch {
+                /* perf hint only */
+              }
+            }
+          };
+          layerTexHandles.push(loadLayerTexture(loader, url as string, applyVideo));
         } else {
           loader.load(url || fallback, apply, undefined, () =>
             loader.load(fallback, apply),

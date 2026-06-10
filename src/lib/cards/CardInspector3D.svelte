@@ -164,7 +164,8 @@
 					uHas: { value: 0 },
 					uStrength: { value: 0 },
 					uReveal: { value: 1 },
-					uOpacity: { value: 1 }
+					uOpacity: { value: 1 },
+					uMapSrgb: { value: 0 }
 				},
 				vertexShader: HOLO_VERT,
 				fragmentShader: HOLO_FRAG,
@@ -201,17 +202,23 @@
 			};
 			applyFinish(activeFinish);
 			// A video front animates as a looping VideoTexture (disposed in teardown);
-			// a still image uses the texture loader. The holo shader samples `map` the same.
-			const applyFront = (t: THREE.Texture) => {
-				t.colorSpace = THREE.SRGBColorSpace;
-				frontMat.uniforms.map.value = t;
-				frontMat.needsUpdate = true;
-			};
+			// a still image uses the texture loader. three doesn't sRGB-decode a
+			// VideoTexture on sample, so for video we mark it linear (no decode) and let
+			// the shader decode (uMapSrgb) — otherwise the video renders too bright.
 			let frontHandle: LayerTextureHandle | null = null;
 			if (isVideoUrl(frontUrl)) {
-				frontHandle = loadLayerTexture(loader, frontUrl, applyFront);
+				frontHandle = loadLayerTexture(loader, frontUrl, (t) => {
+					t.colorSpace = THREE.LinearSRGBColorSpace;
+					frontMat.uniforms.uMapSrgb.value = 1;
+					frontMat.uniforms.map.value = t;
+					frontMat.needsUpdate = true;
+				});
 			} else {
-				loader.load(frontUrl, applyFront);
+				loader.load(frontUrl, (t) => {
+					t.colorSpace = THREE.SRGBColorSpace;
+					frontMat.uniforms.map.value = t;
+					frontMat.needsUpdate = true;
+				});
 			}
 			const front = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), frontMat);
 			group.add(front);

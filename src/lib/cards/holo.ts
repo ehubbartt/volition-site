@@ -102,6 +102,11 @@ export const HOLO_FRAG = `
 	uniform float uStrength;
 	uniform float uOpacity;
 	uniform float uReveal;
+	// 1.0 when the map is NOT GPU-decoded to linear on sample (a VideoTexture: three
+	// doesn't use an sRGB internal format for video), so we decode it here instead —
+	// otherwise the front's sRGB pixels get treated as linear and re-encoded, washing
+	// it out / making it too bright. 0.0 for ordinary images (hardware already decoded).
+	uniform float uMapSrgb;
 	varying vec2 vUv;
 	varying vec3 vNormal;
 	varying vec3 vViewPos;
@@ -112,9 +117,14 @@ export const HOLO_FRAG = `
 		c = clamp(c, 0.0, 1.0);
 		return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
 	}
+	vec3 srgb2lin(vec3 c) {
+		c = clamp(c, 0.0, 1.0);
+		return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+	}
 	void main() {
 		vec4 base = texture2D(map, vUv);
 		vec3 col = base.rgb;
+		if (uMapSrgb > 0.5) col = srgb2lin(col);
 
 		if (uHas > 0.5) {
 			vec3 N = normalize(vNormal);
