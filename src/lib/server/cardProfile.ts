@@ -34,6 +34,7 @@ interface UserCardRow {
 		layers: unknown;
 		full_art: boolean | null;
 		holo_url: string | null;
+		holo_border: boolean | null;
 		sound_url: string | null;
 		model_url: string | null;
 		model_settings: Card['model_settings'];
@@ -66,6 +67,7 @@ interface CatalogRow {
 	layers: unknown;
 	full_art: boolean | null;
 	holo_url: string | null;
+	holo_border: boolean | null;
 	sound_url: string | null;
 	model_url: string | null;
 	model_settings: Card['model_settings'];
@@ -116,7 +118,7 @@ export async function loadCardProfile(user: {
 		getWalletItems(user.discord_id),
 		db()
 			.from('vs_user_cards')
-			.select('quantity, finish, vs_cards(id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url, model_url, model_settings, models, vs_card_packs(holo_regular_url, holo_reverse_url))')
+			.select('quantity, finish, vs_cards(id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, holo_border, sound_url, model_url, model_settings, models, vs_card_packs(holo_regular_url, holo_reverse_url))')
 			.eq('user_id', user.id)
 			.order('first_acquired_at', { ascending: false }),
 		db()
@@ -127,7 +129,7 @@ export async function loadCardProfile(user: {
 		// Full set of obtainable cards (from released packs), to show what's missing.
 		db()
 			.from('vs_cards')
-			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url, model_url, model_settings, models, vs_card_packs!inner(released, holo_regular_url, holo_reverse_url, slot_finishes, slot_weights, rarity_weights)')
+			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, holo_border, sound_url, model_url, model_settings, models, vs_card_packs!inner(released, holo_regular_url, holo_reverse_url, slot_finishes, slot_weights, rarity_weights)')
 			.eq('vs_card_packs.released', true),
 		db().from('vs_pack_opens').select('cost_vp, card_count').eq('user_id', user.id),
 		// Gamba-crate lifetime stats from the bot's aggregate table (keyed by discord_id).
@@ -155,6 +157,7 @@ export async function loadCardProfile(user: {
 				layers: toCardLayers(c.layers),
 				full_art: !!c.full_art,
 				holo_url: c.holo_url,
+				holo_border: !!c.holo_border,
 				sound_url: c.sound_url,
 				model_url: c.model_url,
 				model_settings: c.model_settings ?? null,
@@ -233,6 +236,7 @@ export async function loadCardProfile(user: {
 		layers: toCardLayers(c.layers),
 		full_art: !!c.full_art,
 		holo_url: c.holo_url,
+		holo_border: !!c.holo_border,
 		sound_url: c.sound_url,
 		model_url: c.model_url,
 		model_settings: c.model_settings ?? null,

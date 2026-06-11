@@ -167,6 +167,7 @@
 			layers: toCardLayers((c as { layers?: unknown }).layers),
 			full_art: !!(c as { full_art?: boolean }).full_art,
 			holo_url: (c as { holo_url?: string | null }).holo_url ?? null,
+			holo_border: !!(c as { holo_border?: boolean }).holo_border,
 			sound_url: (c as { sound_url?: string | null }).sound_url ?? null,
 			model_url: (c as { model_url?: string | null }).model_url ?? null,
 			model_settings: (c as { model_settings?: Card['model_settings'] }).model_settings ?? null,
@@ -516,9 +517,15 @@
 			<span>Full art (skips the standard holo / reverse holo masks)</span>
 		</label>
 
+		<label class="check">
+			<input type="checkbox" name="holo_border" checked={card?.holo_border ?? false} />
+			<span>Border reverse holo (full-art only — foil on the card frame only, leaving the art clean; otherwise a full-art holo covers the whole card)</span>
+		</label>
+
 		<label>
 			<span>
-				Full-art holo image (optional) — foil over the whole card, full-art only
+				Full-art holo image (optional) — the foil texture, full-art only. Covers the whole card,
+				or just the frame if “Border reverse holo” is on. Defaults to the reverse ripple foil if left empty.
 				{#if isEdit && card?.holo_url} · has one{/if}
 			</span>
 			<input name="holo" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />

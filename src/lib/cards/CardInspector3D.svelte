@@ -7,6 +7,7 @@
 		FINISH_BY_KEY,
 		HOLO_TEXTURE_URL,
 		HOLO_MASK_URL,
+		HOLO_BORDER_MASK_URL,
 		type CardFinish
 	} from '$lib/cards/finishes';
 	import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG, LAYER_GLOW_FRAG } from '$lib/cards/holo';
@@ -37,10 +38,12 @@
 	let activeFinish = $state<CardFinish>(untrack(() => card.finish ?? 'normal'));
 	let finishMeta = $derived(FINISH_BY_KEY[activeFinish] ?? FINISH_BY_KEY.normal);
 	// Full-art cards ignore the finish masks, but a full-art card WITH an uploaded
-	// holo image shows a whole-card foil (intrinsic, not a rolled finish).
-	let fullArtHolo = $derived(!!card.full_art && !!card.holo_url);
+	// holo image (whole card) OR holo_border (frame only) shows an intrinsic foil.
+	let fullArtHolo = $derived(!!card.full_art && (!!card.holo_url || !!card.holo_border));
 	let isHolo = $derived(fullArtHolo || (!card.full_art && finishMeta.key !== 'normal'));
-	let finishLabel = $derived(fullArtHolo ? 'Holo' : finishMeta.label);
+	let finishLabel = $derived(
+		fullArtHolo ? (card.holo_border ? 'Reverse Holo' : 'Holo') : finishMeta.label
+	);
 
 	// Imperative bridge: set by onMount so the toggle can update the 3D material.
 	let applyFinish: (f: CardFinish) => void = () => {};
@@ -185,6 +188,7 @@
 					uStrength: { value: 0 },
 					uReveal: { value: 1 },
 					uOpacity: { value: 1 },
+					uEdgeFade: { value: 0.03 },
 					uMapSrgb: { value: 0 }
 				},
 				vertexShader: HOLO_VERT,
@@ -193,14 +197,24 @@
 			});
 			// Swap the foil/mask for a finish (live — used by the toggle and at init).
 			applyFinish = (f: CardFinish) => {
-				// Full-art card: no masked foil — but if it has an uploaded holo image,
-				// apply that foil over the WHOLE card (mask = dummy, alpha 1 everywhere).
+				// Full-art card: no rolled finish masks. An intrinsic foil applies if it
+				// has an uploaded holo image (whole card) or holo_border (frame only).
+				// Border holo's foil = the uploaded holo_url if set, else the reverse ripple.
 				if (card.full_art) {
-					if (card.holo_url) {
+					if (card.holo_url || card.holo_border) {
 						frontMat.uniforms.uHas.value = 1;
 						frontMat.uniforms.uStrength.value = 1;
-						frontMat.uniforms.uHoloTex.value = holoTexFor(card.holo_url, true, true);
-						frontMat.uniforms.uMask.value = dummy;
+						frontMat.uniforms.uHoloTex.value = holoTexFor(
+							card.holo_url ?? HOLO_TEXTURE_URL.ripple,
+							true,
+							true
+						);
+						frontMat.uniforms.uMask.value = card.holo_border
+							? holoTexFor(HOLO_BORDER_MASK_URL, false, false)
+							: dummy;
+						// Border foil sits in the thin frame — shrink the edge fade so it
+						// doesn't fade the frame away; whole-card foil keeps the default.
+						frontMat.uniforms.uEdgeFade.value = card.holo_border ? 0.006 : 0.03;
 					} else {
 						frontMat.uniforms.uHas.value = 0;
 					}
@@ -565,7 +579,7 @@
 			</button>
 		</div>
 	{:else if allowFinishToggle && card.full_art}
-		<p class="full-art-note">{card.holo_url ? 'Full art — full-card holo' : 'Full art — no holo'}</p>
+		<p class="full-art-note">{card.holo_border ? 'Full art — border reverse holo' : card.holo_url ? 'Full art — full-card holo' : 'Full art — no holo'}</p>
 	{/if}
 
 	<p class="hint">Drag to rotate · tap to flip · Esc to close</p>

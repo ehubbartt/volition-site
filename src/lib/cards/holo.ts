@@ -102,6 +102,11 @@ export const HOLO_FRAG = `
 	uniform float uStrength;
 	uniform float uOpacity;
 	uniform float uReveal;
+	// Margin (in uv) over which the foil fades to nothing at each card edge, so masks
+	// that reach the border don't spill past the rounded corner. ~0.03 for full-card /
+	// reverse masks; a small value (~0.006) for the thin border-frame mask so the frame
+	// itself stays foiled instead of fading away.
+	uniform float uEdgeFade;
 	// 1.0 when the map is NOT GPU-decoded to linear on sample (a VideoTexture: three
 	// doesn't use an sRGB internal format for video), so we decode it here instead —
 	// otherwise the front's sRGB pixels get treated as linear and re-encoded, washing
@@ -147,7 +152,7 @@ export const HOLO_FRAG = `
 			// reach the border, so without this the foil spills over the card's rounded
 			// edge. Fades over a small margin from each side (regular holo's mask is
 			// interior, so it's unaffected). The card art itself is untouched.
-			vec2 ef = smoothstep(vec2(0.0), vec2(0.03), vUv) * smoothstep(vec2(0.0), vec2(0.03), 1.0 - vUv);
+			vec2 ef = smoothstep(vec2(0.0), vec2(uEdgeFade), vUv) * smoothstep(vec2(0.0), vec2(uEdgeFade), 1.0 - vUv);
 			float edgeMask = ef.x * ef.y;
 			amt *= edgeMask;
 			// Screen-blend reads as reflective foil, but screen can only LIGHTEN, so it

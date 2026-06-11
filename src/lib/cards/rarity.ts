@@ -82,8 +82,13 @@ export interface Card {
 	// Full-art card: art covers the whole card, so holo/reverse-holo never apply.
 	full_art?: boolean;
 	// Optional per-card holo foil texture. For full-art cards only — when set, the
-	// foil covers the whole card (on the base front, below any depth layers).
+	// foil covers the whole card (on the base front, below any depth layers), unless
+	// holo_border is set (then the foil is confined to the border frame).
 	holo_url?: string | null;
+	// Full-art "border reverse holo": foil confined to the card's border FRAME only
+	// (mask-border.png), instead of the whole card. Uses holo_url as the foil if set,
+	// else the default reverse ripple. Full-art cards only.
+	holo_border?: boolean;
 	// Optional sound that plays when the card is revealed in the pack opener.
 	sound_url?: string | null;
 	// LEGACY single 3D model (0038) — superseded by `models` (0039); kept as a fallback.
@@ -125,6 +130,7 @@ export function hiddenCard(id: string, rarity: CardRarity): Card {
 		layers: [],
 		full_art: false,
 		holo_url: null,
+		holo_border: false,
 		sound_url: null,
 		model_url: null,
 		model_settings: null,

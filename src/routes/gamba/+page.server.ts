@@ -37,6 +37,7 @@ interface CardRow {
 	layers: unknown;
 	full_art: boolean | null;
 	holo_url: string | null;
+	holo_border: boolean | null;
 	sound_url: string | null;
 	model_url: string | null;
 	model_settings: Card['model_settings'];
@@ -56,6 +57,7 @@ interface PackCardRow {
 	layers: unknown;
 	full_art: boolean | null;
 	holo_url: string | null;
+	holo_border: boolean | null;
 	model_url: string | null;
 	model_settings: Card['model_settings'];
 	models: Card['models'];
@@ -75,6 +77,7 @@ function toPackCard(r: PackCardRow): Card {
 		layers: toCardLayers(r.layers),
 		full_art: !!r.full_art,
 		holo_url: r.holo_url,
+		holo_border: !!r.holo_border,
 		sound_url: null,
 		model_url: r.model_url,
 		model_settings: r.model_settings ?? null,
@@ -297,7 +300,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			.order('cost_vp', { ascending: true }),
 		db()
 			.from('vs_cards')
-			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, model_url, model_settings, models, pack_id'),
+			.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, holo_border, model_url, model_settings, models, pack_id'),
 		// Which cards this player owns — so a secret rare they've pulled is revealed
 		// in the set preview instead of staying a mystery spot.
 		db().from('vs_user_cards').select('card_id').eq('user_id', locals.user.id),
@@ -542,7 +545,7 @@ async function rollGrantReveal(
 ): Promise<{ ok: true; opened: (Card & { finish: CardFinish; isNew: boolean })[]; openId: string | null } | { ok: false; error: string }> {
 	const { data: poolRows, error: poolErr } = await db()
 		.from('vs_cards')
-		.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url, model_url, model_settings, models')
+		.select('id, name, level, rarity, abilities, flavor, front_url, back_url, layers, full_art, holo_url, holo_border, sound_url, model_url, model_settings, models')
 		.eq('pack_id', pack.id);
 	if (poolErr) return { ok: false, error: poolErr.message };
 	const pool = (poolRows ?? []) as CardRow[];
@@ -585,6 +588,7 @@ async function rollGrantReveal(
 		layers: toCardLayers(r.card.layers),
 		full_art: !!r.card.full_art,
 		holo_url: r.card.holo_url,
+		holo_border: !!r.card.holo_border,
 		sound_url: r.card.sound_url,
 		model_url: r.card.model_url,
 		model_settings: r.card.model_settings ?? null,

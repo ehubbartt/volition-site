@@ -13,6 +13,7 @@
     FINISH_BY_KEY,
     HOLO_TEXTURE_URL,
     HOLO_MASK_URL,
+    HOLO_BORDER_MASK_URL,
     type CardFinish,
     type FinishMeta,
   } from "$lib/cards/finishes";
@@ -871,20 +872,24 @@
         level: FinishMeta,
         c: OpenerCard,
       ) {
-        // Full-art card with its own holo image → foil over the WHOLE card (mask =
-        // dummyTex, alpha 1 everywhere). Otherwise the finish's masked foil.
-        const fullArtHolo = !!c.full_art && !!c.holo_url;
-        // The foil: a full-art card uses its own holo; otherwise the pack's per-finish
-        // holo override (holo_regular_url / holo_reverse_url) if set, else the default.
+        // Full-art card holo: foil over the WHOLE card (holo_url, mask = dummyTex) or
+        // confined to the border FRAME (holo_border, mask = mask-border). Otherwise the
+        // rolled finish's masked foil.
+        const borderHolo = !!c.full_art && !!c.holo_border;
+        const fullArtHolo = !!c.full_art && (!!c.holo_url || borderHolo);
+        // The foil: a full-art card uses its own holo (border holo falls back to the
+        // reverse ripple); otherwise the pack's per-finish holo override if set, else default.
         const holoTexVal = fullArtHolo
-          ? holoTexFor(c.holo_url as string, true, true)
+          ? holoTexFor(c.holo_url ?? HOLO_TEXTURE_URL.ripple, true, true)
           : level.placement === "regular"
             ? holoTexFor(c.holo_regular_url ?? HOLO_TEXTURE_URL.star, true, true)
             : level.placement === "reverse"
               ? holoTexFor(c.holo_reverse_url ?? HOLO_TEXTURE_URL.ripple, true, true)
               : dummyTex;
         const maskVal = fullArtHolo
-          ? dummyTex
+          ? borderHolo
+            ? holoTexFor(HOLO_BORDER_MASK_URL, false, false)
+            : dummyTex
           : level.placement
             ? holoTexFor(HOLO_MASK_URL[level.placement], false, false)
             : dummyTex;
@@ -897,6 +902,9 @@
             uStrength: { value: fullArtHolo ? 1 : level.strength },
             uReveal: { value: 1 },
             uOpacity: { value: 0 },
+            // Border foil sits in the thin frame — shrink the edge fade so it isn't
+            // faded away; whole-card / masked foils keep the default margin.
+            uEdgeFade: { value: borderHolo ? 0.006 : 0.03 },
             uMapSrgb: { value: 0 },
           },
           vertexShader: HOLO_VERT,
@@ -986,8 +994,14 @@
       };
       const cardMeshes: THREE.Mesh[] = cards.map((c, i) => {
         const level: FinishMeta = finishFor(c, i);
-        // A full-art card with its own holo image reads as "Holo" in the HUD.
-        labels.push(c.full_art && c.holo_url ? 'Holo' : level.label);
+        // A full-art card with an intrinsic foil reads as Holo (border = Reverse Holo).
+        labels.push(
+          c.full_art && c.holo_border
+            ? 'Reverse Holo'
+            : c.full_art && c.holo_url
+              ? 'Holo'
+              : level.label,
+        );
         const m = new THREE.Mesh(
           cardGeo,
           makeCardMat(c.front_url, DEFAULT_CARD_BACK, level, c),
