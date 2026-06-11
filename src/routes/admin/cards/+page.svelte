@@ -2,6 +2,7 @@
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
 	import { page } from '$app/stores';
+	import { fly, fade } from 'svelte/transition';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import CardsTabs from '$lib/admin/CardsTabs.svelte';
 	import CardThumb from '$lib/cards/CardThumb.svelte';
@@ -38,6 +39,70 @@
 	// Card whose 3D model is being placed in the builder modal (null = closed).
 	let builderCard = $state<Card | null>(null);
 
+	// ── Edit drawer ───────────────────────────────────────────────────────
+	// One slide-out panel handles create + edit for both cards and packs, so only
+	// a single (heavy) edit form is ever mounted — the grids stay light no matter
+	// how many cards exist. Editing targets are tracked by id and re-derived from
+	// the (live-reloading) data so a save/refresh keeps the drawer in sync.
+	type DrawerState =
+		| { type: 'card-new' }
+		| { type: 'card-edit'; id: string }
+		| { type: 'pack-new' }
+		| { type: 'pack-edit'; id: string }
+		| null;
+	let drawer = $state<DrawerState>(null);
+
+	const drawerCard = $derived.by(() => {
+		const d = drawer;
+		if (d?.type !== 'card-edit') return null;
+		return data.cards.find((c) => c.id === d.id) ?? null;
+	});
+	const drawerPack = $derived.by(() => {
+		const d = drawer;
+		if (d?.type !== 'pack-edit') return null;
+		return data.packs.find((p) => p.id === d.id) ?? null;
+	});
+
+	const drawerKey = $derived(drawer ? `${drawer.type}:${'id' in drawer ? drawer.id : 'new'}` : '');
+	const drawerTitle = $derived.by(() => {
+		switch (drawer?.type) {
+			case 'card-new':
+				return 'New card';
+			case 'card-edit':
+				return drawerCard ? `Edit · ${drawerCard.name}` : 'Edit card';
+			case 'pack-new':
+				return 'New pack';
+			case 'pack-edit':
+				return drawerPack ? `Edit · ${drawerPack.name}` : 'Edit pack';
+			default:
+				return '';
+		}
+	});
+
+	// Close the drawer if its target was deleted, or when switching tabs.
+	$effect(() => {
+		if (drawer?.type === 'card-edit' && !drawerCard) drawer = null;
+		if (drawer?.type === 'pack-edit' && !drawerPack) drawer = null;
+	});
+	$effect(() => {
+		tab;
+		drawer = null;
+	});
+	// Lock background scroll while the drawer is open.
+	$effect(() => {
+		if (typeof document === 'undefined') return;
+		document.body.style.overflow = drawer ? 'hidden' : '';
+		return () => {
+			document.body.style.overflow = '';
+		};
+	});
+
+	// ── Filters ───────────────────────────────────────────────────────────
+	let search = $state('');
+	let packFilter = $state<string>('all'); // 'all' | 'none' | pack id
+	let rarityFilter = $state<string>('all'); // 'all' | rarity key
+	let packSearch = $state('');
+
 	// ── Grant tab ─────────────────────────────────────────────────────────
 	let grantTarget = $state<'one' | 'all'>('one');
 	let granting = $state(false);
@@ -71,14 +136,23 @@
 	// (not the defaultValue attribute), so a reset blanks every pre-filled field.
 	const keepValues: SubmitFunction = () => async ({ update }) => update({ reset: false });
 
+	// Create forms: on success close the drawer (the new row appears in the grid);
+	// on failure keep the drawer + typed values so the error can be fixed.
+	const onCreateDone: SubmitFunction = () => async ({ result, update }) => {
+		await update();
+		if (result.type === 'success') drawer = null;
+	};
+
 	// Blank ability rows appended to each form so admins can add more.
 	const BLANK_ROWS = 3;
 
 	type RawCard = PageData['cards'][number];
 	type RawPack = PageData['packs'][number];
 
-	// Cards group rarest → most common within a set (reverse of the ascending list).
-	const RARITY_ORDER: CardRarity[] = [...RARITIES].reverse().map((r) => r.key);
+	// Ascending index per rarity, for sorting grids rarest-first.
+	const RARITY_INDEX: Record<string, number> = Object.fromEntries(
+		RARITIES.map((r, i) => [r.key, i])
+	);
 
 	function toCard(c: RawCard): Card {
 		return {
@@ -116,12 +190,12 @@
 		return [...existing, ...Array.from({ length: BLANK_ROWS }, () => ({ name: '', description: '' }))];
 	}
 
-	function packName(id: string | null): string {
-		return data.packs.find((p) => p.id === id)?.name ?? '—';
-	}
-
 	function cardRarity(c: RawCard): CardRarity {
 		return isValidRarity(c.rarity) ? c.rarity : DEFAULT_RARITY;
+	}
+
+	function modelCountFor(card: Card): number {
+		return card.models?.length ?? (card.model_url ? 1 : 0);
 	}
 
 	// How many 3D depth layers a card has (jsonb array on the row).
@@ -134,30 +208,58 @@
 		return data.cards.filter((c) => c.pack_id === packId);
 	}
 
-	// Split a card list into rarity buckets (rarest first), dropping empty ones.
-	function byRarity(cards: RawCard[]) {
-		return RARITY_ORDER.map((key) => ({
-			meta: RARITY_BY_KEY[key],
-			cards: cards.filter((c) => cardRarity(c) === key)
-		})).filter((g) => g.cards.length > 0);
+	// Sort a card list rarest-first, then by name.
+	function sortedCards(cards: RawCard[]): RawCard[] {
+		return [...cards].sort((a, b) => {
+			const r = (RARITY_INDEX[cardRarity(b)] ?? 0) - (RARITY_INDEX[cardRarity(a)] ?? 0);
+			return r !== 0 ? r : a.name.localeCompare(b.name);
+		});
 	}
 
-	// Cards grouped by their set (pack order from the server), with a trailing
-	// "No set" bucket for any orphans (pack_id is required, so usually empty).
+	// A card matches the active search + rarity filters.
+	function cardMatches(c: RawCard, q: string): boolean {
+		if (q && !c.name.toLowerCase().includes(q)) return false;
+		if (rarityFilter !== 'all' && cardRarity(c) !== rarityFilter) return false;
+		return true;
+	}
+
+	// Cards grouped by their set (pack order from the server), honouring the search/
+	// rarity/pack filters, with a trailing "No set" bucket for orphans. Empty groups
+	// are hidden while filtering, but shown otherwise (so empty sets are visible).
 	let cardGroups = $derived.by(() => {
-		const groups: { pack: RawPack | null; cards: RawCard[] }[] = data.packs.map((p) => ({
+		const q = search.trim().toLowerCase();
+		const filtering = q !== '' || rarityFilter !== 'all' || packFilter !== 'all';
+		const packs = packFilter === 'all' || packFilter === 'none'
+			? data.packs
+			: data.packs.filter((p) => p.id === packFilter);
+
+		const groups: { pack: RawPack | null; cards: RawCard[] }[] = packs.map((p) => ({
 			pack: p,
-			cards: cardsInPack(p.id)
+			cards: sortedCards(cardsInPack(p.id).filter((c) => cardMatches(c, q)))
 		}));
-		const orphans = data.cards.filter(
-			(c) => !c.pack_id || !data.packs.some((p) => p.id === c.pack_id)
-		);
-		if (orphans.length) groups.push({ pack: null, cards: orphans });
-		return groups;
+
+		if (packFilter === 'all' || packFilter === 'none') {
+			const orphans = sortedCards(
+				data.cards.filter(
+					(c) =>
+						(!c.pack_id || !data.packs.some((p) => p.id === c.pack_id)) && cardMatches(c, q)
+				)
+			);
+			if (orphans.length || (packFilter === 'none' && !filtering))
+				groups.push({ pack: null, cards: orphans });
+		}
+
+		return groups.filter((g) => g.cards.length > 0 || !filtering);
 	});
 
-	// Collapse state for the Existing-cards groups (keyed by pack id, or 'none' for
-	// the orphan bucket) so admins can fold packs away and focus on certain sets.
+	let visibleCardCount = $derived(cardGroups.reduce((n, g) => n + g.cards.length, 0));
+
+	let visiblePacks = $derived.by(() => {
+		const q = packSearch.trim().toLowerCase();
+		return q ? data.packs.filter((p) => p.name.toLowerCase().includes(q)) : data.packs;
+	});
+
+	// Collapse state for the card-grid groups (keyed by pack id, or 'none').
 	let collapsedGroups = $state(new Set<string>());
 	function toggleGroup(key: string) {
 		const next = new Set(collapsedGroups);
@@ -304,219 +406,400 @@
 	<title>Admin · Cards & Packs</title>
 </svelte:head>
 
-{#snippet cardEntry(raw: RawCard)}
-	{@const card = toCard(raw)}
-	{@const modelCount = card.models?.length ?? (card.model_url ? 1 : 0)}
-	<li class="card">
-		<div class="item-head">
-			<button type="button" class="thumb thumb-btn" onclick={() => (inspecting = card)} title="Inspect in 3D">
-				<CardThumb {card} flip={false} />
-			</button>
-			<div class="head-meta">
-				<strong>{card.name}</strong>
-				<span class="muted">{card.rarity}{#if card.level} · lvl {card.level}{/if}</span>
-				<span class="muted small">Set: {packName(raw.pack_id)}</span>
-				{#if card.abilities.length}
-					<span class="muted small">{card.abilities.length} abilit{card.abilities.length === 1 ? 'y' : 'ies'}</span>
-				{/if}
-				{#if layerCount(raw)}
-					<span class="muted small">3D · {layerCount(raw)} layer{layerCount(raw) === 1 ? '' : 's'}</span>
-				{/if}
-				{#if card.full_art}
-					<span class="muted small">Full art · no holo</span>
-				{/if}
-			</div>
-			<form method="POST" action="?/deleteCard" use:enhance class="delete-form">
-				<input type="hidden" name="id" value={card.id} />
-				<button
-					type="submit"
-					class="danger"
-					onclick={(e) => {
-						if (!confirm(`Delete "${card.name}"?`)) e.preventDefault();
-					}}
-				>
-					Delete
-				</button>
-			</form>
+<svelte:window
+	onkeydown={(e) => {
+		if (e.key === 'Escape' && drawer && !builderCard && !inspecting) drawer = null;
+	}}
+/>
+
+<!-- ── Card create/edit form (shared by the drawer) ── -->
+{#snippet cardForm(card: Card | null, raw: RawCard | null)}
+	{@const isEdit = !!raw}
+	{@const modelCount = card ? modelCountFor(card) : 0}
+	<form
+		method="POST"
+		action={isEdit ? '?/updateCard' : '?/createCard'}
+		enctype="multipart/form-data"
+		use:enhance={isEdit ? keepValues : onCreateDone}
+		class="edit-form"
+	>
+		{#if isEdit && card}<input type="hidden" name="id" value={card.id} />{/if}
+		<label>
+			<span>Name</span>
+			<input name="name" type="text" required value={card?.name ?? ''} placeholder="The Great Olm" />
+		</label>
+		<label>
+			<span>Set / pack</span>
+			<select name="pack_id" required>
+				<option value="" disabled selected={!raw?.pack_id}>Pick a set…</option>
+				{#each data.packs as p}
+					<option value={p.id} selected={raw?.pack_id === p.id}>{p.name}</option>
+				{/each}
+			</select>
+		</label>
+		<div class="row">
+			<label>
+				<span>Combat level</span>
+				<input name="level" type="number" min="0" value={card?.level ?? ''} placeholder="1043" />
+			</label>
+			<label>
+				<span>Rarity</span>
+				<select name="rarity">
+					{#each RARITIES as r}
+						<option value={r.key} selected={r.key === (card?.rarity ?? DEFAULT_RARITY)}>{r.label}</option>
+					{/each}
+				</select>
+			</label>
+		</div>
+		<label>
+			<span>Flavor / description</span>
+			<textarea name="flavor" rows="2">{card?.flavor ?? ''}</textarea>
+		</label>
+
+		<fieldset class="abilities">
+			<legend>Abilities <span class="muted small">(clear a name to remove it)</span></legend>
+			{#each abilityRows(card) as ab}
+				<div class="ability-row">
+					<input name="ability_name" type="text" placeholder="Ability name" value={ab.name} />
+					<input name="ability_desc" type="text" placeholder="Description" value={ab.description} />
+				</div>
+			{/each}
+		</fieldset>
+
+		<div class="row">
+			<label>
+				<span>{isEdit ? 'Replace front art' : 'Front art'} (image or WEBM/MP4 video)</span>
+				<input name="front" type="file" accept={FRONT_ACCEPT} />
+			</label>
+			<label>
+				<span>{isEdit ? 'Replace back art (optional)' : 'Back art (optional — defaults to the Volition card back)'}</span>
+				<input name="back" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+			</label>
 		</div>
 
-		<details class="edit-block">
-			<summary>Edit</summary>
-			<form method="POST" action="?/updateCard" enctype="multipart/form-data" use:enhance={keepValues} class="edit-form">
-				<input type="hidden" name="id" value={card.id} />
-				<label>
-					<span>Name</span>
-					<input name="name" type="text" required value={card.name} />
-				</label>
-				<label>
-					<span>Set / pack</span>
-					<select name="pack_id" required>
-						<option value="" disabled selected={!raw.pack_id}>Pick a set…</option>
-						{#each data.packs as p}
-							<option value={p.id} selected={raw.pack_id === p.id}>{p.name}</option>
-						{/each}
-					</select>
-				</label>
-				<div class="row">
-					<label>
-						<span>Combat level</span>
-						<input name="level" type="number" min="0" value={card.level ?? ''} />
-					</label>
-					<label>
-						<span>Rarity</span>
-						<select name="rarity">
-							{#each RARITIES as r}
-								<option value={r.key} selected={r.key === card.rarity}>{r.label}</option>
+		<label>
+			<span>
+				3D depth layers (optional, multiple — stacked bottom→top above the front). Images or WEBM/MP4 video.
+				{#if isEdit && raw && layerCount(raw)} · currently {layerCount(raw)}{/if}
+			</span>
+			<input name="layer" type="file" multiple accept={LAYER_ACCEPT} />
+		</label>
+		{#if isEdit && card?.layers && card.layers.length}
+			<fieldset class="layer-fx">
+				<legend>Layer effects <span class="muted small">(plays in 3D)</span></legend>
+				{#each card.layers as ly, i}
+					<div class="layer-fx-row">
+						{#if isVideoLayerUrl(ly.url)}
+							<!-- svelte-ignore a11y_media_has_caption -->
+							<video class="layer-fx-thumb" src={ly.url} muted autoplay loop playsinline></video>
+						{:else}
+							<img class="layer-fx-thumb" src={ly.url} alt="Layer {i + 1}" />
+						{/if}
+						<span class="muted small">Layer {i + 1} (bottom→top)</span>
+						<select name="existing_layer_effect">
+							<option value="" selected={!ly.effect}>None</option>
+							{#each LAYER_EFFECTS as fx}
+								<option value={fx.key} selected={ly.effect === fx.key}>{fx.label}</option>
 							{/each}
 						</select>
-					</label>
-				</div>
-				<label>
-					<span>Flavor / description</span>
-					<textarea name="flavor" rows="2">{card.flavor ?? ''}</textarea>
-				</label>
+					</div>
+				{/each}
+			</fieldset>
+			<label class="check">
+				<input type="checkbox" name="clear_layers" />
+				<span>Remove all 3D layers</span>
+			</label>
+		{/if}
 
-				<fieldset class="abilities">
-					<legend>Abilities <span class="muted small">(clear a name to remove it)</span></legend>
-					{#each abilityRows(card) as ab}
-						<div class="ability-row">
-							<input name="ability_name" type="text" placeholder="Name" value={ab.name} />
-							<input name="ability_desc" type="text" placeholder="Description" value={ab.description} />
-						</div>
-					{/each}
-				</fieldset>
+		<label class="check">
+			<input type="checkbox" name="full_art" checked={card?.full_art ?? false} />
+			<span>Full art (skips the standard holo / reverse holo masks)</span>
+		</label>
 
-				<div class="row">
-					<label>
-						<span>Replace front art (optional — image or WEBM/MP4 video)</span>
-						<input name="front" type="file" accept={FRONT_ACCEPT} />
-					</label>
-					<label>
-						<span>Replace back art (optional)</span>
-						<input name="back" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-					</label>
-				</div>
+		<label>
+			<span>
+				Full-art holo image (optional) — foil over the whole card, full-art only
+				{#if isEdit && card?.holo_url} · has one{/if}
+			</span>
+			<input name="holo" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+		</label>
+		{#if isEdit && card?.holo_url}
+			<label class="check">
+				<input type="checkbox" name="remove_holo" />
+				<span>Remove full-art holo image</span>
+			</label>
+		{/if}
 
-				<label>
-					<span>
-						3D depth layers (optional) — uploading replaces all; stacked bottom→top.
-						Images or WEBM/MP4 video (animated layer).
-						{#if layerCount(raw)} · currently {layerCount(raw)}{/if}
-					</span>
-					<input name="layer" type="file" multiple accept={LAYER_ACCEPT} />
-				</label>
-				{#if card.layers && card.layers.length}
-					<fieldset class="layer-fx">
-						<legend>Layer effects <span class="muted small">(plays in 3D)</span></legend>
-						{#each card.layers as ly, i}
-							<div class="layer-fx-row">
-								{#if isVideoLayerUrl(ly.url)}
-									<!-- svelte-ignore a11y_media_has_caption -->
-									<video class="layer-fx-thumb" src={ly.url} muted autoplay loop playsinline></video>
-								{:else}
-									<img class="layer-fx-thumb" src={ly.url} alt="Layer {i + 1}" />
-								{/if}
-								<span class="muted small">Layer {i + 1} (bottom→top)</span>
-								<select name="existing_layer_effect">
-									<option value="" selected={!ly.effect}>None</option>
-									{#each LAYER_EFFECTS as fx}
-										<option value={fx.key} selected={ly.effect === fx.key}>{fx.label}</option>
-									{/each}
-								</select>
-							</div>
-						{/each}
-					</fieldset>
-					<label class="check">
-						<input type="checkbox" name="clear_layers" />
-						<span>Remove all 3D layers</span>
-					</label>
-				{/if}
+		<label>
+			<span>Open sound (optional — plays when the card is revealed){#if isEdit && card?.sound_url} · has one{/if}</span>
+			<input name="sound" type="file" accept="audio/*" />
+		</label>
+		{#if isEdit && card?.sound_url}
+			<div class="row">
+				<audio controls src={card.sound_url} preload="none"></audio>
+			</div>
+			<label class="check">
+				<input type="checkbox" name="remove_sound" />
+				<span>Remove open sound</span>
+			</label>
+		{/if}
 
+		<label>
+			<span>3D models (optional .glb — add one or more){#if isEdit && modelCount} · {modelCount} on card{/if}</span>
+			<input name="model" type="file" accept={MODEL_ACCEPT} multiple />
+			<span class="muted small">
+				Export as glTF Binary (.glb), uncompressed (no Draco), low-poly.
+				{isEdit ? 'Uploading appends; place each in the builder.' : 'Place each in the 3D builder after creating (Edit).'}
+			</span>
+		</label>
+		{#if isEdit && card && modelCount}
+			<div class="model-row">
+				<button type="button" class="builder-btn" onclick={() => (builderCard = card)}>
+					🎛 Open 3D builder — place, rotate, size &amp; animate ({modelCount})
+				</button>
 				<label class="check">
-					<input type="checkbox" name="full_art" checked={card.full_art} />
-					<span>Full art (skips the standard holo / reverse holo masks)</span>
+					<input type="checkbox" name="remove_models" />
+					<span>Remove all 3D models</span>
 				</label>
+			</div>
+		{/if}
 
-				<label>
-					<span>
-						Full-art holo image (optional) — foil over the whole card, full-art only
-						{#if card.holo_url} · has one{/if}
-					</span>
-					<input name="holo" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-				</label>
-				{#if card.holo_url}
-					<label class="check">
-						<input type="checkbox" name="remove_holo" />
-						<span>Remove full-art holo image</span>
-					</label>
-				{/if}
-
-				<label>
-					<span>Open sound (optional — plays when the card is revealed){#if card.sound_url} · has one{/if}</span>
-					<input name="sound" type="file" accept="audio/*" />
-				</label>
-				{#if card.sound_url}
-					<div class="row">
-						<audio controls src={card.sound_url} preload="none"></audio>
-					</div>
-					<label class="check">
-						<input type="checkbox" name="remove_sound" />
-						<span>Remove open sound</span>
-					</label>
-				{/if}
-
-				<label>
-					<span>3D models (optional .glb — add one or more){#if modelCount} · {modelCount} on card{/if}</span>
-					<input name="model" type="file" accept={MODEL_ACCEPT} multiple />
-					<span class="muted small">Export as glTF Binary (.glb), uncompressed (no Draco), low-poly. Uploading appends; place each in the builder.</span>
-				</label>
-				{#if modelCount}
-					<div class="model-row">
-						<button type="button" class="builder-btn" onclick={() => (builderCard = card)}>
-							🎛 Open 3D builder — place, rotate, size &amp; animate ({modelCount})
-						</button>
-						<label class="check">
-							<input type="checkbox" name="remove_models" />
-							<span>Remove all 3D models</span>
-						</label>
-					</div>
-				{/if}
-
-				<button type="submit" class="primary">Save changes</button>
-			</form>
-		</details>
-	</li>
+		<button type="submit" class="primary">{isEdit ? 'Save changes' : 'Create card'}</button>
+	</form>
 {/snippet}
 
+<!-- ── Compact card list shown inside a pack's edit drawer ── -->
 {#snippet packCardList(packId: string)}
-	{@const cards = cardsInPack(packId)}
+	{@const cards = sortedCards(cardsInPack(packId))}
 	{#if cards.length === 0}
 		<p class="muted small">No cards in this set yet.</p>
 	{:else}
-		{#each byRarity(cards) as rg (rg.meta.key)}
-			<div class="rarity-group">
-				<span class="rarity-label" style="--rc: {rg.meta.color}">{rg.meta.label} ({rg.cards.length})</span>
-				<ul class="mini-list">
-					{#each rg.cards as raw (raw.id)}
-						{@const card = toCard(raw)}
-						<li class="mini-card">
-							<button type="button" class="mini-thumb thumb-btn" onclick={() => (inspecting = card)} title="Inspect in 3D"><CardThumb {card} flip={false} /></button>
-							<div class="mini-meta">
-								<span class="mini-name">{card.name}</span>
-								{#if card.level}<span class="muted small">lvl {card.level}</span>{/if}
-							</div>
-						</li>
-					{/each}
-				</ul>
-			</div>
-		{/each}
+		<ul class="mini-list">
+			{#each cards as raw (raw.id)}
+				{@const card = toCard(raw)}
+				<li class="mini-card">
+					<button type="button" class="mini-thumb thumb-btn" onclick={() => (inspecting = card)} title="Inspect in 3D"><CardThumb {card} flip={false} /></button>
+					<div class="mini-meta">
+						<span class="mini-name">{card.name}</span>
+						<span class="muted small" style="--rc: {RARITY_BY_KEY[card.rarity]?.color}">{card.rarity}{#if card.level} · lvl {card.level}{/if}</span>
+					</div>
+					<button type="button" class="mini-edit" onclick={() => (drawer = { type: 'card-edit', id: card.id })}>Edit</button>
+				</li>
+			{/each}
+		</ul>
 	{/if}
+{/snippet}
+
+<!-- ── Pack create form (drawer) ── -->
+{#snippet packCreateForm()}
+	<form method="POST" action="?/createPack" enctype="multipart/form-data" use:enhance={onCreateDone} class="edit-form">
+		<label>
+			<span>Name</span>
+			<input name="name" type="text" required placeholder="Standard Pack" />
+		</label>
+		<label>
+			<span>Description (optional)</span>
+			<textarea name="description" rows="2"></textarea>
+		</label>
+		<div class="row">
+			<label>
+				<span>Cost (VP)</span>
+				<input name="cost_vp" type="number" min="0" value="0" />
+			</label>
+			<label>
+				<span>Cards per open</span>
+				<input name="cards_per_pack" type="number" min="1" max="50" value="5" />
+			</label>
+		</div>
+		<label class="check">
+			<input type="checkbox" name="released" />
+			<span>Released (visible to players in the Gamba store)</span>
+		</label>
+		<label class="check">
+			<input type="checkbox" name="teaser" />
+			<span>Teaser (show in the store as a locked “coming soon” card — name + art only, can't be opened; ignored once released)</span>
+		</label>
+		<div class="row">
+			<label>
+				<span>Front art (optional — defaults to the standard pack image)</span>
+				<input name="front" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+			</label>
+			<label>
+				<span>Back art (optional — defaults to the standard pack back)</span>
+				<input name="back" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+			</label>
+		</div>
+		<div class="row">
+			<label>
+				<span>Regular holo foil (optional — overrides the default)</span>
+				<input name="holo_regular" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+			</label>
+			<label>
+				<span>Reverse holo foil (optional — overrides the default)</span>
+				<input name="holo_reverse" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+			</label>
+		</div>
+		<button type="submit" class="primary">Create pack</button>
+	</form>
+{/snippet}
+
+<!-- ── Pack edit form (drawer) ── -->
+{#snippet packEditForm(raw: RawPack)}
+	{@const pack = toPack(raw)}
+	<form method="POST" action="?/updatePack" enctype="multipart/form-data" use:enhance={keepValues} class="edit-form">
+		<input type="hidden" name="id" value={pack.id} />
+		<label>
+			<span>Name</span>
+			<input name="name" type="text" required value={pack.name} />
+		</label>
+		<label>
+			<span>Description</span>
+			<textarea name="description" rows="2">{pack.description ?? ''}</textarea>
+		</label>
+		<div class="row">
+			<label>
+				<span>Cost (VP)</span>
+				<input name="cost_vp" type="number" min="0" value={pack.cost_vp} />
+			</label>
+			<label>
+				<span>Cards per open</span>
+				<input name="cards_per_pack" type="number" min="1" max="50" bind:value={slotCount[pack.id]} />
+			</label>
+		</div>
+
+		<fieldset class="rates">
+			<legend>
+				Per-slot drop rates
+				<span class="muted small">(one card per slot · rarity = relative weights; holo/reverse = % chance for that slot)</span>
+			</legend>
+			{#if presentRarities(pack.id).length === 0}
+				<p class="muted small">Add cards to this set first to set drop rates.</p>
+			{:else}
+				{#each (slotW[pack.id] ?? []).slice(0, Math.max(1, slotCount[pack.id] ?? 1)) as slot, i (i)}
+					<div class="slot">
+						<span class="slot-head">Slot {i + 1}</span>
+						<div class="slot-grid">
+							{#each presentRarities(pack.id) as r (r.key)}
+								<label class="slot-rate">
+									<span class="rate-name" style="--rc: {r.color}">{r.label}</span>
+									<input type="number" min="0" step="any" name={`slot_${i}_weight_${r.key}`} bind:value={slot[r.key]} />
+									<span class="rate-pct">{slotPct(pack.id, i, r.key).toFixed(0)}%</span>
+								</label>
+							{/each}
+						</div>
+						<div class="slot-finish">
+							<label class="fin"><span>Holo %</span><input type="number" min="0" max="100" step="any" name={`slot_${i}_holo`} bind:value={slotFin[pack.id][i].holo} /></label>
+							<label class="fin"><span>Reverse %</span><input type="number" min="0" max="100" step="any" name={`slot_${i}_reverse`} bind:value={slotFin[pack.id][i].reverse} /></label>
+							<span class="muted small">Normal {normalPct(pack.id, i).toFixed(0)}%</span>
+						</div>
+					</div>
+				{/each}
+			{/if}
+		</fieldset>
+
+		<div class="row">
+			<label>
+				<span>Replace front art (optional)</span>
+				<input name="front" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+			</label>
+			<label>
+				<span>Replace back art (optional)</span>
+				<input name="back" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+			</label>
+		</div>
+
+		<fieldset class="rates">
+			<legend>
+				Holo foils <span class="muted small">(optional — overrides the default star/ripple for every holo pulled from this pack)</span>
+			</legend>
+			<div class="row">
+				<label>
+					<span>Regular holo foil{#if raw.holo_regular_url} · set{/if}</span>
+					<input name="holo_regular" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+				</label>
+				<label>
+					<span>Reverse holo foil{#if raw.holo_reverse_url} · set{/if}</span>
+					<input name="holo_reverse" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+				</label>
+			</div>
+			{#if raw.holo_regular_url}
+				<label class="check">
+					<input type="checkbox" name="remove_holo_regular" />
+					<span>Remove regular holo foil</span>
+				</label>
+			{/if}
+			{#if raw.holo_reverse_url}
+				<label class="check">
+					<input type="checkbox" name="remove_holo_reverse" />
+					<span>Remove reverse holo foil</span>
+				</label>
+			{/if}
+		</fieldset>
+
+		<button type="submit" class="primary">Save changes</button>
+	</form>
+{/snippet}
+
+<!-- ── Card grid tile ── -->
+{#snippet cardTile(raw: RawCard)}
+	{@const card = toCard(raw)}
+	<li class="tile">
+		<button type="button" class="tile-main" onclick={() => (drawer = { type: 'card-edit', id: card.id })} title="Edit {card.name}">
+			<div class="tile-thumb"><CardThumb {card} flip={false} /></div>
+			<span class="tile-name">{card.name}</span>
+			<span class="tile-rarity" style="--rc: {RARITY_BY_KEY[card.rarity]?.color}">{card.rarity}{#if card.level} · lvl {card.level}{/if}</span>
+			<span class="tile-tags">
+				{#if layerCount(raw)}<span class="tag">3D ×{layerCount(raw)}</span>{/if}
+				{#if modelCountFor(card)}<span class="tag">model</span>{/if}
+				{#if card.full_art}<span class="tag">full art</span>{/if}
+				{#if card.sound_url}<span class="tag">🔊</span>{/if}
+			</span>
+		</button>
+		<div class="tile-controls">
+			<button type="button" class="icon-btn" title="Inspect in 3D" onclick={() => (inspecting = card)}>🔍</button>
+			<form method="POST" action="?/deleteCard" use:enhance>
+				<input type="hidden" name="id" value={card.id} />
+				<button type="submit" class="icon-btn danger" title="Delete" onclick={(e) => { if (!confirm(`Delete "${card.name}"?`)) e.preventDefault(); }}>🗑</button>
+			</form>
+		</div>
+	</li>
+{/snippet}
+
+<!-- ── Pack grid tile ── -->
+{#snippet packTile(raw: RawPack)}
+	{@const pack = toPack(raw)}
+	{@const n = cardsInPack(pack.id).length}
+	<li class="tile pack-tile">
+		<button type="button" class="tile-main" onclick={() => (drawer = { type: 'pack-edit', id: pack.id })} title="Edit {pack.name}">
+			<div class="tile-thumb pack"><PackThumb {pack} flip={false} /></div>
+			<span class="tile-name">{pack.name}</span>
+			<span class="tile-badges">
+				<span class="badge" class:live={raw.released}>{raw.released ? 'Released' : 'Draft'}</span>
+				{#if raw.weekly_free}<span class="badge weekly">Weekly</span>{/if}
+			</span>
+			<span class="muted small">{pack.cost_vp.toLocaleString()} VP · {raw.cards_per_pack}/open · {n} card{n === 1 ? '' : 's'}</span>
+		</button>
+		<div class="pack-actions">
+			<form method="POST" action="?/toggleRelease" use:enhance>
+				<input type="hidden" name="id" value={pack.id} />
+				<button type="submit" class="mini">{raw.released ? 'Unrelease' : 'Release'}</button>
+			</form>
+			<form method="POST" action="?/toggleWeeklyFree" use:enhance>
+				<input type="hidden" name="id" value={pack.id} />
+				<button type="submit" class="mini" title="Free pack everyone can claim once a week">{raw.weekly_free ? 'Unset weekly' : 'Set weekly'}</button>
+			</form>
+			<form method="POST" action="?/deletePack" use:enhance>
+				<input type="hidden" name="id" value={pack.id} />
+				<button type="submit" class="mini danger" onclick={(e) => { if (!confirm(`Delete "${pack.name}"?`)) e.preventDefault(); }}>Delete</button>
+			</form>
+		</div>
+	</li>
 {/snippet}
 
 <section>
 	<CardsTabs />
 
-	{#if form?.error}
+	{#if form?.error && !drawer}
 		<div class="error">{form.error}</div>
 	{/if}
 	{#if grantMsg}
@@ -525,357 +808,69 @@
 
 	{#if tab === 'cards'}
 		{#if data.packs.length === 0}
-			<div class="error">
-				Create a set/pack first (Packs tab) — every card must belong to one.
-			</div>
+			<div class="error">Create a set/pack first (Packs tab) — every card must belong to one.</div>
 		{/if}
 
-		<details class="card">
-			<summary><strong>Create new card</strong></summary>
-			<form method="POST" action="?/createCard" enctype="multipart/form-data" use:enhance>
-				<label>
-					<span>Name</span>
-					<input name="name" type="text" required placeholder="The Great Olm" />
-				</label>
-				<label>
-					<span>Set / pack</span>
-					<select name="pack_id" required>
-						<option value="" disabled selected>Pick a set…</option>
-						{#each data.packs as p}
-							<option value={p.id}>{p.name}</option>
-						{/each}
-					</select>
-				</label>
-				<div class="row">
-					<label>
-						<span>Combat level</span>
-						<input name="level" type="number" min="0" placeholder="1043" />
-					</label>
-					<label>
-						<span>Rarity</span>
-						<select name="rarity">
-							{#each RARITIES as r}
-								<option value={r.key} selected={r.key === DEFAULT_RARITY}>{r.label}</option>
-							{/each}
-						</select>
-					</label>
-				</div>
-				<label>
-					<span>Flavor / description (optional)</span>
-					<textarea name="flavor" rows="2"></textarea>
-				</label>
-
-				<fieldset class="abilities">
-					<legend>Abilities</legend>
-					{#each abilityRows(null) as ab}
-						<div class="ability-row">
-							<input name="ability_name" type="text" placeholder="Flame Wall" value={ab.name} />
-							<input name="ability_desc" type="text" placeholder="Description" value={ab.description} />
-						</div>
-					{/each}
-				</fieldset>
-
-				<div class="row">
-					<label>
-						<span>Front art (image or WEBM/MP4 video)</span>
-						<input name="front" type="file" accept={FRONT_ACCEPT} />
-					</label>
-					<label>
-						<span>Back art (optional — defaults to the Volition card back)</span>
-						<input name="back" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-					</label>
-				</div>
-
-				<label>
-					<span>3D depth layers (optional, multiple — stacked bottom→top above the front). Images or WEBM/MP4 video.</span>
-					<input name="layer" type="file" multiple accept={LAYER_ACCEPT} />
-				</label>
-
-				<label class="check">
-					<input type="checkbox" name="full_art" />
-					<span>Full art (skips the standard holo / reverse holo masks)</span>
-				</label>
-
-				<label>
-					<span>Full-art holo image (optional) — foil over the whole card, full-art only</span>
-					<input name="holo" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-				</label>
-
-				<label>
-					<span>Open sound (optional — plays when the card is revealed)</span>
-					<input name="sound" type="file" accept="audio/*" />
-				</label>
-
-				<label>
-					<span>3D models (optional .glb — add one or more)</span>
-					<input name="model" type="file" accept={MODEL_ACCEPT} multiple />
-					<span class="muted small">Export as glTF Binary (.glb), uncompressed (no Draco), low-poly. Place each in the 3D builder after creating (Edit).</span>
-				</label>
-
-				<button type="submit" class="primary">Create card</button>
-			</form>
-		</details>
-
-		<div class="existing-head">
-			<h2>Existing cards ({data.cards.length})</h2>
+		<div class="toolbar">
+			<input class="search" type="search" placeholder="Search cards…" bind:value={search} aria-label="Search cards" />
+			<select bind:value={packFilter} aria-label="Filter by set">
+				<option value="all">All sets</option>
+				{#each data.packs as p (p.id)}
+					<option value={p.id}>{p.name}</option>
+				{/each}
+				<option value="none">No set</option>
+			</select>
+			<select bind:value={rarityFilter} aria-label="Filter by rarity">
+				<option value="all">All rarities</option>
+				{#each [...RARITIES].reverse() as r (r.key)}
+					<option value={r.key}>{r.label}</option>
+				{/each}
+			</select>
+			<span class="result-count">{visibleCardCount} card{visibleCardCount === 1 ? '' : 's'}</span>
 			{#if cardGroups.length > 1}
 				<div class="group-controls">
 					<button type="button" class="ghost small" onclick={expandAllGroups}>Expand all</button>
 					<button type="button" class="ghost small" onclick={collapseAllGroups}>Collapse all</button>
 				</div>
 			{/if}
+			<button type="button" class="primary new-btn" disabled={data.packs.length === 0} onclick={() => (drawer = { type: 'card-new' })}>+ New card</button>
 		</div>
-		{#if data.cards.length === 0}
-			<p class="muted">No cards yet.</p>
+
+		{#if cardGroups.length === 0}
+			<p class="muted">{data.cards.length === 0 ? 'No cards yet.' : 'No cards match your filters.'}</p>
 		{:else}
 			{#each cardGroups as group (group.pack?.id ?? 'none')}
 				{@const key = group.pack?.id ?? 'none'}
 				{@const collapsed = collapsedGroups.has(key)}
 				<section class="pack-group">
-					<button
-						type="button"
-						class="group-head"
-						aria-expanded={!collapsed}
-						onclick={() => toggleGroup(key)}
-					>
+					<button type="button" class="group-head" aria-expanded={!collapsed} onclick={() => toggleGroup(key)}>
 						<span class="chevron" class:collapsed>▾</span>
 						{group.pack?.name ?? 'No set'}
 						<span class="count">{group.cards.length}</span>
 					</button>
 					{#if !collapsed}
-						{#each byRarity(group.cards) as rg (rg.meta.key)}
-							<div class="rarity-group">
-								<span class="rarity-label" style="--rc: {rg.meta.color}">{rg.meta.label} ({rg.cards.length})</span>
-								<ul class="item-list">
-									{#each rg.cards as raw (raw.id)}
-										{@render cardEntry(raw)}
-									{/each}
-								</ul>
-							</div>
-						{/each}
+						<ul class="card-grid">
+							{#each group.cards as raw (raw.id)}
+								{@render cardTile(raw)}
+							{/each}
+						</ul>
 					{/if}
 				</section>
 			{/each}
 		{/if}
 	{:else if tab === 'packs'}
-		<details class="card">
-			<summary><strong>Create new pack</strong></summary>
-			<form method="POST" action="?/createPack" enctype="multipart/form-data" use:enhance>
-				<label>
-					<span>Name</span>
-					<input name="name" type="text" required placeholder="Standard Pack" />
-				</label>
-				<label>
-					<span>Description (optional)</span>
-					<textarea name="description" rows="2"></textarea>
-				</label>
-				<div class="row">
-					<label>
-						<span>Cost (VP)</span>
-						<input name="cost_vp" type="number" min="0" value="0" />
-					</label>
-					<label>
-						<span>Cards per open</span>
-						<input name="cards_per_pack" type="number" min="1" max="50" value="5" />
-					</label>
-				</div>
-				<label class="check">
-					<input type="checkbox" name="released" />
-					<span>Released (visible to players in the Gamba store)</span>
-				</label>
-				<label class="check">
-					<input type="checkbox" name="teaser" />
-					<span>Teaser (show in the store as a locked “coming soon” card — name + art only, can't be opened; ignored once released)</span>
-				</label>
-				<div class="row">
-					<label>
-						<span>Front art (optional — defaults to the standard pack image)</span>
-						<input name="front" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-					</label>
-					<label>
-						<span>Back art (optional — defaults to the standard pack back)</span>
-						<input name="back" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-					</label>
-				</div>
-				<div class="row">
-					<label>
-						<span>Regular holo foil (optional — overrides the default)</span>
-						<input name="holo_regular" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-					</label>
-					<label>
-						<span>Reverse holo foil (optional — overrides the default)</span>
-						<input name="holo_reverse" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-					</label>
-				</div>
-				<button type="submit" class="primary">Create pack</button>
-			</form>
-		</details>
+		<div class="toolbar">
+			<input class="search" type="search" placeholder="Search packs…" bind:value={packSearch} aria-label="Search packs" />
+			<span class="result-count">{visiblePacks.length} pack{visiblePacks.length === 1 ? '' : 's'}</span>
+			<button type="button" class="primary new-btn" onclick={() => (drawer = { type: 'pack-new' })}>+ New pack</button>
+		</div>
 
-		<h2>Existing packs ({data.packs.length})</h2>
-		{#if data.packs.length === 0}
-			<p class="muted">No packs yet.</p>
+		{#if visiblePacks.length === 0}
+			<p class="muted">{data.packs.length === 0 ? 'No packs yet.' : 'No packs match.'}</p>
 		{:else}
-			<ul class="item-list">
-				{#each data.packs as raw (raw.id)}
-					{@const pack = toPack(raw)}
-					<li class="card">
-						<div class="item-head">
-							<div class="thumb">
-								<PackThumb {pack} flip={false} />
-							</div>
-							<div class="head-meta">
-								<div class="name-row">
-									<strong>{pack.name}</strong>
-									<span class="badge" class:live={raw.released}>{raw.released ? 'Released' : 'Draft'}</span>
-									{#if raw.weekly_free}<span class="badge weekly">Weekly free</span>{/if}
-								</div>
-								<span class="muted">{pack.cost_vp.toLocaleString()} VP · {raw.cards_per_pack} per open</span>
-								<span class="muted small">{cardsInPack(pack.id).length} card{cardsInPack(pack.id).length === 1 ? '' : 's'}</span>
-								{#if pack.description}
-									<span class="muted small">{pack.description}</span>
-								{/if}
-							</div>
-							<div class="head-actions">
-								<form method="POST" action="?/toggleRelease" use:enhance>
-									<input type="hidden" name="id" value={pack.id} />
-									<button type="submit" class="toggle">
-										{raw.released ? 'Unrelease' : 'Release'}
-									</button>
-								</form>
-								<form method="POST" action="?/toggleWeeklyFree" use:enhance>
-									<input type="hidden" name="id" value={pack.id} />
-									<button type="submit" class="toggle" title="Free pack everyone can claim once a week">
-										{raw.weekly_free ? 'Unset weekly' : 'Set weekly'}
-									</button>
-								</form>
-								<form method="POST" action="?/deletePack" use:enhance class="delete-form">
-									<input type="hidden" name="id" value={pack.id} />
-									<button
-										type="submit"
-										class="danger"
-										onclick={(e) => {
-											if (!confirm(`Delete "${pack.name}"?`)) e.preventDefault();
-										}}
-									>
-										Delete
-									</button>
-								</form>
-							</div>
-						</div>
-
-						<details class="edit-block cards-block">
-							<summary>Cards in this set ({cardsInPack(pack.id).length})</summary>
-							{@render packCardList(pack.id)}
-						</details>
-
-						<details class="edit-block">
-							<summary>Edit</summary>
-							<form method="POST" action="?/updatePack" enctype="multipart/form-data" use:enhance={keepValues} class="edit-form">
-								<input type="hidden" name="id" value={pack.id} />
-								<label>
-									<span>Name</span>
-									<input name="name" type="text" required value={pack.name} />
-								</label>
-								<label>
-									<span>Description</span>
-									<textarea name="description" rows="2">{pack.description ?? ''}</textarea>
-								</label>
-								<div class="row">
-									<label>
-										<span>Cost (VP)</span>
-										<input name="cost_vp" type="number" min="0" value={pack.cost_vp} />
-									</label>
-									<label>
-										<span>Cards per open</span>
-										<input
-											name="cards_per_pack"
-											type="number"
-											min="1"
-											max="50"
-											bind:value={slotCount[pack.id]}
-										/>
-									</label>
-								</div>
-
-								<fieldset class="rates">
-									<legend>
-										Per-slot drop rates
-										<span class="muted small">(one card per slot · rarity = relative weights; holo/reverse = % chance for that slot)</span>
-									</legend>
-									{#if presentRarities(pack.id).length === 0}
-										<p class="muted small">Add cards to this set first to set drop rates.</p>
-									{:else}
-										{#each (slotW[pack.id] ?? []).slice(0, Math.max(1, slotCount[pack.id] ?? 1)) as slot, i (i)}
-											<div class="slot">
-												<span class="slot-head">Slot {i + 1}</span>
-												<div class="slot-grid">
-													{#each presentRarities(pack.id) as r (r.key)}
-														<label class="slot-rate">
-															<span class="rate-name" style="--rc: {r.color}">{r.label}</span>
-															<input
-																type="number"
-																min="0"
-																step="any"
-																name={`slot_${i}_weight_${r.key}`}
-																bind:value={slot[r.key]}
-															/>
-															<span class="rate-pct">{slotPct(pack.id, i, r.key).toFixed(0)}%</span>
-														</label>
-													{/each}
-												</div>
-												<div class="slot-finish">
-													<label class="fin"><span>Holo %</span><input type="number" min="0" max="100" step="any" name={`slot_${i}_holo`} bind:value={slotFin[pack.id][i].holo} /></label>
-													<label class="fin"><span>Reverse %</span><input type="number" min="0" max="100" step="any" name={`slot_${i}_reverse`} bind:value={slotFin[pack.id][i].reverse} /></label>
-													<span class="muted small">Normal {normalPct(pack.id, i).toFixed(0)}%</span>
-												</div>
-											</div>
-										{/each}
-									{/if}
-								</fieldset>
-
-								<div class="row">
-									<label>
-										<span>Replace front art (optional)</span>
-										<input name="front" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-									</label>
-									<label>
-										<span>Replace back art (optional)</span>
-										<input name="back" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-									</label>
-								</div>
-
-								<fieldset class="rates">
-									<legend>
-										Holo foils <span class="muted small">(optional — overrides the default star/ripple for every holo pulled from this pack)</span>
-									</legend>
-									<div class="row">
-										<label>
-											<span>Regular holo foil{#if raw.holo_regular_url} · set{/if}</span>
-											<input name="holo_regular" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-										</label>
-										<label>
-											<span>Reverse holo foil{#if raw.holo_reverse_url} · set{/if}</span>
-											<input name="holo_reverse" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-										</label>
-									</div>
-									{#if raw.holo_regular_url}
-										<label class="check">
-											<input type="checkbox" name="remove_holo_regular" />
-											<span>Remove regular holo foil</span>
-										</label>
-									{/if}
-									{#if raw.holo_reverse_url}
-										<label class="check">
-											<input type="checkbox" name="remove_holo_reverse" />
-											<span>Remove reverse holo foil</span>
-										</label>
-									{/if}
-								</fieldset>
-
-								<button type="submit" class="primary">Save changes</button>
-							</form>
-						</details>
-					</li>
+			<ul class="pack-grid">
+				{#each visiblePacks as raw (raw.id)}
+					{@render packTile(raw)}
 				{/each}
 			</ul>
 		{/if}
@@ -932,6 +927,36 @@
 	{/if}
 </section>
 
+{#if drawer}
+	<div class="drawer-backdrop" transition:fade={{ duration: 150 }} onclick={() => (drawer = null)} aria-hidden="true"></div>
+	<div class="drawer" transition:fly={{ x: 540, duration: 200 }} role="dialog" aria-modal="true" aria-label={drawerTitle} tabindex="-1">
+		<header class="drawer-head">
+			<h2>{drawerTitle}</h2>
+			<button type="button" class="close" onclick={() => (drawer = null)} aria-label="Close">✕</button>
+		</header>
+		<div class="drawer-body">
+			{#if form?.error}
+				<div class="error">{form.error}</div>
+			{/if}
+			{#key drawerKey}
+				{#if drawer.type === 'card-new'}
+					{@render cardForm(null, null)}
+				{:else if drawer.type === 'card-edit' && drawerCard}
+					{@render cardForm(toCard(drawerCard), drawerCard)}
+				{:else if drawer.type === 'pack-new'}
+					{@render packCreateForm()}
+				{:else if drawer.type === 'pack-edit' && drawerPack}
+					<details class="edit-block cards-block" open>
+						<summary>Cards in this set ({cardsInPack(drawerPack.id).length})</summary>
+						{@render packCardList(drawerPack.id)}
+					</details>
+					{@render packEditForm(drawerPack)}
+				{/if}
+			{/key}
+		</div>
+	</div>
+{/if}
+
 {#if inspecting}
 	<CardInspector3D card={inspecting} onClose={() => (inspecting = null)} allowFinishToggle />
 {/if}
@@ -941,10 +966,6 @@
 {/if}
 
 <style>
-	h2 {
-		margin: 2rem 0 1rem;
-	}
-
 	.muted {
 		color: var(--muted);
 	}
@@ -971,39 +992,91 @@
 		margin-bottom: 1rem;
 	}
 
-	.grant-note {
-		margin: 0 0 1rem;
-		max-width: 40rem;
-	}
-
-	.grant-form {
-		max-width: 28rem;
-	}
-
-	.target {
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 0.75rem;
+	/* ── Toolbar (search + filters + new) ── */
+	.toolbar {
 		display: flex;
-		gap: 1rem;
-		margin: 0;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 1.25rem;
 	}
 
-	.target legend {
+	.search {
+		flex: 1 1 12rem;
+		min-width: 8rem;
+		max-width: 22rem;
+	}
+
+	.toolbar select {
+		flex: 0 0 auto;
+		width: auto;
+	}
+
+	.result-count {
 		font-size: 0.8rem;
 		color: var(--muted);
-		padding: 0 0.35rem;
+		font-variant-numeric: tabular-nums;
 	}
 
-	.target .radio {
-		flex-direction: row;
-		align-items: center;
+	.new-btn {
+		margin-left: auto;
+	}
+
+	.group-controls {
+		display: flex;
 		gap: 0.4rem;
-		cursor: pointer;
 	}
 
-	.target .radio input {
-		width: auto;
+	.ghost.small {
+		padding: 0.25rem 0.6rem;
+		font-size: 0.8rem;
+		min-height: 0;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		color: var(--muted);
+	}
+
+	.ghost.small:hover {
+		border-color: var(--accent);
+		color: var(--text);
+	}
+
+	/* ── Card grouping ── */
+	.pack-group {
+		margin-bottom: 1.5rem;
+	}
+
+	.group-head {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		margin: 0 0 0.75rem;
+		padding: 0 0 0.4rem;
+		border: 0;
+		border-bottom: 1px solid var(--border);
+		border-radius: 0;
+		background: none;
+		text-align: left;
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-size: 1.15rem;
+		color: inherit;
+		cursor: pointer;
+		min-height: 0;
+	}
+
+	.group-head:hover {
+		color: var(--accent);
+	}
+
+	.chevron {
+		display: inline-block;
+		font-size: 0.85rem;
+		transition: transform 0.15s;
+	}
+
+	.chevron.collapsed {
+		transform: rotate(-90deg);
 	}
 
 	.count {
@@ -1015,24 +1088,287 @@
 		color: var(--text);
 	}
 
-	.card {
-		padding: 1.25rem;
-		background: linear-gradient(180deg, rgba(58, 48, 36, 0.85), rgba(40, 32, 24, 0.85));
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		margin-bottom: 1rem;
-		box-shadow: var(--shadow-card);
+	/* ── Grids of tiles ── */
+	.card-grid {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+		gap: 0.75rem;
 	}
 
+	.pack-grid {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+		gap: 0.9rem;
+	}
+
+	.tile {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		background: linear-gradient(180deg, rgba(58, 48, 36, 0.55), rgba(40, 32, 24, 0.55));
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		overflow: hidden;
+	}
+
+	.tile-main {
+		display: flex;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.2rem;
+		width: 100%;
+		padding: 0.5rem 0.5rem 0.6rem;
+		border: 0;
+		background: none;
+		text-align: left;
+		cursor: pointer;
+		color: var(--text);
+		min-height: 0;
+	}
+
+	.tile-main:hover {
+		background: rgba(255, 152, 31, 0.06);
+	}
+
+	.tile-thumb {
+		width: 100%;
+		margin-bottom: 0.35rem;
+	}
+
+	.tile-thumb.pack {
+		max-width: 7.5rem;
+		margin-inline: auto;
+	}
+
+	.tile-name {
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-size: 0.92rem;
+		line-height: 1.15;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.tile-rarity {
+		font-size: 0.74rem;
+		color: var(--rc, var(--muted));
+		text-transform: capitalize;
+	}
+
+	.tile-tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+		margin-top: 0.2rem;
+	}
+
+	.tag {
+		font-size: 0.62rem;
+		letter-spacing: 0.03em;
+		padding: 0.02rem 0.35rem;
+		border-radius: 999px;
+		border: 1px solid var(--border);
+		background: var(--surface-alt);
+		color: var(--muted);
+		white-space: nowrap;
+	}
+
+	.tile-badges {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.3rem;
+		margin: 0.1rem 0;
+	}
+
+	/* Hover-revealed corner controls on card tiles. */
+	.tile-controls {
+		position: absolute;
+		top: 0.35rem;
+		right: 0.35rem;
+		display: flex;
+		gap: 0.25rem;
+		opacity: 0;
+		transition: opacity 0.12s;
+	}
+
+	.tile-controls form {
+		margin: 0;
+	}
+
+	.tile:hover .tile-controls,
+	.tile:focus-within .tile-controls {
+		opacity: 1;
+	}
+
+	.icon-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.7rem;
+		height: 1.7rem;
+		padding: 0;
+		min-height: 0;
+		font-size: 0.85rem;
+		line-height: 1;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: rgba(20, 16, 12, 0.85);
+		cursor: pointer;
+	}
+
+	.icon-btn:hover {
+		border-color: var(--accent);
+	}
+
+	.icon-btn.danger:hover {
+		border-color: var(--danger);
+		background: var(--danger-bg);
+	}
+
+	/* ── Pack tile footer ── */
+	.pack-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.3rem;
+		padding: 0 0.5rem 0.5rem;
+		margin-top: auto;
+	}
+
+	.pack-actions form {
+		margin: 0;
+		flex: 1 1 auto;
+	}
+
+	button.mini {
+		width: 100%;
+		padding: 0.3rem 0.4rem;
+		font-size: 0.78rem;
+		min-height: 0;
+		border: 1px solid var(--border);
+		color: var(--muted);
+		background: var(--surface-alt);
+	}
+
+	button.mini:hover {
+		border-color: var(--accent);
+		color: var(--text);
+	}
+
+	button.mini.danger {
+		color: var(--danger);
+		border-color: transparent;
+	}
+
+	button.mini.danger:hover {
+		border-color: var(--danger);
+		background: var(--danger-bg);
+	}
+
+	.badge {
+		padding: 0.05rem 0.5rem;
+		border-radius: 999px;
+		border: 1px solid var(--border);
+		background: var(--surface-alt);
+		color: var(--muted);
+		font-size: 0.7rem;
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		letter-spacing: 0.5px;
+		text-transform: uppercase;
+	}
+
+	.badge.live {
+		border-color: var(--success);
+		color: var(--success);
+		background: var(--success-bg);
+	}
+
+	.badge.weekly {
+		border-color: var(--accent);
+		color: var(--accent);
+		background: var(--accent-soft);
+	}
+
+	/* ── Slide-out edit drawer ── */
+	.drawer-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.55);
+		z-index: 40;
+	}
+
+	.drawer {
+		position: fixed;
+		top: 0;
+		right: 0;
+		height: 100dvh;
+		width: min(40rem, 100%);
+		display: flex;
+		flex-direction: column;
+		background: linear-gradient(180deg, rgba(48, 40, 30, 0.98), rgba(34, 28, 21, 0.98));
+		border-left: 1px solid var(--border);
+		box-shadow: -10px 0 30px rgba(0, 0, 0, 0.45);
+		z-index: 41;
+	}
+
+	.drawer-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 1rem 1.25rem;
+		border-bottom: 1px solid var(--border);
+		flex: 0 0 auto;
+	}
+
+	.drawer-head h2 {
+		margin: 0;
+		font-size: 1.2rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.close {
+		flex: 0 0 auto;
+		width: 2rem;
+		height: 2rem;
+		padding: 0;
+		min-height: 0;
+		font-size: 1rem;
+		line-height: 1;
+		border: 1px solid var(--border);
+		background: var(--surface-alt);
+		color: var(--muted);
+		cursor: pointer;
+		border-radius: var(--radius);
+	}
+
+	.close:hover {
+		border-color: var(--accent);
+		color: var(--text);
+	}
+
+	.drawer-body {
+		flex: 1 1 auto;
+		overflow-y: auto;
+		padding: 1.25rem;
+	}
+
+	/* ── Forms (drawer) ── */
 	form {
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
-		margin-top: 1rem;
 	}
 
-	form.delete-form {
-		margin-top: 0;
+	.edit-form {
+		margin: 0;
 	}
 
 	label {
@@ -1074,7 +1410,9 @@
 		background: rgba(255, 152, 31, 0.2);
 	}
 
-	.abilities {
+	.abilities,
+	.layer-fx,
+	.rates {
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
 		padding: 0.75rem;
@@ -1084,7 +1422,13 @@
 		margin: 0;
 	}
 
-	.abilities legend {
+	.rates {
+		gap: 0.4rem;
+	}
+
+	.abilities legend,
+	.layer-fx legend,
+	.rates legend {
 		font-size: 0.8rem;
 		color: var(--muted);
 		padding: 0 0.35rem;
@@ -1094,22 +1438,6 @@
 		display: grid;
 		grid-template-columns: 1fr 2fr;
 		gap: 0.5rem;
-	}
-
-	.layer-fx {
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 0.75rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		margin: 0;
-	}
-
-	.layer-fx legend {
-		font-size: 0.8rem;
-		color: var(--muted);
-		padding: 0 0.35rem;
 	}
 
 	.layer-fx-row {
@@ -1126,22 +1454,6 @@
 		border-radius: 0.3rem;
 		border: 1px solid var(--border);
 		background: var(--surface);
-	}
-
-	.rates {
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 0.75rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.4rem;
-		margin: 0;
-	}
-
-	.rates legend {
-		font-size: 0.8rem;
-		color: var(--muted);
-		padding: 0 0.35rem;
 	}
 
 	/* One block per slot (= one card in the open). */
@@ -1167,7 +1479,6 @@
 		gap: 0.4rem 0.6rem;
 	}
 
-	/* Per-slot holo chances, below that slot's rarity grid. */
 	.slot-finish {
 		display: flex;
 		flex-wrap: wrap;
@@ -1224,101 +1535,55 @@
 		font-variant-numeric: tabular-nums;
 	}
 
-	/* Grouping: one section per set, rarity buckets within. */
-	.pack-group {
-		margin-bottom: 1.5rem;
-	}
-
-	.group-head {
-		display: flex;
+	label.check {
+		flex-direction: row;
 		align-items: center;
 		gap: 0.5rem;
-		width: 100%;
-		margin: 1.5rem 0 0.75rem;
-		padding: 0 0 0.4rem;
-		border: 0;
+	}
+
+	label.check input {
+		width: auto;
+	}
+
+	.edit-block {
+		margin-bottom: 1rem;
+		padding-bottom: 0.75rem;
 		border-bottom: 1px solid var(--border);
-		border-radius: 0;
-		background: none;
-		text-align: left;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
-		font-size: 1.15rem;
-		color: inherit;
+	}
+
+	.edit-block summary {
 		cursor: pointer;
-		min-height: 0;
-	}
-
-	.group-head:hover {
 		color: var(--accent);
+		font-size: 0.95rem;
 	}
 
-	.chevron {
-		display: inline-block;
-		font-size: 0.85rem;
-		transition: transform 0.15s;
+	.cards-block {
+		margin-top: 0;
 	}
 
-	.chevron.collapsed {
-		transform: rotate(-90deg);
-	}
-
-	.existing-head {
+	/* Compact card list shown in a pack's edit drawer. */
+	.mini-list {
+		list-style: none;
+		padding: 0;
+		margin: 0.5rem 0 0;
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-		flex-wrap: wrap;
-	}
-
-	.group-controls {
-		display: flex;
+		flex-direction: column;
 		gap: 0.4rem;
 	}
 
-	.ghost.small {
-		padding: 0.25rem 0.6rem;
-		font-size: 0.8rem;
-		min-height: 0;
-		background: var(--surface-alt);
-		border: 1px solid var(--border);
-		color: var(--muted);
-	}
-
-	.ghost.small:hover {
-		border-color: var(--accent);
-		color: var(--text);
-	}
-
-	.rarity-group {
-		margin-bottom: 1rem;
-	}
-
-	.rarity-label {
-		display: inline-block;
-		margin: 0.35rem 0 0.5rem;
-		padding: 0.1rem 0.6rem;
-		border-radius: 999px;
-		border: 1px solid var(--rc);
-		color: var(--rc);
-		font-size: 0.78rem;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
-		letter-spacing: 0.5px;
-	}
-
-	.item-list {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-	}
-
-	.item-head {
+	.mini-card {
 		display: flex;
 		align-items: center;
-		gap: 1rem;
+		gap: 0.6rem;
+		padding: 0.35rem 0.5rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		min-width: 0;
 	}
 
-	.thumb {
-		width: 5.5rem;
+	.mini-thumb {
+		width: 2.5rem;
 		flex: 0 0 auto;
 	}
 
@@ -1336,128 +1601,81 @@
 		background: none;
 	}
 
-	.head-meta {
-		display: flex;
-		flex-direction: column;
-		gap: 0.15rem;
-		margin-right: auto;
-		min-width: 0;
-	}
-
-	.name-row {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	.badge {
-		padding: 0.05rem 0.5rem;
-		border-radius: 999px;
-		border: 1px solid var(--border);
-		background: var(--surface-alt);
-		color: var(--muted);
-		font-size: 0.7rem;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
-		letter-spacing: 0.5px;
-		text-transform: uppercase;
-	}
-
-	.badge.live {
-		border-color: var(--success);
-		color: var(--success);
-		background: var(--success-bg);
-	}
-
-	.badge.weekly {
-		border-color: var(--accent);
-		color: var(--accent);
-		background: var(--accent-soft);
-	}
-
-	.head-actions {
-		display: flex;
-		flex-direction: column;
-		gap: 0.4rem;
-		flex: 0 0 auto;
-	}
-
-	.head-actions form {
-		margin: 0;
-	}
-
-	button.toggle {
-		border-color: var(--accent);
-		color: var(--accent);
-		font-size: 0.9rem;
-	}
-
-	button.toggle:hover {
-		background: var(--accent-soft);
-	}
-
-	label.check {
-		flex-direction: row;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	label.check input {
-		width: auto;
-	}
-
-	.edit-block {
-		margin-top: 0.75rem;
-		padding-top: 0.75rem;
-		border-top: 1px solid var(--border);
-	}
-
-	.edit-block summary {
-		cursor: pointer;
-		color: var(--accent);
-		font-size: 0.95rem;
-	}
-
-	.edit-form {
-		margin-top: 0.75rem;
-	}
-
-	/* Compact card list shown when expanding a pack. */
-	.mini-list {
-		list-style: none;
-		padding: 0;
-		margin: 0.25rem 0 0;
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
-		gap: 0.5rem;
-	}
-
-	.mini-card {
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-		padding: 0.4rem 0.6rem;
-		background: var(--surface-alt);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		min-width: 0;
-	}
-
-	.mini-thumb {
-		width: 2.75rem;
-		flex: 0 0 auto;
-	}
-
 	.mini-meta {
 		display: flex;
 		flex-direction: column;
 		gap: 0.1rem;
 		min-width: 0;
+		margin-right: auto;
 	}
 
 	.mini-name {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.mini-meta .small {
+		color: var(--rc, var(--muted));
+		text-transform: capitalize;
+	}
+
+	.mini-edit {
+		flex: 0 0 auto;
+		padding: 0.25rem 0.6rem;
+		font-size: 0.78rem;
+		min-height: 0;
+		border: 1px solid var(--border);
+		color: var(--accent);
+		background: none;
+	}
+
+	.mini-edit:hover {
+		background: var(--accent-soft);
+	}
+
+	/* ── Grant tab ── */
+	.grant-note {
+		margin: 0 0 1rem;
+		max-width: 40rem;
+	}
+
+	.grant-form {
+		max-width: 28rem;
+	}
+
+	.card {
+		padding: 1.25rem;
+		background: linear-gradient(180deg, rgba(58, 48, 36, 0.85), rgba(40, 32, 24, 0.85));
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		box-shadow: var(--shadow-card);
+	}
+
+	.target {
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 0.75rem;
+		display: flex;
+		gap: 1rem;
+		margin: 0;
+	}
+
+	.target legend {
+		font-size: 0.8rem;
+		color: var(--muted);
+		padding: 0 0.35rem;
+	}
+
+	.target .radio {
+		flex-direction: row;
+		align-items: center;
+		gap: 0.4rem;
+		cursor: pointer;
+	}
+
+	.target .radio input {
+		width: auto;
 	}
 
 	button.primary {
@@ -1475,7 +1693,13 @@
 		color: var(--danger);
 	}
 
-	button.danger:hover {
-		background: var(--danger-bg);
+	@media (max-width: 540px) {
+		.drawer {
+			width: 100%;
+		}
+
+		.new-btn {
+			margin-left: 0;
+		}
 	}
 </style>
