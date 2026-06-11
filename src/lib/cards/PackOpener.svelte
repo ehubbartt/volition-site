@@ -6,6 +6,7 @@
     DEFAULT_CARD_BACK,
     RARITY_BY_KEY,
     DEFAULT_RARITY,
+    toCardModels,
     type Card,
   } from "$lib/cards/rarity";
   import {
@@ -19,6 +20,7 @@
   import { createLayerEffect, type LayerEffectHandle } from "$lib/cards/layerEffects";
   import { makeEdgeFade } from "$lib/cards/edgeFade";
   import { loadLayerTexture, type LayerTextureHandle } from "$lib/cards/layerTexture";
+  import { loadCardModel, type CardModelHandle } from "$lib/cards/cardModel";
   import { isVideoUrl } from "$lib/cards/config";
   import {
     SFX_OPENING,
@@ -313,6 +315,9 @@
       // Cap at 1.5 — a full-screen canvas at DPR 2 with MSAA is ~4× the pixels of
       // DPR 1 and was the dominant per-frame cost. 1.5 keeps cards crisp for far less.
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+      // Lets a model's `clip` setting cut away geometry behind the card face (no-op for
+      // the card's own materials, which never set clippingPlanes).
+      renderer.localClippingEnabled = true;
 
       // Step 3: a faint, NEARLY-UNIFORM environment for subtle metallic reflection.
       // Kept very low-contrast on purpose so the curved bulge doesn't sweep through
@@ -959,6 +964,8 @@
       // Image/video texture handles across all cards, disposed on teardown (video also
       // gets paused so it stops decoding once the opener closes).
       const layerTexHandles: LayerTextureHandle[] = [];
+      // Per-card .glb model handles (parallel to cardMeshes; null for most cards).
+      const modelHandles: CardModelHandle[] = [];
       const LAYER_DEPTH = 0.08; // how far each layer sits above the card (small = subtle)
       const SHADOW_STRENGTH = 0.5;
       const SHADOW_DIR = new THREE.Vector2(0.6, -0.8); // light upper-left → shadow lower-right
@@ -1126,6 +1133,23 @@
         // sheet. overlayMats stays parallel to cardMeshes (always null) so the
         // frame loop's `if (ov)` guards just skip.
         overlayMats.push(null);
+
+        // Optional .glb model(s): attach to the card mesh `m` (like the depth layers) so
+        // they travel/flip/tilt with the card through every stage. Loaded async.
+        {
+          const ms = toCardModels(c);
+          if (ms.length) {
+            const baseZ = ((c.layers ?? []).length + 1) * LAYER_DEPTH + 0.15;
+            for (const mm of ms) {
+              loadCardModel(m, mm.url, mm.settings ?? {}, { cardW: CARD_W, cardH: CARD_H, baseZ, camera }).then(
+                (h) => {
+                  if (disposed) h.dispose();
+                  else modelHandles.push(h);
+                },
+              );
+            }
+          }
+        }
 
         cardsGroup.add(m);
         return m;
@@ -1931,8 +1955,8 @@
         // Play any per-layer animation effects. Driven by how fast a card is being
         // turned (drag-rotate velocity) — they're static until you spin it. Each
         // card's glow is gated by its own visibility so behind cards never glow.
+        const dt = Math.min(0.05, (now - lastFxNow) / 1000);
         if (anyLayerFx) {
-          const dt = Math.min(0.05, (now - lastFxNow) / 1000);
           const d = Math.abs(tiltX - prevTiltX) + Math.abs(tiltY - prevTiltY);
           prevTiltX = tiltX;
           prevTiltY = tiltY;
@@ -1947,6 +1971,9 @@
             for (const fx of layerFx[i]) fx.update({ dt, spin: fxSpin, hostOpacity });
           }
         }
+        // Play any card .glb model animations (+ optional idle spin); they inherit the
+        // card's tilt/flip as children of the card mesh.
+        for (const h of modelHandles) h.update(dt, fxSpin);
         lastFxNow = now;
 
         updateSparkles(now);
@@ -1980,6 +2007,7 @@
         ro.disconnect();
         layerFx.forEach((hs) => hs.forEach((h) => h.dispose()));
         layerTexHandles.forEach((h) => h.dispose());
+        modelHandles.forEach((h) => h.dispose());
         edgeFade?.dispose();
         canvas.removeEventListener("pointerdown", onDown);
         canvas.removeEventListener("pointermove", onMove);

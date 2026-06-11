@@ -100,3 +100,16 @@ export const EXT_BY_MIME: Record<string, string> = {
 	'image/webp': 'webp',
 	'image/gif': 'gif'
 };
+
+// Optional per-card 3D model (a Blender-exported .glb) that hovers above the card art
+// in the 3D views. Validated by file EXTENSION (.glb) — browsers report GLB MIME
+// inconsistently (model/gltf-binary, application/octet-stream, or empty). Bigger cap
+// than the other assets since a mesh + textures is heavier; keep models LOW-POLY.
+export const MAX_MODEL_BYTES = 40_000_000;
+export const MODEL_ACCEPT = '.glb,model/gltf-binary';
+
+// True if a URL points at a .glb model (→ render via GLTFLoader in the 3D views).
+// Client-safe (pure regex, no three import).
+export function isModelUrl(url: string | null | undefined): boolean {
+	return !!url && /\.glb(\?|#|$)/i.test(url);
+}

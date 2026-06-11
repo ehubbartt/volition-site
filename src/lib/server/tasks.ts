@@ -1,13 +1,15 @@
 import { db } from './db';
 import type { SessionUser } from './auth';
 import { isAdmin } from './auth';
+import { isClanMember } from './clan';
 import { countPendingReview } from './submissions';
 import { getLastLootDate } from './playerStats';
+import { getWeeklyFreePack, getWeeklyClaimAt, claimedThisWeek } from './weeklyPack';
 import { BINGO_TILES } from './bingoTiles';
 import { getBingoState } from '$lib/bingo/state';
 import { BINGO_EVENT_SLUG, BINGO_ROW_COUNT } from '$lib/bingo/config';
 import { SIMPLE_EVENT_KIND, SEQUENTIAL_EVENT_KIND, isEventLive } from '$lib/events/simple';
-import { type PlayerTask, nextUtcMidnightIso, countOutstandingTasks } from '$lib/tasks';
+import { type PlayerTask, nextUtcMidnightIso, nextWeeklyResetIso, countOutstandingTasks } from '$lib/tasks';
 
 // Aggregates a player's time-gated / recurring activities into one normalized
 // PlayerTask[] for the /tasks page + the home summary card. Modeled on
@@ -87,6 +89,30 @@ async function dailyCrateTask(user: SessionUser): Promise<PlayerTask> {
 		// it's "time left" to still claim today's free crate before it rolls over.
 		resetAt: nextUtcMidnightIso(),
 		reward: 'VP + item drops'
+	};
+}
+
+// --- Weekly free pack (site-native: vs_card_packs.weekly_free + claim) -------
+// One claimable card per week for clan members (resets Monday 00:00 UTC), like the
+// daily crate but for a pack. Only shown when an admin has flagged a weekly pack AND
+// the user is a clan member; claimed inline on /tasks (?/claimWeeklyPack).
+async function weeklyPackTask(user: SessionUser): Promise<PlayerTask | null> {
+	const pack = await getWeeklyFreePack();
+	if (!pack) return null; // no weekly pack configured → nothing to show
+	if (!(await isClanMember(user.discord_id, user.rsn))) return null;
+
+	const claimed = claimedThisWeek(await getWeeklyClaimAt(user.id));
+	return {
+		id: 'weekly-pack',
+		kind: 'packs',
+		status: claimed ? 'done' : 'todo',
+		title: 'Weekly free pack',
+		description: claimed ? 'Claimed this week' : `Claim your free ${pack.name}`,
+		href: '/tasks',
+		ctaLabel: claimed ? 'Claimed' : 'Claim pack',
+		resetAt: nextWeeklyResetIso(),
+		reward: pack.name,
+		claimAction: claimed ? null : 'claimWeeklyPack'
 	};
 }
 
@@ -391,6 +417,7 @@ export async function loadPlayerTasks(user: SessionUser): Promise<PlayerTask[]> 
 	const results = await Promise.all([
 		adminReviewTask(user),
 		dailyCrateTask(user),
+		weeklyPackTask(user),
 		taskInstanceTasks(user),
 		taskEventTasks(user),
 		skillOrKillTask(),

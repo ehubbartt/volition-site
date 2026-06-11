@@ -18,6 +18,9 @@ interface CardRow {
 	full_art: boolean | null;
 	holo_url: string | null;
 	sound_url: string | null;
+	model_url: string | null;
+	model_settings: Card['model_settings'];
+	models: Card['models'];
 }
 
 export interface TesterPack {
@@ -41,7 +44,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			.order('name', { ascending: true }),
 		db()
 			.from('vs_cards')
-			.select('id, name, level, rarity, pack_id, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url')
+			.select('id, name, level, rarity, pack_id, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url, model_url, model_settings, models')
 			.order('name', { ascending: true })
 	]);
 
@@ -74,6 +77,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 			full_art: !!c.full_art,
 			holo_url: c.holo_url,
 			sound_url: c.sound_url,
+			model_url: c.model_url,
+			model_settings: c.model_settings ?? null,
+			models: c.models ?? [],
 			holo_regular_url: ph?.reg ?? null,
 			holo_reverse_url: ph?.rev ?? null
 		};

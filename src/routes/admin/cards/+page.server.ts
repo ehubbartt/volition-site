@@ -2,7 +2,7 @@ import { redirect, error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isCardTester } from '$lib/server/auth';
-import { uploadCardFaces, uploadCardLayers, uploadCardSound, removeCardArt } from '$lib/server/cardArt';
+import { uploadCardFaces, uploadCardLayers, uploadCardSound, uploadCardModel, removeCardArt } from '$lib/server/cardArt';
 import { grantUserPack } from '$lib/server/gamba';
 import { isValidRarity, RARITIES, DEFAULT_RARITY, type CardAbility } from '$lib/cards/rarity';
 import { isLayerEffect } from '$lib/cards/layerEffects';
@@ -19,13 +19,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 		db()
 			.from('vs_cards')
 			.select(
-				'id, name, level, rarity, pack_id, abilities, flavor, front_path, front_url, back_path, back_url, holo_path, holo_url, sound_path, sound_url, layers, full_art, created_at'
+				'id, name, level, rarity, pack_id, abilities, flavor, front_path, front_url, back_path, back_url, holo_path, holo_url, sound_path, sound_url, model_path, model_url, model_settings, models, layers, full_art, created_at'
 			)
 			.order('created_at', { ascending: false }),
 		db()
 			.from('vs_card_packs')
 			.select(
-				'id, name, description, cost_vp, cards_per_pack, released, rarity_weights, slot_weights, slot_finishes, front_path, front_url, back_path, back_url, holo_regular_path, holo_regular_url, holo_reverse_path, holo_reverse_url, created_at'
+				'id, name, description, cost_vp, cards_per_pack, released, weekly_free, rarity_weights, slot_weights, slot_finishes, front_path, front_url, back_path, back_url, holo_regular_path, holo_regular_url, holo_reverse_path, holo_reverse_url, created_at'
 			)
 			.order('created_at', { ascending: false }),
 		// Grant tab: every member with a site profile (the only grantable targets —
@@ -59,6 +59,48 @@ function parseAbilities(form: FormData): CardAbility[] {
 		if (names[i]) out.push({ name: names[i], description: descs[i] ?? '' });
 	}
 	return out;
+}
+
+const FRONT_AXES = ['+x', '-x', '+y', '-y', '+z', '-z'];
+
+// Sanitize one model's placement settings posted by the visual builder.
+function sanitizeModelSettings(raw: unknown) {
+	const o = (raw ?? {}) as Record<string, unknown>;
+	const num = (k: string, d: number) => {
+		const n = Number(o[k]);
+		return Number.isFinite(n) ? n : d;
+	};
+	return {
+		scale: num('scale', 1),
+		offsetX: num('offsetX', 0),
+		offsetY: num('offsetY', 0),
+		offsetZ: num('offsetZ', 0),
+		rotX: num('rotX', 0),
+		rotY: num('rotY', 0),
+		rotZ: num('rotZ', 0),
+		spin: num('spin', 0),
+		animate: o.animate !== false,
+		clip: o.clip === true,
+		faceCamera: o.faceCamera === true,
+		wander: o.wander === true,
+		wanderSpeed: num('wanderSpeed', 0.5),
+		frontAxis: FRONT_AXES.includes(String(o.frontAxis)) ? String(o.frontAxis) : '+z'
+	};
+}
+
+// Sanitize the full models array (builder save). Keeps `path` (for cleanup) + `url`.
+function sanitizeModels(raw: unknown) {
+	if (!Array.isArray(raw)) return [];
+	return raw
+		.filter((e) => e && typeof (e as { url?: unknown }).url === 'string')
+		.map((e) => {
+			const o = e as Record<string, unknown>;
+			return {
+				path: typeof o.path === 'string' ? o.path : null,
+				url: o.url as string,
+				settings: sanitizeModelSettings(o.settings)
+			};
+		});
 }
 
 /* ------------------------------- Packs ------------------------------- */
@@ -140,6 +182,23 @@ export const actions: Actions = {
 			cleanupPaths.push(up.path);
 		}
 
+		// Optional 3D model(s) (.glb) — each becomes a `models` entry (placed later in the
+		// builder). Multiple files allowed.
+		const modelFiles = form.getAll('model').filter((f): f is File => f instanceof File && f.size > 0);
+		if (modelFiles.length) {
+			const models: { path: string; url: string; settings: object }[] = [];
+			for (const f of modelFiles) {
+				const up = await uploadCardModel(inserted.id, f);
+				if ('error' in up) {
+					for (const p of cleanupPaths) await removeCardArt(p);
+					return fail(400, { error: `Card created, but model upload failed: ${up.error}` });
+				}
+				models.push({ path: up.path, url: up.url, settings: {} });
+				cleanupPaths.push(up.path);
+			}
+			update.models = models;
+		}
+
 		if (Object.keys(update).length) {
 			const { error: updErr } = await db().from('vs_cards').update(update).eq('id', inserted.id);
 			if (updErr) {
@@ -182,10 +241,10 @@ export const actions: Actions = {
 			updated_at: new Date().toISOString()
 		};
 
-		// Snapshot old paths so we can delete any face/layer that gets replaced.
+		// Snapshot old paths so we can delete any face/layer/model that gets replaced.
 		const { data: prev } = await db()
 			.from('vs_cards')
-			.select('front_path, back_path, holo_path, sound_path, layers')
+			.select('front_path, back_path, holo_path, sound_path, model_path, models, layers')
 			.eq('id', id)
 			.maybeSingle();
 
@@ -209,6 +268,36 @@ export const actions: Actions = {
 		} else if (removeSound) {
 			update.sound_path = null;
 			update.sound_url = null;
+		}
+
+		// 3D models: "remove all" clears them; uploading new .glb(s) APPENDS them (placed
+		// later in the builder). Per-model placement + per-model delete is done in the
+		// builder (updateModels action). Newly-uploaded entries start with default settings.
+		const prevModels = (Array.isArray(prev?.models) ? prev.models : []) as {
+			path?: string;
+			url: string;
+			settings?: unknown;
+		}[];
+		const removeModels = form.get('remove_models') === 'on';
+		const modelFiles = form.getAll('model').filter((f): f is File => f instanceof File && f.size > 0);
+		let modelsCleared = false;
+		if (removeModels) {
+			update.models = [];
+			update.model_url = null;
+			update.model_path = null;
+			update.model_settings = null;
+			modelsCleared = true;
+		} else if (modelFiles.length) {
+			const added: { path: string; url: string; settings: object }[] = [];
+			for (const f of modelFiles) {
+				const up = await uploadCardModel(id, f);
+				if ('error' in up) {
+					for (const p of faces.uploadedPaths) await removeCardArt(p);
+					return fail(400, { error: up.error });
+				}
+				added.push({ path: up.path, url: up.url, settings: {} });
+			}
+			update.models = [...prevModels, ...added];
 		}
 
 		// Remove the full-art holo image (clears it; a new upload replaces instead).
@@ -269,6 +358,11 @@ export const actions: Actions = {
 		if (prev?.sound_path && (newSoundPath || removeSound) && prev.sound_path !== newSoundPath) {
 			await removeCardArt(prev.sound_path as string);
 		}
+		// "Remove all models" → delete every old model file (array + legacy single).
+		if (modelsCleared) {
+			for (const m of prevModels) await removeCardArt(m?.path ?? null);
+			await removeCardArt((prev?.model_path as string | null) ?? null);
+		}
 		// Old layer files are orphaned once layers are replaced/cleared — delete them.
 		if (replacedLayers && Array.isArray(prev?.layers)) {
 			for (const l of prev.layers as { path?: string }[]) await removeCardArt(l?.path);
@@ -286,7 +380,7 @@ export const actions: Actions = {
 
 		const { data: existing } = await db()
 			.from('vs_cards')
-			.select('front_path, back_path, holo_path, sound_path, layers')
+			.select('front_path, back_path, holo_path, sound_path, model_path, models, layers')
 			.eq('id', id)
 			.maybeSingle();
 
@@ -297,8 +391,48 @@ export const actions: Actions = {
 		await removeCardArt(existing?.back_path as string | null);
 		await removeCardArt(existing?.holo_path as string | null);
 		await removeCardArt(existing?.sound_path as string | null);
+		await removeCardArt(existing?.model_path as string | null);
+		if (Array.isArray(existing?.models)) {
+			for (const m of existing.models as { path?: string }[]) await removeCardArt(m?.path);
+		}
 		if (Array.isArray(existing?.layers)) {
 			for (const l of existing.layers as { path?: string }[]) await removeCardArt(l?.path);
+		}
+
+		return { ok: true };
+	},
+
+	// Save the 3D models from the visual builder (CardModelBuilder.svelte): the full set
+	// with per-model placement. Deletes the storage files of any models removed in the builder.
+	updateModels: async ({ locals, request }) => {
+		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
+
+		const form = await request.formData();
+		const id = form.get('card_id')?.toString();
+		if (!id) return fail(400, { error: 'Missing id' });
+
+		let raw: unknown;
+		try {
+			raw = JSON.parse(form.get('models')?.toString() ?? '[]');
+		} catch {
+			return fail(400, { error: 'Invalid models' });
+		}
+		const models = sanitizeModels(raw);
+
+		const { data: prev } = await db().from('vs_cards').select('models').eq('id', id).maybeSingle();
+
+		const { error: updErr } = await db()
+			.from('vs_cards')
+			.update({ models, updated_at: new Date().toISOString() })
+			.eq('id', id);
+		if (updErr) return fail(500, { error: updErr.message });
+
+		// Delete storage files for models removed in the builder.
+		const keep = new Set(models.map((m) => m.path).filter(Boolean));
+		if (Array.isArray(prev?.models)) {
+			for (const m of prev.models as { path?: string }[]) {
+				if (m?.path && !keep.has(m.path)) await removeCardArt(m.path);
+			}
 		}
 
 		return { ok: true };
@@ -462,6 +596,42 @@ export const actions: Actions = {
 		const { error: updErr } = await db()
 			.from('vs_card_packs')
 			.update({ released: !prev.released, updated_at: new Date().toISOString() })
+			.eq('id', id);
+		if (updErr) return fail(500, { error: updErr.message });
+
+		return { ok: true };
+	},
+
+	// Flag (or unflag) a pack as the free WEEKLY pack. Single-winner: setting one
+	// clears the flag on every other pack so exactly one weekly freebie is active.
+	toggleWeeklyFree: async ({ locals, request }) => {
+		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
+
+		const form = await request.formData();
+		const id = form.get('id')?.toString();
+		if (!id) return fail(400, { error: 'Missing id' });
+
+		const { data: prev, error: readErr } = await db()
+			.from('vs_card_packs')
+			.select('weekly_free')
+			.eq('id', id)
+			.maybeSingle();
+		if (readErr) return fail(500, { error: readErr.message });
+		if (!prev) return fail(404, { error: 'Pack not found' });
+
+		const next = !prev.weekly_free;
+		if (next) {
+			// Clear any existing weekly pack first (only one at a time).
+			const { error: clearErr } = await db()
+				.from('vs_card_packs')
+				.update({ weekly_free: false, updated_at: new Date().toISOString() })
+				.eq('weekly_free', true);
+			if (clearErr) return fail(500, { error: clearErr.message });
+		}
+
+		const { error: updErr } = await db()
+			.from('vs_card_packs')
+			.update({ weekly_free: next, updated_at: new Date().toISOString() })
 			.eq('id', id);
 		if (updErr) return fail(500, { error: updErr.message });
 

@@ -35,6 +35,39 @@ export interface CardLayer {
 	effect?: LayerEffect | null;
 }
 
+// Which local axis of the model is its "front" (the nose). Used to orient the model
+// for `faceCamera` (point front at the viewer) and `wander` (face the direction of
+// travel) regardless of how the .glb was exported. Default '+z'.
+export type ModelFrontAxis = '+x' | '-x' | '+y' | '-y' | '+z' | '-z';
+
+// Placement / behaviour knobs for one card 3D model (edited in the visual builder).
+// All angles are DEGREES; positions are card units. Lives here (client-safe, no three
+// import) so it can flow through the Card type; cardModel.ts re-exports it.
+export interface CardModelSettings {
+	scale?: number; // multiplier over the auto-fit scale (default 1)
+	offsetX?: number;
+	offsetY?: number;
+	offsetZ?: number; // depth (default = hover/embed z)
+	rotX?: number;
+	rotY?: number;
+	rotZ?: number;
+	spin?: number; // idle auto-spin rad/s about Y (0 = tilt-only)
+	animate?: boolean; // play the embedded GLB clip(s) (default true)
+	clip?: boolean; // embed in the card face + clip anything behind it
+	faceCamera?: boolean; // billboard: front axis points at the camera (e.g. an eye)
+	wander?: boolean; // roam within the card bounds, facing the direction of travel
+	wanderSpeed?: number; // wander movement speed, card units/sec (default ~0.5)
+	frontAxis?: ModelFrontAxis; // which local axis is the model's front (default '+z')
+}
+
+// One placed model on a card. `path` is the storage path (server-side cleanup); the
+// renderers only need `url` + `settings`.
+export interface CardModelEntry {
+	path?: string | null;
+	url: string;
+	settings?: CardModelSettings | null;
+}
+
 export interface Card {
 	id: string;
 	name: string;
@@ -53,6 +86,12 @@ export interface Card {
 	holo_url?: string | null;
 	// Optional sound that plays when the card is revealed in the pack opener.
 	sound_url?: string | null;
+	// LEGACY single 3D model (0038) — superseded by `models` (0039); kept as a fallback.
+	model_url?: string | null;
+	model_settings?: CardModelSettings | null;
+	// Optional Blender .glb models rendered on the card in 3D, each placed independently
+	// via the builder. Source of truth for the renderers (falls back to the single one).
+	models?: CardModelEntry[];
 	// Effective per-pack holo foil textures for the masked finishes (regular /
 	// reverse). When set on the card's pack, holo cards from that pack use these
 	// instead of the shared static star/ripple foils. Resolved by the loaders.
@@ -87,10 +126,25 @@ export function hiddenCard(id: string, rarity: CardRarity): Card {
 		full_art: false,
 		holo_url: null,
 		sound_url: null,
+		model_url: null,
+		model_settings: null,
+		models: [],
 		holo_regular_url: null,
 		holo_reverse_url: null,
 		hidden: true
 	};
+}
+
+// The card's 3D models for the renderers: prefer the `models` array, else fall back to
+// the legacy single model. Client-safe (no three import).
+export function toCardModels(card: {
+	models?: CardModelEntry[] | null;
+	model_url?: string | null;
+	model_settings?: CardModelSettings | null;
+}): CardModelEntry[] {
+	const list = Array.isArray(card.models) ? card.models.filter((m) => m && m.url) : [];
+	if (list.length) return list;
+	return card.model_url ? [{ url: card.model_url, settings: card.model_settings ?? {} }] : [];
 }
 
 export interface RarityMeta {

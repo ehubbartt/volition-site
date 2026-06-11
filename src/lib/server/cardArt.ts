@@ -16,7 +16,8 @@ import {
 	EXT_BY_AUDIO_MIME,
 	MAX_FRONT_BYTES,
 	ALLOWED_FRONT_MIME,
-	EXT_BY_FRONT_MIME
+	EXT_BY_FRONT_MIME,
+	MAX_MODEL_BYTES
 } from '$lib/cards/config';
 import { isLayerEffect, type LayerEffect } from '$lib/cards/layerEffects';
 
@@ -120,6 +121,34 @@ export async function uploadCardSound(
 	const storage = db().storage.from(CARD_ART_BUCKET);
 	const { error: upErr } = await storage.upload(path, file, {
 		contentType: file.type,
+		upsert: false,
+		cacheControl: ART_CACHE_CONTROL
+	});
+	if (upErr) return { error: upErr.message };
+
+	const { data: pub } = storage.getPublicUrl(path);
+	return { path, url: pub.publicUrl };
+}
+
+// Uploads a card's optional 3D model (.glb). Validated by file EXTENSION, not MIME —
+// browsers report GLB inconsistently (model/gltf-binary, application/octet-stream, or
+// empty). Uploaded as-is (no optimize) under cards/{id}-model-{ts}.glb.
+export async function uploadCardModel(
+	id: string,
+	file: File
+): Promise<{ path: string; url: string } | { error: string }> {
+	if (file.size > MAX_MODEL_BYTES) {
+		const mb = Math.round(MAX_MODEL_BYTES / 1_000_000);
+		return { error: `Model too large (max ${mb} MB)` };
+	}
+	if (!/\.glb$/i.test(file.name || '')) {
+		return { error: 'Unsupported model type (upload a .glb file)' };
+	}
+
+	const path = `cards/${id}-model-${Date.now()}.glb`;
+	const storage = db().storage.from(CARD_ART_BUCKET);
+	const { error: upErr } = await storage.upload(path, file, {
+		contentType: 'model/gltf-binary', // normalize regardless of what the browser sent
 		upsert: false,
 		cacheControl: ART_CACHE_CONTROL
 	});

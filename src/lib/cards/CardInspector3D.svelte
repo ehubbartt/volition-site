@@ -13,6 +13,8 @@
 	import { createLayerEffect, type LayerEffectHandle } from '$lib/cards/layerEffects';
 	import { makeEdgeFade } from '$lib/cards/edgeFade';
 	import { loadLayerTexture, type LayerTextureHandle } from '$lib/cards/layerTexture';
+	import { loadCardModel, type CardModelHandle } from '$lib/cards/cardModel';
+	import { toCardModels } from '$lib/cards/rarity';
 	import { isVideoUrl } from '$lib/cards/config';
 
 	let {
@@ -131,10 +133,27 @@
 
 			const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 			renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+			// Lets a model's `clip` setting cut away geometry behind the card face.
+			// No-op for materials without clippingPlanes (the card's own shaders).
+			renderer.localClippingEnabled = true;
 
 			const loader = new THREE.TextureLoader();
 			const group = new THREE.Group();
 			scene.add(group);
+
+			// The card itself uses unlit shader/basic materials, so this scene normally has
+			// NO lights. A .glb model uses PBR (MeshStandardMaterial), which renders BLACK
+			// without lighting — add lights only when the card actually has a model.
+			const cardModels = toCardModels(card);
+			if (cardModels.length) {
+				scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+				const key = new THREE.DirectionalLight(0xffffff, 1.1);
+				key.position.set(3, 5, 6);
+				scene.add(key);
+				const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+				fill.position.set(-4, 2, 4);
+				scene.add(fill);
+			}
 
 			// 1x1 white stand-in so the foil/mask samplers are always bound, even for
 			// a Normal card (uHas = 0 means the shader never reads them).
@@ -336,6 +355,21 @@
 				}
 			});
 
+			// Optional .glb model(s), hovering above the top depth layer. Loaded async; the
+			// `disposed` guard handles the modal closing before they resolve.
+			const modelHandles: CardModelHandle[] = [];
+			{
+				const baseZ = ((card.layers ?? []).length + 1) * LAYER_DEPTH + 0.15;
+				for (const m of cardModels) {
+					loadCardModel(group, m.url, m.settings ?? {}, { cardW: CARD_W, cardH: CARD_H, baseZ, camera }).then(
+						(h) => {
+							if (disposed) h.dispose();
+							else modelHandles.push(h);
+						}
+					);
+				}
+			}
+
 			// ---- Interaction: drag to rotate, tap to flip ----
 			let targetRotY = 0;
 			let targetRotX = 0;
@@ -409,13 +443,13 @@
 				const sway = dragging ? 0 : 1;
 				group.rotation.y = spinY + sway * Math.sin(now * 0.0009) * 0.05;
 				group.rotation.x = spinX + sway * Math.sin(now * 0.0007) * 0.03;
+				const dt = Math.min(0.05, (now - lastNow) / 1000);
 				// Drive per-layer effects by spin speed (0 at rest → no animation).
 				// The raw drag velocity is spiky (pointer events don't land every frame),
 				// so smooth it with a fast attack / slow release: it ramps up quickly,
 				// holds steady between input spikes, and glides back down when you stop —
 				// otherwise the effects flicker.
 				if (fxHandles.length) {
-					const dt = Math.min(0.05, (now - lastNow) / 1000);
 					const d = Math.abs(spinY - prevSpinY) + Math.abs(spinX - prevSpinX);
 					prevSpinY = spinY;
 					prevSpinX = spinX;
@@ -423,6 +457,9 @@
 					spinSpeed = lerp(spinSpeed, target, target > spinSpeed ? 0.25 : 0.05);
 					for (const fx of fxHandles) fx.update({ dt, spin: spinSpeed });
 				}
+				// Play the model's embedded animation (and optional idle spin); it already
+				// inherits the card's tilt as a child of `group`.
+				for (const h of modelHandles) h.update(dt, spinSpeed);
 				lastNow = now;
 				renderer.render(scene, camera);
 			}
@@ -432,6 +469,7 @@
 				cancelAnimationFrame(raf);
 				ro.disconnect();
 				frontHandle?.dispose();
+				for (const h of modelHandles) h.dispose();
 				fxHandles.forEach((fx) => fx.dispose());
 				canvas.removeEventListener('pointerdown', onDown);
 				canvas.removeEventListener('pointermove', onMove);

@@ -7,6 +7,7 @@
 	import CardThumb from '$lib/cards/CardThumb.svelte';
 	import PackThumb from '$lib/cards/PackThumb.svelte';
 	import CardInspector3D from '$lib/cards/CardInspector3D.svelte';
+	import CardModelBuilder from '$lib/cards/CardModelBuilder.svelte';
 	import {
 		RARITIES,
 		RARITY_BY_KEY,
@@ -18,7 +19,7 @@
 		type CardRarity
 	} from '$lib/cards/rarity';
 	import { LAYER_EFFECTS } from '$lib/cards/layerEffects';
-	import { LAYER_ACCEPT, FRONT_ACCEPT, isVideoLayerUrl } from '$lib/cards/config';
+	import { LAYER_ACCEPT, FRONT_ACCEPT, MODEL_ACCEPT, isVideoLayerUrl } from '$lib/cards/config';
 	import type { CardPack } from '$lib/cards/packs';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -34,6 +35,8 @@
 	// Click a card thumbnail to preview it in the full 3D inspector (no need to own
 	// or open it). Finish is unset here, so it shows the base card (no holo).
 	let inspecting = $state<Card | null>(null);
+	// Card whose 3D model is being placed in the builder modal (null = closed).
+	let builderCard = $state<Card | null>(null);
 
 	// ── Grant tab ─────────────────────────────────────────────────────────
 	let grantTarget = $state<'one' | 'all'>('one');
@@ -90,7 +93,10 @@
 			layers: toCardLayers((c as { layers?: unknown }).layers),
 			full_art: !!(c as { full_art?: boolean }).full_art,
 			holo_url: (c as { holo_url?: string | null }).holo_url ?? null,
-			sound_url: (c as { sound_url?: string | null }).sound_url ?? null
+			sound_url: (c as { sound_url?: string | null }).sound_url ?? null,
+			model_url: (c as { model_url?: string | null }).model_url ?? null,
+			model_settings: (c as { model_settings?: Card['model_settings'] }).model_settings ?? null,
+			models: (c as { models?: Card['models'] }).models ?? []
 		};
 	}
 
@@ -300,6 +306,7 @@
 
 {#snippet cardEntry(raw: RawCard)}
 	{@const card = toCard(raw)}
+	{@const modelCount = card.models?.length ?? (card.model_url ? 1 : 0)}
 	<li class="card">
 		<div class="item-head">
 			<button type="button" class="thumb thumb-btn" onclick={() => (inspecting = card)} title="Inspect in 3D">
@@ -458,6 +465,23 @@
 					</label>
 				{/if}
 
+				<label>
+					<span>3D models (optional .glb — add one or more){#if modelCount} · {modelCount} on card{/if}</span>
+					<input name="model" type="file" accept={MODEL_ACCEPT} multiple />
+					<span class="muted small">Export as glTF Binary (.glb), uncompressed (no Draco), low-poly. Uploading appends; place each in the builder.</span>
+				</label>
+				{#if modelCount}
+					<div class="model-row">
+						<button type="button" class="builder-btn" onclick={() => (builderCard = card)}>
+							🎛 Open 3D builder — place, rotate, size &amp; animate ({modelCount})
+						</button>
+						<label class="check">
+							<input type="checkbox" name="remove_models" />
+							<span>Remove all 3D models</span>
+						</label>
+					</div>
+				{/if}
+
 				<button type="submit" class="primary">Save changes</button>
 			</form>
 		</details>
@@ -582,6 +606,12 @@
 					<input name="sound" type="file" accept="audio/*" />
 				</label>
 
+				<label>
+					<span>3D models (optional .glb — add one or more)</span>
+					<input name="model" type="file" accept={MODEL_ACCEPT} multiple />
+					<span class="muted small">Export as glTF Binary (.glb), uncompressed (no Draco), low-poly. Place each in the 3D builder after creating (Edit).</span>
+				</label>
+
 				<button type="submit" class="primary">Create card</button>
 			</form>
 		</details>
@@ -697,6 +727,7 @@
 								<div class="name-row">
 									<strong>{pack.name}</strong>
 									<span class="badge" class:live={raw.released}>{raw.released ? 'Released' : 'Draft'}</span>
+									{#if raw.weekly_free}<span class="badge weekly">Weekly free</span>{/if}
 								</div>
 								<span class="muted">{pack.cost_vp.toLocaleString()} VP · {raw.cards_per_pack} per open</span>
 								<span class="muted small">{cardsInPack(pack.id).length} card{cardsInPack(pack.id).length === 1 ? '' : 's'}</span>
@@ -709,6 +740,12 @@
 									<input type="hidden" name="id" value={pack.id} />
 									<button type="submit" class="toggle">
 										{raw.released ? 'Unrelease' : 'Release'}
+									</button>
+								</form>
+								<form method="POST" action="?/toggleWeeklyFree" use:enhance>
+									<input type="hidden" name="id" value={pack.id} />
+									<button type="submit" class="toggle" title="Free pack everyone can claim once a week">
+										{raw.weekly_free ? 'Unset weekly' : 'Set weekly'}
 									</button>
 								</form>
 								<form method="POST" action="?/deletePack" use:enhance class="delete-form">
@@ -899,6 +936,10 @@
 	<CardInspector3D card={inspecting} onClose={() => (inspecting = null)} allowFinishToggle />
 {/if}
 
+{#if builderCard}
+	<CardModelBuilder card={builderCard} onClose={() => (builderCard = null)} />
+{/if}
+
 <style>
 	h2 {
 		margin: 2rem 0 1rem;
@@ -1009,6 +1050,28 @@
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: 0.75rem;
+	}
+
+	.model-row {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		margin: 0.25rem 0 0.5rem;
+	}
+
+	.builder-btn {
+		align-self: flex-start;
+		padding: 0.45rem 0.8rem;
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-size: 0.88rem;
+		color: var(--accent);
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		border-radius: var(--radius);
+	}
+
+	.builder-btn:hover {
+		background: rgba(255, 152, 31, 0.2);
 	}
 
 	.abilities {
@@ -1303,6 +1366,12 @@
 		border-color: var(--success);
 		color: var(--success);
 		background: var(--success-bg);
+	}
+
+	.badge.weekly {
+		border-color: var(--accent);
+		color: var(--accent);
+		background: var(--accent-soft);
 	}
 
 	.head-actions {
