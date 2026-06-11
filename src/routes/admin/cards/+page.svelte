@@ -19,8 +19,9 @@
 		type CardAbility,
 		type CardRarity
 	} from '$lib/cards/rarity';
-	import { LAYER_EFFECTS } from '$lib/cards/layerEffects';
+	import { LAYER_EFFECTS, isLayerEffect } from '$lib/cards/layerEffects';
 	import { LAYER_ACCEPT, FRONT_ACCEPT, MODEL_ACCEPT, isVideoLayerUrl } from '$lib/cards/config';
+	import { untrack } from 'svelte';
 	import type { CardPack } from '$lib/cards/packs';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -141,6 +142,119 @@
 	const onCreateDone: SubmitFunction = () => async ({ result, update }) => {
 		await update();
 		if (result.type === 'success') drawer = null;
+	};
+
+	// ── 3D depth-layer manager (card edit drawer) ──────────────────────────
+	// Each row is an EXISTING layer (has path/url) or a NEW pending file. The drawer
+	// edits order + depth + recessed + effect per layer; on submit we serialise the
+	// order into `layers_json` and inject the new files (see onEditCard).
+	type LayerRow = {
+		key: string;
+		url: string; // existing url, or a blob: preview url for a new file
+		path: string | null; // existing storage path; null for a new file
+		file: File | null; // set for a new pending layer
+		effect: string; // '' or a LayerEffect key
+		depth: number;
+		inset: boolean;
+		isVideo: boolean;
+	};
+	let layerRows = $state<LayerRow[]>([]);
+	let nextLayerKey = 0;
+	let seededLayerId = '';
+
+	function defaultDepth(index: number): number {
+		return Math.min(0.5, 0.08 * (index + 1));
+	}
+
+	// (Re)build the rows from a card's stored layers, revoking any blob previews first.
+	function seedLayers(c: RawCard | null) {
+		for (const r of layerRows) if (r.file && r.url.startsWith('blob:')) URL.revokeObjectURL(r.url);
+		const raw = (Array.isArray((c as { layers?: unknown } | null)?.layers)
+			? (c as { layers: unknown[] }).layers
+			: []) as { path?: string; url?: string; effect?: string; depth?: number; inset?: boolean }[];
+		layerRows = raw
+			.filter((l) => typeof l.url === 'string' && l.url)
+			.map((l, i) => ({
+				key: `cur-${nextLayerKey++}`,
+				url: l.url as string,
+				path: typeof l.path === 'string' ? l.path : null,
+				file: null,
+				effect: isLayerEffect(l.effect) ? l.effect : '',
+				depth:
+					typeof l.depth === 'number' && Number.isFinite(l.depth) ? l.depth : defaultDepth(i),
+				inset: l.inset === true,
+				isVideo: isVideoLayerUrl(l.url as string)
+			}));
+	}
+
+	// Seed when a different card opens for editing (not on incidental data reloads, so
+	// in-progress edits survive). seedLayers reads layerRows, so untrack the call.
+	$effect(() => {
+		const c = drawer?.type === 'card-edit' ? drawerCard : null;
+		if (!c) {
+			seededLayerId = '';
+			return;
+		}
+		if (seededLayerId !== c.id) {
+			seededLayerId = c.id;
+			untrack(() => seedLayers(c));
+		}
+	});
+
+	function moveLayer(i: number, dir: -1 | 1) {
+		const j = i + dir;
+		if (j < 0 || j >= layerRows.length) return;
+		const tmp = layerRows[i];
+		layerRows[i] = layerRows[j];
+		layerRows[j] = tmp;
+	}
+
+	function removeLayer(i: number) {
+		const [r] = layerRows.splice(i, 1);
+		if (r?.file && r.url.startsWith('blob:')) URL.revokeObjectURL(r.url);
+	}
+
+	function addLayerFiles(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		for (const f of Array.from(input.files ?? [])) {
+			layerRows.push({
+				key: `new-${nextLayerKey++}`,
+				url: URL.createObjectURL(f),
+				path: null,
+				file: f,
+				effect: '',
+				depth: defaultDepth(layerRows.length),
+				inset: false,
+				isVideo: f.type.startsWith('video/')
+			});
+		}
+		input.value = ''; // files live in layerRows now; injected via onEditCard
+	}
+
+	// Card edit submit: serialise the layer order into `layers_json` + inject the new
+	// files as `layer` (with parallel new_layer_* meta), then keep the form's values.
+	const onEditCard: SubmitFunction = ({ formData }) => {
+		formData.delete('layer');
+		formData.delete('new_layer_effect');
+		formData.delete('new_layer_depth');
+		formData.delete('new_layer_inset');
+		const entries = layerRows.map((r) => {
+			if (r.file) {
+				formData.append('layer', r.file);
+				formData.append('new_layer_effect', r.effect || '');
+				formData.append('new_layer_depth', String(r.depth));
+				formData.append('new_layer_inset', String(r.inset));
+				return { new: true, effect: r.effect || null, depth: r.depth, inset: r.inset };
+			}
+			return { path: r.path, url: r.url, effect: r.effect || null, depth: r.depth, inset: r.inset };
+		});
+		formData.set('layers_json', JSON.stringify(entries));
+		return async ({ update, result }) => {
+			await update({ reset: false });
+			// Refresh rows from the saved data so new files become existing layers (no
+			// duplicate re-upload on the next save).
+			if (result.type === 'success' && drawerCard) untrack(() => seedLayers(drawerCard));
+		};
 	};
 
 	// Blank ability rows appended to each form so admins can add more.
@@ -421,7 +535,7 @@
 		method="POST"
 		action={isEdit ? '?/updateCard' : '?/createCard'}
 		enctype="multipart/form-data"
-		use:enhance={isEdit ? keepValues : onCreateDone}
+		use:enhance={isEdit ? onEditCard : onCreateDone}
 		class="edit-form"
 	>
 		{#if isEdit && card}<input type="hidden" name="id" value={card.id} />{/if}
@@ -478,37 +592,54 @@
 			</label>
 		</div>
 
-		<label>
-			<span>
-				3D depth layers (optional, multiple — stacked bottom→top above the front). Images or WEBM/MP4 video.
-				{#if isEdit && raw && layerCount(raw)} · currently {layerCount(raw)}{/if}
-			</span>
-			<input name="layer" type="file" multiple accept={LAYER_ACCEPT} />
-		</label>
-		{#if isEdit && card?.layers && card.layers.length}
+		{#if isEdit}
 			<fieldset class="layer-fx">
-				<legend>Layer effects <span class="muted small">(plays in 3D)</span></legend>
-				{#each card.layers as ly, i}
-					<div class="layer-fx-row">
-						{#if isVideoLayerUrl(ly.url)}
+				<legend>
+					3D depth layers
+					<span class="muted small">(first = bottom; depth = how far off the card; Recessed = sunk into it)</span>
+				</legend>
+				{#if layerRows.length === 0}
+					<p class="muted small">No layers yet — add images/video below.</p>
+				{/if}
+				{#each layerRows as row, i (row.key)}
+					<div class="layer-row">
+						<div class="layer-reorder">
+							<button type="button" class="icon-mini" disabled={i === 0} onclick={() => moveLayer(i, -1)} title="Move up" aria-label="Move up">▲</button>
+							<button type="button" class="icon-mini" disabled={i === layerRows.length - 1} onclick={() => moveLayer(i, 1)} title="Move down" aria-label="Move down">▼</button>
+						</div>
+						{#if row.isVideo}
 							<!-- svelte-ignore a11y_media_has_caption -->
-							<video class="layer-fx-thumb" src={ly.url} muted autoplay loop playsinline></video>
+							<video class="layer-fx-thumb" src={row.url} muted autoplay loop playsinline></video>
 						{:else}
-							<img class="layer-fx-thumb" src={ly.url} alt="Layer {i + 1}" />
+							<img class="layer-fx-thumb" src={row.url} alt="Layer {i + 1}" />
 						{/if}
-						<span class="muted small">Layer {i + 1} (bottom→top)</span>
-						<select name="existing_layer_effect">
-							<option value="" selected={!ly.effect}>None</option>
-							{#each LAYER_EFFECTS as fx}
-								<option value={fx.key} selected={ly.effect === fx.key}>{fx.label}</option>
-							{/each}
-						</select>
+						<div class="layer-controls">
+							<label class="layer-depth">
+								<span>{row.inset ? 'Depth into card' : 'Height off card'}: {row.depth.toFixed(2)}</span>
+								<input type="range" min="0.02" max="0.5" step="0.01" bind:value={row.depth} />
+							</label>
+							<div class="layer-ctl-row">
+								<label class="check"><input type="checkbox" bind:checked={row.inset} /><span>Recessed</span></label>
+								<select bind:value={row.effect} class="layer-effect" aria-label="Layer effect">
+									<option value="">No effect</option>
+									{#each LAYER_EFFECTS as fx}
+										<option value={fx.key}>{fx.label}</option>
+									{/each}
+								</select>
+								<button type="button" class="icon-mini danger" onclick={() => removeLayer(i)} title="Delete layer" aria-label="Delete layer">🗑</button>
+							</div>
+						</div>
 					</div>
 				{/each}
+				<label class="add-layers">
+					<span>Add layers (image or WEBM/MP4 — placed at the bottom; reorder above)</span>
+					<input type="file" multiple accept={LAYER_ACCEPT} onchange={addLayerFiles} />
+				</label>
 			</fieldset>
-			<label class="check">
-				<input type="checkbox" name="clear_layers" />
-				<span>Remove all 3D layers</span>
+		{:else}
+			<label>
+				<span>3D depth layers (optional, multiple — stacked bottom→top above the front). Images or WEBM/MP4 video.</span>
+				<input name="layer" type="file" multiple accept={LAYER_ACCEPT} />
 			</label>
 		{/if}
 
@@ -1414,20 +1545,98 @@
 		gap: 0.5rem;
 	}
 
-	.layer-fx-row {
+	/* Per-layer manager row: reorder | thumb | controls. */
+	.layer-row {
 		display: grid;
-		grid-template-columns: auto 1fr auto;
+		grid-template-columns: auto auto 1fr;
 		align-items: center;
 		gap: 0.6rem;
+		padding: 0.4rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--surface-alt);
+	}
+
+	.layer-reorder {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+	}
+
+	.icon-mini {
+		width: 1.5rem;
+		height: 1.4rem;
+		padding: 0;
+		min-height: 0;
+		font-size: 0.7rem;
+		line-height: 1;
+		border: 1px solid var(--border);
+		border-radius: 0.25rem;
+		background: var(--surface);
+		cursor: pointer;
+	}
+
+	.icon-mini:hover:not(:disabled) {
+		border-color: var(--accent);
+	}
+
+	.icon-mini:disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
+
+	.icon-mini.danger {
+		color: var(--danger);
+	}
+
+	.icon-mini.danger:hover {
+		border-color: var(--danger);
+		background: var(--danger-bg);
 	}
 
 	.layer-fx-thumb {
-		width: 2rem;
-		height: 2rem;
+		width: 2.75rem;
+		height: 2.75rem;
 		object-fit: cover;
 		border-radius: 0.3rem;
 		border: 1px solid var(--border);
 		background: var(--surface);
+	}
+
+	.layer-controls {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		min-width: 0;
+	}
+
+	.layer-depth {
+		gap: 0.15rem;
+	}
+
+	.layer-depth span {
+		font-size: 0.75rem;
+	}
+
+	.layer-depth input[type='range'] {
+		width: 100%;
+	}
+
+	.layer-ctl-row {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		flex-wrap: wrap;
+	}
+
+	.layer-effect {
+		width: auto;
+		flex: 0 0 auto;
+		padding: 0.2rem 0.3rem;
+	}
+
+	.add-layers {
+		margin-top: 0.25rem;
 	}
 
 	/* One block per slot (= one card in the open). */

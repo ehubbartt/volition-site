@@ -17,7 +17,13 @@
     type CardFinish,
     type FinishMeta,
   } from "$lib/cards/finishes";
-  import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG, LAYER_GLOW_FRAG } from "$lib/cards/holo";
+  import {
+    HOLO_VERT,
+    HOLO_FRAG,
+    LAYER_SHADOW_FRAG,
+    LAYER_RECESS_FRAG,
+    LAYER_GLOW_FRAG,
+  } from "$lib/cards/holo";
   import { createLayerEffect, type LayerEffectHandle } from "$lib/cards/layerEffects";
   import { makeEdgeFade } from "$lib/cards/edgeFade";
   import { loadLayerTexture, type LayerTextureHandle } from "$lib/cards/layerTexture";
@@ -1054,8 +1060,102 @@
         const myShadowMats: THREE.ShaderMaterial[] = [];
         const myDepthObjs: THREE.Object3D[] = [];
         const myLayerFx: LayerEffectHandle[] = [];
+        // Glow-effect handle for a layer plane `lp` whose texture lives in `texRef`
+        // (works for both the MeshBasic raised layer and the recess ShaderMaterial).
+        const makeLayerGlow =
+          (
+            lp: THREE.Mesh,
+            baseZ: number,
+            texRef: { value: THREE.Texture | null },
+            glowMaps: { value: THREE.Texture | null }[],
+          ) =>
+          ({ blur }: { blur: number }) => {
+            const gmat = new THREE.ShaderMaterial({
+              uniforms: {
+                map: { value: texRef.value },
+                uIntensity: { value: 0 },
+                uBlur: { value: new THREE.Vector2(blur, blur) },
+                uFeather: { value: new THREE.Vector2(0.12, 0.12) },
+                uTint: { value: new THREE.Color(1, 1, 1) },
+              },
+              vertexShader: HOLO_VERT,
+              fragmentShader: LAYER_GLOW_FRAG,
+              transparent: true,
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+            });
+            glowMaps.push(gmat.uniforms.map);
+            const gmesh = new THREE.Mesh(cardGeo, gmat);
+            gmesh.position.z = baseZ + 0.002;
+            gmesh.renderOrder = 4;
+            m.add(gmesh);
+            myDepthObjs.push(gmesh);
+            return {
+              setIntensity: (v: number) => (gmat.uniforms.uIntensity.value = v),
+              dispose: () => {
+                m.remove(gmesh);
+                gmat.dispose();
+              },
+            };
+          };
         (c.layers ?? []).forEach((ly, li) => {
-          const h = (li + 1) * LAYER_DEPTH;
+          const depth = ly.depth ?? (li + 1) * LAYER_DEPTH;
+          const glowMaps: { value: THREE.Texture | null }[] = [];
+
+          if (ly.inset) {
+            // Recessed: a flat plane GLUED to the surface; depth is faked in the shader
+            // (parallax within its footprint + walls + rim) so it never spills past the
+            // card edge and stays attached. Opacity tracks the front via onBeforeRender.
+            const rmat = new THREE.ShaderMaterial({
+              uniforms: {
+                map: { value: null },
+                uOpacity: { value: 0 },
+                uDepth: { value: Math.min(0.18, depth / CARD_H) },
+                uLight: { value: new THREE.Vector2(-SHADOW_DIR.x * 0.02, -SHADOW_DIR.y * 0.02) },
+              },
+              vertexShader: HOLO_VERT,
+              fragmentShader: LAYER_RECESS_FRAG,
+              transparent: true,
+              depthWrite: false,
+            });
+            layerTexHandles.push(
+              loadLayerTexture(loader, ly.url, (t) => {
+                t.colorSpace = THREE.SRGBColorSpace;
+                rmat.uniforms.map.value = t;
+                for (const g of glowMaps) g.value = t;
+                if (!disposed) {
+                  try {
+                    renderer.initTexture(t);
+                  } catch {
+                    /* perf hint only */
+                  }
+                }
+              }),
+            );
+            const z = 0.001 * (li + 1);
+            const lp = new THREE.Mesh(cardGeo, rmat);
+            lp.position.z = z;
+            lp.renderOrder = 2;
+            lp.onBeforeRender = () => {
+              rmat.uniforms.uOpacity.value = (m.material as THREE.ShaderMaterial).uniforms.uOpacity.value;
+            };
+            m.add(lp);
+            myDepthObjs.push(lp);
+            if (ly.effect) {
+              myLayerFx.push(
+                createLayerEffect(ly.effect, {
+                  mesh: lp,
+                  baseZ: z,
+                  index: li,
+                  makeGlow: makeLayerGlow(lp, z, rmat.uniforms.map, glowMaps),
+                }),
+              );
+            }
+            return;
+          }
+
+          // Raised (default): plane above the card + outward drop shadow.
+          const h = depth;
           const lm = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
           if (edgeFade) lm.alphaMap = edgeFade;
           const sm = new THREE.ShaderMaterial({
@@ -1069,13 +1169,13 @@
             transparent: true,
             depthWrite: false,
           });
-          // Glow-effect materials for this layer share the texture once it loads.
-          const glowMaps: { value: THREE.Texture | null }[] = [];
+          const texRef: { value: THREE.Texture | null } = { value: null };
           const applyLayer = (t: THREE.Texture) => {
             t.colorSpace = THREE.SRGBColorSpace;
             lm.map = t;
             lm.needsUpdate = true;
             sm.uniforms.map.value = t; // shadow reuses the layer texture (alpha)
+            texRef.value = t;
             for (const g of glowMaps) g.value = t;
             if (!disposed) {
               try {
@@ -1086,8 +1186,7 @@
             }
           };
           layerTexHandles.push(loadLayerTexture(loader, ly.url, applyLayer));
-          // Force draw order front(0) → shadow(1) → layer(2) so the transparency
-          // sort never flips the shadow behind the front (which made it vanish).
+          // draw order front(0) → shadow(1) → layer(2)
           const shadow = new THREE.Mesh(cardGeo, sm);
           shadow.position.set(SHADOW_DIR.x * h * 1.1, SHADOW_DIR.y * h * 1.1, 0.002 + li * 0.0015);
           shadow.renderOrder = 1;
@@ -1105,35 +1204,7 @@
                 mesh: lp,
                 baseZ: h,
                 index: li,
-                makeGlow: ({ blur }) => {
-                  const gmat = new THREE.ShaderMaterial({
-                    uniforms: {
-                      map: { value: lm.map },
-                      uIntensity: { value: 0 },
-                      uBlur: { value: new THREE.Vector2(blur, blur) },
-                      uFeather: { value: new THREE.Vector2(0.12, 0.12) },
-                      uTint: { value: new THREE.Color(1, 1, 1) },
-                    },
-                    vertexShader: HOLO_VERT,
-                    fragmentShader: LAYER_GLOW_FRAG,
-                    transparent: true,
-                    blending: THREE.AdditiveBlending,
-                    depthWrite: false,
-                  });
-                  glowMaps.push(gmat.uniforms.map);
-                  const gmesh = new THREE.Mesh(cardGeo, gmat);
-                  gmesh.position.z = h + 0.002;
-                  gmesh.renderOrder = 3;
-                  m.add(gmesh);
-                  myDepthObjs.push(gmesh);
-                  return {
-                    setIntensity: (v) => (gmat.uniforms.uIntensity.value = v),
-                    dispose: () => {
-                      m.remove(gmesh);
-                      gmat.dispose();
-                    },
-                  };
-                },
+                makeGlow: makeLayerGlow(lp, h, texRef, glowMaps),
               }),
             );
           }
@@ -1153,7 +1224,12 @@
         {
           const ms = toCardModels(c);
           if (ms.length) {
-            const baseZ = ((c.layers ?? []).length + 1) * LAYER_DEPTH + 0.15;
+            // Float models above the highest RAISED layer (recessed layers sit below).
+            const maxRaised = (c.layers ?? []).reduce(
+              (mx, ly, li) => (ly.inset ? mx : Math.max(mx, ly.depth ?? (li + 1) * LAYER_DEPTH)),
+              0,
+            );
+            const baseZ = maxRaised + LAYER_DEPTH + 0.15;
             for (const mm of ms) {
               loadCardModel(m, mm.url, mm.settings ?? {}, { cardW: CARD_W, cardH: CARD_H, baseZ, camera }).then(
                 (h) => {

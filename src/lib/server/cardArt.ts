@@ -163,24 +163,34 @@ export async function uploadCardModel(
 // optional parallel array of animation-effect keys (see layerEffects.ts); invalid
 // entries fall back to no effect. On any error, anything uploaded in this call is
 // rolled back. Empty file slots are skipped.
+export interface UploadedLayer {
+	path: string;
+	url: string;
+	effect: LayerEffect | null;
+	depth: number | null;
+	inset: boolean;
+}
+
 export async function uploadCardLayers(
 	id: string,
 	files: File[],
-	effects: (string | null | undefined)[] = []
-): Promise<{
-	layers: { path: string; url: string; effect: LayerEffect | null }[];
-	uploadedPaths: string[];
-} | { error: string }> {
+	effects: (string | null | undefined)[] = [],
+	depths: (number | null | undefined)[] = [],
+	insets: (boolean | undefined)[] = [],
+	// Storage-path suffix offset so appended layers don't collide with kept ones
+	// (each upload becomes `${id}-layer${startIndex + i}-{ts}.{ext}`).
+	startIndex = 0
+): Promise<{ layers: UploadedLayer[]; uploadedPaths: string[] } | { error: string }> {
 	const real = files.filter((f) => f instanceof File && f.size > 0);
 	if (real.length > MAX_CARD_LAYERS) {
 		return { error: `Too many layers (max ${MAX_CARD_LAYERS})` };
 	}
 
-	const layers: { path: string; url: string; effect: LayerEffect | null }[] = [];
+	const layers: UploadedLayer[] = [];
 	const uploadedPaths: string[] = [];
 
 	for (let i = 0; i < real.length; i++) {
-		const result = await uploadCardArt('cards', `${id}-layer${i}`, real[i], {
+		const result = await uploadCardArt('cards', `${id}-layer${startIndex + i}`, real[i], {
 			allowedMime: ALLOWED_LAYER_MIME,
 			maxBytes: MAX_LAYER_BYTES,
 			extMap: EXT_BY_LAYER_MIME,
@@ -191,7 +201,13 @@ export async function uploadCardLayers(
 			return { error: result.error };
 		}
 		const effect = effects[i];
-		layers.push({ ...result, effect: isLayerEffect(effect) ? effect : null });
+		const depth = depths[i];
+		layers.push({
+			...result,
+			effect: isLayerEffect(effect) ? effect : null,
+			depth: typeof depth === 'number' && Number.isFinite(depth) ? depth : null,
+			inset: insets[i] === true
+		});
 		uploadedPaths.push(result.path);
 	}
 

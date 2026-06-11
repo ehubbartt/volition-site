@@ -33,6 +33,12 @@ export interface CardAbility {
 export interface CardLayer {
 	url: string;
 	effect?: LayerEffect | null;
+	// How far off the card this layer sits, in card-space units (same scale as the
+	// renderers' LAYER_DEPTH ≈ 0.08). null/undefined → falls back to index spacing.
+	depth?: number | null;
+	// Recessed: the layer sinks INTO the card (inverted parallax + inner shadow) so it
+	// reads like looking into a crevasse, instead of being raised above the surface.
+	inset?: boolean;
 }
 
 // Which local axis of the model is its "front" (the nose). Used to orient the model
@@ -199,9 +205,9 @@ export const RARE_RARITIES: CardRarity[] = RARITIES.filter((_, i) => i >= RARE_M
 	(r) => r.key
 );
 
-// Normalises a stored `vs_cards.layers` jsonb value (an array of {path, url, effect})
-// to the client-safe CardLayer[] (url + optional effect), dropping anything without
-// a url and invalid effect keys.
+// Normalises a stored `vs_cards.layers` jsonb value (an array of {path, url, effect,
+// depth, inset}) to the client-safe CardLayer[] (url + optional effect/depth/inset),
+// dropping anything without a url and invalid effect keys.
 export function toCardLayers(raw: unknown): CardLayer[] {
 	if (!Array.isArray(raw)) return [];
 	const out: CardLayer[] = [];
@@ -209,7 +215,14 @@ export function toCardLayers(raw: unknown): CardLayer[] {
 		const url = (l as { url?: unknown })?.url;
 		if (typeof url === 'string' && url) {
 			const effect = (l as { effect?: unknown })?.effect;
-			out.push({ url, effect: isLayerEffect(effect) ? effect : null });
+			const rawDepth = (l as { depth?: unknown })?.depth;
+			const depth = typeof rawDepth === 'number' && Number.isFinite(rawDepth) ? rawDepth : null;
+			out.push({
+				url,
+				effect: isLayerEffect(effect) ? effect : null,
+				depth,
+				inset: (l as { inset?: unknown })?.inset === true
+			});
 		}
 	}
 	return out;

@@ -10,7 +10,13 @@
 		HOLO_BORDER_MASK_URL,
 		type CardFinish
 	} from '$lib/cards/finishes';
-	import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG, LAYER_GLOW_FRAG } from '$lib/cards/holo';
+	import {
+		HOLO_VERT,
+		HOLO_FRAG,
+		LAYER_SHADOW_FRAG,
+		LAYER_RECESS_FRAG,
+		LAYER_GLOW_FRAG
+	} from '$lib/cards/holo';
 	import { createLayerEffect, type LayerEffectHandle } from '$lib/cards/layerEffects';
 	import { makeEdgeFade } from '$lib/cards/edgeFade';
 	import { loadLayerTexture, type LayerTextureHandle } from '$lib/cards/layerTexture';
@@ -291,8 +297,92 @@
 			const layerTexHandles: LayerTextureHandle[] = [];
 			// Live per-layer animation effects (see layerEffects.ts), updated each frame.
 			const fxHandles: LayerEffectHandle[] = [];
+			// Build a glow-effect handle for a layer plane `lp` whose texture lives in
+			// `texRef` (so it works for both the MeshBasic raised layer and the recess
+			// ShaderMaterial). Shared by both branches below.
+			const makeLayerGlow = (
+				lp: THREE.Mesh,
+				baseZ: number,
+				texRef: { value: THREE.Texture | null },
+				glowMaps: { value: THREE.Texture | null }[]
+			) => ({ blur }: { blur: number }) => {
+				const gmat = new THREE.ShaderMaterial({
+					uniforms: {
+						map: { value: texRef.value },
+						uIntensity: { value: 0 },
+						uBlur: { value: new THREE.Vector2(blur, blur) },
+						uFeather: { value: new THREE.Vector2(0.12, 0.12) },
+						uTint: { value: new THREE.Color(1, 1, 1) }
+					},
+					vertexShader: HOLO_VERT,
+					fragmentShader: LAYER_GLOW_FRAG,
+					transparent: true,
+					blending: THREE.AdditiveBlending,
+					depthWrite: false
+				});
+				glowMaps.push(gmat.uniforms.map);
+				const gmesh = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), gmat);
+				gmesh.position.z = baseZ + 0.002;
+				gmesh.renderOrder = 4;
+				group.add(gmesh);
+				return {
+					setIntensity: (v: number) => (gmat.uniforms.uIntensity.value = v),
+					dispose: () => {
+						group.remove(gmesh);
+						gmesh.geometry.dispose();
+						gmat.dispose();
+					}
+				};
+			};
+
 			(card.layers ?? []).forEach((ly, i) => {
-				const h = (i + 1) * LAYER_DEPTH;
+				const depth = ly.depth ?? (i + 1) * LAYER_DEPTH;
+				const glowMaps: { value: THREE.Texture | null }[] = [];
+
+				if (ly.inset) {
+					// Recessed: a flat plane GLUED to the card surface; the depth is faked in
+					// the shader (parallax of the image within its own footprint + dark walls
+					// + a rim shadow), so it reads as a hole in the card — it never spills past
+					// the edge and stays attached as you turn it.
+					const rmat = new THREE.ShaderMaterial({
+						uniforms: {
+							map: { value: null },
+							uOpacity: { value: 1 },
+							uDepth: { value: Math.min(0.18, depth / CARD_H) },
+							uLight: { value: new THREE.Vector2(-SHADOW_DIR.x * 0.02, -SHADOW_DIR.y * 0.02) }
+						},
+						vertexShader: HOLO_VERT,
+						fragmentShader: LAYER_RECESS_FRAG,
+						transparent: true,
+						depthWrite: false
+					});
+					layerTexHandles.push(
+						loadLayerTexture(loader, ly.url, (t) => {
+							t.colorSpace = THREE.SRGBColorSpace;
+							rmat.uniforms.map.value = t;
+							for (const m of glowMaps) m.value = t;
+						})
+					);
+					const z = 0.001 * (i + 1); // glued just above the front
+					const lp = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), rmat);
+					lp.position.z = z;
+					lp.renderOrder = 2;
+					group.add(lp);
+					if (ly.effect) {
+						fxHandles.push(
+							createLayerEffect(ly.effect, {
+								mesh: lp,
+								baseZ: z,
+								index: i,
+								makeGlow: makeLayerGlow(lp, z, rmat.uniforms.map, glowMaps)
+							})
+						);
+					}
+					return;
+				}
+
+				// Raised (default): a plane above the card + a soft outward drop shadow.
+				const h = depth;
 				const lm = new THREE.MeshBasicMaterial({ transparent: true });
 				if (edgeFade) lm.alphaMap = edgeFade;
 				const sm = new THREE.ShaderMaterial({
@@ -306,14 +396,14 @@
 					transparent: true,
 					depthWrite: false
 				});
-				// Glow-effect materials for this layer share the layer texture once it loads.
-				const glowMaps: { value: THREE.Texture | null }[] = [];
+				const texRef: { value: THREE.Texture | null } = { value: null };
 				layerTexHandles.push(
 					loadLayerTexture(loader, ly.url, (t) => {
 						t.colorSpace = THREE.SRGBColorSpace;
 						lm.map = t;
 						lm.needsUpdate = true;
 						sm.uniforms.map.value = t; // shadow reuses the layer texture (alpha)
+						texRef.value = t;
 						for (const m of glowMaps) m.value = t;
 					})
 				);
@@ -323,47 +413,17 @@
 				shadow.position.set(SHADOW_DIR.x * h * 1.1, SHADOW_DIR.y * h * 1.1, 0.002 + i * 0.0015);
 				shadow.renderOrder = 1;
 				group.add(shadow);
-				// the layer itself, raised above the card
 				const lp = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), lm);
 				lp.position.z = h;
 				lp.renderOrder = 2;
 				group.add(lp);
-
 				if (ly.effect) {
 					fxHandles.push(
 						createLayerEffect(ly.effect, {
 							mesh: lp,
 							baseZ: h,
 							index: i,
-							makeGlow: ({ blur }) => {
-								const gmat = new THREE.ShaderMaterial({
-									uniforms: {
-										map: { value: lm.map },
-										uIntensity: { value: 0 },
-										uBlur: { value: new THREE.Vector2(blur, blur) },
-										uFeather: { value: new THREE.Vector2(0.12, 0.12) },
-										uTint: { value: new THREE.Color(1, 1, 1) }
-									},
-									vertexShader: HOLO_VERT,
-									fragmentShader: LAYER_GLOW_FRAG,
-									transparent: true,
-									blending: THREE.AdditiveBlending,
-									depthWrite: false
-								});
-								glowMaps.push(gmat.uniforms.map);
-								const gmesh = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), gmat);
-								gmesh.position.z = h + 0.002;
-								gmesh.renderOrder = 3;
-								group.add(gmesh);
-								return {
-									setIntensity: (v) => (gmat.uniforms.uIntensity.value = v),
-									dispose: () => {
-										group.remove(gmesh);
-										gmesh.geometry.dispose();
-										gmat.dispose();
-									}
-								};
-							}
+							makeGlow: makeLayerGlow(lp, h, texRef, glowMaps)
 						})
 					);
 				}
@@ -373,7 +433,12 @@
 			// `disposed` guard handles the modal closing before they resolve.
 			const modelHandles: CardModelHandle[] = [];
 			{
-				const baseZ = ((card.layers ?? []).length + 1) * LAYER_DEPTH + 0.15;
+				// Float models above the highest RAISED layer (recessed layers sit below).
+				const maxRaised = (card.layers ?? []).reduce(
+					(mx, ly, i) => (ly.inset ? mx : Math.max(mx, ly.depth ?? (i + 1) * LAYER_DEPTH)),
+					0
+				);
+				const baseZ = maxRaised + LAYER_DEPTH + 0.15;
 				for (const m of cardModels) {
 					loadCardModel(group, m.url, m.settings ?? {}, { cardW: CARD_W, cardH: CARD_H, baseZ, camera }).then(
 						(h) => {

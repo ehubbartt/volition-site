@@ -46,6 +46,43 @@ export const LAYER_SHADOW_FRAG = `
 	}
 `;
 
+// Recessed depth layer (the 'inset' look) — a flat plane glued to the card surface
+// that fakes a sunk-in well in the shader, so it never spills past the card edge and
+// stays attached as you turn it (the old negative-z plane floated + clipped over the
+// card). The layer's own alpha is the WINDOW (the opening); inside it we sample the
+// image PARALLAXED by the surface tilt (it shifts within the fixed opening, reading as
+// the bottom of a well), show a dark WALL where the parallaxed sample leaves the shape,
+// and darken the lit inner edge with a RIM shadow (the overhang). Outside the window we
+// discard so the card front shows through. uDepth = parallax strength (uv per unit
+// tilt); uLight = uv offset toward the light for the rim; uOpacity = card fade.
+export const LAYER_RECESS_FRAG = `
+	uniform sampler2D map;
+	uniform float uOpacity;
+	uniform float uDepth;
+	uniform vec2 uLight;
+	varying vec2 vUv;
+	varying vec3 vNormal;
+	vec3 lin2srgb(vec3 c) {
+		c = clamp(c, 0.0, 1.0);
+		return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+	}
+	void main() {
+		float window = texture2D(map, vUv).a; // the opening (this layer's footprint)
+		if (window < 0.004) discard;           // outside the hole → show the card front
+		vec3 N = normalize(vNormal);
+		vec2 tilt = N.xy;                       // surface tilt in view space
+		// the image sits at the bottom of the well; parallax it with the tilt so it
+		// shifts WITHIN the fixed opening (depth cue), clipped by the window.
+		vec4 inner = texture2D(map, vUv + tilt * uDepth);
+		vec3 wall = vec3(0.015, 0.015, 0.02);  // dark recess wall (linear) where the image slid away
+		vec3 col = mix(wall, inner.rgb, inner.a);
+		// rim/overhang shadow: darken just inside the lit edge, following the shape
+		float lip = window * (1.0 - texture2D(map, vUv + uLight).a);
+		col *= (1.0 - 0.5 * lip);
+		gl_FragColor = vec4(lin2srgb(col), window * uOpacity);
+	}
+`;
+
 // Soft additive glow for a depth layer (the 'glow' layer effect). Blurs the layer
 // texture and emits it additively, tinted, so the glow follows the layer's SHAPE
 // (a lightning PNG glows along the bolt — transparent pixels add nothing, no SVG

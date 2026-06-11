@@ -2,10 +2,18 @@ import { redirect, error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isCardTester } from '$lib/server/auth';
-import { uploadCardFaces, uploadCardLayers, uploadCardSound, uploadCardModel, removeCardArt } from '$lib/server/cardArt';
+import {
+	uploadCardFaces,
+	uploadCardLayers,
+	uploadCardSound,
+	uploadCardModel,
+	removeCardArt,
+	type UploadedLayer
+} from '$lib/server/cardArt';
 import { grantUserPack } from '$lib/server/gamba';
 import { isValidRarity, RARITIES, DEFAULT_RARITY, type CardAbility } from '$lib/cards/rarity';
-import { isLayerEffect } from '$lib/cards/layerEffects';
+import { isLayerEffect, type LayerEffect } from '$lib/cards/layerEffects';
+import { MAX_CARD_LAYERS } from '$lib/cards/config';
 import type { Actions, PageServerLoad } from './$types';
 
 // Cap on a single manual pack grant (the "Grant" tab).
@@ -309,35 +317,74 @@ export const actions: Actions = {
 			update.holo_url = null;
 		}
 
-		// 3D depth layers: the "clear" toggle empties them; uploading any layer files
-		// REPLACES the whole set (bottom→top in upload order); otherwise the per-layer
-		// effect dropdowns update each existing layer's animation effect IN PLACE
-		// (keeping its image, so no re-upload is needed just to change an effect).
-		const clearLayers = form.get('clear_layers') === 'on';
-		const layerFiles = form.getAll('layer').filter((f): f is File => f instanceof File && f.size > 0);
-		let replacedLayers = false;
-		if (clearLayers) {
-			update.layers = [];
-			replacedLayers = true;
-		} else if (layerFiles.length) {
-			const layerEffects = form.getAll('layer_effect').map((v) => v.toString());
-			const up = await uploadCardLayers(id, layerFiles, layerEffects);
-			if ('error' in up) {
+		// 3D depth layers — managed individually by the edit drawer. `layers_json` is the
+		// ordered list of KEPT existing layers ({path,url,effect,depth,inset}); files in
+		// `layer` are NEW layers appended after them (with parallel new_layer_* metadata).
+		// Any prior layer file not in the final set is an orphan to delete. Absent
+		// layers_json = leave layers untouched (e.g. the simple create-form path).
+		const prevLayerPaths = Array.isArray(prev?.layers)
+			? (prev.layers as { path?: string }[]).map((l) => l?.path).filter((p): p is string => !!p)
+			: [];
+		let finalLayerPaths: string[] | null = null; // null = layers untouched
+		const layersJson = form.get('layers_json');
+		if (typeof layersJson === 'string') {
+			// Each entry is either an EXISTING layer (has url/path) or a placeholder for a
+			// NEW file ({new:true}); the `layer` files fill the new slots left→right, so the
+			// final order matches the drawer exactly (existing + new can interleave).
+			let entries: {
+				new?: boolean;
+				path?: string;
+				url?: string;
+				effect?: unknown;
+				depth?: unknown;
+				inset?: unknown;
+			}[] = [];
+			try {
+				const parsed = JSON.parse(layersJson);
+				if (Array.isArray(parsed)) entries = parsed;
+			} catch {
+				return fail(400, { error: 'Bad layers data' });
+			}
+
+			const keepCount = entries.filter((e) => e && (e.new === true || typeof e.url === 'string')).length;
+			if (keepCount > MAX_CARD_LAYERS) {
 				for (const p of faces.uploadedPaths) await removeCardArt(p);
-				return fail(400, { error: up.error });
+				return fail(400, { error: `Too many layers (max ${MAX_CARD_LAYERS})` });
 			}
-			update.layers = up.layers;
-			replacedLayers = true;
-		} else {
-			// No new files / not clearing — apply per-existing-layer effect edits.
-			const effects = form.getAll('existing_layer_effect').map((v) => v.toString());
-			if (effects.length && Array.isArray(prev?.layers) && prev.layers.length) {
-				update.layers = (prev.layers as { path?: string; url?: string }[]).map((l, i) => ({
-					path: l.path,
-					url: l.url,
-					effect: isLayerEffect(effects[i]) ? effects[i] : null
-				}));
+
+			// Upload the new files (in order); they map onto the {new:true} slots.
+			const newFiles = form.getAll('layer').filter((f): f is File => f instanceof File && f.size > 0);
+			let uploaded: UploadedLayer[] = [];
+			if (newFiles.length) {
+				const fx = form.getAll('new_layer_effect').map((v) => v.toString());
+				const dp = form.getAll('new_layer_depth').map((v) => Number(v.toString()));
+				const ins = form.getAll('new_layer_inset').map((v) => v.toString() === 'true');
+				const up = await uploadCardLayers(id, newFiles, fx, dp, ins, prevLayerPaths.length);
+				if ('error' in up) {
+					for (const p of faces.uploadedPaths) await removeCardArt(p);
+					return fail(400, { error: up.error });
+				}
+				uploaded = up.layers;
 			}
+
+			let ni = 0;
+			const finalLayers: UploadedLayer[] = [];
+			for (const e of entries) {
+				if (e && e.new === true) {
+					const u = uploaded[ni++];
+					if (u) finalLayers.push(u);
+				} else if (e && typeof e.url === 'string') {
+					finalLayers.push({
+						path: typeof e.path === 'string' ? e.path : e.url,
+						url: e.url,
+						effect: isLayerEffect(e.effect) ? (e.effect as LayerEffect) : null,
+						depth: typeof e.depth === 'number' && Number.isFinite(e.depth) ? e.depth : null,
+						inset: e.inset === true
+					});
+				}
+			}
+			update.layers = finalLayers;
+			finalLayerPaths = finalLayers.map((l) => l.path).filter((p): p is string => !!p);
 		}
 
 		const { error: updErr } = await db().from('vs_cards').update(update).eq('id', id);
@@ -365,9 +412,11 @@ export const actions: Actions = {
 			for (const m of prevModels) await removeCardArt(m?.path ?? null);
 			await removeCardArt((prev?.model_path as string | null) ?? null);
 		}
-		// Old layer files are orphaned once layers are replaced/cleared — delete them.
-		if (replacedLayers && Array.isArray(prev?.layers)) {
-			for (const l of prev.layers as { path?: string }[]) await removeCardArt(l?.path);
+		// Any prior layer file no longer in the final set (removed/replaced) is orphaned.
+		if (finalLayerPaths) {
+			for (const p of prevLayerPaths) {
+				if (!finalLayerPaths.includes(p)) await removeCardArt(p);
+			}
 		}
 
 		return { ok: true };
