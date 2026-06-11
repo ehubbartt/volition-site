@@ -751,7 +751,7 @@
 {#snippet cardTile(raw: RawCard)}
 	{@const card = toCard(raw)}
 	<li class="tile">
-		<button type="button" class="tile-main" onclick={() => (drawer = { type: 'card-edit', id: card.id })} title="Edit {card.name}">
+		<button type="button" class="tile-main" onclick={() => (inspecting = card)} title="Inspect {card.name} in 3D">
 			<div class="tile-thumb"><CardThumb {card} flip={false} /></div>
 			<span class="tile-name">{card.name}</span>
 			<span class="tile-rarity" style="--rc: {RARITY_BY_KEY[card.rarity]?.color}">{card.rarity}{#if card.level} · lvl {card.level}{/if}</span>
@@ -762,12 +762,8 @@
 				{#if card.sound_url}<span class="tag">🔊</span>{/if}
 			</span>
 		</button>
-		<div class="tile-controls">
-			<button type="button" class="icon-btn" title="Inspect in 3D" onclick={() => (inspecting = card)}>🔍</button>
-			<form method="POST" action="?/deleteCard" use:enhance>
-				<input type="hidden" name="id" value={card.id} />
-				<button type="submit" class="icon-btn danger" title="Delete" onclick={(e) => { if (!confirm(`Delete "${card.name}"?`)) e.preventDefault(); }}>🗑</button>
-			</form>
+		<div class="tile-foot">
+			<button type="button" class="mini" onclick={() => (drawer = { type: 'card-edit', id: card.id })}>Edit</button>
 		</div>
 	</li>
 {/snippet}
@@ -950,6 +946,16 @@
 					{@render cardForm(null, null)}
 				{:else if drawer.type === 'card-edit' && drawerCard}
 					{@render cardForm(toCard(drawerCard), drawerCard)}
+					<form method="POST" action="?/deleteCard" use:enhance class="danger-zone">
+						<input type="hidden" name="id" value={drawerCard.id} />
+						<button
+							type="submit"
+							class="danger"
+							onclick={(e) => { if (!confirm(`Delete "${drawerCard?.name}"?`)) e.preventDefault(); }}
+						>
+							Delete card
+						</button>
+					</form>
 				{:else if drawer.type === 'pack-new'}
 					{@render packCreateForm()}
 				{:else if drawer.type === 'pack-edit' && drawerPack}
@@ -1193,49 +1199,10 @@
 		margin: 0.1rem 0;
 	}
 
-	/* Hover-revealed corner controls on card tiles. */
-	.tile-controls {
-		position: absolute;
-		top: 0.35rem;
-		right: 0.35rem;
-		display: flex;
-		gap: 0.25rem;
-		opacity: 0;
-		transition: opacity 0.12s;
-	}
-
-	.tile-controls form {
-		margin: 0;
-	}
-
-	.tile:hover .tile-controls,
-	.tile:focus-within .tile-controls {
-		opacity: 1;
-	}
-
-	.icon-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 1.7rem;
-		height: 1.7rem;
-		padding: 0;
-		min-height: 0;
-		font-size: 0.85rem;
-		line-height: 1;
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		background: rgba(20, 16, 12, 0.85);
-		cursor: pointer;
-	}
-
-	.icon-btn:hover {
-		border-color: var(--accent);
-	}
-
-	.icon-btn.danger:hover {
-		border-color: var(--danger);
-		background: var(--danger-bg);
+	/* Edit button below a card tile. */
+	.tile-foot {
+		padding: 0 0.5rem 0.5rem;
+		margin-top: auto;
 	}
 
 	/* ── Pack tile footer ── */
@@ -1698,6 +1665,17 @@
 	button.danger {
 		border-color: var(--danger);
 		color: var(--danger);
+	}
+
+	button.danger:hover {
+		background: var(--danger-bg);
+	}
+
+	/* Card delete, separated at the bottom of the edit drawer. */
+	.danger-zone {
+		margin-top: 1rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border);
 	}
 
 	@media (max-width: 540px) {
