@@ -108,11 +108,11 @@ async function weeklyPackTask(user: SessionUser): Promise<PlayerTask | null> {
 		status: claimed ? 'done' : 'todo',
 		title: 'Weekly free pack',
 		description: claimed ? 'Claimed this week' : `Claim your free ${pack.name}`,
-		href: '/tasks',
-		ctaLabel: claimed ? 'Claimed' : 'Claim pack',
+		// Claimed on the gamba store (like the daily crate); this is just the nudge/link.
+		href: '/gamba',
+		ctaLabel: claimed ? 'Go to packs' : 'Claim pack',
 		resetAt: nextWeeklyResetIso(),
-		reward: pack.name,
-		claimAction: claimed ? null : 'claimWeeklyPack'
+		reward: pack.name
 	};
 }
 

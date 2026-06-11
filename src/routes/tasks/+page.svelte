@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
 	import { formatCountdown, type PlayerTask } from '$lib/tasks';
 	import type { PageData } from './$types';
 
@@ -14,20 +12,6 @@
 	});
 
 	const todoCount = $derived(data.tasks.filter((t) => t.status === 'todo').length);
-
-	// Inline claim (e.g. the weekly free pack): post the task's claimAction, then
-	// reload the list so the card flips to "done".
-	let claiming = $state<string | null>(null); // task id currently claiming
-	let claimError = $state<string | null>(null);
-	const claimEnhance: (id: string) => SubmitFunction = (id) => () => {
-		claiming = id;
-		claimError = null;
-		return async ({ result, update }) => {
-			if (result.type === 'failure') claimError = (result.data?.error as string) ?? 'Could not claim.';
-			claiming = null;
-			await update(); // re-run load → the claimed card becomes "done"
-		};
-	};
 
 	const STATUS_LABEL: Record<PlayerTask['status'], string> = {
 		todo: 'To do',
@@ -93,42 +77,24 @@
 {#if data.tasks.length === 0}
 	<div class="panel empty">Nothing time-gated right now. Check back later!</div>
 {:else}
-	{#if claimError}
-		<div class="panel claim-error">{claimError}</div>
-	{/if}
 	<ul class="task-list">
 		{#each data.tasks as t (t.id)}
 			<li>
-				{#if t.claimAction && t.status === 'todo'}
-					<!-- Inline claim (weekly free pack): a form, not a link. -->
-					<form method="POST" action="?/{t.claimAction}" use:enhance={claimEnhance(t.id)} class="task panel">
-						{@render taskMain(t)}
-						<div class="task-cta">
-							{#if t.resetAt}
-								<span class="reset">{resetLabel(t)} <strong>{countdownFor(t)}</strong></span>
-							{/if}
-							<button type="submit" class="cta cta-btn" disabled={claiming === t.id}>
-								{claiming === t.id ? 'Claiming…' : t.ctaLabel}
-							</button>
-						</div>
-					</form>
-				{:else}
-					<a
-						class="task panel"
-						class:is-done={t.status === 'done'}
-						href={t.href}
-						target={t.external ? '_blank' : undefined}
-						rel={t.external ? 'noopener noreferrer' : undefined}
-					>
-						{@render taskMain(t)}
-						<div class="task-cta">
-							{#if t.resetAt}
-								<span class="reset">{resetLabel(t)} <strong>{countdownFor(t)}</strong></span>
-							{/if}
-							<span class="cta">{t.ctaLabel} →</span>
-						</div>
-					</a>
-				{/if}
+				<a
+					class="task panel"
+					class:is-done={t.status === 'done'}
+					href={t.href}
+					target={t.external ? '_blank' : undefined}
+					rel={t.external ? 'noopener noreferrer' : undefined}
+				>
+					{@render taskMain(t)}
+					<div class="task-cta">
+						{#if t.resetAt}
+							<span class="reset">{resetLabel(t)} <strong>{countdownFor(t)}</strong></span>
+						{/if}
+						<span class="cta">{t.ctaLabel} →</span>
+					</div>
+				</a>
 			</li>
 		{/each}
 	</ul>
@@ -280,29 +246,6 @@
 		font-family: var(--font-heading);
 		color: var(--accent);
 		font-size: 0.9rem;
-	}
-	.cta-btn {
-		font-family: var(--font-heading);
-		color: var(--accent);
-		font-size: 0.9rem;
-		background: var(--accent-soft);
-		border: 1px solid var(--accent);
-		border-radius: var(--radius);
-		padding: 0.35rem 0.8rem;
-		cursor: pointer;
-	}
-	.cta-btn:hover:not(:disabled) {
-		background: rgba(255, 152, 31, 0.22);
-	}
-	.cta-btn:disabled {
-		opacity: 0.6;
-		cursor: default;
-	}
-	.claim-error {
-		padding: 0.7rem 0.9rem;
-		margin-bottom: 0.7rem;
-		color: var(--danger);
-		border-color: var(--danger);
 	}
 
 	@media (max-width: 540px) {

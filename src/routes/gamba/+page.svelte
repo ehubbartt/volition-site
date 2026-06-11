@@ -14,6 +14,7 @@
   import { SFX_CRATE_SPIN, SFX_TICK, SFX_TOCK } from "$lib/cards/sfx";
   import { isVideoUrl } from "$lib/cards/config";
   import { prefersReducedMotion, detectWebgl } from "$lib/cards/glCapabilities";
+  import { DEFAULT_PACK_FRONT } from "$lib/cards/packs";
   import { rsnToSlug } from "$lib/rsn";
 
   let { data }: { data: PageData } = $props();
@@ -50,6 +51,41 @@
       /* ignore */
     }
   }
+
+  // ---- Free weekly pack claim (clan members, once per week) ----
+  let weeklyBusy = $state(false);
+  let weeklyError = $state<string | null>(null);
+  const submitWeekly: SubmitFunction = () => {
+    weeklyBusy = true;
+    weeklyError = null;
+    return async ({ result, update }) => {
+      if (result.type === "failure") {
+        weeklyError =
+          (result.data?.weeklyError as string) ?? "Could not claim the pack.";
+      }
+      weeklyBusy = false;
+      // Refresh claim status + inventory (the claimed pack now shows as owned).
+      await update({ reset: false });
+    };
+  };
+
+  // "Prefer 2D packs" — show flat pack images instead of the rotating 3D packs in
+  // the store grid (saved per-browser). Lighter on weak devices, or just preference.
+  let noAnim = $state(false);
+  onMount(() => {
+    try {
+      noAnim = localStorage.getItem("vs_gamba_no_anim") === "1";
+    } catch {
+      /* ignore */
+    }
+  });
+  $effect(() => {
+    try {
+      localStorage.setItem("vs_gamba_no_anim", noAnim ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  });
 
   // Warm the browser cache for the store packs' art so opening one is instant (even
   // before it scrolls into view / before three loads it). Skip when there's no WebGL —
@@ -533,6 +569,11 @@
   }
 
   let freeCountdown = $derived(formatCountdown(msUntilNextUtcMidnight(now)));
+  let weeklyCountdown = $derived(
+    data.weeklyPack
+      ? formatCountdown(new Date(data.weeklyPack.resetAt).getTime() - now)
+      : "",
+  );
 
   function submitCrate(which: "free" | "paid"): SubmitFunction {
     return () => {
@@ -625,6 +666,52 @@
       <div class="error">{errorMsg}</div>
     {/if}
 
+    {#if data.weeklyPack}
+      <div class="weekly-pack">
+        <img
+          class="wp-art"
+          src={data.weeklyPack.front_url || DEFAULT_PACK_FRONT}
+          alt={data.weeklyPack.name}
+        />
+        <div class="wp-body">
+          <h2>Free weekly pack</h2>
+          <p class="muted">
+            A free <strong>{data.weeklyPack.name}</strong> every week.
+            {#if data.weeklyPack.claimedThisWeek}
+              Next one in <span class="cd">{weeklyCountdown}</span>.
+            {/if}
+          </p>
+          {#if !data.weeklyPack.isMember}
+            <span class="muted small">Only Volition clan members can claim the weekly pack.</span>
+          {:else}
+            <form method="POST" action="?/claimWeeklyPack" use:enhance={submitWeekly}>
+              <button
+                type="submit"
+                class="primary"
+                disabled={!data.weeklyPack.claimable || weeklyBusy}
+              >
+                {#if weeklyBusy}
+                  Claiming…
+                {:else if data.weeklyPack.claimedThisWeek}
+                  Claimed · {weeklyCountdown}
+                {:else}
+                  Claim free pack
+                {/if}
+              </button>
+            </form>
+          {/if}
+          {#if weeklyError}<span class="warn small">{weeklyError}</span>{/if}
+        </div>
+      </div>
+    {/if}
+
+    <div class="pack-tools">
+      <label class="anim-toggle" title="Show flat pack images instead of the rotating 3D packs">
+        <input type="checkbox" bind:checked={noAnim} />
+        <span>2D packs (no animation)</span>
+      </label>
+    </div>
+
     <div class="store" class:no-rail={data.recentRares.length === 0}>
       <div class="main">
         {#if data.packs.length === 0 && data.teaserPacks.length === 0}
@@ -643,11 +730,20 @@
                   pack.card_count === 0}
               >
                 <div class="pack-art">
-                  <PackDisplay3D
-                    front={pack.front_url}
-                    back={pack.back_url}
-                    name={pack.name}
-                  />
+                  {#if noAnim}
+                    <img
+                      class="pack-flat"
+                      src={pack.front_url || DEFAULT_PACK_FRONT}
+                      alt={pack.name}
+                      loading="lazy"
+                    />
+                  {:else}
+                    <PackDisplay3D
+                      front={pack.front_url}
+                      back={pack.back_url}
+                      name={pack.name}
+                    />
+                  {/if}
                   <span class="pack-tag">{pack.cards_per_pack} per open</span>
                   {#if owned > 0}
                     <span class="owned-tag">{owned} in inventory</span>
@@ -743,11 +839,20 @@
             {#each data.teaserPacks as pack (pack.id)}
               <article class="pack teaser">
                 <div class="pack-art">
-                  <PackDisplay3D
-                    front={pack.front_url}
-                    back={pack.back_url}
-                    name={pack.name}
-                  />
+                  {#if noAnim}
+                    <img
+                      class="pack-flat"
+                      src={pack.front_url || DEFAULT_PACK_FRONT}
+                      alt={pack.name}
+                      loading="lazy"
+                    />
+                  {:else}
+                    <PackDisplay3D
+                      front={pack.front_url}
+                      back={pack.back_url}
+                      name={pack.name}
+                    />
+                  {/if}
                   <span class="lock-tag">🔒 Coming soon</span>
                 </div>
                 <div class="body">
@@ -1201,6 +1306,70 @@
 
   .empty p {
     margin: 0.25rem 0;
+  }
+
+  /* Free weekly pack claim banner (Packs tab) */
+  .weekly-pack {
+    display: flex;
+    align-items: center;
+    gap: 1.1rem;
+    padding: 1.1rem 1.25rem;
+    margin-bottom: 1.25rem;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card);
+  }
+  .wp-art {
+    flex: 0 0 auto;
+    width: 4.5rem;
+    aspect-ratio: 5 / 7;
+    object-fit: contain;
+    border-radius: var(--radius);
+  }
+  .wp-body {
+    min-width: 0;
+  }
+  .wp-body h2 {
+    margin: 0 0 0.2rem;
+    color: var(--accent);
+    text-shadow: var(--ts);
+    font-size: 1.1rem;
+  }
+  .wp-body p {
+    margin: 0 0 0.6rem;
+    font-size: 0.9rem;
+  }
+  .wp-body .primary {
+    width: auto;
+  }
+  .wp-body .warn {
+    display: block;
+    margin-top: 0.4rem;
+  }
+
+  /* "Prefer 2D packs" toggle + the flat pack image it switches to */
+  .pack-tools {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.75rem;
+  }
+  .anim-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  .anim-toggle input {
+    accent-color: var(--accent);
+  }
+  .pack-flat {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
   }
 
   .pack-grid {

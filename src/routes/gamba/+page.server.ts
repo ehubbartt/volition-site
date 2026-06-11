@@ -9,6 +9,14 @@ import {
 	getLastLootDate
 } from '$lib/server/playerStats';
 import { grantCards, grantUserPack, logPackOpen, makeSlotRoller, rollOnePack, type CardGrant } from '$lib/server/gamba';
+import { isClanMember } from '$lib/server/clan';
+import {
+	getWeeklyFreePack,
+	getWeeklyClaimAt,
+	claimedThisWeek,
+	claimWeeklyPack as runWeeklyClaim
+} from '$lib/server/weeklyPack';
+import { nextWeeklyResetIso } from '$lib/tasks';
 import { getLootConfig, isPaidCrateEnabled, rollLoot, type LootConfig, type LootResult } from '$lib/server/lootcrate';
 import { logLootcrateOpen, isRareDrop } from '$lib/server/lootcrateAnalytics';
 import { sendBotMessage } from '$lib/server/botBridge';
@@ -474,7 +482,38 @@ export const load: PageServerLoad = async ({ locals }) => {
 		pulledAt: r.pulled_at
 	}));
 
-	return { vp_balance, packs, teaserPacks, recentRares, crate, recentCrateDrops };
+	// Free weekly pack (claimed here, like the daily crate). Show the admin-flagged
+	// pack + this user's claim status; clan-membership is re-checked in the action.
+	const weeklyFreePack = await getWeeklyFreePack();
+	let weeklyPack:
+		| {
+				name: string;
+				front_url: string | null;
+				back_url: string | null;
+				claimedThisWeek: boolean;
+				claimable: boolean;
+				isMember: boolean;
+				resetAt: string;
+		  }
+		| null = null;
+	if (weeklyFreePack) {
+		const [claimAt, member] = await Promise.all([
+			getWeeklyClaimAt(locals.user.id),
+			isClanMember(locals.user.discord_id, locals.user.rsn)
+		]);
+		const claimed = claimedThisWeek(claimAt);
+		weeklyPack = {
+			name: weeklyFreePack.name,
+			front_url: weeklyFreePack.front_url,
+			back_url: weeklyFreePack.back_url,
+			claimedThisWeek: claimed,
+			claimable: member && !claimed,
+			isMember: member,
+			resetAt: nextWeeklyResetIso()
+		};
+	}
+
+	return { vp_balance, packs, teaserPacks, recentRares, crate, recentCrateDrops, weeklyPack };
 };
 
 // A pack's roll-relevant columns (shared by the VP open and the inventory open).
@@ -590,6 +629,25 @@ async function refundUserPack(userId: string, packId: string): Promise<void> {
 }
 
 export const actions: Actions = {
+	// Claim the free weekly pack (clan members; once per week). On success the load
+	// re-runs → the card flips to "Claimed" and the pack appears in inventory.
+	claimWeeklyPack: async ({ locals }) => {
+		if (!locals.user) throw error(401, 'Sign in first');
+		const res = await runWeeklyClaim(locals.user);
+		if (!res.ok) {
+			const msg =
+				res.reason === 'already'
+					? "You've already claimed this week's pack — back after the weekly reset."
+					: res.reason === 'not_member'
+						? 'Only Volition clan members can claim the weekly pack.'
+						: res.reason === 'none'
+							? 'There is no weekly pack available right now.'
+							: 'Could not claim the weekly pack — please try again.';
+			return fail(400, { weeklyError: msg });
+		}
+		return { weeklyOk: true, claimed: res.packName };
+	},
+
 	open: async ({ locals, request }) => {
 		if (!locals.user) throw error(401, 'Sign in first');
 

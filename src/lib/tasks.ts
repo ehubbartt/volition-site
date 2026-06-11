@@ -27,9 +27,6 @@ export interface PlayerTask {
 	// true → render the link as target=_blank rel=noopener (Discord/WOM).
 	external?: boolean;
 	progress?: { done: number; total: number } | null;
-	// When set (and status is 'todo'), the /tasks page renders this card as an inline
-	// claim FORM posting to `?/<claimAction>` instead of a link (e.g. 'claimWeeklyPack').
-	claimAction?: string | null;
 }
 
 // Does this task count toward the "To Do" nav notification badge? Only items that
