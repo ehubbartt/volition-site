@@ -1,6 +1,6 @@
 import { redirect, error } from '@sveltejs/kit';
 import { selectAll } from '$lib/server/db';
-import { isCardTester } from '$lib/server/auth';
+import { isCardAdmin } from '$lib/server/auth';
 import { RARITIES, isValidRarity, DEFAULT_RARITY } from '$lib/cards/rarity';
 import type { PageServerLoad } from './$types';
 
@@ -55,7 +55,7 @@ export interface PlayerStat {
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
-	if (!isCardTester(locals.user)) throw error(403, 'Not allowed');
+	if (!isCardAdmin(locals.user)) throw error(403, 'Not allowed');
 
 	// Page through every row (PostgREST caps a plain .select() at 1000) so the
 	// rarity/SR pull counts and per-player totals reflect the FULL history, not just

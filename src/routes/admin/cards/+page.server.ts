@@ -1,7 +1,7 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
-import { isCardTester } from '$lib/server/auth';
+import { isCardTester, isCardAdmin } from '$lib/server/auth';
 import {
 	uploadCardFaces,
 	uploadCardLayers,
@@ -21,7 +21,10 @@ const MAX_QTY = 100;
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
-	if (!isCardTester(locals.user)) throw error(403, 'Not allowed');
+	// Admins may VIEW (read-only editors + the grant/test tools); only card testers
+	// can create/edit/delete the catalog (canEdit gates the editing UI + write actions).
+	if (!isCardAdmin(locals.user)) throw error(403, 'Not allowed');
+	const canEdit = isCardTester(locals.user);
 
 	const [cardsRes, packsRes, membersRes] = await Promise.all([
 		db()
@@ -45,7 +48,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (packsRes.error) throw error(500, packsRes.error.message);
 	if (membersRes.error) throw error(500, membersRes.error.message);
 
-	return { cards: cardsRes.data ?? [], packs: packsRes.data ?? [], members: membersRes.data ?? [] };
+	return { cards: cardsRes.data ?? [], packs: packsRes.data ?? [], members: membersRes.data ?? [], canEdit };
 };
 
 /* ------------------------------- Cards ------------------------------- */
@@ -719,7 +722,8 @@ export const actions: Actions = {
 	// whose user_id FKs vs_users — so only members who've SIGNED INTO THE SITE can
 	// receive (the bot's `players` roster alone isn't enough).
 	grantPacks: async ({ locals, request }) => {
-		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
+		// "Other feature" — admins may grant packs too (editing the catalog still can't).
+		if (!locals.user || !isCardAdmin(locals.user)) throw error(403, 'Not allowed');
 
 		const form = await request.formData();
 		const packId = form.get('pack_id')?.toString();

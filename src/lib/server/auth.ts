@@ -86,9 +86,9 @@ export function isAdmin(user: SessionUser | null): boolean {
 	return adminIds.includes(user.discord_id);
 }
 
-// Separate allow-list (env var CARD_TESTER_DISCORD_IDS) for the in-progress card
-// game. Intentionally INDEPENDENT of ADMIN_DISCORD_IDS — being a general admin
-// grants no card access; only ids in this list can see/test the card features.
+// Separate allow-list (env var CARD_TESTER_DISCORD_IDS) for the card game. A card
+// tester has FULL access (create/edit/delete cards & packs). Intentionally
+// INDEPENDENT of ADMIN_DISCORD_IDS for that full access.
 export function isCardTester(user: SessionUser | null): boolean {
 	if (!user) return false;
 	const ids = (env.CARD_TESTER_DISCORD_IDS ?? '')
@@ -96,4 +96,11 @@ export function isCardTester(user: SessionUser | null): boolean {
 		.map((s) => s.trim())
 		.filter(Boolean);
 	return ids.includes(user.discord_id);
+}
+
+// VIEW-level access to the Cards & Packs admin area: general admins may open it
+// (read-only card/pack editors + the grant/test/sim/stats tools), while editing the
+// catalog still requires the card-tester role (isCardTester). Either role qualifies.
+export function isCardAdmin(user: SessionUser | null): boolean {
+	return isAdmin(user) || isCardTester(user);
 }

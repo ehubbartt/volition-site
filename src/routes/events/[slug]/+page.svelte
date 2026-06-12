@@ -139,7 +139,8 @@
 					<button type="submit" class="primary">Join event</button>
 				</form>
 			</div>
-		{:else if onTeam}
+		{:else}
+			{#if onTeam}
 			<div class="card team-card">
 				<div class="team-card-head">
 					<h2>Your team</h2>
@@ -267,6 +268,7 @@
 					</ul>
 				</div>
 			{/if}
+			{/if}
 
 			<div class="card">
 				<div class="section-head">
@@ -278,7 +280,13 @@
 						bind:value={poolQuery}
 					/>
 				</div>
-				<p class="muted">Players without a duo. Invite anyone to team up.</p>
+				<p class="muted">
+					{#if onTeam}
+						Players without a duo — you're already on a team, so you can't invite, but here's who's still waiting.
+					{:else}
+						Players without a duo. Invite anyone to team up.
+					{/if}
+				</p>
 
 				{#if data.soloPool.length === 0}
 					<p class="muted">No one waiting right now — invite a friend to sign up!</p>
@@ -299,10 +307,12 @@
 											<strong>{p.rsn ?? p.discord_username}</strong>
 											<span class="muted">— {p.discord_username}</span>
 										</div>
-										<form method="POST" action="?/inviteUser" use:enhance>
-											<input type="hidden" name="user_id" value={p.user_id} />
-											<button type="submit" class="primary">Invite</button>
-										</form>
+										{#if !onTeam}
+											<form method="POST" action="?/inviteUser" use:enhance>
+												<input type="hidden" name="user_id" value={p.user_id} />
+												<button type="submit" class="primary">Invite</button>
+											</form>
+										{/if}
 									</li>
 								{/each}
 							</ul>

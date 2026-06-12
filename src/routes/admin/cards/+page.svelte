@@ -26,6 +26,11 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
+	// Card testers get full CRUD; general admins get VIEW-only on the card/pack editors
+	// (the create/edit/delete affordances are hidden and the forms render disabled).
+	// The grant tab + the pack-test/sim/stats tools stay available to both.
+	const canEdit = $derived(data.canEdit);
+
 	type Tab = 'cards' | 'packs' | 'grant';
 	// The active tab is driven by the URL (?tab=) so the shared CardsTabs bar can
 	// link between it and the sibling tool routes (pack tester/sim/stats).
@@ -539,6 +544,7 @@
 		class="edit-form"
 	>
 		{#if isEdit && card}<input type="hidden" name="id" value={card.id} />{/if}
+		<fieldset class="form-ro" disabled={!canEdit}>
 		<label>
 			<span>Name</span>
 			<input name="name" type="text" required value={card?.name ?? ''} placeholder="The Great Olm" />
@@ -701,8 +707,11 @@
 				</label>
 			</div>
 		{/if}
+		</fieldset>
 
-		<button type="submit" class="primary">{isEdit ? 'Save changes' : 'Create card'}</button>
+		{#if canEdit}
+			<button type="submit" class="primary">{isEdit ? 'Save changes' : 'Create card'}</button>
+		{/if}
 	</form>
 {/snippet}
 
@@ -721,7 +730,7 @@
 						<span class="mini-name">{card.name}</span>
 						<span class="muted small" style="--rc: {RARITY_BY_KEY[card.rarity]?.color}">{card.rarity}{#if card.level} · lvl {card.level}{/if}</span>
 					</div>
-					<button type="button" class="mini-edit" onclick={() => (drawer = { type: 'card-edit', id: card.id })}>Edit</button>
+					<button type="button" class="mini-edit" onclick={() => (drawer = { type: 'card-edit', id: card.id })}>{canEdit ? 'Edit' : 'View'}</button>
 				</li>
 			{/each}
 		</ul>
@@ -731,6 +740,7 @@
 <!-- ── Pack create form (drawer) ── -->
 {#snippet packCreateForm()}
 	<form method="POST" action="?/createPack" enctype="multipart/form-data" use:enhance={onCreateDone} class="edit-form">
+		<fieldset class="form-ro" disabled={!canEdit}>
 		<label>
 			<span>Name</span>
 			<input name="name" type="text" required placeholder="Standard Pack" />
@@ -777,7 +787,10 @@
 				<input name="holo_reverse" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
 			</label>
 		</div>
-		<button type="submit" class="primary">Create pack</button>
+		</fieldset>
+		{#if canEdit}
+			<button type="submit" class="primary">Create pack</button>
+		{/if}
 	</form>
 {/snippet}
 
@@ -786,6 +799,7 @@
 	{@const pack = toPack(raw)}
 	<form method="POST" action="?/updatePack" enctype="multipart/form-data" use:enhance={keepValues} class="edit-form">
 		<input type="hidden" name="id" value={pack.id} />
+		<fieldset class="form-ro" disabled={!canEdit}>
 		<label>
 			<span>Name</span>
 			<input name="name" type="text" required value={pack.name} />
@@ -873,8 +887,10 @@
 				</label>
 			{/if}
 		</fieldset>
-
-		<button type="submit" class="primary">Save changes</button>
+		</fieldset>
+		{#if canEdit}
+			<button type="submit" class="primary">Save changes</button>
+		{/if}
 	</form>
 {/snippet}
 
@@ -894,7 +910,7 @@
 			</span>
 		</button>
 		<div class="tile-foot">
-			<button type="button" class="mini" onclick={() => (drawer = { type: 'card-edit', id: card.id })}>Edit</button>
+			<button type="button" class="mini" onclick={() => (drawer = { type: 'card-edit', id: card.id })}>{canEdit ? 'Edit' : 'View'}</button>
 		</div>
 	</li>
 {/snippet}
@@ -904,7 +920,7 @@
 	{@const pack = toPack(raw)}
 	{@const n = cardsInPack(pack.id).length}
 	<li class="tile pack-tile">
-		<button type="button" class="tile-main" onclick={() => (drawer = { type: 'pack-edit', id: pack.id })} title="Edit {pack.name}">
+		<button type="button" class="tile-main" onclick={() => (drawer = { type: 'pack-edit', id: pack.id })} title="{canEdit ? 'Edit' : 'View'} {pack.name}">
 			<div class="tile-thumb pack"><PackThumb {pack} flip={false} /></div>
 			<span class="tile-name">{pack.name}</span>
 			<span class="tile-badges">
@@ -913,25 +929,31 @@
 			</span>
 			<span class="muted small">{pack.cost_vp.toLocaleString()} VP · {raw.cards_per_pack}/open · {n} card{n === 1 ? '' : 's'}</span>
 		</button>
-		<div class="pack-actions">
-			<form method="POST" action="?/toggleRelease" use:enhance>
-				<input type="hidden" name="id" value={pack.id} />
-				<button type="submit" class="mini">{raw.released ? 'Unrelease' : 'Release'}</button>
-			</form>
-			<form method="POST" action="?/toggleWeeklyFree" use:enhance>
-				<input type="hidden" name="id" value={pack.id} />
-				<button type="submit" class="mini" title="Free pack everyone can claim once a week">{raw.weekly_free ? 'Unset weekly' : 'Set weekly'}</button>
-			</form>
-			<form method="POST" action="?/deletePack" use:enhance>
-				<input type="hidden" name="id" value={pack.id} />
-				<button type="submit" class="mini danger" onclick={(e) => { if (!confirm(`Delete "${pack.name}"?`)) e.preventDefault(); }}>Delete</button>
-			</form>
-		</div>
+		{#if canEdit}
+			<div class="pack-actions">
+				<form method="POST" action="?/toggleRelease" use:enhance>
+					<input type="hidden" name="id" value={pack.id} />
+					<button type="submit" class="mini">{raw.released ? 'Unrelease' : 'Release'}</button>
+				</form>
+				<form method="POST" action="?/toggleWeeklyFree" use:enhance>
+					<input type="hidden" name="id" value={pack.id} />
+					<button type="submit" class="mini" title="Free pack everyone can claim once a week">{raw.weekly_free ? 'Unset weekly' : 'Set weekly'}</button>
+				</form>
+				<form method="POST" action="?/deletePack" use:enhance>
+					<input type="hidden" name="id" value={pack.id} />
+					<button type="submit" class="mini danger" onclick={(e) => { if (!confirm(`Delete "${pack.name}"?`)) e.preventDefault(); }}>Delete</button>
+				</form>
+			</div>
+		{/if}
 	</li>
 {/snippet}
 
 <section>
 	<CardsTabs />
+
+	{#if !canEdit && (tab === 'cards' || tab === 'packs')}
+		<p class="ro-note">👁 View-only — creating, editing and deleting cards &amp; packs requires the card tester role. You can still grant packs and use the pack tester/simulator/stats.</p>
+	{/if}
 
 	{#if form?.error && !drawer}
 		<div class="error">{form.error}</div>
@@ -967,7 +989,9 @@
 					<button type="button" class="ghost small" onclick={collapseAllGroups}>Collapse all</button>
 				</div>
 			{/if}
-			<button type="button" class="primary new-btn" disabled={data.packs.length === 0} onclick={() => (drawer = { type: 'card-new' })}>+ New card</button>
+			{#if canEdit}
+				<button type="button" class="primary new-btn" disabled={data.packs.length === 0} onclick={() => (drawer = { type: 'card-new' })}>+ New card</button>
+			{/if}
 		</div>
 
 		{#if cardGroups.length === 0}
@@ -996,7 +1020,9 @@
 		<div class="toolbar">
 			<input class="search" type="search" placeholder="Search packs…" bind:value={packSearch} aria-label="Search packs" />
 			<span class="result-count">{visiblePacks.length} pack{visiblePacks.length === 1 ? '' : 's'}</span>
-			<button type="button" class="primary new-btn" onclick={() => (drawer = { type: 'pack-new' })}>+ New pack</button>
+			{#if canEdit}
+				<button type="button" class="primary new-btn" onclick={() => (drawer = { type: 'pack-new' })}>+ New pack</button>
+			{/if}
 		</div>
 
 		{#if visiblePacks.length === 0}
@@ -1077,16 +1103,18 @@
 					{@render cardForm(null, null)}
 				{:else if drawer.type === 'card-edit' && drawerCard}
 					{@render cardForm(toCard(drawerCard), drawerCard)}
-					<form method="POST" action="?/deleteCard" use:enhance class="danger-zone">
-						<input type="hidden" name="id" value={drawerCard.id} />
-						<button
-							type="submit"
-							class="danger"
-							onclick={(e) => { if (!confirm(`Delete "${drawerCard?.name}"?`)) e.preventDefault(); }}
-						>
-							Delete card
-						</button>
-					</form>
+					{#if canEdit}
+						<form method="POST" action="?/deleteCard" use:enhance class="danger-zone">
+							<input type="hidden" name="id" value={drawerCard.id} />
+							<button
+								type="submit"
+								class="danger"
+								onclick={(e) => { if (!confirm(`Delete "${drawerCard?.name}"?`)) e.preventDefault(); }}
+							>
+								Delete card
+							</button>
+						</form>
+					{/if}
 				{:else if drawer.type === 'pack-new'}
 					{@render packCreateForm()}
 				{:else if drawer.type === 'pack-edit' && drawerPack}
@@ -1134,6 +1162,28 @@
 		padding: 0.6rem 0.8rem;
 		border-radius: 4px;
 		margin-bottom: 1rem;
+	}
+
+	/* View-only (non-card-tester admin) banner on the Cards/Packs tabs. */
+	.ro-note {
+		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid var(--border);
+		color: var(--muted);
+		padding: 0.55rem 0.8rem;
+		border-radius: 4px;
+		margin: 0 0 1rem;
+		font-size: 0.9rem;
+	}
+
+	/* Wraps an editor form's controls; `disabled` (admins without the card-tester role)
+	   natively disables every descendant input. display:contents keeps the form's own
+	   grid/flex layout intact (the fieldset itself generates no box). */
+	.form-ro {
+		display: contents;
+		border: 0;
+		margin: 0;
+		padding: 0;
+		min-inline-size: 0;
 	}
 
 	/* ── Toolbar (search + filters + new) ── */
