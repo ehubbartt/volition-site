@@ -112,7 +112,7 @@ export const actions: Actions = {
 			}
 		}
 
-		const { error: dErr } = await decideSubmissions({
+		const { error: dErr, changedIds } = await decideSubmissions({
 			source: source as SubmissionSource,
 			ids,
 			decision: decision as ReviewDecision,
@@ -121,9 +121,12 @@ export const actions: Actions = {
 		});
 		if (dErr) return fail(500, { error: dErr });
 
-		if (grantCtx) {
+		// Only grant VP if THIS request actually flipped at least one row to approved.
+		// If another admin approved the same submission a moment earlier, our update
+		// matched zero rows (changedIds empty) and we must not award again.
+		if (grantCtx && (changedIds?.length ?? 0) > 0) {
 			try {
-				await grantVpForApproval(grantCtx, ids);
+				await grantVpForApproval(grantCtx, changedIds ?? ids);
 			} catch (e) {
 				console.error('[submissions] VP grant failed:', (e as Error).message);
 			}

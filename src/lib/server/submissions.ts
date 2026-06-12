@@ -519,7 +519,7 @@ export async function decideSubmissions({
 	decision: ReviewDecision;
 	reviewerId: string;
 	note: string | null;
-}): Promise<{ error?: string }> {
+}): Promise<{ error?: string; changedIds?: string[] }> {
 	const table = SOURCE_TABLE[source];
 	if (!table) return { error: 'Unknown submission source' };
 	if (ids.length === 0) return { error: 'No submissions to update' };
@@ -540,11 +540,16 @@ export async function decideSubmissions({
 		base.removal_notified = true; // any prior removal is already handled
 	}
 
+	// Conditional update: only flip rows in the right starting state. Combined with the
+	// `.select('id')` this is the concurrency guard — if two admins approve the same row
+	// at once, Postgres row-locking means only ONE update matches `status IN (...)`; the
+	// other returns zero changed rows. The caller grants VP only for rows IT changed, so
+	// a simultaneous double-approve can't double-award.
 	let q = db().from(table).update(base).in('id', ids);
 	q = decision === 'approve' ? q.in('status', ['pending', 'rejected']) : q.eq('status', 'pending');
-	const { error } = await q;
+	const { data, error } = await q.select('id');
 
-	return error ? { error: error.message } : {};
+	return error ? { error: error.message } : { changedIds: (data ?? []).map((r) => r.id as string) };
 }
 
 // Un-approve ("revoke") already-approved submissions: flip them to rejected and undo

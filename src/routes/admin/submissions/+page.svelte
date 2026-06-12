@@ -12,7 +12,7 @@
 	let currentIndex = $state(0);
 	let busy = $state(false);
 	let error = $state<string | null>(null);
-	let lastAction = $state<null | { kind: 'approve' | 'reject'; rsn: string }>(null);
+	let lastAction = $state<null | { kind: 'approve' | 'reject' | 'skip'; rsn: string }>(null);
 	let lightboxSrc = $state<string | null>(null);
 	// Optional reason the admin can attach when rejecting (saved to review_note,
 	// shown in the reviewed-history view). Cleared after each decision.
@@ -63,6 +63,17 @@
 		currentIndex += 1;
 	}
 
+	// Skip = move past this submission without deciding (it stays pending; reappears on
+	// reload). Resets the per-card confirm state, like a decision does.
+	function skipCard() {
+		if (busy || !current) return;
+		rejectNote = '';
+		womConfirmed = false;
+		logConfirmed = false;
+		lastAction = { kind: 'skip', rsn: current.submitter.rsn ?? current.submitter.discord_username ?? '' };
+		nextCard();
+	}
+
 	function onKey(e: KeyboardEvent) {
 		if (busy || !current) return;
 		// Don't hijack arrow keys while the admin is typing a rejection reason.
@@ -70,6 +81,10 @@
 		if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) return;
 		if (e.key === 'ArrowRight') document.getElementById('approve-btn')?.click();
 		else if (e.key === 'ArrowLeft') document.getElementById('reject-btn')?.click();
+		else if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			skipCard();
+		}
 	}
 
 	function fmt(iso: string) {
@@ -378,6 +393,18 @@
 				</button>
 			</form>
 
+			<button
+				id="skip-btn"
+				type="button"
+				class="skip"
+				onclick={skipCard}
+				disabled={busy}
+				title="Skip — decide later (↓)"
+			>
+				<span class="big-icon">↷</span>
+				<span class="label-text">Skip</span>
+			</button>
+
 			<form
 				method="POST"
 				action="?/decide"
@@ -417,7 +444,8 @@
 
 		{#if lastAction}
 			<p class="last-action muted">
-				Last: {lastAction.kind === 'approve' ? 'approved' : 'rejected'} <strong>{lastAction.rsn}</strong>
+				Last: {lastAction.kind === 'approve' ? 'approved' : lastAction.kind === 'skip' ? 'skipped' : 'rejected'}
+				<strong>{lastAction.rsn}</strong>
 			</p>
 		{/if}
 	</article>
@@ -818,7 +846,7 @@
 
 	.actions {
 		display: grid;
-		grid-template-columns: 1fr 1fr;
+		grid-template-columns: 1fr 0.7fr 1fr;
 		gap: 0.75rem;
 		margin-top: 0.5rem;
 	}
@@ -881,6 +909,17 @@
 	.approve:hover:not(:disabled) {
 		background: rgba(13, 193, 13, 0.25);
 		box-shadow: 0 0 0 1px rgba(13, 193, 13, 0.5);
+	}
+
+	.skip {
+		background: var(--surface-alt);
+		border-color: var(--border);
+		color: var(--muted);
+	}
+
+	.skip:hover:not(:disabled) {
+		border-color: var(--accent);
+		color: var(--text);
 	}
 
 	.last-action {
