@@ -16,6 +16,17 @@ export function isRareDrop(result: LootResult): boolean {
 	return false;
 }
 
+// Minimum VP for a crate VP reward to be BROADCAST to the public drops channel.
+// (Separate from isRareDrop, which governs the analytics rare-drops LOG.) Mirrors the
+// card live-drops "only notable pulls" idea: items + the role always broadcast, but a
+// plain VP reward only when it's strictly greater than this.
+const BROADCAST_MIN_VP = 25;
+
+export function shouldBroadcastCrateDrop(result: LootResult): boolean {
+	if (result.kind === 'item' || result.kind === 'role') return true;
+	return result.kind === 'vp' && result.amount > BROADCAST_MIN_VP;
+}
+
 export async function logLootcrateOpen(
 	discordId: string,
 	isFree: boolean,

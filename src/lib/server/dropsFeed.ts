@@ -1,11 +1,20 @@
 import { env } from '$env/dynamic/private';
 import { RARITY_BY_KEY, DEFAULT_RARITY, isValidRarity } from '$lib/cards/rarity';
 import { isVideoUrl } from '$lib/cards/config';
+import { rsnToSlug } from '$lib/rsn';
 
+// ALWAYS prod: this feed posts to a public Discord channel, so links must never be a
+// dev/localhost origin even when a drop is triggered from a local run.
+const SITE_URL = 'https://volition-osrs.com';
 // Where the embed title links to — the gamba store, so viewers can go open their own.
-// ALWAYS prod: this feed posts to a public Discord channel, so the link must never
-// be a dev/localhost origin even when a drop is triggered from a local run.
-const OPEN_URL = 'https://volition-osrs.com/gamba';
+const OPEN_URL = `${SITE_URL}/gamba`;
+
+// The dropper's public collection page (/u/[rsn]), or undefined if they have no RSN.
+// Used to make the embed author name link to that player's collection.
+function collectionUrl(rsn: string | null | undefined): string | undefined {
+	const trimmed = rsn?.trim();
+	return trimmed ? `${SITE_URL}/u/${rsnToSlug(trimmed)}` : undefined;
+}
 
 // SERVER-ONLY "live drops" feed → a public Discord channel via its OWN webhook
 // (DISCORD_DROPS_WEBHOOK_URL). Posts human-readable embeds for notable pack pulls
@@ -126,6 +135,7 @@ const FINISH_LABEL: Record<string, string> = { holo: 'Holo', reverse: 'Reverse H
 // as an attachment (a webhook embed can't stack the layers itself).
 export async function postCardDrop(d: {
 	by: string;
+	rsn?: string | null;
 	cardName: string;
 	rarity: string;
 	finish?: string | null;
@@ -137,11 +147,13 @@ export async function postCardDrop(d: {
 	const meta = RARITY_BY_KEY[isValidRarity(d.rarity) ? d.rarity : DEFAULT_RARITY];
 	const finishLabel = d.finish && FINISH_LABEL[d.finish] ? ` ${FINISH_LABEL[d.finish]}` : '';
 	const from = d.packName ? ` from ${d.packName}` : '';
+	const coll = collectionUrl(d.rsn);
+	const collLink = coll ? ` · [View collection](${coll})` : '';
 	const embed: Record<string, unknown> = {
-		author: { name: `🎴 ${d.by}` },
+		author: { name: `🎴 ${d.by}`, url: coll }, // name links to the dropper's collection
 		title: d.cardName,
 		url: OPEN_URL, // makes the title a clickable link to the store
-		description: `Pulled a **${meta.label}**${finishLabel} card${from}! · [Open packs](${OPEN_URL})`,
+		description: `Pulled a **${meta.label}**${finishLabel} card${from}! · [Open packs](${OPEN_URL})${collLink}`,
 		color: hexToInt(meta.color)
 	};
 
@@ -176,6 +188,7 @@ function fmtPct(p: number): string {
 // item name, role name); `lootTable` = the table/tier (e.g. "Common (1–3 VP)").
 export async function postCrateDrop(d: {
 	by: string;
+	rsn?: string | null;
 	reward: string;
 	isFree: boolean;
 	colorHex?: string | null;
@@ -186,15 +199,17 @@ export async function postCrateDrop(d: {
 }): Promise<void> {
 	if (!warnIfUnconfigured()) return;
 	const img = absUrl(d.imageUrl);
+	const coll = collectionUrl(d.rsn);
+	const collLink = coll ? ` · [View collection](${coll})` : '';
 	const fields: { name: string; value: string; inline: boolean }[] = [];
 	if (d.lootTable) fields.push({ name: 'Loot Table', value: d.lootTable, inline: true });
 	if (typeof d.dropRate === 'number') fields.push({ name: 'Drop Rate', value: `${fmtPct(d.dropRate)}%`, inline: true });
 	if (typeof d.newTotalVp === 'number') fields.push({ name: 'New Total VP', value: d.newTotalVp.toLocaleString(), inline: true });
 	await postEmbed({
-		author: { name: `🎁 ${d.by}` },
+		author: { name: `🎁 ${d.by}`, url: coll }, // name links to the dropper's collection
 		title: d.reward,
 		url: OPEN_URL, // clickable title → the store
-		description: `Opened ${d.isFree ? 'their daily' : 'a VP'} crate and found **${d.reward}**! · [Open a crate](${OPEN_URL})`,
+		description: `Opened ${d.isFree ? 'their daily' : 'a VP'} crate and found **${d.reward}**! · [Open a crate](${OPEN_URL})${collLink}`,
 		color: hexToInt(d.colorHex),
 		fields: fields.length ? fields : undefined,
 		image: img ? { url: img } : undefined // big, full-width — same as card drops

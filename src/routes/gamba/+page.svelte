@@ -16,6 +16,7 @@
   import { prefersReducedMotion, detectWebgl } from "$lib/cards/glCapabilities";
   import { DEFAULT_PACK_FRONT } from "$lib/cards/packs";
   import { rsnToSlug } from "$lib/rsn";
+  import { page } from "$app/stores";
 
   let { data }: { data: PageData } = $props();
 
@@ -210,7 +211,11 @@
   };
 
   type StoreView = "packs" | "crates";
-  let view = $state<StoreView>("packs");
+  // Honour a ?tab=crates deep link (the Discord loot-crate "Open on site" button) so
+  // it lands on the Crates tab; default to Packs otherwise.
+  let view = $state<StoreView>(
+    $page.url.searchParams.get("tab") === "crates" ? "crates" : "packs",
+  );
   let crateBusy = $state<null | "free" | "paid">(null);
   let crateReward = $state<CrateReward | null>(null);
   let crateError = $state<string | null>(null);

@@ -18,7 +18,7 @@ import {
 } from '$lib/server/weeklyPack';
 import { nextWeeklyResetIso } from '$lib/tasks';
 import { getLootConfig, isPaidCrateEnabled, rollLoot, type LootConfig, type LootResult } from '$lib/server/lootcrate';
-import { logLootcrateOpen, isRareDrop } from '$lib/server/lootcrateAnalytics';
+import { logLootcrateOpen, shouldBroadcastCrateDrop } from '$lib/server/lootcrateAnalytics';
 import { sendBotMessage } from '$lib/server/botBridge';
 import { postCardDrop, postCrateDrop } from '$lib/server/dropsFeed';
 import { isValidRarity, DEFAULT_RARITY, RARE_RARITIES, RARITIES, toCardLayers, hiddenCard, type Card, type CardAbility, type CardLayer, type CardRarity } from '$lib/cards/rarity';
@@ -183,9 +183,10 @@ async function applyCrateReward(user: SessionUser, isFree: boolean, result: Loot
 	}
 	await logLootcrateOpen(user.discord_id, isFree, result, user.discord_username);
 
-	// Forward notable crate rewards (items, role, big VP) to the Discord drops
-	// channel — same threshold the rare-drops log uses. Best-effort.
-	if (isRareDrop(result)) {
+	// Forward notable crate rewards to the public Discord drops channel: items + the
+	// role always, but a VP reward only when it's big (> 25 VP) — a higher bar than the
+	// rare-drops LOG (isRareDrop), so the channel isn't spammed with small VP wins.
+	if (shouldBroadcastCrateDrop(result)) {
 		const reward =
 			result.kind === 'vp'
 				? `${result.amount.toLocaleString()} VP`
@@ -197,6 +198,7 @@ async function applyCrateReward(user: SessionUser, isFree: boolean, result: Loot
 		const newTotalVp = await getPlayerVp(user.discord_id, user.rsn);
 		await postCrateDrop({
 			by: user.rsn || user.discord_username || 'Someone',
+			rsn: user.rsn,
 			reward,
 			isFree,
 			colorHex: result.colorHex,
@@ -785,6 +787,7 @@ export const actions: Actions = {
 		const po = Array.isArray(row.vs_pack_opens) ? row.vs_pack_opens[0] : row.vs_pack_opens;
 		await postCardDrop({
 			by: locals.user.rsn || locals.user.discord_username || 'Someone',
+			rsn: locals.user.rsn,
 			cardName: row.card_name,
 			rarity: row.rarity,
 			finish: row.finish,
