@@ -19,6 +19,12 @@
 				? 'Author cards & packs, grant packs, and test/simulate opens.'
 				: 'View cards & packs (read-only), grant packs, and test/simulate opens.',
 			show: data.admin || data.cardTester
+		},
+		{
+			href: '/admin/audit',
+			title: 'Audit Log',
+			desc: 'Review who did what — every admin action, recorded automatically.',
+			show: data.admin
 		}
 	]);
 
