@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
+	import ModerationTabs from '$lib/admin/ModerationTabs.svelte';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -32,10 +33,7 @@
 
 <svelte:head><title>Moderation · Volition</title></svelte:head>
 
-<section class="head">
-	<a class="back" href="/admin">← Admin</a>
-	<h1>Moderation</h1>
-</section>
+<ModerationTabs />
 
 {#if form?.error}
 	<div class="error">{form.error}</div>
@@ -147,27 +145,6 @@
 </div>
 
 <style>
-	.head {
-		display: flex;
-		align-items: baseline;
-		gap: 1rem;
-		margin-bottom: 1.25rem;
-	}
-	.head h1 {
-		font-family: var(--font-heading);
-		font-size: 2rem;
-		margin: 0;
-		text-shadow: var(--ts);
-	}
-	.back {
-		color: var(--muted);
-		text-decoration: none;
-		font-size: 0.9rem;
-	}
-	.back:hover {
-		color: var(--accent);
-	}
-
 	.error {
 		background: var(--danger-bg, rgba(255, 0, 0, 0.12));
 		border: 1px solid var(--danger);

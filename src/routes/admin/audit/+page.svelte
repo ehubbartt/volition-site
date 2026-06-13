@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ModerationTabs from '$lib/admin/ModerationTabs.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -54,8 +55,9 @@
 	<title>Audit Log · Admin · Volition</title>
 </svelte:head>
 
+<ModerationTabs />
+
 <section>
-	<h1>Audit Log</h1>
 	<p class="muted">
 		Every privileged action (admin routes + anything an admin / card tester does) is recorded
 		automatically. Showing the {data.rows.length} most recent entries.
@@ -126,10 +128,6 @@
 </section>
 
 <style>
-	h1 {
-		margin-bottom: 0.25rem;
-	}
-
 	.muted {
 		color: var(--muted);
 	}
