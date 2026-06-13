@@ -25,6 +25,42 @@
 			title: 'Moderation',
 			desc: 'Bans, warnings, and the audit log of every admin action.',
 			show: data.admin
+		},
+		{
+			href: '/admin/stats',
+			title: 'Clan Stats',
+			desc: 'Members, economy, and loot-crate activity at a glance.',
+			show: data.admin
+		},
+		{
+			href: '/admin/wallets',
+			title: 'Wallets',
+			desc: 'VP balances and the GP value of unpaid loot-crate items.',
+			show: data.admin
+		},
+		{
+			href: '/admin/voice',
+			title: 'Voice Activity',
+			desc: 'Voice channel leaderboard, daily metrics, and recent activity.',
+			show: data.admin
+		},
+		{
+			href: '/admin/guides',
+			title: 'Guides',
+			desc: 'Admin documentation: tile event, join process, bot commands.',
+			show: data.admin
+		},
+		{
+			href: '/admin/config',
+			title: 'Bot Config',
+			desc: 'Edit live bot settings (bot_config). Super-admins only.',
+			show: data.superAdmin
+		},
+		{
+			href: '/admin/tables',
+			title: 'Table Editor',
+			desc: 'Direct read/write access to any database table. Super-admins only.',
+			show: data.superAdmin
 		}
 	]);
 

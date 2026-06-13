@@ -104,3 +104,16 @@ export function isCardTester(user: SessionUser | null): boolean {
 export function isCardAdmin(user: SessionUser | null): boolean {
 	return isAdmin(user) || isCardTester(user);
 }
+
+// Highest-privilege allow-list (env var SUPER_ADMIN_DISCORD_IDS) for the destructive
+// dashboard tools migrated from volition-admin-dashboard: the generic DB table editor
+// and the bot config editor. These read/write ANY table (incl. the bot's), so they're
+// gated to a small set of people, SEPARATE from ADMIN_DISCORD_IDS. Independent list.
+export function isSuperAdmin(user: SessionUser | null): boolean {
+	if (!user) return false;
+	const ids = (env.SUPER_ADMIN_DISCORD_IDS ?? '')
+		.split(',')
+		.map((s) => s.trim())
+		.filter(Boolean);
+	return ids.includes(user.discord_id);
+}
