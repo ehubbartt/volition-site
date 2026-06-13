@@ -713,6 +713,29 @@ export async function createSubmission({
 }): Promise<{ ok: true } | { ok: false; error: string }> {
 	if (!taskId && !eventId) return { ok: false, error: 'Missing task/event' };
 
+	// One-and-done: a task this submitter has already had APPROVED can't be submitted
+	// again (no farming a completed task's reward). Pending duplicates are still allowed
+	// (more proof before review). Scoped to this submitter via their site account and/or
+	// Discord id. Task submissions only (event/team rows don't carry this rule).
+	if (taskId && (userId || discordId)) {
+		const ownerOr = [
+			userId ? `user_id.eq.${userId}` : null,
+			discordId ? `discord_id.eq.${discordId}` : null
+		]
+			.filter(Boolean)
+			.join(',');
+		const { data: doneRows } = await db()
+			.from('vs_submissions')
+			.select('id')
+			.eq('task_id', taskId)
+			.eq('status', 'approved')
+			.or(ownerOr)
+			.limit(1);
+		if (doneRows && doneRows.length > 0) {
+			return { ok: false, error: 'You have already completed this task.' };
+		}
+	}
+
 	const valid = files.filter((f) => f instanceof File && f.size > 0);
 	if (valid.length === 0) return { ok: false, error: 'Add at least one proof image' };
 	if (valid.length > MAX_IMAGES_PER_SUBMISSION) {

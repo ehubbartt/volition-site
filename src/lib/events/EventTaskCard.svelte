@@ -93,7 +93,9 @@
 		</div>
 	{/if}
 
-	{#if canSubmit && !task.locked}
+	{#if task.done}
+		<p class="done-note">✓ Completed — nice work! This task can't be submitted again.</p>
+	{:else if canSubmit && !task.locked}
 		<form
 			class="submit"
 			method="POST"
@@ -115,7 +117,7 @@
 			}}
 		>
 			<input type="hidden" name="task_id" value={task.id} />
-			<h3>{task.done ? 'Submit again' : 'Submit proof'}</h3>
+			<h3>Submit proof</h3>
 			<ImageDropper bind:count={stagedCount} bind:error {resetKey} />
 
 			{#if error}<p class="error">{error}</p>{/if}
@@ -197,6 +199,15 @@
 	.mine,
 	.submit {
 		margin-top: 0.9rem;
+	}
+	.done-note {
+		margin: 0.9rem 0 0;
+		padding: 0.5rem 0.7rem;
+		background: rgba(127, 209, 138, 0.1);
+		border: 1px solid #7fd18a;
+		border-radius: 3px;
+		color: #7fd18a;
+		font-size: 0.88rem;
 	}
 	.mine h3,
 	.submit h3 {

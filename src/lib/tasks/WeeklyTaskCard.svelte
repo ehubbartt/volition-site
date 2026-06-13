@@ -48,6 +48,8 @@
 	let resetKey = $state(0);
 	let submitting = $state(false);
 	let error = $state<string | null>(null);
+	// Once this week's task is approved you can't submit it again (server enforces it too).
+	const done = $derived(task.mySubmissions.some((s) => s.status === 'approved'));
 	// Image lightbox (modal) + admin un-approve state.
 	let lightboxSrc = $state<string | null>(null);
 	let adminBusy = $state<string | null>(null);
@@ -137,7 +139,9 @@
 		</div>
 	{/if}
 
-	{#if canSubmit}
+	{#if done}
+		<p class="done-note">✓ Completed — you've finished this week's task. It can't be submitted again.</p>
+	{:else if canSubmit}
 		<form
 			class="submit"
 			method="POST"
@@ -281,6 +285,15 @@
 	.mine,
 	.submit {
 		margin-top: 0.9rem;
+	}
+	.done-note {
+		margin: 0.9rem 0 0;
+		padding: 0.5rem 0.7rem;
+		background: rgba(127, 209, 138, 0.1);
+		border: 1px solid #7fd18a;
+		border-radius: 3px;
+		color: #7fd18a;
+		font-size: 0.88rem;
 	}
 	.mine h3,
 	.submit h3,
