@@ -1,41 +1,27 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { untrack } from 'svelte';
+	import ConfigValueEditor from './ConfigValueEditor.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
-	type EditorType = 'boolean' | 'number' | 'string' | 'flatObject' | 'json';
-
-	function editorType(v: unknown): EditorType {
-		if (typeof v === 'boolean') return 'boolean';
-		if (typeof v === 'number') return 'number';
-		if (typeof v === 'string') return 'string';
-		if (v && typeof v === 'object' && !Array.isArray(v)) {
-			const vals = Object.values(v as Record<string, unknown>);
-			if (
-				vals.length > 0 &&
-				vals.every((x) => typeof x === 'boolean' || typeof x === 'number' || typeof x === 'string')
-			)
-				return 'flatObject';
-		}
-		return 'json';
-	}
-
 	const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
-	// Working copies. `working` holds parsed values for primitive/flat-object editors;
-	// `jsonText` holds the raw JSON string for the fallback textarea editor.
+	// `working` holds the parsed, deeply-reactive value for EVERY config — the recursive
+	// ConfigValueEditor edits it in place. `rawText` is the optional per-config "Edit as
+	// JSON" escape hatch (for adding brand-new keys the controls can't); it stays synced
+	// into `working` on every valid keystroke.
 	let working = $state<Record<string, unknown>>({});
-	let jsonText = $state<Record<string, string>>({});
 	let originalSig = $state<Record<string, string>>({});
 	let updatedAt = $state<Record<string, string | null>>({});
 	let status = $state<Record<string, { ok: boolean; msg: string } | null>>({});
+	let rawMode = $state<Record<string, boolean>>({});
+	let rawText = $state<Record<string, string>>({});
+	let rawError = $state<Record<string, string | null>>({});
 
 	for (const c of untrack(() => data.configs)) {
-		const t = editorType(c.config_value);
-		if (t === 'json') jsonText[c.config_name] = JSON.stringify(c.config_value, null, 2);
-		else working[c.config_name] = clone(c.config_value);
+		working[c.config_name] = clone(c.config_value);
 		originalSig[c.config_name] = JSON.stringify(c.config_value);
 		updatedAt[c.config_name] = c.updated_at;
 	}
@@ -73,28 +59,29 @@
 		});
 	}
 
-	// The JSON string we'll POST for a config (server JSON.parses it).
-	function submitValue(name: string, t: EditorType): string {
-		return t === 'json' ? jsonText[name] : JSON.stringify(working[name]);
+	function isDirty(name: string): boolean {
+		return JSON.stringify(working[name]) !== originalSig[name];
+	}
+	function valid(name: string): boolean {
+		return !rawMode[name] || !rawError[name];
 	}
 
-	function currentSig(name: string, t: EditorType): string | null {
-		if (t === 'json') {
-			try {
-				return JSON.stringify(JSON.parse(jsonText[name]));
-			} catch {
-				return null; // invalid JSON → treat as dirty + block save
-			}
+	function toggleRaw(name: string) {
+		const on = !rawMode[name];
+		rawMode[name] = on;
+		if (on) {
+			rawText[name] = JSON.stringify(working[name], null, 2);
+			rawError[name] = null;
 		}
-		return JSON.stringify(working[name]);
 	}
-
-	function isDirty(name: string, t: EditorType): boolean {
-		return currentSig(name, t) !== originalSig[name];
-	}
-
-	function jsonValid(name: string, t: EditorType): boolean {
-		return t !== 'json' || currentSig(name, t) !== null;
+	function onRawInput(name: string, text: string) {
+		rawText[name] = text;
+		try {
+			working[name] = JSON.parse(text);
+			rawError[name] = null;
+		} catch {
+			rawError[name] = 'Invalid JSON';
+		}
 	}
 </script>
 
@@ -125,8 +112,7 @@
 	{/if}
 
 	{#each activeConfigs as c (c.config_name)}
-		{@const t = editorType(c.config_value)}
-		{@const dirty = isDirty(c.config_name, t)}
+		{@const dirty = isDirty(c.config_name)}
 		<div class="card">
 			<div class="cfg-head">
 				<div>
@@ -138,59 +124,48 @@
 					{#if updatedAt[c.config_name]}<span class="muted tiny"
 							>Updated {fmtDate(updatedAt[c.config_name])}</span
 						>{/if}
+					<button class="link-btn" type="button" onclick={() => toggleRaw(c.config_name)}>
+						{rawMode[c.config_name] ? 'Use controls' : 'Edit as JSON'}
+					</button>
 				</div>
 			</div>
 
 			<div class="cfg-body">
-				{#if t === 'boolean'}
-					<label class="toggle">
-						<input type="checkbox" bind:checked={working[c.config_name] as boolean} />
-						<span>{working[c.config_name] ? 'Enabled' : 'Disabled'}</span>
-					</label>
-				{:else if t === 'number'}
-					<input class="field" type="number" bind:value={working[c.config_name] as number} />
-				{:else if t === 'string'}
-					<input class="field" type="text" bind:value={working[c.config_name] as string} />
-				{:else if t === 'flatObject'}
-					<div class="kv">
-						{#each Object.keys(working[c.config_name] as Record<string, unknown>) as k (k)}
-							{@const obj = working[c.config_name] as Record<string, unknown>}
-							<label class="kv-row">
-								<span class="kv-key">{label(k)}</span>
-								{#if typeof obj[k] === 'boolean'}
-									<input type="checkbox" bind:checked={obj[k] as boolean} />
-								{:else if typeof obj[k] === 'number'}
-									<input class="field" type="number" bind:value={obj[k] as number} />
-								{:else}
-									<input class="field" type="text" bind:value={obj[k] as string} />
-								{/if}
-							</label>
-						{/each}
-					</div>
-				{:else}
+				{#if rawMode[c.config_name]}
 					<textarea
 						class="json"
 						spellcheck="false"
-						rows={Math.min(20, jsonText[c.config_name].split('\n').length + 1)}
-						bind:value={jsonText[c.config_name]}
+						rows={Math.min(24, rawText[c.config_name].split('\n').length + 1)}
+						value={rawText[c.config_name]}
+						oninput={(e) => onRawInput(c.config_name, e.currentTarget.value)}
 					></textarea>
-					{#if !jsonValid(c.config_name, t)}<p class="error tiny">Invalid JSON</p>{/if}
+					{#if rawError[c.config_name]}<p class="error tiny">{rawError[c.config_name]}</p>{/if}
+				{:else}
+					<ConfigValueEditor bind:value={working[c.config_name]} />
 				{/if}
 			</div>
 
 			<div class="cfg-foot">
 				{#if status[c.config_name]}
-					<span class="status" class:ok={status[c.config_name]?.ok} class:bad={!status[c.config_name]?.ok}
-						>{status[c.config_name]?.msg}</span
+					<span
+						class="status"
+						class:ok={status[c.config_name]?.ok}
+						class:bad={!status[c.config_name]?.ok}>{status[c.config_name]?.msg}</span
 					>
 				{/if}
 				<form
 					method="POST"
 					action="?/save"
-					use:enhance={() => {
+					use:enhance={({ formData, cancel }) => {
+						if (!valid(c.config_name)) {
+							status[c.config_name] = { ok: false, msg: 'Fix JSON before saving' };
+							cancel();
+							return;
+						}
+						formData.set('config_value', JSON.stringify(working[c.config_name]));
 						return async ({ result }) => {
 							if (result.type === 'success') {
-								originalSig[c.config_name] = currentSig(c.config_name, t) ?? originalSig[c.config_name];
+								originalSig[c.config_name] = JSON.stringify(working[c.config_name]);
 								updatedAt[c.config_name] = new Date().toISOString();
 								status[c.config_name] = { ok: true, msg: 'Saved' };
 							} else if (result.type === 'failure') {
@@ -205,8 +180,7 @@
 					}}
 				>
 					<input type="hidden" name="config_name" value={c.config_name} />
-					<input type="hidden" name="config_value" value={submitValue(c.config_name, t)} />
-					<button class="primary" type="submit" disabled={!dirty || !jsonValid(c.config_name, t)}>
+					<button class="primary" type="submit" disabled={!dirty || !valid(c.config_name)}>
 						Save
 					</button>
 				</form>
@@ -306,41 +280,20 @@
 		gap: 0.75rem;
 	}
 
-	.toggle {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-		cursor: pointer;
-	}
-	.field {
-		width: 100%;
-		max-width: 28rem;
-		padding: 0.45rem 0.6rem;
-		background: var(--surface-alt);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		color: var(--text);
-		font-family: var(--font-body);
-	}
-	.field:focus {
-		outline: none;
-		border-color: var(--accent);
-	}
-	.kv {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-	.kv-row {
-		display: grid;
-		grid-template-columns: 14rem 1fr;
-		align-items: center;
-		gap: 0.75rem;
-	}
-	.kv-key {
+	.link-btn {
+		background: none;
+		border: none;
 		color: var(--muted);
-		font-size: 0.9rem;
+		font-family: var(--font-body);
+		font-size: 0.8rem;
+		cursor: pointer;
+		text-decoration: underline;
+		padding: 0;
 	}
+	.link-btn:hover {
+		color: var(--accent);
+	}
+
 	.json {
 		width: 100%;
 		padding: 0.6rem 0.7rem;
