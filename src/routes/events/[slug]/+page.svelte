@@ -14,6 +14,12 @@
 	let editingTeamName = $state(false);
 	let descExpanded = $state(false);
 
+	// Admin manage tools (pair / remove). adminSignups is [] for non-admins.
+	let pairA = $state('');
+	let pairB = $state('');
+	let removeUser = $state('');
+	let adminSolo = $derived(data.adminSignups.filter((p) => !p.team_id));
+
 	const CLAN_ORDER: Array<{ key: string; label: string }> = [
 		...CLAN_OPTIONS.map((c) => ({ key: c.value, label: c.label })),
 		{ key: 'unknown', label: 'Unknown' }
@@ -128,6 +134,77 @@
 
 <section class="grid">
 	<div class="main">
+		{#if data.isAdmin}
+			<div class="card admin-card">
+				<h2>Manage event <span class="admin-tag">admin</span></h2>
+
+				<form
+					method="POST"
+					action="?/adminPairUsers"
+					class="admin-tool"
+					use:enhance={() => {
+						return async ({ result, update }) => {
+							await update();
+							if (result.type === 'success') {
+								pairA = '';
+								pairB = '';
+							}
+						};
+					}}
+				>
+					<span class="admin-label">Pair two solo players</span>
+					<div class="admin-row">
+						<select name="user_a" bind:value={pairA}>
+							<option value="">Player A…</option>
+							{#each adminSolo as p}
+								<option value={p.user_id}>{p.name}</option>
+							{/each}
+						</select>
+						<select name="user_b" bind:value={pairB}>
+							<option value="">Player B…</option>
+							{#each adminSolo as p}
+								<option value={p.user_id}>{p.name}</option>
+							{/each}
+						</select>
+						<button type="submit" class="primary" disabled={!pairA || !pairB || pairA === pairB}>
+							Pair
+						</button>
+					</div>
+					{#if adminSolo.length < 2}
+						<p class="muted small">Need at least two solo (un-teamed) players to pair.</p>
+					{/if}
+				</form>
+
+				<form
+					method="POST"
+					action="?/adminRemoveSignup"
+					class="admin-tool"
+					use:enhance={() => {
+						return async ({ result, update }) => {
+							await update();
+							if (result.type === 'success') {
+								removeUser = '';
+							}
+						};
+					}}
+				>
+					<span class="admin-label">Remove a player from the event</span>
+					<div class="admin-row">
+						<select name="user_id" bind:value={removeUser}>
+							<option value="">Player…</option>
+							{#each data.adminSignups as p}
+								<option value={p.user_id}>{p.name}{p.team_id ? ' · on a team' : ''}</option>
+							{/each}
+						</select>
+						<button type="submit" class="danger" disabled={!removeUser}>Remove</button>
+					</div>
+					<p class="muted small">
+						Removing a teamed player disbands their duo — their partner returns to the pool.
+					</p>
+				</form>
+			</div>
+		{/if}
+
 		{#if !signedUp}
 			<div class="card join-card">
 				<h2>Join this event</h2>
@@ -598,6 +675,57 @@
 		padding: 0.6rem 0.8rem;
 		border-radius: 4px;
 		margin-bottom: 1rem;
+	}
+
+	.admin-card {
+		border-color: rgba(255, 152, 31, 0.45);
+		background: linear-gradient(180deg, rgba(255, 152, 31, 0.08), rgba(40, 32, 24, 0.6));
+	}
+	.admin-tag {
+		font-size: 0.62rem;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--accent);
+		border: 1px solid rgba(255, 152, 31, 0.5);
+		border-radius: 999px;
+		padding: 0.05rem 0.4rem;
+		vertical-align: middle;
+	}
+	.admin-tool {
+		margin-top: 0.85rem;
+	}
+	.admin-label {
+		display: block;
+		font-size: 0.85rem;
+		color: var(--muted);
+		margin-bottom: 0.35rem;
+	}
+	.admin-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		align-items: center;
+	}
+	.admin-row select {
+		flex: 1 1 8rem;
+		min-width: 0;
+		padding: 0.4rem 0.5rem;
+		background: var(--surface-alt);
+		color: var(--text);
+		border: 1px solid var(--border-strong);
+		border-radius: 4px;
+		font-family: inherit;
+	}
+	.admin-row .danger {
+		border-color: var(--danger);
+		color: var(--danger);
+	}
+	.admin-row .danger:hover:not(:disabled) {
+		background: var(--danger-bg);
+	}
+	.small {
+		font-size: 0.8rem;
+		margin: 0.4rem 0 0;
 	}
 
 	.grid {

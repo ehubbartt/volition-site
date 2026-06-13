@@ -16,7 +16,7 @@
 			<span>Volition</span>
 		</a>
 
-		{#if data.user}
+		{#if data.user && !data.banned}
 			<nav class="primary-nav">
 				<a href="/events" class:active={path.startsWith('/events')}>Events</a>
 				<a href="/tasks" class:active={path.startsWith('/tasks')}>To Do</a>
@@ -30,7 +30,7 @@
 				<AccountIcon type={data.user.account_type} size={22} />
 				<span class="user-name">{data.user.rsn ?? data.user.discord_username}</span>
 			</a>
-		{:else}
+		{:else if !data.user}
 			<a href="/auth/discord/login" class="cta">Sign in with Discord</a>
 		{/if}
 	</div>

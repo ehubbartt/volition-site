@@ -21,6 +21,12 @@
 			show: data.admin || data.cardTester
 		},
 		{
+			href: '/admin/moderation',
+			title: 'Moderation',
+			desc: 'Manage bans (block site access) and warnings — shared with the bot.',
+			show: data.admin
+		},
+		{
 			href: '/admin/audit',
 			title: 'Audit Log',
 			desc: 'Review who did what — every admin action, recorded automatically.',

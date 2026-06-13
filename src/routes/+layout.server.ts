@@ -7,6 +7,7 @@ export const load: LayoutServerLoad = ({ locals }) => {
 	return {
 		user,
 		isAdmin: isAdmin(user),
-		isCardTester: isCardTester(user)
+		isCardTester: isCardTester(user),
+		banned: !!locals.ban
 	};
 };
