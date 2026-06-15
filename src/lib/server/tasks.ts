@@ -168,9 +168,10 @@ async function taskEventTasks(user: SessionUser): Promise<PlayerTask[]> {
 		.in('kind', [SIMPLE_EVENT_KIND, SEQUENTIAL_EVENT_KIND])
 		.eq('status', 'open');
 
-	// Open AND started (skip upcoming ones — they aren't actionable yet).
+	// Open AND within its window (skip upcoming AND already-ended ones — neither is
+	// actionable now).
 	const live = ((events ?? []) as Array<Record<string, unknown>>).filter((e) =>
-		isEventLive(e.status as string, e.starts_at as string | null)
+		isEventLive(e.status as string, e.starts_at as string | null, e.ends_at as string | null)
 	);
 	if (live.length === 0) return [];
 

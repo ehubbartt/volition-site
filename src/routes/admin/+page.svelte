@@ -29,19 +29,7 @@
 		{
 			href: '/admin/stats',
 			title: 'Clan Stats',
-			desc: 'Members, economy, and loot-crate activity at a glance.',
-			show: data.admin
-		},
-		{
-			href: '/admin/wallets',
-			title: 'Wallets',
-			desc: 'VP balances and the GP value of unpaid loot-crate items.',
-			show: data.admin
-		},
-		{
-			href: '/admin/voice',
-			title: 'Voice Activity',
-			desc: 'Voice channel leaderboard, daily metrics, and recent activity.',
+			desc: 'Members & economy stats, member wallets, and voice activity.',
 			show: data.admin
 		},
 		{
@@ -52,14 +40,8 @@
 		},
 		{
 			href: '/admin/config',
-			title: 'Bot Config',
-			desc: 'Edit live bot settings (bot_config). Super-admins only.',
-			show: data.superAdmin
-		},
-		{
-			href: '/admin/tables',
-			title: 'Table Editor',
-			desc: 'Direct read/write access to any database table. Super-admins only.',
+			title: 'Database',
+			desc: 'Edit the live bot config and any database table. Super-admins only.',
 			show: data.superAdmin
 		}
 	]);

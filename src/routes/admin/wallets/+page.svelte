@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import { formatGP } from '$lib/gp';
+	import StatsTabs from '$lib/admin/StatsTabs.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -56,8 +57,7 @@
 </svelte:head>
 
 <section>
-	<a href="/admin" class="back">← Admin</a>
-	<h1>Wallets</h1>
+	<StatsTabs />
 	<p class="muted">
 		VP balances and the GP value of unpaid loot-crate items waiting in members' wallets.
 	</p>
@@ -178,19 +178,6 @@
 </section>
 
 <style>
-	.back {
-		display: inline-block;
-		margin-bottom: 0.5rem;
-		color: var(--muted);
-		font-size: 0.85rem;
-		text-decoration: none;
-	}
-	.back:hover {
-		color: var(--accent);
-	}
-	h1 {
-		margin: 0 0 0.25rem;
-	}
 	.muted {
 		color: var(--muted);
 	}

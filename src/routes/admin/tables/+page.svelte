@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import DatabaseTabs from '$lib/admin/DatabaseTabs.svelte';
 
 	let { data }: { data: PageData } = $props();
 	let filter = $state('');
@@ -13,8 +14,7 @@
 </svelte:head>
 
 <section>
-	<a href="/admin" class="back">← Admin</a>
-	<h1>Table Editor</h1>
+	<DatabaseTabs />
 	<p class="muted warn-text">
 		⚠ Direct database access. Edits here write straight to the shared database (site + bot). There is
 		no undo — be careful.
@@ -46,19 +46,6 @@
 </section>
 
 <style>
-	.back {
-		display: inline-block;
-		margin-bottom: 0.5rem;
-		color: var(--muted);
-		font-size: 0.85rem;
-		text-decoration: none;
-	}
-	.back:hover {
-		color: var(--accent);
-	}
-	h1 {
-		margin: 0 0 0.25rem;
-	}
 	h2 {
 		margin: 1.5rem 0 0.75rem;
 		font-size: 1rem;

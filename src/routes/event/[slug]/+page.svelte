@@ -57,6 +57,10 @@
 			are opening now — refresh the page to submit.
 		{/if}
 	</p>
+{:else if data.ended}
+	<p class="panel note">
+		🏁 <strong>This event has ended</strong> — submissions are closed.
+	</p>
 {:else if !data.isClanMember}
 	<p class="panel note">
 		Only Volition clan members can submit. If you've recently joined, ping an admin to be added to the

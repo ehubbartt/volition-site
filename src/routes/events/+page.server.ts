@@ -93,6 +93,19 @@ function classify(
 		};
 	}
 
+	// Explicitly ended: an open/locked event whose own end time has passed but an admin
+	// hasn't flipped it to 'closed' yet → treat as past, not active. Uses the event's
+	// OWN ends_at (not the computed `endMs`), so bingo — which has no explicit end and
+	// stays open until manually closed — is unaffected.
+	const explicitEndMs = ev.ends_at ? new Date(ev.ends_at).getTime() : null;
+	if (explicitEndMs != null && !Number.isNaN(explicitEndMs) && now > explicitEndMs) {
+		return {
+			section: 'past',
+			sortKey: -explicitEndMs,
+			line: { label: 'Ended', date: ev.ends_at }
+		};
+	}
+
 	const started = startMs == null || now >= startMs; // open + past its start = live
 
 	// Signup event the user HASN'T joined → the action is about signing up.

@@ -30,10 +30,20 @@ interface SiteUserRow {
 
 interface EventStatusRow {
 	status: string;
+	ends_at: string | null;
 }
 
-function eventCounts(rows: EventStatusRow[]) {
-	const active = rows.filter((r) => r.status === 'open' || r.status === 'locked').length;
+function eventCounts(rows: EventStatusRow[], now: number = Date.now()) {
+	// "Active" = open/locked AND not past its own end time. An event with an explicit
+	// ends_at in the past is over even if an admin hasn't flipped it to 'closed' yet
+	// (mirrors the /events list). bingo has no explicit ends_at, so it stays counted.
+	const active = rows.filter((r) => {
+		if (r.status !== 'open' && r.status !== 'locked') return false;
+		if (!r.ends_at) return true;
+		const end = new Date(r.ends_at).getTime();
+		if (Number.isNaN(end)) return true; // unparseable end = no real end → still active
+		return now <= end;
+	}).length;
 	return { active, total: rows.length };
 }
 
@@ -56,7 +66,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 		const [calendar, playersRes, eventsRes] = await Promise.all([
 			loadCalendarItems(false),
 			sb.from('players').select('id', { count: 'exact', head: true }),
-			sb.from('vs_events').select('status').in('status', ['open', 'locked', 'closed'])
+			sb.from('vs_events').select('status, ends_at').in('status', ['open', 'locked', 'closed'])
 		]);
 		const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
 		return {
@@ -83,7 +93,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 			.from('players')
 			.select('id, rsn, discord_id, rank, points, clan_joined_at, created_at'),
 		sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null),
-		sb.from('vs_events').select('status').in('status', ['draft', 'preview', 'open', 'locked', 'closed']),
+		sb.from('vs_events').select('status, ends_at').in('status', ['draft', 'preview', 'open', 'locked', 'closed']),
 		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true }),
 		// To-do surface is open to all onboarded users — always aggregate it.
 		loadPlayerTasks(user)

@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { untrack } from 'svelte';
 	import ConfigValueEditor from './ConfigValueEditor.svelte';
+	import DatabaseTabs from '$lib/admin/DatabaseTabs.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -90,8 +91,7 @@
 </svelte:head>
 
 <section>
-	<a href="/admin" class="back">← Admin</a>
-	<h1>Bot Config</h1>
+	<DatabaseTabs />
 	<p class="muted">
 		Live bot settings (<code>bot_config</code>). Changes take effect within ~60 seconds — no restart
 		needed.
@@ -190,19 +190,6 @@
 </section>
 
 <style>
-	.back {
-		display: inline-block;
-		margin-bottom: 0.5rem;
-		color: var(--muted);
-		font-size: 0.85rem;
-		text-decoration: none;
-	}
-	.back:hover {
-		color: var(--accent);
-	}
-	h1 {
-		margin: 0 0 0.25rem;
-	}
 	.muted {
 		color: var(--muted);
 	}

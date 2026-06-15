@@ -10,6 +10,7 @@ import {
 	isTaskEvent,
 	isEventLive,
 	isEventUpcoming,
+	isEventEnded,
 	rewardLabel,
 	type SubmissionStatus
 } from '$lib/events/simple';
@@ -154,7 +155,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		adminPreview,
 		// Open but not started yet → shown to players as "Upcoming" (no submitting).
 		upcoming: isEventUpcoming(ev.status, ev.starts_at),
-		canSubmit: adminPreview || (memberOfClan && isEventLive(ev.status, ev.starts_at))
+		// Open but past its end time → shown as "Ended" (no submitting).
+		ended: isEventEnded(ev.status, ev.ends_at),
+		canSubmit: adminPreview || (memberOfClan && isEventLive(ev.status, ev.starts_at, ev.ends_at))
 	};
 };
 
@@ -169,12 +172,14 @@ export const actions: Actions = {
 		// event (open AND past its start time) AND clan membership.
 		const adminPreview = isAdmin(locals.user) && (ev.status === 'draft' || ev.status === 'preview');
 		if (!adminPreview) {
-			if (!isEventLive(ev.status, ev.starts_at)) {
+			if (!isEventLive(ev.status, ev.starts_at, ev.ends_at)) {
 				return fail(400, {
 					error:
-						ev.status === 'open'
-							? "This event hasn't started yet."
-							: 'This event is not open for submissions.'
+						ev.status !== 'open'
+							? 'This event is not open for submissions.'
+							: isEventUpcoming(ev.status, ev.starts_at)
+								? "This event hasn't started yet."
+								: 'This event has ended — submissions are closed.'
 				});
 			}
 			if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {

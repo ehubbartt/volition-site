@@ -2,6 +2,7 @@
 	import type { PageData } from './$types';
 	import { formatGP } from '$lib/gp';
 	import { rankColor, rankLabel } from '$lib/ranks';
+	import StatsTabs from '$lib/admin/StatsTabs.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -36,8 +37,7 @@
 </svelte:head>
 
 <section>
-	<a href="/admin" class="back">← Admin</a>
-	<h1>Clan Stats</h1>
+	<StatsTabs />
 	<p class="muted">Clan, economy, and loot-crate activity at a glance.</p>
 
 	<div class="summary">
@@ -186,19 +186,6 @@
 </section>
 
 <style>
-	.back {
-		display: inline-block;
-		margin-bottom: 0.5rem;
-		color: var(--muted);
-		font-size: 0.85rem;
-		text-decoration: none;
-	}
-	.back:hover {
-		color: var(--accent);
-	}
-	h1 {
-		margin: 0 0 0.25rem;
-	}
 	.muted {
 		color: var(--muted);
 	}

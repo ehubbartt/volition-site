@@ -59,18 +59,28 @@ export interface EventTask {
 }
 
 // Time-aware "open": an OPEN event is only LIVE (submittable + announced in Discord)
-// once its start time has arrived. A null/invalid start means "live now". This lets
-// admins publish an event (status=open) that stays visible-but-upcoming until its
-// `starts_at`, then goes live automatically. bingo/duo keep their own timing.
+// while it's within its window — its start time has arrived AND (if it has an end) its
+// end hasn't passed yet. A null/invalid start means "started"; a null/invalid end means
+// "no end" (stays live until an admin closes it). This lets admins publish an event
+// (status=open) that's visible-but-upcoming until `starts_at`, goes live automatically,
+// then stops accepting submissions once `ends_at` passes — without needing the admin to
+// flip the status. bingo/duo keep their own timing.
 export function isEventLive(
 	status: string | null | undefined,
 	startsAt: string | null | undefined,
+	endsAt: string | null | undefined = null,
 	now: number = Date.now()
 ): boolean {
 	if (status !== 'open') return false;
-	if (!startsAt) return true;
-	const t = new Date(startsAt).getTime();
-	return Number.isNaN(t) || t <= now;
+	if (startsAt) {
+		const s = new Date(startsAt).getTime();
+		if (!Number.isNaN(s) && s > now) return false; // not started yet
+	}
+	if (endsAt) {
+		const e = new Date(endsAt).getTime();
+		if (!Number.isNaN(e) && now > e) return false; // already ended
+	}
+	return true;
 }
 
 // Published (open) but not started yet → shown to players as "Upcoming".
@@ -79,7 +89,21 @@ export function isEventUpcoming(
 	startsAt: string | null | undefined,
 	now: number = Date.now()
 ): boolean {
-	return status === 'open' && !!startsAt && !isEventLive(status, startsAt, now);
+	if (status !== 'open' || !startsAt) return false;
+	const s = new Date(startsAt).getTime();
+	return !Number.isNaN(s) && s > now;
+}
+
+// Open but past its end time → over (an admin just hasn't flipped status to closed yet).
+// The complement of "started" — used to show an "ended" notice + block late submissions.
+export function isEventEnded(
+	status: string | null | undefined,
+	endsAt: string | null | undefined,
+	now: number = Date.now()
+): boolean {
+	if (status !== 'open' || !endsAt) return false;
+	const e = new Date(endsAt).getTime();
+	return !Number.isNaN(e) && now > e;
 }
 
 // A task's reward, for display: a card pack and/or VP (either, both, or none).

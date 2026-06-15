@@ -3,6 +3,7 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
+	import DatabaseTabs from '$lib/admin/DatabaseTabs.svelte';
 	import type { PageData } from './$types';
 
 	type ColumnMeta = {
@@ -158,6 +159,7 @@
 </svelte:head>
 
 <section>
+	<DatabaseTabs />
 	<a href="/admin/tables" class="back">← Tables</a>
 	<div class="head">
 		<h1>{data.table}</h1>
