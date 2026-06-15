@@ -1,14 +1,28 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import * as THREE from 'three';
+	import '$lib/cards/threeSetup'; // THREE.Cache.enabled = true (dedupe texture loads)
 	import { RARITY_BY_KEY, DEFAULT_RARITY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
 	import {
 		FINISH_BY_KEY,
 		HOLO_TEXTURE_URL,
 		HOLO_MASK_URL,
+		HOLO_BORDER_MASK_URL,
 		type CardFinish
 	} from '$lib/cards/finishes';
-	import { HOLO_VERT, HOLO_FRAG, LAYER_SHADOW_FRAG } from '$lib/cards/holo';
+	import {
+		HOLO_VERT,
+		HOLO_FRAG,
+		LAYER_SHADOW_FRAG,
+		LAYER_RECESS_FRAG,
+		LAYER_GLOW_FRAG
+	} from '$lib/cards/holo';
+	import { createLayerEffect, type LayerEffectHandle } from '$lib/cards/layerEffects';
+	import { makeEdgeFade } from '$lib/cards/edgeFade';
+	import { loadLayerTexture, type LayerTextureHandle } from '$lib/cards/layerTexture';
+	import { loadCardModel, type CardModelHandle } from '$lib/cards/cardModel';
+	import { toCardModels } from '$lib/cards/rarity';
+	import { isVideoUrl } from '$lib/cards/config';
 
 	let {
 		card,
@@ -30,10 +44,12 @@
 	let activeFinish = $state<CardFinish>(untrack(() => card.finish ?? 'normal'));
 	let finishMeta = $derived(FINISH_BY_KEY[activeFinish] ?? FINISH_BY_KEY.normal);
 	// Full-art cards ignore the finish masks, but a full-art card WITH an uploaded
-	// holo image shows a whole-card foil (intrinsic, not a rolled finish).
-	let fullArtHolo = $derived(!!card.full_art && !!card.holo_url);
+	// holo image (whole card) OR holo_border (frame only) shows an intrinsic foil.
+	let fullArtHolo = $derived(!!card.full_art && (!!card.holo_url || !!card.holo_border));
 	let isHolo = $derived(fullArtHolo || (!card.full_art && finishMeta.key !== 'normal'));
-	let finishLabel = $derived(fullArtHolo ? 'Holo' : finishMeta.label);
+	let finishLabel = $derived(
+		fullArtHolo ? (card.holo_border ? 'Reverse Holo' : 'Holo') : finishMeta.label
+	);
 
 	// Imperative bridge: set by onMount so the toggle can update the 3D material.
 	let applyFinish: (f: CardFinish) => void = () => {};
@@ -89,6 +105,16 @@
 	function loadDims(url: string | null, fallback: { w: number; h: number }) {
 		return new Promise<{ w: number; h: number }>((resolve) => {
 			if (!url) return resolve(fallback);
+			if (isVideoUrl(url)) {
+				const v = document.createElement('video');
+				v.preload = 'metadata';
+				v.muted = true;
+				v.onloadedmetadata = () =>
+					resolve({ w: v.videoWidth || fallback.w, h: v.videoHeight || fallback.h });
+				v.onerror = () => resolve(fallback);
+				v.src = url;
+				return;
+			}
 			const img = new Image();
 			img.onload = () => resolve({ w: img.naturalWidth || fallback.w, h: img.naturalHeight || fallback.h });
 			img.onerror = () => resolve(fallback);
@@ -116,10 +142,27 @@
 
 			const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 			renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+			// Lets a model's `clip` setting cut away geometry behind the card face.
+			// No-op for materials without clippingPlanes (the card's own shaders).
+			renderer.localClippingEnabled = true;
 
 			const loader = new THREE.TextureLoader();
 			const group = new THREE.Group();
 			scene.add(group);
+
+			// The card itself uses unlit shader/basic materials, so this scene normally has
+			// NO lights. A .glb model uses PBR (MeshStandardMaterial), which renders BLACK
+			// without lighting — add lights only when the card actually has a model.
+			const cardModels = toCardModels(card);
+			if (cardModels.length) {
+				scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+				const key = new THREE.DirectionalLight(0xffffff, 1.1);
+				key.position.set(3, 5, 6);
+				scene.add(key);
+				const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+				fill.position.set(-4, 2, 4);
+				scene.add(fill);
+			}
 
 			// 1x1 white stand-in so the foil/mask samplers are always bound, even for
 			// a Normal card (uHas = 0 means the shader never reads them).
@@ -150,7 +193,9 @@
 					uHas: { value: 0 },
 					uStrength: { value: 0 },
 					uReveal: { value: 1 },
-					uOpacity: { value: 1 }
+					uOpacity: { value: 1 },
+					uEdgeFade: { value: 0.03 },
+					uMapSrgb: { value: 0 }
 				},
 				vertexShader: HOLO_VERT,
 				fragmentShader: HOLO_FRAG,
@@ -158,14 +203,24 @@
 			});
 			// Swap the foil/mask for a finish (live — used by the toggle and at init).
 			applyFinish = (f: CardFinish) => {
-				// Full-art card: no masked foil — but if it has an uploaded holo image,
-				// apply that foil over the WHOLE card (mask = dummy, alpha 1 everywhere).
+				// Full-art card: no rolled finish masks. An intrinsic foil applies if it
+				// has an uploaded holo image (whole card) or holo_border (frame only).
+				// Border holo's foil = the uploaded holo_url if set, else the reverse ripple.
 				if (card.full_art) {
-					if (card.holo_url) {
+					if (card.holo_url || card.holo_border) {
 						frontMat.uniforms.uHas.value = 1;
 						frontMat.uniforms.uStrength.value = 1;
-						frontMat.uniforms.uHoloTex.value = holoTexFor(card.holo_url, true, true);
-						frontMat.uniforms.uMask.value = dummy;
+						frontMat.uniforms.uHoloTex.value = holoTexFor(
+							card.holo_url ?? HOLO_TEXTURE_URL.ripple,
+							true,
+							true
+						);
+						frontMat.uniforms.uMask.value = card.holo_border
+							? holoTexFor(HOLO_BORDER_MASK_URL, false, false)
+							: dummy;
+						// Border foil sits in the thin frame — shrink the edge fade so it
+						// doesn't fade the frame away; whole-card foil keeps the default.
+						frontMat.uniforms.uEdgeFade.value = card.holo_border ? 0.006 : 0.03;
 					} else {
 						frontMat.uniforms.uHas.value = 0;
 					}
@@ -186,11 +241,25 @@
 					: dummy;
 			};
 			applyFinish(activeFinish);
-			loader.load(frontUrl, (t) => {
-				t.colorSpace = THREE.SRGBColorSpace;
-				frontMat.uniforms.map.value = t;
-				frontMat.needsUpdate = true;
-			});
+			// A video front animates as a looping VideoTexture (disposed in teardown);
+			// a still image uses the texture loader. three doesn't sRGB-decode a
+			// VideoTexture on sample, so for video we mark it linear (no decode) and let
+			// the shader decode (uMapSrgb) — otherwise the video renders too bright.
+			let frontHandle: LayerTextureHandle | null = null;
+			if (isVideoUrl(frontUrl)) {
+				frontHandle = loadLayerTexture(loader, frontUrl, (t) => {
+					t.colorSpace = THREE.LinearSRGBColorSpace;
+					frontMat.uniforms.uMapSrgb.value = 1;
+					frontMat.uniforms.map.value = t;
+					frontMat.needsUpdate = true;
+				});
+			} else {
+				loader.load(frontUrl, (t) => {
+					t.colorSpace = THREE.SRGBColorSpace;
+					frontMat.uniforms.map.value = t;
+					frontMat.needsUpdate = true;
+				});
+			}
 			const front = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), frontMat);
 			group.add(front);
 
@@ -220,10 +289,102 @@
 			// it reads as popping OUT of the card rather than floating above it.
 			const LAYER_DEPTH = 0.08; // how far each layer sits above the card (small = subtle)
 			const SHADOW_DIR = new THREE.Vector2(0.6, -0.8); // light upper-left → shadow lower-right
-			const layerMats: THREE.MeshBasicMaterial[] = [];
+			// Soft edge-fade mask: layer art that reaches the card border feathers out
+			// instead of hard-cutting into a straight line, and the square plane corners
+			// don't poke past the card's rounded silhouette. Shared by all layers.
+			const edgeFade = (card.layers ?? []).length ? makeEdgeFade() : null;
+			// Image/video texture handles, disposed on teardown (video also gets paused).
+			const layerTexHandles: LayerTextureHandle[] = [];
+			// Live per-layer animation effects (see layerEffects.ts), updated each frame.
+			const fxHandles: LayerEffectHandle[] = [];
+			// Build a glow-effect handle for a layer plane `lp` whose texture lives in
+			// `texRef` (so it works for both the MeshBasic raised layer and the recess
+			// ShaderMaterial). Shared by both branches below.
+			const makeLayerGlow = (
+				lp: THREE.Mesh,
+				baseZ: number,
+				texRef: { value: THREE.Texture | null },
+				glowMaps: { value: THREE.Texture | null }[]
+			) => ({ blur }: { blur: number }) => {
+				const gmat = new THREE.ShaderMaterial({
+					uniforms: {
+						map: { value: texRef.value },
+						uIntensity: { value: 0 },
+						uBlur: { value: new THREE.Vector2(blur, blur) },
+						uFeather: { value: new THREE.Vector2(0.12, 0.12) },
+						uTint: { value: new THREE.Color(1, 1, 1) }
+					},
+					vertexShader: HOLO_VERT,
+					fragmentShader: LAYER_GLOW_FRAG,
+					transparent: true,
+					blending: THREE.AdditiveBlending,
+					depthWrite: false
+				});
+				glowMaps.push(gmat.uniforms.map);
+				const gmesh = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), gmat);
+				gmesh.position.z = baseZ + 0.002;
+				gmesh.renderOrder = 4;
+				group.add(gmesh);
+				return {
+					setIntensity: (v: number) => (gmat.uniforms.uIntensity.value = v),
+					dispose: () => {
+						group.remove(gmesh);
+						gmesh.geometry.dispose();
+						gmat.dispose();
+					}
+				};
+			};
+
 			(card.layers ?? []).forEach((ly, i) => {
-				const h = (i + 1) * LAYER_DEPTH;
+				const depth = ly.depth ?? (i + 1) * LAYER_DEPTH;
+				const glowMaps: { value: THREE.Texture | null }[] = [];
+
+				if (ly.inset) {
+					// Recessed: a flat plane GLUED to the card surface; the depth is faked in
+					// the shader (parallax of the image within its own footprint + dark walls
+					// + a rim shadow), so it reads as a hole in the card — it never spills past
+					// the edge and stays attached as you turn it.
+					const rmat = new THREE.ShaderMaterial({
+						uniforms: {
+							map: { value: null },
+							uOpacity: { value: 1 },
+							uDepth: { value: Math.min(0.18, depth / CARD_H) },
+							uLight: { value: new THREE.Vector2(-SHADOW_DIR.x * 0.02, -SHADOW_DIR.y * 0.02) }
+						},
+						vertexShader: HOLO_VERT,
+						fragmentShader: LAYER_RECESS_FRAG,
+						transparent: true,
+						depthWrite: false
+					});
+					layerTexHandles.push(
+						loadLayerTexture(loader, ly.url, (t) => {
+							t.colorSpace = THREE.SRGBColorSpace;
+							rmat.uniforms.map.value = t;
+							for (const m of glowMaps) m.value = t;
+						})
+					);
+					const z = 0.001 * (i + 1); // glued just above the front
+					const lp = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), rmat);
+					lp.position.z = z;
+					lp.renderOrder = 2;
+					group.add(lp);
+					if (ly.effect) {
+						fxHandles.push(
+							createLayerEffect(ly.effect, {
+								mesh: lp,
+								baseZ: z,
+								index: i,
+								makeGlow: makeLayerGlow(lp, z, rmat.uniforms.map, glowMaps)
+							})
+						);
+					}
+					return;
+				}
+
+				// Raised (default): a plane above the card + a soft outward drop shadow.
+				const h = depth;
 				const lm = new THREE.MeshBasicMaterial({ transparent: true });
+				if (edgeFade) lm.alphaMap = edgeFade;
 				const sm = new THREE.ShaderMaterial({
 					uniforms: {
 						map: { value: null },
@@ -235,25 +396,58 @@
 					transparent: true,
 					depthWrite: false
 				});
-				loader.load(ly.url, (t) => {
-					t.colorSpace = THREE.SRGBColorSpace;
-					lm.map = t;
-					lm.needsUpdate = true;
-					sm.uniforms.map.value = t; // shadow reuses the layer texture (alpha)
-				});
+				const texRef: { value: THREE.Texture | null } = { value: null };
+				layerTexHandles.push(
+					loadLayerTexture(loader, ly.url, (t) => {
+						t.colorSpace = THREE.SRGBColorSpace;
+						lm.map = t;
+						lm.needsUpdate = true;
+						sm.uniforms.map.value = t; // shadow reuses the layer texture (alpha)
+						texRef.value = t;
+						for (const m of glowMaps) m.value = t;
+					})
+				);
 				// Force draw order front(0) → shadow(1) → layer(2) so the transparency
 				// sort never flips the shadow behind the front (which made it vanish).
 				const shadow = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), sm);
 				shadow.position.set(SHADOW_DIR.x * h * 1.1, SHADOW_DIR.y * h * 1.1, 0.002 + i * 0.0015);
 				shadow.renderOrder = 1;
 				group.add(shadow);
-				// the layer itself, raised above the card
 				const lp = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), lm);
 				lp.position.z = h;
 				lp.renderOrder = 2;
 				group.add(lp);
-				layerMats.push(lm);
+				if (ly.effect) {
+					fxHandles.push(
+						createLayerEffect(ly.effect, {
+							mesh: lp,
+							baseZ: h,
+							index: i,
+							makeGlow: makeLayerGlow(lp, h, texRef, glowMaps)
+						})
+					);
+				}
 			});
+
+			// Optional .glb model(s), hovering above the top depth layer. Loaded async; the
+			// `disposed` guard handles the modal closing before they resolve.
+			const modelHandles: CardModelHandle[] = [];
+			{
+				// Float models above the highest RAISED layer (recessed layers sit below).
+				const maxRaised = (card.layers ?? []).reduce(
+					(mx, ly, i) => (ly.inset ? mx : Math.max(mx, ly.depth ?? (i + 1) * LAYER_DEPTH)),
+					0
+				);
+				const baseZ = maxRaised + LAYER_DEPTH + 0.15;
+				for (const m of cardModels) {
+					loadCardModel(group, m.url, m.settings ?? {}, { cardW: CARD_W, cardH: CARD_H, baseZ, camera }).then(
+						(h) => {
+							if (disposed) h.dispose();
+							else modelHandles.push(h);
+						}
+					);
+				}
+			}
 
 			// ---- Interaction: drag to rotate, tap to flip ----
 			let targetRotY = 0;
@@ -313,6 +507,12 @@
 
 			let raf = 0;
 			const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+			// Track how fast the card is being turned (drag rotation, not idle sway),
+			// smoothed, to drive the layer effects — they only play while you spin it.
+			let prevSpinY = 0;
+			let prevSpinX = 0;
+			let spinSpeed = 0;
+			let lastNow = performance.now();
 			function frame() {
 				raf = requestAnimationFrame(frame);
 				const now = performance.now();
@@ -322,6 +522,24 @@
 				const sway = dragging ? 0 : 1;
 				group.rotation.y = spinY + sway * Math.sin(now * 0.0009) * 0.05;
 				group.rotation.x = spinX + sway * Math.sin(now * 0.0007) * 0.03;
+				const dt = Math.min(0.05, (now - lastNow) / 1000);
+				// Drive per-layer effects by spin speed (0 at rest → no animation).
+				// The raw drag velocity is spiky (pointer events don't land every frame),
+				// so smooth it with a fast attack / slow release: it ramps up quickly,
+				// holds steady between input spikes, and glides back down when you stop —
+				// otherwise the effects flicker.
+				if (fxHandles.length) {
+					const d = Math.abs(spinY - prevSpinY) + Math.abs(spinX - prevSpinX);
+					prevSpinY = spinY;
+					prevSpinX = spinX;
+					const target = Math.min(1, d * 12);
+					spinSpeed = lerp(spinSpeed, target, target > spinSpeed ? 0.25 : 0.05);
+					for (const fx of fxHandles) fx.update({ dt, spin: spinSpeed });
+				}
+				// Play the model's embedded animation (and optional idle spin); it already
+				// inherits the card's tilt as a child of `group`.
+				for (const h of modelHandles) h.update(dt, spinSpeed);
+				lastNow = now;
 				renderer.render(scene, camera);
 			}
 			frame();
@@ -329,6 +547,9 @@
 			teardown = () => {
 				cancelAnimationFrame(raf);
 				ro.disconnect();
+				frontHandle?.dispose();
+				for (const h of modelHandles) h.dispose();
+				fxHandles.forEach((fx) => fx.dispose());
 				canvas.removeEventListener('pointerdown', onDown);
 				canvas.removeEventListener('pointermove', onMove);
 				canvas.removeEventListener('pointerup', onUp);
@@ -342,7 +563,8 @@
 				frontMat.uniforms.map.value?.dispose?.();
 				backMat.map?.dispose?.();
 				texCache.forEach((t) => t.dispose());
-				layerMats.forEach((m) => m.map?.dispose?.());
+				layerTexHandles.forEach((h) => h.dispose());
+				edgeFade?.dispose();
 				dummy.dispose();
 				renderer.dispose();
 			};
@@ -422,7 +644,7 @@
 			</button>
 		</div>
 	{:else if allowFinishToggle && card.full_art}
-		<p class="full-art-note">{card.holo_url ? 'Full art — full-card holo' : 'Full art — no holo'}</p>
+		<p class="full-art-note">{card.holo_border ? 'Full art — border reverse holo' : card.holo_url ? 'Full art — full-card holo' : 'Full art — no holo'}</p>
 	{/if}
 
 	<p class="hint">Drag to rotate · tap to flip · Esc to close</p>

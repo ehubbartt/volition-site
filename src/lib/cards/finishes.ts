@@ -52,6 +52,11 @@ export const HOLO_MASK_URL: Record<HoloPlacement, string> = {
 	reverse: '/holo/mask-reverse.png'
 };
 
+// Border-frame region mask (alpha = the card's outer frame, transparent centre).
+// Used for "border reverse holo" full-art cards (vs_cards.holo_border) — the foil
+// shows only on the frame, leaving the full-art centre clean. See the holo shader.
+export const HOLO_BORDER_MASK_URL = '/holo/mask-border.png';
+
 export function isValidFinish(value: unknown): value is CardFinish {
 	return typeof value === 'string' && value in FINISH_BY_KEY;
 }

@@ -2,6 +2,7 @@
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
 	import { untrack } from 'svelte';
+	import CardsTabs from '$lib/admin/CardsTabs.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -54,7 +55,7 @@
 </svelte:head>
 
 <section>
-	<h1>Pack Simulator</h1>
+	<CardsTabs />
 	<p class="muted">
 		Open a pack thousands of times to check drop rates — uses the exact same roll
 		as the real store. No VP is spent and nothing is saved.
@@ -230,10 +231,6 @@
 </section>
 
 <style>
-	h1 {
-		margin-bottom: 0.25rem;
-	}
-
 	.muted {
 		color: var(--muted);
 	}

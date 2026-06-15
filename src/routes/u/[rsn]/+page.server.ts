@@ -1,16 +1,13 @@
 import { redirect, error } from '@sveltejs/kit';
-import { isCardTester } from '$lib/server/auth';
 import { findUserBySlug } from '$lib/server/users';
 import { loadCardProfile } from '$lib/server/cardProfile';
 import type { PageServerLoad } from './$types';
 
-// Public (card-tester gated) read-only view of any player's card profile —
-// identity, collection, owned packs, VP, wallet, and stats. Addressed by RSN
-// (/u/Zezima). Mirrors /me without the self-only edit form / sign-out. Gated to
-// card testers while the card game is in progress.
+// Public read-only view of any player's card profile — identity, collection, owned
+// packs, VP, wallet, and stats. Addressed by RSN (/u/Zezima). Mirrors /me without
+// the self-only edit form / sign-out. Open to any logged-in member.
 export const load: PageServerLoad = async ({ locals, params }) => {
 	if (!locals.user) throw redirect(303, '/');
-	if (!isCardTester(locals.user)) throw error(403, 'Not allowed');
 
 	const target = await findUserBySlug(params.rsn);
 	if (!target) throw error(404, 'Player not found');

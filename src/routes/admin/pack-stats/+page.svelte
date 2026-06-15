@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import CardsTabs from '$lib/admin/CardsTabs.svelte';
 	import { rsnToSlug } from '$lib/rsn';
 
 	let { data }: { data: PageData } = $props();
@@ -25,12 +26,11 @@
 </script>
 
 <svelte:head>
-	<title>Player Stats · Volition</title>
+	<title>Pack Stats · Volition</title>
 </svelte:head>
 
 <section>
-	<a class="back" href="/admin">← Admin</a>
-	<h1>Player Stats</h1>
+	<CardsTabs />
 	<p class="muted">Card-game activity across all players — pack opens, VP spent, and collections.</p>
 
 	<div class="summary">
@@ -181,17 +181,6 @@
 </section>
 
 <style>
-	.back {
-		display: inline-block;
-		margin-bottom: 0.5rem;
-		color: var(--muted);
-		font-size: 0.9rem;
-	}
-
-	h1 {
-		margin-bottom: 0.25rem;
-	}
-
 	.muted {
 		color: var(--muted);
 	}

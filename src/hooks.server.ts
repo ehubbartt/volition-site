@@ -1,6 +1,8 @@
 import type { Handle } from '@sveltejs/kit';
 import { env } from '$env/dynamic/public';
 import { readSession } from '$lib/server/auth';
+import { getBan } from '$lib/server/bans';
+import { shouldAudit, capturePayload, logAudit } from '$lib/server/audit';
 
 // Force a single canonical origin. Discord OAuth stores its state in a
 // per-domain cookie, so starting login on ANY non-canonical host (the old Fly
@@ -33,5 +35,34 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const session = await readSession(event.cookies);
 	event.locals.user = session?.user ?? null;
 	event.locals.sessionId = session?.sessionId ?? null;
-	return resolve(event);
+
+	// Banned users (the bot's `bans` table, keyed by Discord id) can't use the site.
+	// Send every authenticated request to /banned — except the /banned page itself,
+	// logout (so they can leave), and static assets (so /banned can render). Only
+	// queried when a session resolved, so logged-out browsing is unaffected.
+	event.locals.ban = session?.user ? await getBan(session.user.discord_id) : null;
+	if (event.locals.ban) {
+		const path = event.url.pathname;
+		const allowed =
+			path === '/banned' ||
+			path.startsWith('/auth/logout') ||
+			path.startsWith('/_app/') ||
+			path.includes('.'); // fonts, images, favicon, etc.
+		if (!allowed) {
+			return new Response(null, { status: 303, headers: { location: '/banned' } });
+		}
+	}
+
+	// Automatic admin audit log. Capture the form payload BEFORE resolve() consumes the
+	// request body (clone so the action still reads it), then record the row after we
+	// know the response status. Best-effort + fire-and-forget — never blocks/breaks the
+	// request. See src/lib/server/audit.ts.
+	const audit = shouldAudit(event);
+	const payload = audit ? await capturePayload(event.request.clone()) : null;
+
+	const response = await resolve(event);
+
+	if (audit && payload) void logAudit(event, response.status, payload);
+
+	return response;
 };

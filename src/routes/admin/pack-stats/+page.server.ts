@@ -1,6 +1,6 @@
 import { redirect, error } from '@sveltejs/kit';
-import { db } from '$lib/server/db';
-import { isCardTester } from '$lib/server/auth';
+import { selectAll } from '$lib/server/db';
+import { isCardAdmin } from '$lib/server/auth';
 import { RARITIES, isValidRarity, DEFAULT_RARITY } from '$lib/cards/rarity';
 import type { PageServerLoad } from './$types';
 
@@ -55,24 +55,18 @@ export interface PlayerStat {
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
-	if (!isCardTester(locals.user)) throw error(403, 'Not allowed');
+	if (!isCardAdmin(locals.user)) throw error(403, 'Not allowed');
 
-	const sb = db();
-	const [usersRes, opensRes, openCardsRes, cardsRes, packsRes] = await Promise.all([
-		sb.from('vs_users').select('id, rsn, discord_username'),
-		sb.from('vs_pack_opens').select('user_id, pack_id, pack_name, cost_vp, card_count, opened_at'),
-		sb.from('vs_pack_open_cards').select('rarity, finish'),
-		sb.from('vs_user_cards').select('user_id, quantity, card_id'),
-		sb.from('vs_user_packs').select('user_id, quantity')
+	// Page through every row (PostgREST caps a plain .select() at 1000) so the
+	// rarity/SR pull counts and per-player totals reflect the FULL history, not just
+	// the first 1000 rows — vs_pack_open_cards (≈5 rows/open) blows past 1000 fast.
+	const [userRows, opens, openCards, cardRows, packRows] = await Promise.all([
+		selectAll<UserRow>('vs_users', 'id, rsn, discord_username'),
+		selectAll<OpenRow>('vs_pack_opens', 'user_id, pack_id, pack_name, cost_vp, card_count, opened_at'),
+		selectAll<OpenCardRow>('vs_pack_open_cards', 'rarity, finish'),
+		selectAll<UserCardRow>('vs_user_cards', 'user_id, quantity, card_id'),
+		selectAll<UserPackRow>('vs_user_packs', 'user_id, quantity')
 	]);
-
-	if (opensRes.error) throw error(500, opensRes.error.message);
-
-	const opens = (opensRes.data ?? []) as OpenRow[];
-	const openCards = (openCardsRes.data ?? []) as OpenCardRow[];
-	const userRows = (usersRes.data ?? []) as UserRow[];
-	const cardRows = (cardsRes.data ?? []) as UserCardRow[];
-	const packRows = (packsRes.data ?? []) as UserPackRow[];
 
 	// Display name + RSN per user id.
 	const nameOf = new Map<string, string>();

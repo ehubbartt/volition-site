@@ -9,11 +9,22 @@ import type { LootResult } from './lootcrate';
 const RARE_VP_AMOUNT = 100;
 const RARE_CHANCE_PERCENT = 5;
 
-function isRareDrop(result: LootResult): boolean {
+export function isRareDrop(result: LootResult): boolean {
 	if (result.kind === 'role' || result.kind === 'item') return true;
 	if (result.kind === 'vp' && result.amount >= RARE_VP_AMOUNT) return true;
 	if (result.chance > 0 && result.chance <= RARE_CHANCE_PERCENT) return true;
 	return false;
+}
+
+// Minimum VP for a crate VP reward to be BROADCAST to the public drops channel.
+// (Separate from isRareDrop, which governs the analytics rare-drops LOG.) Mirrors the
+// card live-drops "only notable pulls" idea: items + the role always broadcast, but a
+// plain VP reward only when it's strictly greater than this.
+const BROADCAST_MIN_VP = 25;
+
+export function shouldBroadcastCrateDrop(result: LootResult): boolean {
+	if (result.kind === 'item' || result.kind === 'role') return true;
+	return result.kind === 'vp' && result.amount > BROADCAST_MIN_VP;
 }
 
 export async function logLootcrateOpen(
