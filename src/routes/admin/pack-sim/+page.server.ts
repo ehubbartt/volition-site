@@ -1,6 +1,6 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { isCardTester } from '$lib/server/auth';
+import { isCardAdmin } from '$lib/server/auth';
 import { makeSlotRoller, rollOnePack } from '$lib/server/gamba';
 import {
 	isValidRarity,
@@ -26,7 +26,7 @@ interface PoolRow {
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
-	if (!isCardTester(locals.user)) throw error(403, 'Not allowed');
+	if (!isCardAdmin(locals.user)) throw error(403, 'Not allowed');
 
 	const [packsRes, cardsRes] = await Promise.all([
 		db().from('vs_card_packs').select('id, name, cards_per_pack').order('name', { ascending: true }),
@@ -52,7 +52,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 export const actions: Actions = {
 	simulate: async ({ locals, request }) => {
-		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
+		if (!locals.user || !isCardAdmin(locals.user)) throw error(403, 'Not allowed');
 
 		const form = await request.formData();
 		const packId = form.get('pack_id')?.toString();

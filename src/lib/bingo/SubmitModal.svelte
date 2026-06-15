@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import AccountIcon from '$lib/AccountIcon.svelte';
+	import ImageDropper from '$lib/ImageDropper.svelte';
 	import type { BingoTile } from './tiles';
 	import { TIER_BY_KEY } from './tiles';
-	import { MAX_IMAGES_PER_SUBMISSION } from './config';
 	import type { TileStatus } from './state';
 
 	type SubmissionStatus = 'pending' | 'approved' | 'rejected';
@@ -55,75 +55,10 @@
 	const tier = $derived(TIER_BY_KEY[tile.tier]);
 	const submittable = $derived(status === 'open' && canSubmit);
 
-	let fileInput: HTMLInputElement | null = $state(null);
-	let staged = $state<Array<{ file: File; url: string }>>([]);
-	let dragOver = $state(false);
+	let stagedCount = $state(0);
+	let resetKey = $state(0);
 	let submitting = $state(false);
 	let error = $state<string | null>(null);
-
-	// Mirror the staged files onto the hidden <input type="file" multiple> so the
-	// form submits them all under "proof". Setting .files programmatically does
-	// not refire the change event, so this won't loop with handleSelect.
-	function syncInput() {
-		if (!fileInput) return;
-		const dt = new DataTransfer();
-		for (const s of staged) dt.items.add(s.file);
-		fileInput.files = dt.files;
-	}
-
-	function addFiles(files: FileList | File[]) {
-		error = null;
-		for (const f of Array.from(files)) {
-			if (!f.type.startsWith('image/')) continue;
-			if (staged.length >= MAX_IMAGES_PER_SUBMISSION) {
-				error = `You can attach up to ${MAX_IMAGES_PER_SUBMISSION} images per submission.`;
-				break;
-			}
-			staged = [...staged, { file: f, url: URL.createObjectURL(f) }];
-		}
-		syncInput();
-	}
-
-	function removeStaged(i: number) {
-		const s = staged[i];
-		if (s) URL.revokeObjectURL(s.url);
-		staged = staged.filter((_, idx) => idx !== i);
-		syncInput();
-	}
-
-	function clearStaged() {
-		for (const s of staged) URL.revokeObjectURL(s.url);
-		staged = [];
-		if (fileInput) fileInput.value = '';
-	}
-
-	function handleDrop(e: DragEvent) {
-		e.preventDefault();
-		dragOver = false;
-		if (!submittable) return;
-		if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
-	}
-
-	function handleSelect(e: Event) {
-		const target = e.target as HTMLInputElement;
-		if (target.files?.length) addFiles(target.files);
-	}
-
-	function handlePaste(e: ClipboardEvent) {
-		if (!submittable) return;
-		const items = e.clipboardData?.items;
-		if (!items) return;
-		for (const item of items) {
-			if (item.kind === 'file' && item.type.startsWith('image/')) {
-				const f = item.getAsFile();
-				if (f) {
-					e.preventDefault();
-					addFiles([f]);
-					return;
-				}
-			}
-		}
-	}
 
 	function onKey(e: KeyboardEvent) {
 		if (e.key === 'Escape') onclose();
@@ -142,7 +77,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={onKey} onpaste={handlePaste} />
+<svelte:window onkeydown={onKey} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -231,7 +166,7 @@
 						await update({ reset: false });
 						submitting = false;
 						if (result.type === 'success') {
-							clearStaged();
+							resetKey += 1;
 						} else if (result.type === 'failure') {
 							const data = result.data as { error?: string } | undefined;
 							error = data?.error ?? 'Submit failed';
@@ -243,64 +178,20 @@
 			>
 				<input type="hidden" name="tile_id" value={tile.id} />
 
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<label
-					class="dropzone"
-					class:drag-over={dragOver}
-					ondragover={(e) => {
-						e.preventDefault();
-						dragOver = true;
-					}}
-					ondragleave={() => (dragOver = false)}
-					ondrop={handleDrop}
-				>
-					<input
-						bind:this={fileInput}
-						type="file"
-						name="proof"
-						accept="image/png,image/jpeg,image/webp,image/gif"
-						multiple
-						onchange={handleSelect}
-						hidden
-					/>
-					<span class="big">
-						{staged.length > 0 ? 'Add another image' : 'Drop or paste image'}
-					</span>
-					<span class="hint">
-						click to choose · paste (Ctrl/Cmd+V) · up to {MAX_IMAGES_PER_SUBMISSION} images, 10 MB each
-					</span>
-				</label>
-
-				{#if staged.length > 0}
-					<div class="staged">
-						{#each staged as s, i (s.url)}
-							<div class="staged-item">
-								<img src={s.url} alt={`Staged ${i + 1}`} />
-								<button
-									type="button"
-									class="staged-remove"
-									aria-label="Remove image"
-									onclick={() => removeStaged(i)}
-								>
-									×
-								</button>
-							</div>
-						{/each}
-					</div>
-				{/if}
+				<ImageDropper bind:count={stagedCount} bind:error {resetKey} captureWindowPaste />
 
 				{#if error}<p class="error">{error}</p>{/if}
 
 				<div class="actions">
-					<button type="submit" class="primary" disabled={staged.length === 0 || submitting}>
+					<button type="submit" class="primary" disabled={stagedCount === 0 || submitting}>
 						{#if submitting}
 							Submitting…
 						{:else}
-							Submit {staged.length > 1 ? `${staged.length} images` : 'proof'}
+							Submit {stagedCount > 1 ? `${stagedCount} images` : 'proof'}
 						{/if}
 					</button>
-					{#if staged.length > 0}
-						<button type="button" onclick={clearStaged}>Clear</button>
+					{#if stagedCount > 0}
+						<button type="button" onclick={() => (resetKey += 1)}>Clear</button>
 					{/if}
 				</div>
 			</form>
@@ -617,80 +508,6 @@
 		font-size: 0.78rem;
 		padding: 0.25rem 0.55rem;
 		min-height: 0;
-	}
-
-	.dropzone {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 0.4rem;
-		min-height: 9rem;
-		padding: 1rem;
-		margin: 0.5rem 0 0.75rem;
-		background: var(--surface-alt);
-		border: 2px dashed var(--border-strong);
-		border-radius: var(--radius);
-		text-align: center;
-		cursor: pointer;
-		transition: border-color 0.15s, background 0.15s;
-	}
-
-	.dropzone:hover,
-	.dropzone.drag-over {
-		border-color: var(--accent);
-		background: var(--accent-soft);
-	}
-
-	.staged {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.4rem;
-		margin-bottom: 0.75rem;
-	}
-
-	.staged-item {
-		position: relative;
-	}
-
-	.staged-item img {
-		display: block;
-		width: 5.5rem;
-		height: 5.5rem;
-		object-fit: cover;
-		border-radius: 3px;
-		border: 1px solid var(--border);
-		background: #000;
-	}
-
-	.staged-remove {
-		position: absolute;
-		top: -6px;
-		right: -6px;
-		width: 20px;
-		height: 20px;
-		min-height: 0;
-		padding: 0;
-		line-height: 1;
-		font-size: 1rem;
-		border-radius: 50%;
-		background: var(--danger);
-		color: #fff;
-		border: 1px solid #000;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.big {
-		font-family: var(--font-heading);
-		font-size: 1.05rem;
-		color: var(--accent);
-	}
-
-	.hint {
-		font-size: 0.8rem;
-		color: var(--muted);
 	}
 
 	.actions {

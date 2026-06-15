@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { RARITY_BY_KEY, DEFAULT_RARITY, DEFAULT_CARD_BACK, type Card } from '$lib/cards/rarity';
+	import { isVideoUrl } from '$lib/cards/config';
 
 	let { card }: { card: Card } = $props();
 
@@ -23,7 +24,12 @@
 				<img src={back} alt="" loading="lazy" />
 			</div>
 			<div class="face front">
-				<img src={front} alt={card.name} loading="lazy" />
+				{#if isVideoUrl(front)}
+					<!-- svelte-ignore a11y_media_has_caption -->
+					<video src={front} autoplay loop muted playsinline></video>
+				{:else}
+					<img src={front} alt={card.name} loading="lazy" />
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -99,7 +105,8 @@
 		transform: rotateY(180deg);
 	}
 
-	.face img {
+	.face img,
+	.face video {
 		width: 100%;
 		height: 100%;
 		object-fit: cover;

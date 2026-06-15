@@ -2,7 +2,9 @@ import { redirect, error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
+import { ensureWelcomePack } from '$lib/server/welcomePack';
 import { loadCalendarItems } from '$lib/server/calendar';
+import { loadPlayerTasks } from '$lib/server/tasks';
 import { CATEGORY_OPTIONS } from '$lib/calendar';
 import { RANK_ORDER, RANK_LABEL, RANK_COLOR, rankIndex } from '$lib/ranks';
 import type { Actions, PageServerLoad } from './$types';
@@ -28,10 +30,20 @@ interface SiteUserRow {
 
 interface EventStatusRow {
 	status: string;
+	ends_at: string | null;
 }
 
-function eventCounts(rows: EventStatusRow[]) {
-	const active = rows.filter((r) => r.status === 'open' || r.status === 'locked').length;
+function eventCounts(rows: EventStatusRow[], now: number = Date.now()) {
+	// "Active" = open/locked AND not past its own end time. An event with an explicit
+	// ends_at in the past is over even if an admin hasn't flipped it to 'closed' yet
+	// (mirrors the /events list). bingo has no explicit ends_at, so it stays counted.
+	const active = rows.filter((r) => {
+		if (r.status !== 'open' && r.status !== 'locked') return false;
+		if (!r.ends_at) return true;
+		const end = new Date(r.ends_at).getTime();
+		if (Number.isNaN(end)) return true; // unparseable end = no real end → still active
+		return now <= end;
+	}).length;
 	return { active, total: rows.length };
 }
 
@@ -41,8 +53,12 @@ function normRsn(rsn: string | null | undefined): string {
 	return (rsn ?? '').trim().replace(/_/g, ' ').toLowerCase();
 }
 
-export const load: PageServerLoad = async ({ locals }) => {
-	const user = locals.user;
+export const load: PageServerLoad = async ({ parent }) => {
+	// Read the user from the layout load (single source of truth) rather than
+	// resolving it again here. Returning our own `user` key would clobber the
+	// layout's and let the two diverge — that's how a stale client after a deploy
+	// ends up with a logged-in nav but a "please sign in" page body.
+	const { user } = await parent();
 	const sb = db();
 
 	// Logged out → public landing (hero + a light upcoming teaser + headline stats).
@@ -50,17 +66,16 @@ export const load: PageServerLoad = async ({ locals }) => {
 		const [calendar, playersRes, eventsRes] = await Promise.all([
 			loadCalendarItems(false),
 			sb.from('players').select('id', { count: 'exact', head: true }),
-			sb.from('vs_events').select('status').in('status', ['open', 'locked', 'closed'])
+			sb.from('vs_events').select('status, ends_at').in('status', ['open', 'locked', 'closed'])
 		]);
 		const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
 		return {
-			user: null,
-			isAdmin: false,
 			calendar,
 			members: [] as never[],
 			rankBreakdown: [] as never[],
 			recentMembers: [] as never[],
 			stats: { members: playersRes.count ?? 0, activeEvents: active, totalEvents: total, packsOpened: 0 },
+			taskSummary: null,
 			categoryOptions: CATEGORY_OPTIONS
 		};
 	}
@@ -72,15 +87,26 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const admin = isAdmin(user);
 
-	const [calendar, playersRes, siteUsersRes, eventsRes, packsRes] = await Promise.all([
+	const [calendar, playersRes, siteUsersRes, eventsRes, packsRes, tasks] = await Promise.all([
 		loadCalendarItems(admin),
 		sb
 			.from('players')
 			.select('id, rsn, discord_id, rank, points, clan_joined_at, created_at'),
 		sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null),
-		sb.from('vs_events').select('status').in('status', ['draft', 'preview', 'open', 'locked', 'closed']),
-		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true })
+		sb.from('vs_events').select('status, ends_at').in('status', ['draft', 'preview', 'open', 'locked', 'closed']),
+		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true }),
+		// To-do surface is open to all onboarded users — always aggregate it.
+		loadPlayerTasks(user)
 	]);
+
+	// Ship a light summary (not the full array) for the home "Your to-do" card.
+	const taskSummary = tasks
+		? {
+				todoCount: tasks.filter((t) => t.status === 'todo').length,
+				total: tasks.length,
+				hasActive: tasks.some((t) => t.status === 'active')
+			}
+		: null;
 
 	const playerRows = (playersRes.data ?? []) as PlayerRow[];
 	const siteUsers = (siteUsersRes.data ?? []) as SiteUserRow[];
@@ -91,6 +117,26 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const siteRsns = new Set(siteUsers.map((u) => normRsn(u.rsn)).filter(Boolean));
 	const hasProfile = (p: PlayerRow) =>
 		(p.discord_id != null && siteDiscordIds.has(p.discord_id)) || siteRsns.has(normRsn(p.rsn));
+
+	// Welcome pack: if this member hasn't received theirs yet and is now in the
+	// Volition roster (e.g. they signed up before joining, then joined), grant it.
+	// Reuses the roster already loaded above, so it's a no-op (no query) once granted.
+	if (!user.welcome_pack_granted) {
+		const userIsMember = playerRows.some(
+			(p) =>
+				(p.discord_id != null && p.discord_id === user.discord_id) ||
+				normRsn(p.rsn) === normRsn(user.rsn)
+		);
+		await ensureWelcomePack(
+			{
+				id: user.id,
+				discord_id: user.discord_id,
+				rsn: user.rsn,
+				welcome_pack_granted: user.welcome_pack_granted
+			},
+			userIsMember
+		);
+	}
 
 	const members = playerRows
 		.map((p) => ({
@@ -124,8 +170,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
 
 	return {
-		user: { rsn: user.rsn },
-		isAdmin: admin,
 		calendar,
 		members,
 		rankBreakdown,
@@ -136,6 +180,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			totalEvents: total,
 			packsOpened: packsRes.count ?? 0
 		},
+		taskSummary,
 		categoryOptions: CATEGORY_OPTIONS
 	};
 };

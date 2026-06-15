@@ -12,6 +12,7 @@ export interface SessionUser {
 	rsn: string | null;
 	clan_allegiance: string | null;
 	account_type: string | null;
+	welcome_pack_granted: boolean;
 }
 
 function randomToken(bytes = 32): string {
@@ -50,7 +51,7 @@ export async function readSession(
 	const { data, error } = await db()
 		.from('vs_sessions')
 		.select(
-			'id, expires_at, vs_users(id, discord_id, discord_username, rsn, clan_allegiance, account_type)'
+			'id, expires_at, vs_users(id, discord_id, discord_username, rsn, clan_allegiance, account_type, welcome_pack_granted)'
 		)
 		.eq('id', sessionId)
 		.maybeSingle();
@@ -85,12 +86,32 @@ export function isAdmin(user: SessionUser | null): boolean {
 	return adminIds.includes(user.discord_id);
 }
 
-// Separate allow-list (env var CARD_TESTER_DISCORD_IDS) for the in-progress card
-// game. Intentionally INDEPENDENT of ADMIN_DISCORD_IDS — being a general admin
-// grants no card access; only ids in this list can see/test the card features.
+// Separate allow-list (env var CARD_TESTER_DISCORD_IDS) for the card game. A card
+// tester has FULL access (create/edit/delete cards & packs). Intentionally
+// INDEPENDENT of ADMIN_DISCORD_IDS for that full access.
 export function isCardTester(user: SessionUser | null): boolean {
 	if (!user) return false;
 	const ids = (env.CARD_TESTER_DISCORD_IDS ?? '')
+		.split(',')
+		.map((s) => s.trim())
+		.filter(Boolean);
+	return ids.includes(user.discord_id);
+}
+
+// VIEW-level access to the Cards & Packs admin area: general admins may open it
+// (read-only card/pack editors + the grant/test/sim/stats tools), while editing the
+// catalog still requires the card-tester role (isCardTester). Either role qualifies.
+export function isCardAdmin(user: SessionUser | null): boolean {
+	return isAdmin(user) || isCardTester(user);
+}
+
+// Highest-privilege allow-list (env var SUPER_ADMIN_DISCORD_IDS) for the destructive
+// dashboard tools migrated from volition-admin-dashboard: the generic DB table editor
+// and the bot config editor. These read/write ANY table (incl. the bot's), so they're
+// gated to a small set of people, SEPARATE from ADMIN_DISCORD_IDS. Independent list.
+export function isSuperAdmin(user: SessionUser | null): boolean {
+	if (!user) return false;
+	const ids = (env.SUPER_ADMIN_DISCORD_IDS ?? '')
 		.split(',')
 		.map((s) => s.trim())
 		.filter(Boolean);

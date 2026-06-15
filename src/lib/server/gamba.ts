@@ -115,11 +115,13 @@ export function rollOnePack<T extends { rarity: string; full_art?: boolean | nul
 // inventory row — a Normal copy and a Holo copy of the same card stack apart.
 // Site-owned tables (unlike VP, which lives in the bot's players table — see
 // playerStats.ts). Used by the /gamba open flow after VP has been spent.
+// Returns `newKeys` — the set of `${card_id}|${finish}` pairs the user did NOT own
+// before this grant (i.e. brand-new to their collection), so the opener can flag them.
 export async function grantCards(
 	userId: string,
 	grants: CardGrant[]
-): Promise<{ ok: true } | { ok: false; error: string }> {
-	if (grants.length === 0) return { ok: true };
+): Promise<{ ok: true; newKeys: Set<string> } | { ok: false; error: string }> {
+	if (grants.length === 0) return { ok: true, newKeys: new Set() };
 	const sb = db();
 
 	// Tally how many of each distinct (card, finish) were rolled.
@@ -165,7 +167,37 @@ export async function grantCards(
 		.from('vs_user_cards')
 		.upsert(rows, { onConflict: 'user_id,card_id,finish' });
 	if (upErr) return { ok: false, error: upErr.message };
-	return { ok: true };
+
+	// A pulled (card, finish) is "new" if there was no prior row for it.
+	const newKeys = new Set<string>();
+	for (const key of keys) if (!have.has(key)) newKeys.add(key);
+	return { ok: true, newKeys };
+}
+
+// Adds `qty` of a pack to a user's unopened inventory (vs_user_packs), incrementing
+// if they already hold it or inserting otherwise. The increment-mirror of the
+// gamba consumeUserPack. Used by the admin grant tool and the open-flow refund.
+export async function grantUserPack(
+	userId: string,
+	packId: string,
+	qty = 1
+): Promise<boolean> {
+	const sb = db();
+	const { data: row } = await sb
+		.from('vs_user_packs')
+		.select('id, quantity')
+		.eq('user_id', userId)
+		.eq('pack_id', packId)
+		.maybeSingle();
+	if (row) {
+		const { error } = await sb
+			.from('vs_user_packs')
+			.update({ quantity: (row.quantity ?? 0) + qty, updated_at: new Date().toISOString() })
+			.eq('id', row.id);
+		return !error;
+	}
+	const { error } = await sb.from('vs_user_packs').insert({ user_id: userId, pack_id: packId, quantity: qty });
+	return !error;
 }
 
 // Records a pack open: a header row in vs_pack_opens (the open event) plus one
@@ -187,7 +219,7 @@ export async function logPackOpen(args: {
 	packName: string;
 	costVp: number;
 	cards: PackOpenCard[];
-}): Promise<void> {
+}): Promise<string | null> {
 	const sb = db();
 	const openId = crypto.randomUUID();
 	const now = new Date().toISOString();
@@ -203,7 +235,7 @@ export async function logPackOpen(args: {
 	});
 	if (hErr) {
 		console.error('[pack-opens] failed to log open header:', hErr.message);
-		return;
+		return null;
 	}
 
 	const rows = args.cards.map((c) => ({
@@ -213,8 +245,12 @@ export async function logPackOpen(args: {
 		card_name: c.card_name,
 		rarity: c.rarity,
 		finish: c.finish,
-		pulled_at: now
+		pulled_at: now,
+		// Forwarded to the drops feed later, when the player swipes to this card.
+		announced: false
 	}));
 	const { error: lErr } = await sb.from('vs_pack_open_cards').insert(rows);
 	if (lErr) console.error('[pack-opens] failed to log open cards:', lErr.message);
+
+	return openId;
 }

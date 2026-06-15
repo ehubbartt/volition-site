@@ -46,6 +46,91 @@ export const LAYER_SHADOW_FRAG = `
 	}
 `;
 
+// Recessed depth layer (the 'inset' look) — a flat plane glued to the card surface
+// that fakes a sunk-in well in the shader, so it never spills past the card edge and
+// stays attached as you turn it (the old negative-z plane floated + clipped over the
+// card). The layer's own alpha is the WINDOW (the opening); inside it we sample the
+// image PARALLAXED by the surface tilt (it shifts within the fixed opening, reading as
+// the bottom of a well), show a dark WALL where the parallaxed sample leaves the shape,
+// and darken the lit inner edge with a RIM shadow (the overhang). Outside the window we
+// discard so the card front shows through. uDepth = parallax strength (uv per unit
+// tilt); uLight = uv offset toward the light for the rim; uOpacity = card fade.
+export const LAYER_RECESS_FRAG = `
+	uniform sampler2D map;
+	uniform float uOpacity;
+	uniform float uDepth;
+	uniform vec2 uLight;
+	varying vec2 vUv;
+	varying vec3 vNormal;
+	vec3 lin2srgb(vec3 c) {
+		c = clamp(c, 0.0, 1.0);
+		return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+	}
+	void main() {
+		float window = texture2D(map, vUv).a; // the opening (this layer's footprint)
+		if (window < 0.004) discard;           // outside the hole → show the card front
+		vec3 N = normalize(vNormal);
+		vec2 tilt = N.xy;                       // surface tilt in view space
+		// the image sits at the bottom of the well; parallax it with the tilt so it
+		// shifts WITHIN the fixed opening (depth cue), clipped by the window.
+		vec4 inner = texture2D(map, vUv + tilt * uDepth);
+		vec3 wall = vec3(0.015, 0.015, 0.02);  // dark recess wall (linear) where the image slid away
+		vec3 col = mix(wall, inner.rgb, inner.a);
+		// rim/overhang shadow: darken just inside the lit edge, following the shape
+		float lip = window * (1.0 - texture2D(map, vUv + uLight).a);
+		col *= (1.0 - 0.5 * lip);
+		gl_FragColor = vec4(lin2srgb(col), window * uOpacity);
+	}
+`;
+
+// Soft additive glow for a depth layer (the 'glow' layer effect). Blurs the layer
+// texture and emits it additively, tinted, so the glow follows the layer's SHAPE
+// (a lightning PNG glows along the bolt — transparent pixels add nothing, no SVG
+// needed). uIntensity (0 = off) is driven by how fast the card is being spun, so
+// the layer only lights up while you turn it. uBlur = halo spread (uv). uFeather =
+// margin over which the glow fades to nothing at the card edge, so art that reaches
+// the border doesn't hard-cut into a straight line.
+export const LAYER_GLOW_FRAG = `
+	uniform sampler2D map;
+	uniform float uIntensity;
+	uniform vec2 uBlur;
+	uniform vec2 uFeather;
+	uniform vec3 uTint;
+	varying vec2 vUv;
+	vec3 lin2srgb(vec3 c) {
+		c = clamp(c, 0.0, 1.0);
+		return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+	}
+	void main() {
+		// blurred, alpha-premultiplied sample → a soft halo confined to the layer's
+		// opaque pixels. Weights are a 1D gaussian applied on each axis (9 taps).
+		float w0 = 0.227, w1 = 0.194, w2 = 0.121, w3 = 0.054;
+		vec4 c = texture2D(map, vUv);
+		vec4 acc = vec4(c.rgb * c.a, c.a) * w0;
+		for (int i = 1; i < 4; i++) {
+			float fi = float(i);
+			float wi = i == 1 ? w1 : (i == 2 ? w2 : w3);
+			vec2 ox = vec2(uBlur.x * fi, 0.0);
+			vec2 oy = vec2(0.0, uBlur.y * fi);
+			vec4 s1 = texture2D(map, vUv + ox);
+			vec4 s2 = texture2D(map, vUv - ox);
+			vec4 s3 = texture2D(map, vUv + oy);
+			vec4 s4 = texture2D(map, vUv - oy);
+			acc += (vec4(s1.rgb * s1.a, s1.a) + vec4(s2.rgb * s2.a, s2.a)
+				+ vec4(s3.rgb * s3.a, s3.a) + vec4(s4.rgb * s4.a, s4.a)) * wi;
+		}
+		// normalise by the total tap weight (~1.703) so the halo brightness is ~1 at
+		// full opacity rather than inflated by the kernel sum
+		float a = acc.a / 1.703;
+		vec3 col = (acc.rgb / max(acc.a, 0.001)) * uTint; // average colour of the halo, tinted
+		// fade the glow smoothly toward the card edge so it never hard-cuts
+		vec2 e = smoothstep(vec2(0.0), uFeather, vUv) * smoothstep(vec2(0.0), uFeather, 1.0 - vUv);
+		float edge = e.x * e.y;
+		// additive: rgb carries the brightness (scaled by intensity), alpha the shape
+		gl_FragColor = vec4(lin2srgb(col) * uIntensity, a * edge);
+	}
+`;
+
 export const HOLO_FRAG = `
 	uniform sampler2D map;
 	uniform sampler2D uHoloTex;
@@ -54,6 +139,16 @@ export const HOLO_FRAG = `
 	uniform float uStrength;
 	uniform float uOpacity;
 	uniform float uReveal;
+	// Margin (in uv) over which the foil fades to nothing at each card edge, so masks
+	// that reach the border don't spill past the rounded corner. ~0.03 for full-card /
+	// reverse masks; a small value (~0.006) for the thin border-frame mask so the frame
+	// itself stays foiled instead of fading away.
+	uniform float uEdgeFade;
+	// 1.0 when the map is NOT GPU-decoded to linear on sample (a VideoTexture: three
+	// doesn't use an sRGB internal format for video), so we decode it here instead —
+	// otherwise the front's sRGB pixels get treated as linear and re-encoded, washing
+	// it out / making it too bright. 0.0 for ordinary images (hardware already decoded).
+	uniform float uMapSrgb;
 	varying vec2 vUv;
 	varying vec3 vNormal;
 	varying vec3 vViewPos;
@@ -64,9 +159,14 @@ export const HOLO_FRAG = `
 		c = clamp(c, 0.0, 1.0);
 		return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
 	}
+	vec3 srgb2lin(vec3 c) {
+		c = clamp(c, 0.0, 1.0);
+		return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+	}
 	void main() {
 		vec4 base = texture2D(map, vUv);
 		vec3 col = base.rgb;
+		if (uMapSrgb > 0.5) col = srgb2lin(col);
 
 		if (uHas > 0.5) {
 			vec3 N = normalize(vNormal);
@@ -83,13 +183,27 @@ export const HOLO_FRAG = `
 			vec2 huv = vUv + tilt * 0.22;
 			vec3 foil = texture2D(uHoloTex, huv).rgb;
 
-			// screen-blend the foil over the base (reads as reflective foil, not paint),
-			// scaled by region, how much the card is revealed, and the viewing angle so
-			// it's subtle head-on and blooms at grazing angles.
+			// foil strength: subtle head-on, blooms at grazing angles.
 			float amt = uStrength * region * uReveal * (0.18 + 0.6 * fres);
-			col = 1.0 - (1.0 - col) * (1.0 - foil * amt);
-			// a touch of extra additive sparkle right at the edge
-			col += foil * region * uStrength * fres * 0.22 * uReveal;
+			// Keep the foil off the extreme card edge — full-art / reverse-holo masks
+			// reach the border, so without this the foil spills over the card's rounded
+			// edge. Fades over a small margin from each side (regular holo's mask is
+			// interior, so it's unaffected). The card art itself is untouched.
+			vec2 ef = smoothstep(vec2(0.0), vec2(uEdgeFade), vUv) * smoothstep(vec2(0.0), vec2(uEdgeFade), 1.0 - vUv);
+			float edgeMask = ef.x * ef.y;
+			amt *= edgeMask;
+			// Screen-blend reads as reflective foil, but screen can only LIGHTEN, so it
+			// only truly fails where ALL channels are already high (white / light grey)
+			// — a saturated or dark colour still has a low channel for screen to lift.
+			// So measure WHITENESS as the min channel and only fade toward linear-light
+			// (which also darkens, making foil visible) for near-white art. Dark, mid,
+			// and saturated colours keep the original, subtler reflective look.
+			vec3 screenCol = 1.0 - (1.0 - col) * (1.0 - foil * amt);
+			vec3 linearCol = col + (foil - 0.5) * amt * 2.0;
+			float whiteness = min(min(col.r, col.g), col.b);
+			col = mix(screenCol, linearCol, smoothstep(0.6, 0.95, whiteness));
+			// a touch of extra additive sparkle right at the edge (shows on darker art)
+			col += foil * region * uStrength * fres * 0.22 * uReveal * edgeMask;
 		}
 
 		// cards behind the focused one are dimmed a touch so they recede

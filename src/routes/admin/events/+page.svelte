@@ -1,14 +1,26 @@
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import EventsTasksTabs from '$lib/admin/EventsTasksTabs.svelte';
+	import { isTaskEvent } from '$lib/events/simple';
+	import { dateFormEnhance } from '$lib/datetime';
 	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	// Keep pre-filled values after a successful save (SvelteKit's default enhance
-	// resets the form, which blanks Svelte-set input values). See admin/cards.
-	const keepValues: SubmitFunction = () => async ({ update }) => update({ reset: false });
+	// ── Event creator ─────────────────────────────────────────────────────────
+	// The type dropdown drives which fields show: 'simple'/'sequential' are
+	// task-based (a list of objectives); 'custom' is the advanced signup-based form.
+	let eventType = $state<'simple' | 'sequential' | 'custom'>('simple');
+	type TaskRow = { name: string; description: string; vp: number; pack: string };
+	const blankTask = (): TaskRow => ({ name: '', description: '', vp: 0, pack: '' });
+	let taskRows = $state<TaskRow[]>([blankTask(), blankTask(), blankTask()]);
+	function addTaskRow() {
+		taskRows = [...taskRows, blankTask()];
+	}
+	function removeTaskRow(i: number) {
+		taskRows = taskRows.filter((_, idx) => idx !== i);
+	}
 
 	function toLocalInput(iso: string | null): string {
 		if (!iso) return '';
@@ -24,64 +36,159 @@
 </svelte:head>
 
 <section>
-	<h1>Events admin</h1>
+	<EventsTasksTabs />
+
+	<details class="card status-help">
+		<summary><strong>What do the event statuses mean?</strong></summary>
+		<dl>
+			<dt>draft</dt>
+			<dd>Hidden from players (admin-only). Use it while you build the event and add tasks.</dd>
+			<dt>preview</dt>
+			<dd>Admin-only too, but you can test submissions end-to-end before launch.</dd>
+			<dt>open</dt>
+			<dd>
+				Published &amp; visible to members. Submissions <em>and</em> the Discord announcement go
+				live at the <strong>Starts at</strong> time — set a future start to <strong>schedule</strong>
+				it (it shows as “Upcoming” until then), or leave the start empty/in the past to open right away.
+			</dd>
+			<dt>locked</dt>
+			<dd>Visible but submissions paused (not ended). Use to temporarily halt without archiving.</dd>
+			<dt>closed</dt>
+			<dd>Ended. Moves to “Past events”; no more submissions.</dd>
+		</dl>
+	</details>
 
 	{#if form?.error}
 		<div class="error">{form.error}</div>
 	{/if}
 
-	<details class="card">
-		<summary><strong>Create new event</strong></summary>
-		<form method="POST" action="?/create" use:enhance>
+	<details class="card" open>
+		<summary><strong>Create event</strong></summary>
+		<form method="POST" action="?/createEvent" use:enhance={dateFormEnhance}>
 			<label>
-				<span>Slug (URL)</span>
-				<input name="slug" type="text" pattern="[a-z0-9-]+" required placeholder="tile-race-2026" />
+				<span>Event type</span>
+				<select name="kind" bind:value={eventType}>
+					<option value="simple">Open — complete any task, any time</option>
+					<option value="sequential">Sequential — complete tasks in order</option>
+					<option value="custom">Advanced — signup-based / custom</option>
+				</select>
 			</label>
-			<label>
-				<span>Name</span>
-				<input name="name" type="text" required placeholder="Tile Race 2026" />
-			</label>
-			<label>
-				<span>Description (markdown ok)</span>
-				<textarea name="description" rows="4"></textarea>
-			</label>
-			<div class="row">
+
+			{#if eventType === 'custom'}
+				<p class="muted small">Advanced: a bespoke / signup-based event (e.g. a future bingo or duo). You wire up its page separately.</p>
 				<label>
-					<span>Team size</span>
-					<input name="team_size" type="number" min="1" max="20" value="2" />
+					<span>Slug (URL)</span>
+					<input name="slug" type="text" pattern="[a-z0-9-]+" required placeholder="tile-race-2026" />
 				</label>
 				<label>
-					<span>Status</span>
-					<select name="status">
-						<option value="draft">draft</option>
-						<option value="preview">preview (admin-only)</option>
-						<option value="open" selected>open</option>
-						<option value="locked">locked</option>
-						<option value="closed">closed</option>
-					</select>
-				</label>
-			</div>
-			<div class="row">
-				<label>
-					<span>Signups open at</span>
-					<input name="signup_opens_at" type="datetime-local" />
+					<span>Name</span>
+					<input name="name" type="text" required placeholder="Tile Race 2026" />
 				</label>
 				<label>
-					<span>Signups close at</span>
-					<input name="signup_closes_at" type="datetime-local" />
+					<span>Description (markdown ok)</span>
+					<textarea name="description" rows="4"></textarea>
 				</label>
-			</div>
-			<div class="row">
+				<div class="row">
+					<label>
+						<span>Team size</span>
+						<input name="team_size" type="number" min="1" max="20" value="2" />
+					</label>
+					<label>
+						<span>Status</span>
+						<select name="status">
+							<option value="draft">draft</option>
+							<option value="preview">preview (admin-only)</option>
+							<option value="open" selected>open</option>
+							<option value="locked">locked</option>
+							<option value="closed">closed</option>
+						</select>
+					</label>
+				</div>
+				<div class="row">
+					<label>
+						<span>Signups open at</span>
+						<input name="signup_opens_at" type="datetime-local" />
+					</label>
+					<label>
+						<span>Signups close at</span>
+						<input name="signup_closes_at" type="datetime-local" />
+					</label>
+				</div>
+				<div class="row">
+					<label>
+						<span>Event starts at</span>
+						<input name="starts_at" type="datetime-local" />
+					</label>
+					<label>
+						<span>Event ends at</span>
+						<input name="ends_at" type="datetime-local" />
+					</label>
+				</div>
+				<button type="submit" class="primary">Create event</button>
+			{:else}
+				<p class="muted small">
+					{eventType === 'sequential'
+						? 'Players complete the tasks in the order below — each unlocks after the previous is approved.'
+						: 'Players can complete the tasks in any order.'}
+				</p>
 				<label>
-					<span>Event starts at</span>
-					<input name="starts_at" type="datetime-local" />
+					<span>Event name</span>
+					<input name="name" type="text" required placeholder="Summer Boss Hunt" />
 				</label>
 				<label>
-					<span>Event ends at</span>
-					<input name="ends_at" type="datetime-local" />
+					<span>Description (markdown ok)</span>
+					<textarea name="description" rows="3" placeholder="What this event is about…"></textarea>
 				</label>
-			</div>
-			<button type="submit" class="primary">Create</button>
+				<div class="row">
+					<label>
+						<span>Starts at (optional)</span>
+						<input name="starts_at" type="datetime-local" />
+					</label>
+					<label>
+						<span>Ends at (optional)</span>
+						<input name="ends_at" type="datetime-local" />
+					</label>
+				</div>
+
+				<fieldset class="tasks">
+					<legend>
+						Tasks
+						<span class="muted small">
+							(each needs proof + grants its own reward; blank rows ignored{eventType === 'sequential' ? '; unlocked top→bottom' : ''})
+						</span>
+					</legend>
+					{#each taskRows as row, i (i)}
+						<div class="task-row">
+							<div class="task-row-head">
+								<strong class="task-num">Task {i + 1}</strong>
+								{#if taskRows.length > 1}
+									<button type="button" class="link-danger" onclick={() => removeTaskRow(i)}>Remove</button>
+								{/if}
+							</div>
+							<input name="task_name" type="text" placeholder="Task name (e.g. Kill Zulrah)" bind:value={row.name} />
+							<input name="task_desc" type="text" placeholder="Short description / requirement (optional)" bind:value={row.description} />
+							<div class="reward-row">
+								<label class="reward-field">
+									<span>VP reward</span>
+									<input name="task_vp" type="number" min="0" bind:value={row.vp} />
+								</label>
+								<label class="reward-field">
+									<span>Pack reward (optional)</span>
+									<input name="task_pack" type="text" list="pack-names" placeholder="e.g. White Pack" bind:value={row.pack} />
+								</label>
+							</div>
+						</div>
+					{/each}
+					<button type="button" class="add-task" onclick={addTaskRow}>+ Add task</button>
+				</fieldset>
+
+				<datalist id="pack-names">
+					{#each data.packNames as p}<option value={p}></option>{/each}
+				</datalist>
+
+				<p class="muted small">Created as a draft — open it from its manage page when you're ready for players to submit.</p>
+				<button type="submit" class="primary">Create event</button>
+			{/if}
 		</form>
 	</details>
 
@@ -98,6 +205,9 @@
 							<span class="muted">/{ev.slug}</span>
 						</div>
 						<div class="head-actions">
+							{#if isTaskEvent(ev.kind)}
+								<a class="review-link" href="/admin/events/{ev.slug}">Manage tasks →</a>
+							{/if}
 							{#if ev.slug === BINGO_EVENT_SLUG}
 								<a class="review-link" href="/admin/bingo/{ev.slug}/review">
 									Review submissions →
@@ -125,7 +235,7 @@
 
 					<details class="dates-block">
 						<summary><strong>Dates</strong> <span class="muted small">(update without touching other fields)</span></summary>
-						<form method="POST" action="?/updateDates" use:enhance={keepValues} class="dates-form">
+						<form method="POST" action="?/updateDates" use:enhance={dateFormEnhance} class="dates-form">
 							<input type="hidden" name="id" value={ev.id} />
 							<div class="row">
 								<label>
@@ -169,7 +279,7 @@
 
 					<details class="edit-block">
 						<summary>Edit details</summary>
-						<form method="POST" action="?/update" use:enhance={keepValues} class="edit-form">
+						<form method="POST" action="?/update" use:enhance={dateFormEnhance} class="edit-form">
 							<input type="hidden" name="id" value={ev.id} />
 							<label>
 								<span>Slug (URL)</span>
@@ -243,10 +353,6 @@
 </section>
 
 <style>
-	h1 {
-		margin-bottom: 1rem;
-	}
-
 	h2 {
 		margin: 2rem 0 1rem;
 	}
@@ -271,6 +377,33 @@
 		border-radius: var(--radius);
 		margin-bottom: 1rem;
 		box-shadow: var(--shadow-card);
+	}
+
+	.status-help summary {
+		cursor: pointer;
+		color: var(--accent);
+	}
+
+	.status-help dl {
+		margin: 0.85rem 0 0;
+		display: grid;
+		grid-template-columns: auto 1fr;
+		gap: 0.4rem 0.85rem;
+		align-items: baseline;
+	}
+
+	.status-help dt {
+		font-family: var(--font-heading);
+		text-transform: uppercase;
+		font-size: 0.78rem;
+		letter-spacing: 0.05em;
+		color: var(--accent);
+	}
+
+	.status-help dd {
+		margin: 0;
+		color: var(--muted);
+		font-size: 0.9rem;
 	}
 
 	.head-actions {
@@ -355,6 +488,85 @@
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: 0.75rem;
+	}
+
+	.small {
+		font-size: 0.8rem;
+	}
+
+	.tasks {
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 0.85rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.85rem;
+		margin: 0;
+	}
+
+	.tasks legend {
+		font-size: 0.85rem;
+		color: var(--muted);
+		padding: 0 0.35rem;
+	}
+
+	.task-row {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		padding: 0.75rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+	}
+
+	.task-row-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.task-num {
+		font-family: var(--font-heading);
+		font-size: 0.85rem;
+		letter-spacing: 0.5px;
+		color: var(--accent);
+	}
+
+	.reward-row {
+		display: grid;
+		grid-template-columns: 1fr 2fr;
+		gap: 0.6rem;
+	}
+
+	.reward-field {
+		gap: 0.2rem;
+	}
+
+	.link-danger {
+		background: none;
+		border: none;
+		min-height: 0;
+		padding: 0;
+		color: var(--danger);
+		font-size: 0.8rem;
+		cursor: pointer;
+		text-decoration: underline;
+	}
+
+	.link-danger:hover {
+		background: none;
+	}
+
+	.add-task {
+		align-self: flex-start;
+		font-size: 0.85rem;
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+
+	.add-task:hover {
+		background: var(--accent-soft);
 	}
 
 	.event-list {

@@ -8,14 +8,8 @@
 	let tools = $derived<Tool[]>([
 		{
 			href: '/admin/events',
-			title: 'Events',
-			desc: 'Create and edit events — signups, dates, and status.',
-			show: data.admin
-		},
-		{
-			href: `/admin/bingo/${data.bingoSlug}/review`,
-			title: 'Bingo review',
-			desc: 'Approve or reject pending bingo submissions.',
+			title: 'Events & Tasks',
+			desc: 'Manage events, the weekly task pool, and review pending submissions.',
 			show: data.admin
 		},
 		{
@@ -27,32 +21,34 @@
 		{
 			href: '/admin/cards',
 			title: 'Cards & Packs',
-			desc: 'Author the TCG card and pack catalog.',
-			show: data.cardTester
+			desc: data.cardTester
+				? 'Author cards & packs, grant packs, and test/simulate opens.'
+				: 'View cards & packs (read-only), grant packs, and test/simulate opens.',
+			show: data.admin || data.cardTester
 		},
 		{
-			href: '/admin/pack-tester',
-			title: 'Pack Tester',
-			desc: 'Open any pack infinitely to test the 3D opener — nothing saved.',
-			show: data.cardTester
+			href: '/admin/moderation',
+			title: 'Moderation',
+			desc: 'Bans, warnings, and the audit log of every admin action.',
+			show: data.admin
 		},
 		{
-			href: '/admin/pack-sim',
-			title: 'Pack Simulator',
-			desc: 'Bulk-open a pack thousands of times and see the drop-rate results.',
-			show: data.cardTester
+			href: '/admin/stats',
+			title: 'Clan Stats',
+			desc: 'Members & economy stats, member wallets, and voice activity.',
+			show: data.admin
 		},
 		{
-			href: '/admin/player-stats',
-			title: 'Player Stats',
-			desc: 'Per-player pack opens, VP spent, and collections across all players.',
-			show: data.cardTester
+			href: '/admin/guides',
+			title: 'Guides',
+			desc: 'Admin documentation: tile event, join process, bot commands.',
+			show: data.admin
 		},
 		{
-			href: '/admin/bridge-test',
-			title: 'Bot Bridge Test',
-			desc: 'Send a test message through the site→bot Discord webhook bridge.',
-			show: data.cardTester
+			href: '/admin/config',
+			title: 'Database',
+			desc: 'Edit the live bot config and any database table. Super-admins only.',
+			show: data.superAdmin
 		}
 	]);
 

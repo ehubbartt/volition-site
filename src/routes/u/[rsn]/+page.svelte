@@ -5,6 +5,7 @@
 	import PackThumb from '$lib/cards/PackThumb.svelte';
 	import CardInspector3D from '$lib/cards/CardInspector3D.svelte';
 	import type { UserCard } from '$lib/cards/rarity';
+	import { FINISH_BY_KEY } from '$lib/cards/finishes';
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
 
@@ -98,9 +99,13 @@
 								<button type="button" class="thumb-btn" onclick={() => (viewing = card)}>
 									<CardThumb {card} quantity={card.quantity} finish={card.finish} flip={false} />
 								</button>
+							{:else if card.hidden}
+								<div class="thumb-btn mystery-slot" title="Secret rare — undiscovered">
+									<CardThumb {card} flip={false} />
+								</div>
 							{:else}
-								<div class="thumb-btn locked" title="Not owned">
-									<div class="dim"><CardThumb {card} flip={false} /></div>
+								<div class="thumb-btn locked" title="Not owned · {FINISH_BY_KEY[card.finish]?.label ?? 'Normal'}">
+									<CardThumb {card} finish={card.finish} backOnly flip={false} />
 								</div>
 							{/if}
 						{/each}
@@ -122,7 +127,7 @@
 					<h3>Cards</h3>
 					<div class="mini-stats">
 						<div class="ms"><span class="ms-num">{data.stats.cardsOwned}</span><span class="ms-lbl">Cards owned</span></div>
-						<div class="ms"><span class="ms-num">{data.collectionOwned} / {data.collectionTotal}</span><span class="ms-lbl">Unique collected</span></div>
+						<div class="ms"><span class="ms-num">{data.collectionOwned} / {data.collectionTotal}</span><span class="ms-lbl">Variants collected</span></div>
 					</div>
 				</section>
 
@@ -392,9 +397,8 @@
 		cursor: default;
 	}
 
-	.thumb-btn.locked .dim {
-		filter: grayscale(1) brightness(0.55);
-		opacity: 0.9;
+	.thumb-btn.mystery-slot {
+		cursor: default;
 	}
 
 	.empty {

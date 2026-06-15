@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import CardsTabs from '$lib/admin/CardsTabs.svelte';
 	import PackOpener from '$lib/cards/PackOpener.svelte';
 	import { DEFAULT_PACK_FRONT } from '$lib/cards/packs';
 	import type { Card } from '$lib/cards/rarity';
@@ -36,7 +37,7 @@
 </svelte:head>
 
 <section>
-	<h1>Pack tester</h1>
+	<CardsTabs />
 	<p class="muted note">
 		Dev tool — opens are free, nothing is saved, and cards are picked uniformly at random from the
 		set. Spin the pack, pull down to rip it open, then swipe through your pull.
@@ -87,10 +88,6 @@
 {/if}
 
 <style>
-	h1 {
-		margin-bottom: 0.5rem;
-	}
-
 	.muted {
 		color: var(--muted);
 	}

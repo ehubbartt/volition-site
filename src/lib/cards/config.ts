@@ -1,10 +1,75 @@
 export const CARD_ART_BUCKET = 'vs-card-art';
 
+// Art is immutable (timestamped filenames), so cache it hard at the CDN/browser.
+export const ART_CACHE_CONTROL = '31536000'; // 1 year, in seconds
+
+// Still-image art is downscaled + re-encoded to WebP on upload (and by the backfill
+// script) — the 3D card/pack planes never need more than ~1024px even in the opener,
+// and the source PNGs are often multi-MB. Videos are left untouched.
+export const MAX_ART_DIMENSION = 1024;
+export const ART_WEBP_QUALITY = 82;
+
 export const MAX_UPLOAD_BYTES = 10_000_000;
 export const ALLOWED_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
 
 // Max stacked depth layers a single card may have (above its front face).
 export const MAX_CARD_LAYERS = 6;
+
+// Depth layers may be still images OR a short animation (WEBM/MP4) — videos render
+// as a looping VideoTexture in the 3D views. Allow a larger cap since video is heavier.
+export const MAX_LAYER_BYTES = 25_000_000;
+export const ALLOWED_LAYER_MIME = [
+	'image/png',
+	'image/jpeg',
+	'image/webp',
+	'image/gif',
+	'video/webm',
+	'video/mp4'
+] as const;
+export const EXT_BY_LAYER_MIME: Record<string, string> = {
+	'image/png': 'png',
+	'image/jpeg': 'jpg',
+	'image/webp': 'webp',
+	'image/gif': 'gif',
+	'video/webm': 'webm',
+	'video/mp4': 'mp4'
+};
+// File-extension list for the admin form's <input accept> (mirrors the MIME list).
+export const LAYER_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,video/webm,video/mp4';
+
+// True if a layer URL points at a video file (→ load as VideoTexture, not an image).
+// Client-safe (pure regex, no three import) so the admin UI can use it too.
+export function isVideoLayerUrl(url: string): boolean {
+	return /\.(webm|mp4|m4v|mov|ogv)(\?|#|$)/i.test(url);
+}
+
+// Null-safe generic alias — a card's FRONT face may also be a video (see below).
+export function isVideoUrl(url: string | null | undefined): boolean {
+	return !!url && isVideoLayerUrl(url);
+}
+
+// A card's FRONT face may be a still image OR a short looping video (WEBM/MP4) — the
+// video plays as a VideoTexture in the 3D views and a <video> in 2D tiles. Cards only
+// (pack fronts stay image). Bigger cap than a still since video is heavier.
+export const MAX_FRONT_BYTES = 25_000_000;
+export const ALLOWED_FRONT_MIME = [
+	'image/png',
+	'image/jpeg',
+	'image/webp',
+	'image/gif',
+	'video/webm',
+	'video/mp4'
+] as const;
+export const EXT_BY_FRONT_MIME: Record<string, string> = {
+	'image/png': 'png',
+	'image/jpeg': 'jpg',
+	'image/webp': 'webp',
+	'image/gif': 'gif',
+	'video/webm': 'webm',
+	'video/mp4': 'mp4'
+};
+// <input accept> for the card front (images + video).
+export const FRONT_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,video/webm,video/mp4';
 
 // Per-card open sound (plays when the card is revealed in the pack opener).
 export const MAX_AUDIO_BYTES = 5_000_000;
@@ -35,3 +100,16 @@ export const EXT_BY_MIME: Record<string, string> = {
 	'image/webp': 'webp',
 	'image/gif': 'gif'
 };
+
+// Optional per-card 3D model (a Blender-exported .glb) that hovers above the card art
+// in the 3D views. Validated by file EXTENSION (.glb) — browsers report GLB MIME
+// inconsistently (model/gltf-binary, application/octet-stream, or empty). Bigger cap
+// than the other assets since a mesh + textures is heavier; keep models LOW-POLY.
+export const MAX_MODEL_BYTES = 40_000_000;
+export const MODEL_ACCEPT = '.glb,model/gltf-binary';
+
+// True if a URL points at a .glb model (→ render via GLTFLoader in the 3D views).
+// Client-safe (pure regex, no three import).
+export function isModelUrl(url: string | null | undefined): boolean {
+	return !!url && /\.glb(\?|#|$)/i.test(url);
+}

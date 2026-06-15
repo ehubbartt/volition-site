@@ -1,6 +1,6 @@
 import { redirect, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { isCardTester } from '$lib/server/auth';
+import { isCardAdmin } from '$lib/server/auth';
 import { isValidRarity, DEFAULT_RARITY, toCardLayers, type Card, type CardAbility, type CardRarity } from '$lib/cards/rarity';
 import type { PageServerLoad } from './$types';
 
@@ -17,7 +17,11 @@ interface CardRow {
 	layers: unknown;
 	full_art: boolean | null;
 	holo_url: string | null;
+	holo_border: boolean | null;
 	sound_url: string | null;
+	model_url: string | null;
+	model_settings: Card['model_settings'];
+	models: Card['models'];
 }
 
 export interface TesterPack {
@@ -32,7 +36,7 @@ export interface TesterPack {
 // roll opens locally — no VP, no ownership, nothing persisted (infinite).
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
-	if (!isCardTester(locals.user)) throw error(403, 'Not allowed');
+	if (!isCardAdmin(locals.user)) throw error(403, 'Not allowed');
 
 	const [packsRes, cardsRes] = await Promise.all([
 		db()
@@ -41,7 +45,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			.order('name', { ascending: true }),
 		db()
 			.from('vs_cards')
-			.select('id, name, level, rarity, pack_id, abilities, flavor, front_url, back_url, layers, full_art, holo_url, sound_url')
+			.select('id, name, level, rarity, pack_id, abilities, flavor, front_url, back_url, layers, full_art, holo_url, holo_border, sound_url, model_url, model_settings, models')
 			.order('name', { ascending: true })
 	]);
 
@@ -73,7 +77,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 			layers: toCardLayers(c.layers),
 			full_art: !!c.full_art,
 			holo_url: c.holo_url,
+			holo_border: !!c.holo_border,
 			sound_url: c.sound_url,
+			model_url: c.model_url,
+			model_settings: c.model_settings ?? null,
+			models: c.models ?? [],
 			holo_regular_url: ph?.reg ?? null,
 			holo_reverse_url: ph?.rev ?? null
 		};

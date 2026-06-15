@@ -5,28 +5,27 @@
 	import PackThumb from '$lib/cards/PackThumb.svelte';
 	import CardInspector3D from '$lib/cards/CardInspector3D.svelte';
 	import type { UserCard } from '$lib/cards/rarity';
+	import { FINISH_BY_KEY } from '$lib/cards/finishes';
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
 	import { rsnToSlug } from '$lib/rsn';
+	import { page } from '$app/stores';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	type Tab = 'profile' | 'collection' | 'stats' | 'wallet';
-	let tab = $state<Tab>('profile');
+	// Initial tab can be deep-linked via ?tab= (e.g. /me?tab=collection from the gamba page).
+	const TABS: Tab[] = ['profile', 'collection', 'stats', 'wallet'];
+	const requestedTab = $page.url.searchParams.get('tab') as Tab | null;
+	let tab = $state<Tab>(requestedTab && TABS.includes(requestedTab) ? requestedTab : 'profile');
 
 	// Collection card the viewer modal is showing (null = closed).
 	let viewing = $state<UserCard | null>(null);
 
-	// Collection (cards + unopened packs) and Stats are part of the in-progress card
-	// game — only card testers see them (gated by CARD_TESTER_DISCORD_IDS).
 	let tabs = $derived<{ id: Tab; label: string }[]>([
 		{ id: 'profile', label: 'Profile' },
-		...(data.isCardTester
-			? ([
-					{ id: 'collection', label: 'Collection' },
-					{ id: 'stats', label: 'Stats' }
-				] as { id: Tab; label: string }[])
-			: []),
+		{ id: 'collection', label: 'Collection' },
+		{ id: 'stats', label: 'Stats' },
 		{ id: 'wallet', label: 'Wallet' }
 	]);
 
@@ -58,7 +57,7 @@
 		</div>
 	</header>
 
-	{#if data.isCardTester && data.user.rsn}
+	{#if data.user.rsn}
 		<p class="profile-link muted">
 			<a href="/u/{rsnToSlug(data.user.rsn)}">View your public profile →</a>
 		</p>
@@ -164,9 +163,13 @@
 								<button type="button" class="thumb-btn" onclick={() => (viewing = card)}>
 									<CardThumb {card} quantity={card.quantity} finish={card.finish} flip={false} />
 								</button>
+							{:else if card.hidden}
+								<div class="thumb-btn mystery-slot" title="Secret rare — undiscovered">
+									<CardThumb {card} flip={false} />
+								</div>
 							{:else}
-								<div class="thumb-btn locked" title="Not owned">
-									<div class="dim"><CardThumb {card} flip={false} /></div>
+								<div class="thumb-btn locked" title="Not owned · {FINISH_BY_KEY[card.finish]?.label ?? 'Normal'}">
+									<CardThumb {card} finish={card.finish} backOnly flip={false} />
 								</div>
 							{/if}
 						{/each}
@@ -188,7 +191,7 @@
 					<h3>Cards</h3>
 					<div class="mini-stats">
 						<div class="ms"><span class="ms-num">{data.myStats.cardsOwned}</span><span class="ms-lbl">Cards owned</span></div>
-						<div class="ms"><span class="ms-num">{data.collectionOwned} / {data.collectionTotal}</span><span class="ms-lbl">Unique collected</span></div>
+						<div class="ms"><span class="ms-num">{data.collectionOwned} / {data.collectionTotal}</span><span class="ms-lbl">Variants collected</span></div>
 					</div>
 				</section>
 
@@ -520,9 +523,9 @@
 		cursor: default;
 	}
 
-	.thumb-btn.locked .dim {
-		filter: grayscale(1) brightness(0.55);
-		opacity: 0.9;
+	/* Undiscovered secret rares: a mystery spot, not interactive. */
+	.thumb-btn.mystery-slot {
+		cursor: default;
 	}
 
 	.mini-stats {

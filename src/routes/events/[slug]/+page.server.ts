@@ -5,6 +5,7 @@ import { ACCOUNT_TYPES } from '$lib/accountTypes';
 import { renderMarkdown } from '$lib/markdown';
 import { isAdmin } from '$lib/server/auth';
 import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
+import { isTaskEvent } from '$lib/events/simple';
 import type { Actions, PageServerLoad } from './$types';
 
 interface SignupRow {
@@ -110,12 +111,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 	const { data: event, error: eventErr } = await supabase
 		.from('vs_events')
-		.select('id, slug, name, description, status, signup_opens_at, signup_closes_at, team_size')
+		.select('id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, team_size')
 		.eq('slug', params.slug)
 		.maybeSingle();
 
 	if (eventErr) throw error(500, eventErr.message);
 	if (!event) throw error(404, 'Event not found');
+	// This page is the bespoke DuoWolf detail; task events (open/sequential) live on
+	// the generic /event/[slug] page. (Custom/legacy events stay here.)
+	if (isTaskEvent(event.kind)) throw redirect(307, `/event/${params.slug}`);
 	if ((event.status === 'preview' || event.status === 'draft') && !isAdmin(locals.user)) {
 		throw error(404, 'Event not found');
 	}
@@ -236,7 +240,20 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		count
 	}));
 
+	// Roster for the admin manage tools (pair / remove). Real signups only (never the
+	// ?demo augmentation) since those are the rows the actions can touch.
+	const admin = isAdmin(locals.user);
+	const adminSignups = admin
+		? signups.map((s) => ({
+				user_id: s.user_id,
+				name: s.vs_users.rsn || s.vs_users.discord_username,
+				team_id: s.team_id
+			}))
+		: [];
+
 	return {
+		isAdmin: admin,
+		adminSignups,
 		event: { ...event, description_html: renderMarkdown(event.description) },
 		mySignup: mySignup
 			? {
@@ -294,6 +311,51 @@ export const actions: Actions = {
 		if (insertError && !insertError.message.includes('duplicate')) {
 			return fail(500, { error: insertError.message });
 		}
+
+		return { ok: true };
+	},
+
+	leaveEvent: async ({ params, locals }) => {
+		if (!locals.user) throw redirect(303, '/');
+
+		const supabase = db();
+
+		const { data: event } = await supabase
+			.from('vs_events')
+			.select('id')
+			.eq('slug', params.slug)
+			.maybeSingle();
+
+		if (!event) return fail(404, { error: 'Event not found' });
+
+		const { data: mySignup } = await supabase
+			.from('vs_event_signups')
+			.select('id, team_id')
+			.eq('event_id', event.id)
+			.eq('user_id', locals.user.id)
+			.maybeSingle();
+
+		if (!mySignup) return fail(400, { error: "You haven't joined this event" });
+		if (mySignup.team_id) {
+			return fail(400, { error: 'Leave your team before leaving the event' });
+		}
+
+		// Tidy up any pending invites this player has open (in either direction)
+		// so they don't linger after the signup is gone.
+		await supabase
+			.from('vs_team_invites')
+			.update({ status: 'cancelled', responded_at: new Date().toISOString() })
+			.eq('event_id', event.id)
+			.eq('status', 'pending')
+			.or(`from_user_id.eq.${locals.user.id},to_user_id.eq.${locals.user.id}`);
+
+		const { error: delError } = await supabase
+			.from('vs_event_signups')
+			.delete()
+			.eq('id', mySignup.id)
+			.eq('user_id', locals.user.id);
+
+		if (delError) return fail(500, { error: delError.message });
 
 		return { ok: true };
 	},
@@ -486,6 +548,131 @@ export const actions: Actions = {
 			.eq('id', mySignup.team_id);
 
 		if (updateError) return fail(500, { error: updateError.message });
+
+		return { ok: true };
+	},
+
+	// --- Admin: remove a player from the event (kicks their signup) -----------
+	// If they're on a team, the team is disbanded first (their teammate is freed back
+	// to the solo pool), then their signup + any pending invites are cleared.
+	adminRemoveSignup: async ({ params, locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		if (!isAdmin(locals.user)) return fail(403, { error: 'Not allowed' });
+
+		const form = await request.formData();
+		const targetUserId = form.get('user_id')?.toString();
+		if (!targetUserId) return fail(400, { error: 'Pick a player to remove' });
+
+		const supabase = db();
+		const { data: event } = await supabase
+			.from('vs_events')
+			.select('id')
+			.eq('slug', params.slug)
+			.maybeSingle();
+		if (!event) return fail(404, { error: 'Event not found' });
+
+		const { data: signup } = await supabase
+			.from('vs_event_signups')
+			.select('id, team_id')
+			.eq('event_id', event.id)
+			.eq('user_id', targetUserId)
+			.maybeSingle();
+		if (!signup) return fail(400, { error: 'That player is not signed up' });
+
+		// Disband their team first (frees the teammate back to solo).
+		if (signup.team_id) {
+			await supabase
+				.from('vs_event_signups')
+				.update({ team_id: null })
+				.eq('event_id', event.id)
+				.eq('team_id', signup.team_id);
+			await supabase.from('vs_teams').delete().eq('id', signup.team_id);
+		}
+
+		// Clear any pending invites involving them.
+		await supabase
+			.from('vs_team_invites')
+			.update({ status: 'cancelled', responded_at: new Date().toISOString() })
+			.eq('event_id', event.id)
+			.eq('status', 'pending')
+			.or(`from_user_id.eq.${targetUserId},to_user_id.eq.${targetUserId}`);
+
+		const { error: delError } = await supabase
+			.from('vs_event_signups')
+			.delete()
+			.eq('event_id', event.id)
+			.eq('user_id', targetUserId);
+		if (delError) return fail(500, { error: delError.message });
+
+		return { ok: true };
+	},
+
+	// --- Admin: manually pair two solo players into a team --------------------
+	adminPairUsers: async ({ params, locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		if (!isAdmin(locals.user)) return fail(403, { error: 'Not allowed' });
+
+		const form = await request.formData();
+		const userA = form.get('user_a')?.toString();
+		const userB = form.get('user_b')?.toString();
+		if (!userA || !userB) return fail(400, { error: 'Pick two players' });
+		if (userA === userB) return fail(400, { error: 'Pick two different players' });
+
+		const supabase = db();
+		const { data: event } = await supabase
+			.from('vs_events')
+			.select('id')
+			.eq('slug', params.slug)
+			.maybeSingle();
+		if (!event) return fail(404, { error: 'Event not found' });
+
+		const { data: signups } = await supabase
+			.from('vs_event_signups')
+			.select('id, user_id, team_id')
+			.eq('event_id', event.id)
+			.in('user_id', [userA, userB]);
+		const sa = signups?.find((s) => s.user_id === userA);
+		const sb = signups?.find((s) => s.user_id === userB);
+		if (!sa || !sb) return fail(400, { error: 'Both players must be signed up for this event' });
+		if (sa.team_id || sb.team_id) {
+			return fail(400, { error: 'Both players must be solo — one is already on a team' });
+		}
+
+		// Create the team, then assign both signups optimistically (only while still
+		// solo). If either lost the race, undo and bail so we never half-pair.
+		const { data: team, error: teamErr } = await supabase
+			.from('vs_teams')
+			.insert({ event_id: event.id, created_by: locals.user.id })
+			.select('id')
+			.single();
+		if (teamErr || !team) return fail(500, { error: teamErr?.message ?? 'Could not create team' });
+
+		const { count: ca } = await supabase
+			.from('vs_event_signups')
+			.update({ team_id: team.id }, { count: 'exact' })
+			.eq('id', sa.id)
+			.is('team_id', null);
+		const { count: cb } = await supabase
+			.from('vs_event_signups')
+			.update({ team_id: team.id }, { count: 'exact' })
+			.eq('id', sb.id)
+			.is('team_id', null);
+
+		if (!ca || !cb) {
+			await supabase.from('vs_event_signups').update({ team_id: null }).eq('team_id', team.id);
+			await supabase.from('vs_teams').delete().eq('id', team.id);
+			return fail(409, { error: 'One of those players just got teamed up — refresh and try again' });
+		}
+
+		// Clear any pending invites involving either of them.
+		for (const uid of [userA, userB]) {
+			await supabase
+				.from('vs_team_invites')
+				.update({ status: 'cancelled', responded_at: new Date().toISOString() })
+				.eq('event_id', event.id)
+				.eq('status', 'pending')
+				.or(`from_user_id.eq.${uid},to_user_id.eq.${uid}`);
+		}
 
 		return { ok: true };
 	}

@@ -16,12 +16,11 @@
 			<span>Volition</span>
 		</a>
 
-		{#if data.user}
+		{#if data.user && !data.banned}
 			<nav class="primary-nav">
 				<a href="/events" class:active={path.startsWith('/events')}>Events</a>
-				{#if data.isCardTester}
-					<a href="/gamba" class:active={path.startsWith('/gamba')}>Gamba</a>
-				{/if}
+				<a href="/tasks" class:active={path.startsWith('/tasks')}>To Do</a>
+				<a href="/gamba" class:active={path.startsWith('/gamba')}>Gamba</a>
 				{#if data.isAdmin || data.isCardTester}
 					<a href="/admin" class:active={path.startsWith('/admin')}>Admin</a>
 				{/if}
@@ -31,7 +30,7 @@
 				<AccountIcon type={data.user.account_type} size={22} />
 				<span class="user-name">{data.user.rsn ?? data.user.discord_username}</span>
 			</a>
-		{:else}
+		{:else if !data.user}
 			<a href="/auth/discord/login" class="cta">Sign in with Discord</a>
 		{/if}
 	</div>
