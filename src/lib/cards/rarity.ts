@@ -43,6 +43,16 @@ export interface Card {
 	layers?: CardLayer[];
 	// Full-art card: art covers the whole card, so holo/reverse-holo never apply.
 	full_art?: boolean;
+	// Optional per-card holo foil texture. For full-art cards only — when set, the
+	// foil covers the whole card (on the base front, below any depth layers).
+	holo_url?: string | null;
+	// Optional sound that plays when the card is revealed in the pack opener.
+	sound_url?: string | null;
+	// Effective per-pack holo foil textures for the masked finishes (regular /
+	// reverse). When set on the card's pack, holo cards from that pack use these
+	// instead of the shared static star/ripple foils. Resolved by the loaders.
+	holo_regular_url?: string | null;
+	holo_reverse_url?: string | null;
 }
 
 // A card the user owns, with how many copies. `finish` is the holo variant —
@@ -79,6 +89,24 @@ export const RARITY_BY_KEY: Record<CardRarity, RarityMeta> = Object.fromEntries(
 export function isValidRarity(value: unknown): value is CardRarity {
 	return typeof value === 'string' && value in RARITY_BY_KEY;
 }
+
+// "Rare" = rune rarity and up (rune, dragon, sr, and the elemental event tier) —
+// the threshold for the /gamba recent-rares feed. Compared by position in
+// RARITIES so reordering/adding tiers stays consistent.
+export const RARE_MIN_RARITY: CardRarity = 'rune';
+const RARE_MIN_INDEX = RARITIES.findIndex((r) => r.key === RARE_MIN_RARITY);
+
+export function isRareRarity(value: unknown): boolean {
+	if (typeof value !== 'string') return false;
+	const i = RARITIES.findIndex((r) => r.key === value);
+	return i >= 0 && i >= RARE_MIN_INDEX;
+}
+
+// The rarity keys that count as "rare" (rune+), for querying the rare-pull feed
+// (vs_pack_open_cards) with a simple `.in('rarity', RARE_RARITIES)`.
+export const RARE_RARITIES: CardRarity[] = RARITIES.filter((_, i) => i >= RARE_MIN_INDEX).map(
+	(r) => r.key
+);
 
 // Normalises a stored `vs_cards.layers` jsonb value (an array of {path, url}) to
 // the client-safe CardLayer[] (urls only), dropping anything without a url.

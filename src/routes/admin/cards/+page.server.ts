@@ -2,7 +2,7 @@ import { redirect, error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isCardTester } from '$lib/server/auth';
-import { uploadCardFaces, uploadCardLayers, removeCardArt } from '$lib/server/cardArt';
+import { uploadCardFaces, uploadCardLayers, uploadCardSound, removeCardArt } from '$lib/server/cardArt';
 import { isValidRarity, RARITIES, DEFAULT_RARITY, type CardAbility } from '$lib/cards/rarity';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -14,13 +14,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 		db()
 			.from('vs_cards')
 			.select(
-				'id, name, level, rarity, pack_id, abilities, flavor, front_path, front_url, back_path, back_url, layers, full_art, created_at'
+				'id, name, level, rarity, pack_id, abilities, flavor, front_path, front_url, back_path, back_url, holo_path, holo_url, sound_path, sound_url, layers, full_art, created_at'
 			)
 			.order('created_at', { ascending: false }),
 		db()
 			.from('vs_card_packs')
 			.select(
-				'id, name, description, cost_vp, cards_per_pack, released, rarity_weights, slot_weights, front_path, front_url, back_path, back_url, created_at'
+				'id, name, description, cost_vp, cards_per_pack, released, rarity_weights, slot_weights, slot_finishes, front_path, front_url, back_path, back_url, holo_regular_path, holo_regular_url, holo_reverse_path, holo_reverse_url, created_at'
 			)
 			.order('created_at', { ascending: false })
 	]);
@@ -116,6 +116,19 @@ export const actions: Actions = {
 			cleanupPaths.push(...up.uploadedPaths);
 		}
 
+		// Optional open sound.
+		const soundFile = form.get('sound');
+		if (soundFile instanceof File && soundFile.size > 0) {
+			const up = await uploadCardSound(inserted.id, soundFile);
+			if ('error' in up) {
+				for (const p of cleanupPaths) await removeCardArt(p);
+				return fail(400, { error: `Card created, but sound upload failed: ${up.error}` });
+			}
+			update.sound_path = up.path;
+			update.sound_url = up.url;
+			cleanupPaths.push(up.path);
+		}
+
 		if (Object.keys(update).length) {
 			const { error: updErr } = await db().from('vs_cards').update(update).eq('id', inserted.id);
 			if (updErr) {
@@ -161,13 +174,38 @@ export const actions: Actions = {
 		// Snapshot old paths so we can delete any face/layer that gets replaced.
 		const { data: prev } = await db()
 			.from('vs_cards')
-			.select('front_path, back_path, layers')
+			.select('front_path, back_path, holo_path, sound_path, layers')
 			.eq('id', id)
 			.maybeSingle();
 
 		const faces = await uploadCardFaces('cards', id, form);
 		if ('error' in faces) return fail(400, { error: faces.error });
 		Object.assign(update, faces.update);
+
+		// Open sound: a "remove" toggle clears it; uploading a new file replaces it.
+		const removeSound = form.get('remove_sound') === 'on';
+		const soundFile = form.get('sound');
+		let newSoundPath: string | null = null;
+		if (soundFile instanceof File && soundFile.size > 0) {
+			const up = await uploadCardSound(id, soundFile);
+			if ('error' in up) {
+				for (const p of faces.uploadedPaths) await removeCardArt(p);
+				return fail(400, { error: up.error });
+			}
+			update.sound_path = up.path;
+			update.sound_url = up.url;
+			newSoundPath = up.path;
+		} else if (removeSound) {
+			update.sound_path = null;
+			update.sound_url = null;
+		}
+
+		// Remove the full-art holo image (clears it; a new upload replaces instead).
+		const removeHolo = form.get('remove_holo') === 'on';
+		if (removeHolo && !faces.update.holo_path) {
+			update.holo_path = null;
+			update.holo_url = null;
+		}
 
 		// 3D depth layers: the "clear" toggle empties them; otherwise uploading any
 		// layer files REPLACES the whole set (bottom→top in upload order).
@@ -199,6 +237,14 @@ export const actions: Actions = {
 		if (faces.update.back_path && prev?.back_path && prev.back_path !== faces.update.back_path) {
 			await removeCardArt(prev.back_path as string);
 		}
+		// Holo image replaced or cleared → delete the old file.
+		if (prev?.holo_path && (faces.update.holo_path || removeHolo) && prev.holo_path !== faces.update.holo_path) {
+			await removeCardArt(prev.holo_path as string);
+		}
+		// Sound replaced or cleared → delete the old file.
+		if (prev?.sound_path && (newSoundPath || removeSound) && prev.sound_path !== newSoundPath) {
+			await removeCardArt(prev.sound_path as string);
+		}
 		// Old layer files are orphaned once layers are replaced/cleared — delete them.
 		if (replacedLayers && Array.isArray(prev?.layers)) {
 			for (const l of prev.layers as { path?: string }[]) await removeCardArt(l?.path);
@@ -216,7 +262,7 @@ export const actions: Actions = {
 
 		const { data: existing } = await db()
 			.from('vs_cards')
-			.select('front_path, back_path, layers')
+			.select('front_path, back_path, holo_path, sound_path, layers')
 			.eq('id', id)
 			.maybeSingle();
 
@@ -225,6 +271,8 @@ export const actions: Actions = {
 
 		await removeCardArt(existing?.front_path as string | null);
 		await removeCardArt(existing?.back_path as string | null);
+		await removeCardArt(existing?.holo_path as string | null);
+		await removeCardArt(existing?.sound_path as string | null);
 		if (Array.isArray(existing?.layers)) {
 			for (const l of existing.layers as { path?: string }[]) await removeCardArt(l?.path);
 		}
@@ -300,6 +348,8 @@ export const actions: Actions = {
 		// positive weights are kept; an empty slot map falls back to the legacy
 		// per-pack rarity_weights (left untouched here) at roll time.
 		const slotWeights: Record<string, number>[] = [];
+		const slotFinishes: { holo: number; reverse: number }[] = [];
+		const pctClamp = (v: number) => (Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 0);
 		for (let i = 0; i < parsed.data.cards_per_pack; i++) {
 			const slot: Record<string, number> = {};
 			for (const r of RARITIES) {
@@ -307,6 +357,11 @@ export const actions: Actions = {
 				if (Number.isFinite(v) && v > 0) slot[r.key] = v;
 			}
 			slotWeights.push(slot);
+			// Per-slot holo / reverse-holo chances (percent; remainder is Normal).
+			slotFinishes.push({
+				holo: pctClamp(Number(form.get(`slot_${i}_holo`) ?? 0)),
+				reverse: pctClamp(Number(form.get(`slot_${i}_reverse`) ?? 0))
+			});
 		}
 
 		const update: Record<string, unknown> = {
@@ -315,18 +370,29 @@ export const actions: Actions = {
 			cost_vp: parsed.data.cost_vp,
 			cards_per_pack: parsed.data.cards_per_pack,
 			slot_weights: slotWeights,
+			slot_finishes: slotFinishes,
 			updated_at: new Date().toISOString()
 		};
 
 		const { data: prev } = await db()
 			.from('vs_card_packs')
-			.select('front_path, back_path')
+			.select('front_path, back_path, holo_regular_path, holo_reverse_path')
 			.eq('id', id)
 			.maybeSingle();
 
 		const faces = await uploadCardFaces('packs', id, form);
 		if ('error' in faces) return fail(400, { error: faces.error });
 		Object.assign(update, faces.update);
+
+		// Per-pack holo foils: a "remove" toggle clears each; uploading replaces it.
+		if (form.get('remove_holo_regular') === 'on' && !faces.update.holo_regular_path) {
+			update.holo_regular_path = null;
+			update.holo_regular_url = null;
+		}
+		if (form.get('remove_holo_reverse') === 'on' && !faces.update.holo_reverse_path) {
+			update.holo_reverse_path = null;
+			update.holo_reverse_url = null;
+		}
 
 		const { error: updErr } = await db().from('vs_card_packs').update(update).eq('id', id);
 		if (updErr) {
@@ -339,6 +405,15 @@ export const actions: Actions = {
 		}
 		if (faces.update.back_path && prev?.back_path && prev.back_path !== faces.update.back_path) {
 			await removeCardArt(prev.back_path as string);
+		}
+		// Per-pack holo foils replaced or cleared → delete the old files.
+		for (const face of ['holo_regular', 'holo_reverse'] as const) {
+			const oldPath = prev?.[`${face}_path`] as string | null | undefined;
+			const cleared = form.get(`remove_${face}`) === 'on';
+			const newPath = faces.update[`${face}_path`];
+			if (oldPath && (newPath || cleared) && oldPath !== newPath) {
+				await removeCardArt(oldPath);
+			}
 		}
 
 		return { ok: true };
@@ -377,7 +452,7 @@ export const actions: Actions = {
 
 		const { data: existing } = await db()
 			.from('vs_card_packs')
-			.select('front_path, back_path')
+			.select('front_path, back_path, holo_regular_path, holo_reverse_path')
 			.eq('id', id)
 			.maybeSingle();
 
@@ -386,6 +461,8 @@ export const actions: Actions = {
 
 		await removeCardArt(existing?.front_path as string | null);
 		await removeCardArt(existing?.back_path as string | null);
+		await removeCardArt(existing?.holo_regular_path as string | null);
+		await removeCardArt(existing?.holo_reverse_path as string | null);
 
 		return { ok: true };
 	}

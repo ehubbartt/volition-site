@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { PageData, ActionData } from './$types';
+	import type { PageData } from './$types';
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import CardThumb from '$lib/cards/CardThumb.svelte';
 	import PackThumb from '$lib/cards/PackThumb.svelte';
@@ -7,48 +7,43 @@
 	import type { UserCard } from '$lib/cards/rarity';
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
-	import { rsnToSlug } from '$lib/rsn';
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let { data }: { data: PageData } = $props();
 
-	type Tab = 'profile' | 'collection' | 'stats' | 'wallet';
-	let tab = $state<Tab>('profile');
+	type Tab = 'collection' | 'stats' | 'wallet';
+	let tab = $state<Tab>('collection');
 
 	// Collection card the viewer modal is showing (null = closed).
 	let viewing = $state<UserCard | null>(null);
 
-	// Collection (cards + unopened packs) and Stats are part of the in-progress card
-	// game — only card testers see them (gated by CARD_TESTER_DISCORD_IDS).
-	let tabs = $derived<{ id: Tab; label: string }[]>([
-		{ id: 'profile', label: 'Profile' },
-		...(data.isCardTester
-			? ([
-					{ id: 'collection', label: 'Collection' },
-					{ id: 'stats', label: 'Stats' }
-				] as { id: Tab; label: string }[])
-			: []),
+	let tabs: { id: Tab; label: string }[] = [
+		{ id: 'collection', label: 'Collection' },
+		{ id: 'stats', label: 'Stats' },
 		{ id: 'wallet', label: 'Wallet' }
-	]);
+	];
 
+	let displayName = $derived(data.profileUser.rsn || data.profileUser.discord_username);
 	let clanLabel = $derived(
-		data.user.clan_allegiance ? CLAN_LABEL[data.user.clan_allegiance as ClanValue] : null
+		data.profileUser.clan_allegiance
+			? CLAN_LABEL[data.profileUser.clan_allegiance as ClanValue]
+			: null
 	);
 	let walletTotal = $derived(data.wallet.reduce((sum, w) => sum + w.quantity, 0));
 	let packTotal = $derived(data.packs.reduce((sum, p) => sum + p.quantity, 0));
 </script>
 
 <svelte:head>
-	<title>Profile · Volition</title>
+	<title>{displayName} · Volition</title>
 </svelte:head>
 
 <section class="profile">
 	<header class="banner">
 		<div class="identity">
-			<AccountIcon type={data.user.account_type} size={48} />
+			<AccountIcon type={data.profileUser.account_type} size={48} />
 			<div class="who">
-				<h1>{data.user.rsn ?? data.user.discord_username}</h1>
+				<h1>{displayName}</h1>
 				<span class="sub">
-					@{data.user.discord_username}{#if clanLabel} · {clanLabel}{/if}
+					@{data.profileUser.discord_username}{#if clanLabel} · {clanLabel}{/if}
 				</span>
 			</div>
 		</div>
@@ -58,20 +53,13 @@
 		</div>
 	</header>
 
-	{#if data.isCardTester && data.user.rsn}
-		<p class="profile-link muted">
-			<a href="/u/{rsnToSlug(data.user.rsn)}">View your public profile →</a>
-		</p>
+	{#if data.isSelf}
+		<p class="self-note muted">This is your public profile. <a href="/me">Edit your profile →</a></p>
 	{/if}
 
 	<nav class="tabs">
 		{#each tabs as t}
-			<button
-				type="button"
-				class="tab"
-				class:active={tab === t.id}
-				onclick={() => (tab = t.id)}
-			>
+			<button type="button" class="tab" class:active={tab === t.id} onclick={() => (tab = t.id)}>
 				{t.label}
 				{#if t.id === 'collection' && data.collectionOwned}
 					<span class="count">{data.collectionOwned}</span>
@@ -82,65 +70,11 @@
 		{/each}
 	</nav>
 
-	{#if tab === 'profile'}
-		<div class="panel">
-			{#if form?.success}
-				<div class="success">Saved.</div>
-			{:else if form?.error}
-				<div class="error">{form.error}</div>
-			{/if}
-
-			<form method="POST" class="edit">
-				<label>
-					<span>OSRS RSN</span>
-					<input name="rsn" type="text" maxlength="12" required value={data.user.rsn ?? ''} />
-				</label>
-
-				<fieldset class="account-picker">
-					<legend>Account type</legend>
-					<div class="account-options">
-						{#each data.accountTypes as opt}
-							<label class="account-option" title={opt.label}>
-								<input
-									type="radio"
-									name="account_type"
-									value={opt.value}
-									checked={data.user.account_type === opt.value}
-									required
-								/>
-								<span class="opt-card">
-									<img src={opt.icon} alt={opt.label} class="opt-icon" />
-								</span>
-							</label>
-						{/each}
-					</div>
-				</fieldset>
-
-				<label>
-					<span>Clan allegiance</span>
-					<select name="clan_allegiance" required>
-						<option value="" disabled selected={!data.user.clan_allegiance}>Pick a clan…</option>
-						{#each data.clanOptions as opt}
-							<option value={opt.value} selected={data.user.clan_allegiance === opt.value}>
-								{opt.label}
-							</option>
-						{/each}
-					</select>
-				</label>
-
-				<button type="submit" class="primary">Save</button>
-			</form>
-
-			<form method="POST" action="/auth/logout" class="logout">
-				<button type="submit">Sign out</button>
-			</form>
-		</div>
-	{:else if tab === 'collection'}
+	{#if tab === 'collection'}
 		<div class="panel">
 			{#if data.collection.length === 0 && data.packs.length === 0}
 				<div class="empty">
-					<p>Nothing here yet.</p>
-					<p class="muted">Open a pack to start collecting.</p>
+					<p>Nothing to show yet.</p>
 				</div>
 			{:else}
 				{#if data.packs.length > 0}
@@ -156,7 +90,7 @@
 					Cards <span class="count-text muted">{data.collectionOwned} / {data.collectionTotal} collected</span>
 				</h3>
 				{#if data.collection.length === 0}
-					<p class="muted">No cards yet — open a pack to start collecting.</p>
+					<p class="muted">No cards yet.</p>
 				{:else}
 					<div class="card-grid">
 						{#each data.collection as card (card.id + '-' + card.finish)}
@@ -187,7 +121,7 @@
 				<section class="stat-card">
 					<h3>Cards</h3>
 					<div class="mini-stats">
-						<div class="ms"><span class="ms-num">{data.myStats.cardsOwned}</span><span class="ms-lbl">Cards owned</span></div>
+						<div class="ms"><span class="ms-num">{data.stats.cardsOwned}</span><span class="ms-lbl">Cards owned</span></div>
 						<div class="ms"><span class="ms-num">{data.collectionOwned} / {data.collectionTotal}</span><span class="ms-lbl">Unique collected</span></div>
 					</div>
 				</section>
@@ -196,9 +130,9 @@
 					<h3>Packs</h3>
 					<div class="mini-stats">
 						<div class="ms"><span class="ms-num">{packTotal}</span><span class="ms-lbl">Unopened</span></div>
-						<div class="ms"><span class="ms-num">{data.myStats.packsOpened}</span><span class="ms-lbl">Opened</span></div>
-						<div class="ms"><span class="ms-num">{data.myStats.cardsPulled}</span><span class="ms-lbl">Cards pulled</span></div>
-						<div class="ms"><span class="ms-num">{data.myStats.vpSpent.toLocaleString()}</span><span class="ms-lbl">VP spent</span></div>
+						<div class="ms"><span class="ms-num">{data.stats.packsOpened}</span><span class="ms-lbl">Opened</span></div>
+						<div class="ms"><span class="ms-num">{data.stats.cardsPulled}</span><span class="ms-lbl">Cards pulled</span></div>
+						<div class="ms"><span class="ms-num">{data.stats.vpSpent.toLocaleString()}</span><span class="ms-lbl">VP spent</span></div>
 					</div>
 				</section>
 
@@ -226,8 +160,7 @@
 		<div class="panel">
 			{#if data.wallet.length === 0}
 				<div class="empty">
-					<p>Your wallet is empty.</p>
-					<p class="muted">Items you win from gamble boxes show up here.</p>
+					<p>Wallet is empty.</p>
 				</div>
 			{:else}
 				<ul class="wallet-list">
@@ -290,6 +223,11 @@
 		font-size: 0.9rem;
 	}
 
+	.self-note {
+		margin: 0.75rem 0 0;
+		font-size: 0.85rem;
+	}
+
 	.vp {
 		display: flex;
 		align-items: baseline;
@@ -310,219 +248,6 @@
 	.vp-label {
 		color: var(--accent);
 		font-size: 0.85rem;
-	}
-
-	.profile-link {
-		margin: 0.75rem 0 0;
-		font-size: 0.85rem;
-	}
-
-	.tabs {
-		display: flex;
-		gap: 0.25rem;
-		margin: 1.25rem 0 1rem;
-		border-bottom: 1px solid var(--border);
-	}
-
-	.tab {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.4rem;
-		min-height: auto;
-		padding: 0.55rem 1rem;
-		background: transparent;
-		border: none;
-		border-bottom: 2px solid transparent;
-		border-radius: 0;
-		color: var(--muted);
-		font-size: 1rem;
-		cursor: pointer;
-		transition: color 0.15s, border-color 0.15s;
-	}
-
-	.tab:hover {
-		color: var(--text);
-		background: transparent;
-	}
-
-	.tab.active {
-		color: var(--accent);
-		border-bottom-color: var(--accent);
-	}
-
-	.count {
-		padding: 0.05rem 0.45rem;
-		background: var(--surface-alt);
-		border: 1px solid var(--border);
-		border-radius: 999px;
-		font-size: 0.75rem;
-		color: var(--text);
-	}
-
-	.panel {
-		animation: fade-in 0.2s ease-out;
-	}
-
-	@keyframes fade-in {
-		from {
-			opacity: 0;
-			transform: translateY(4px);
-		}
-		to {
-			opacity: 1;
-			transform: none;
-		}
-	}
-
-	form.edit {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-		max-width: 32rem;
-	}
-
-	form.logout {
-		margin-top: 1.5rem;
-		padding-top: 1.5rem;
-		border-top: 1px solid var(--border);
-		max-width: 32rem;
-	}
-
-	label {
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-	}
-
-	label span {
-		font-size: 0.85rem;
-		color: var(--muted);
-	}
-
-	.error {
-		background: var(--danger-bg);
-		border: 1px solid var(--danger);
-		color: var(--danger);
-		padding: 0.6rem 0.8rem;
-		border-radius: 4px;
-		margin-bottom: 1rem;
-		max-width: 32rem;
-	}
-
-	.success {
-		background: var(--success-bg);
-		border: 1px solid var(--success);
-		color: var(--success);
-		padding: 0.6rem 0.8rem;
-		border-radius: 4px;
-		margin-bottom: 1rem;
-		max-width: 32rem;
-	}
-
-	button.primary {
-		border-color: var(--accent);
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
-		align-self: flex-start;
-	}
-
-	button.primary:hover {
-		background: var(--accent-soft);
-	}
-
-	.account-picker {
-		border: none;
-		padding: 0;
-		margin: 0;
-	}
-
-	.account-picker legend {
-		font-size: 0.85rem;
-		color: var(--muted);
-		padding: 0;
-		margin-bottom: 0.45rem;
-	}
-
-	.account-options {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem;
-	}
-
-	.account-option {
-		display: block;
-		gap: 0;
-		cursor: pointer;
-	}
-
-	.account-option input {
-		position: absolute;
-		opacity: 0;
-		width: 0;
-		height: 0;
-		pointer-events: none;
-	}
-
-	.opt-card {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 56px;
-		height: 56px;
-		background: var(--surface-alt);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		text-shadow: var(--ts);
-		transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
-	}
-
-	.account-option:hover .opt-card {
-		border-color: var(--border-strong);
-	}
-
-	.account-option input:checked + .opt-card {
-		border-color: var(--accent);
-		background: var(--accent-soft);
-		box-shadow: inset 0 0 0 1px rgba(255, 152, 31, 0.3);
-	}
-
-	.account-option input:focus-visible + .opt-card {
-		box-shadow: 0 0 0 3px rgba(255, 152, 31, 0.3);
-	}
-
-	.opt-icon {
-		width: 30px;
-		height: 30px;
-		image-rendering: pixelated;
-		image-rendering: crisp-edges;
-		object-fit: contain;
-	}
-
-	.card-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
-		gap: 1rem;
-	}
-
-	.thumb-btn {
-		display: block;
-		padding: 0;
-		margin: 0;
-		min-height: auto;
-		background: none;
-		border: none;
-		text-align: inherit;
-		cursor: pointer;
-		position: relative;
-	}
-
-	/* Unowned cards: greyed out, not interactive, with a lock badge. */
-	.thumb-btn.locked {
-		cursor: default;
-	}
-
-	.thumb-btn.locked .dim {
-		filter: grayscale(1) brightness(0.55);
-		opacity: 0.9;
 	}
 
 	.mini-stats {
@@ -586,6 +311,90 @@
 	.ms-lbl {
 		font-size: 0.78rem;
 		color: var(--muted);
+	}
+
+	.tabs {
+		display: flex;
+		gap: 0.25rem;
+		margin: 0 0 1rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.tab {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		min-height: auto;
+		padding: 0.55rem 1rem;
+		background: transparent;
+		border: none;
+		border-bottom: 2px solid transparent;
+		border-radius: 0;
+		color: var(--muted);
+		font-size: 1rem;
+		cursor: pointer;
+		transition: color 0.15s, border-color 0.15s;
+	}
+
+	.tab:hover {
+		color: var(--text);
+		background: transparent;
+	}
+
+	.tab.active {
+		color: var(--accent);
+		border-bottom-color: var(--accent);
+	}
+
+	.count {
+		padding: 0.05rem 0.45rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		font-size: 0.75rem;
+		color: var(--text);
+	}
+
+	.panel {
+		animation: fade-in 0.2s ease-out;
+	}
+
+	@keyframes fade-in {
+		from {
+			opacity: 0;
+			transform: translateY(4px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+
+	.card-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+		gap: 1rem;
+	}
+
+	.thumb-btn {
+		display: block;
+		padding: 0;
+		margin: 0;
+		min-height: auto;
+		background: none;
+		border: none;
+		text-align: inherit;
+		cursor: pointer;
+		position: relative;
+	}
+
+	.thumb-btn.locked {
+		cursor: default;
+	}
+
+	.thumb-btn.locked .dim {
+		filter: grayscale(1) brightness(0.55);
+		opacity: 0.9;
 	}
 
 	.empty {

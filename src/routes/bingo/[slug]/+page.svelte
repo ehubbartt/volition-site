@@ -126,14 +126,19 @@
 		<div class="muted description">{@html data.event.description_html}</div>
 	{/if}
 
-	{#if !data.isClanMember}
+	{#if !data.isClanMember && !data.archived}
 		<p class="non-member-note">
 			You're signed in, but you're not on the Volition clan list — you can browse the board, but
 			submissions are limited to clan members. Ping an admin if you think this is wrong.
 		</p>
 	{/if}
 
-	{#if !data.running}
+	{#if data.archived}
+		<p class="ended-note">
+			This event has ended. Submissions are closed — browse the final board, leaderboard, and your
+			submissions below.
+		</p>
+	{:else if !data.running}
 		<p class="muted">The bingo event is not currently running. Check back soon!</p>
 	{:else if liveState}
 		<div class="status-row">
@@ -315,6 +320,17 @@
 		border-left-width: 3px;
 		border-radius: 3px;
 		color: var(--accent);
+		font-size: 0.9rem;
+	}
+
+	.ended-note {
+		margin: 0.7rem 0 0;
+		padding: 0.55rem 0.8rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border-strong);
+		border-left: 3px solid var(--muted);
+		border-radius: 3px;
+		color: var(--muted);
 		font-size: 0.9rem;
 	}
 

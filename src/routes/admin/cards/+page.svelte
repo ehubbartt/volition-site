@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import CardThumb from '$lib/cards/CardThumb.svelte';
 	import PackThumb from '$lib/cards/PackThumb.svelte';
 	import CardInspector3D from '$lib/cards/CardInspector3D.svelte';
@@ -25,6 +26,11 @@
 	// or open it). Finish is unset here, so it shows the base card (no holo).
 	let inspecting = $state<Card | null>(null);
 
+	// Edit forms: keep the typed values after a successful save. SvelteKit's default
+	// enhance resets the form on success, but Svelte sets the input `value` property
+	// (not the defaultValue attribute), so a reset blanks every pre-filled field.
+	const keepValues: SubmitFunction = () => async ({ update }) => update({ reset: false });
+
 	// Blank ability rows appended to each form so admins can add more.
 	const BLANK_ROWS = 3;
 
@@ -45,7 +51,9 @@
 			front_url: c.front_url,
 			back_url: c.back_url,
 			layers: toCardLayers((c as { layers?: unknown }).layers),
-			full_art: !!(c as { full_art?: boolean }).full_art
+			full_art: !!(c as { full_art?: boolean }).full_art,
+			holo_url: (c as { holo_url?: string | null }).holo_url ?? null,
+			sound_url: (c as { sound_url?: string | null }).sound_url ?? null
 		};
 	}
 
@@ -152,22 +160,53 @@
 		return out;
 	}
 
+	// Editable per-slot holo chances (percent). slotFin[packId][slot] = {holo,reverse}.
+	// Seeded from the server's slot_finishes; a pack with none seeded to the legacy
+	// rule (last slot 100% holo, second-to-last 100% reverse) so the editor shows
+	// the current effective behaviour and saving preserves it.
+	type SlotFin = { holo: number; reverse: number };
+	function seedSlotFin(): Record<string, SlotFin[]> {
+		const out: Record<string, SlotFin[]> = {};
+		for (const p of data.packs) {
+			const saved = (Array.isArray(p.slot_finishes) ? p.slot_finishes : []) as SlotFin[];
+			const count = Math.max(1, Number(p.cards_per_pack ?? 5));
+			const arr: SlotFin[] = [];
+			for (let i = 0; i < count; i++) {
+				if (saved.length) {
+					arr.push({ holo: Number(saved[i]?.holo ?? 0), reverse: Number(saved[i]?.reverse ?? 0) });
+				} else if (i === count - 1) {
+					arr.push({ holo: 100, reverse: 0 });
+				} else if (i === count - 2) {
+					arr.push({ holo: 0, reverse: 100 });
+				} else {
+					arr.push({ holo: 0, reverse: 0 });
+				}
+			}
+			out[p.id] = arr;
+		}
+		return out;
+	}
+
 	let slotW = $state(seedSlotW());
 	let slotCount = $state(seedSlotCount());
+	let slotFin = $state(seedSlotFin());
 
 	// Reseed when the server data changes (create/delete, or a save that updated
 	// cards_per_pack / slot_weights). Keyed on the fields the editor mirrors.
 	let lastPackKey = '';
 	$effect(() => {
-		const key = JSON.stringify(data.packs.map((p) => [p.id, p.cards_per_pack, p.slot_weights]));
+		const key = JSON.stringify(
+			data.packs.map((p) => [p.id, p.cards_per_pack, p.slot_weights, p.slot_finishes])
+		);
 		if (key !== lastPackKey) {
 			lastPackKey = key;
 			slotW = seedSlotW();
 			slotCount = seedSlotCount();
+			slotFin = seedSlotFin();
 		}
 	});
 
-	// Grow each pack's slot array to match its live "Cards per open" input so new
+	// Grow each pack's slot arrays to match its live "Cards per open" input so new
 	// slots get editable rows immediately (slots past the count are kept but
 	// ignored on save).
 	$effect(() => {
@@ -175,6 +214,8 @@
 			const need = Math.max(1, Number(slotCount[p.id] ?? 1));
 			const arr = (slotW[p.id] ??= []);
 			while (arr.length < need) arr.push(blankSlotFor(p));
+			const fin = (slotFin[p.id] ??= []);
+			while (fin.length < need) fin.push({ holo: 0, reverse: 0 });
 		}
 	});
 
@@ -190,6 +231,13 @@
 		}
 		if (total <= 0) return 0;
 		return (Math.max(0, s[key] ?? 0) / total) * 100;
+	}
+
+	// Live Normal % for a slot's finish = whatever isn't Holo or Reverse.
+	function normalPct(packId: string, slot: number): number {
+		const f = slotFin[packId]?.[slot];
+		if (!f) return 100;
+		return Math.max(0, 100 - (Number(f.holo) || 0) - (Number(f.reverse) || 0));
 	}
 </script>
 
@@ -234,7 +282,7 @@
 
 		<details class="edit-block">
 			<summary>Edit</summary>
-			<form method="POST" action="?/updateCard" enctype="multipart/form-data" use:enhance class="edit-form">
+			<form method="POST" action="?/updateCard" enctype="multipart/form-data" use:enhance={keepValues} class="edit-form">
 				<input type="hidden" name="id" value={card.id} />
 				<label>
 					<span>Name</span>
@@ -305,8 +353,36 @@
 
 				<label class="check">
 					<input type="checkbox" name="full_art" checked={card.full_art} />
-					<span>Full art (no holo / reverse holo)</span>
+					<span>Full art (skips the standard holo / reverse holo masks)</span>
 				</label>
+
+				<label>
+					<span>
+						Full-art holo image (optional) — foil over the whole card, full-art only
+						{#if card.holo_url} · has one{/if}
+					</span>
+					<input name="holo" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+				</label>
+				{#if card.holo_url}
+					<label class="check">
+						<input type="checkbox" name="remove_holo" />
+						<span>Remove full-art holo image</span>
+					</label>
+				{/if}
+
+				<label>
+					<span>Open sound (optional — plays when the card is revealed){#if card.sound_url} · has one{/if}</span>
+					<input name="sound" type="file" accept="audio/*" />
+				</label>
+				{#if card.sound_url}
+					<div class="row">
+						<audio controls src={card.sound_url} preload="none"></audio>
+					</div>
+					<label class="check">
+						<input type="checkbox" name="remove_sound" />
+						<span>Remove open sound</span>
+					</label>
+				{/if}
 
 				<button type="submit" class="primary">Save changes</button>
 			</form>
@@ -425,7 +501,17 @@
 
 				<label class="check">
 					<input type="checkbox" name="full_art" />
-					<span>Full art (no holo / reverse holo)</span>
+					<span>Full art (skips the standard holo / reverse holo masks)</span>
+				</label>
+
+				<label>
+					<span>Full-art holo image (optional) — foil over the whole card, full-art only</span>
+					<input name="holo" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+				</label>
+
+				<label>
+					<span>Open sound (optional — plays when the card is revealed)</span>
+					<input name="sound" type="file" accept="audio/*" />
 				</label>
 
 				<button type="submit" class="primary">Create card</button>
@@ -491,6 +577,16 @@
 						<input name="back" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
 					</label>
 				</div>
+				<div class="row">
+					<label>
+						<span>Regular holo foil (optional — overrides the default)</span>
+						<input name="holo_regular" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+					</label>
+					<label>
+						<span>Reverse holo foil (optional — overrides the default)</span>
+						<input name="holo_reverse" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+					</label>
+				</div>
 				<button type="submit" class="primary">Create pack</button>
 			</form>
 		</details>
@@ -547,7 +643,7 @@
 
 						<details class="edit-block">
 							<summary>Edit</summary>
-							<form method="POST" action="?/updatePack" enctype="multipart/form-data" use:enhance class="edit-form">
+							<form method="POST" action="?/updatePack" enctype="multipart/form-data" use:enhance={keepValues} class="edit-form">
 								<input type="hidden" name="id" value={pack.id} />
 								<label>
 									<span>Name</span>
@@ -577,7 +673,7 @@
 								<fieldset class="rates">
 									<legend>
 										Per-slot drop rates
-										<span class="muted small">(one card per slot · relative weights, auto-normalized)</span>
+										<span class="muted small">(one card per slot · rarity = relative weights; holo/reverse = % chance for that slot)</span>
 									</legend>
 									{#if presentRarities(pack.id).length === 0}
 										<p class="muted small">Add cards to this set first to set drop rates.</p>
@@ -600,6 +696,11 @@
 														</label>
 													{/each}
 												</div>
+												<div class="slot-finish">
+													<label class="fin"><span>Holo %</span><input type="number" min="0" max="100" step="any" name={`slot_${i}_holo`} bind:value={slotFin[pack.id][i].holo} /></label>
+													<label class="fin"><span>Reverse %</span><input type="number" min="0" max="100" step="any" name={`slot_${i}_reverse`} bind:value={slotFin[pack.id][i].reverse} /></label>
+													<span class="muted small">Normal {normalPct(pack.id, i).toFixed(0)}%</span>
+												</div>
 											</div>
 										{/each}
 									{/if}
@@ -615,6 +716,35 @@
 										<input name="back" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
 									</label>
 								</div>
+
+								<fieldset class="rates">
+									<legend>
+										Holo foils <span class="muted small">(optional — overrides the default star/ripple for every holo pulled from this pack)</span>
+									</legend>
+									<div class="row">
+										<label>
+											<span>Regular holo foil{#if raw.holo_regular_url} · set{/if}</span>
+											<input name="holo_regular" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+										</label>
+										<label>
+											<span>Reverse holo foil{#if raw.holo_reverse_url} · set{/if}</span>
+											<input name="holo_reverse" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+										</label>
+									</div>
+									{#if raw.holo_regular_url}
+										<label class="check">
+											<input type="checkbox" name="remove_holo_regular" />
+											<span>Remove regular holo foil</span>
+										</label>
+									{/if}
+									{#if raw.holo_reverse_url}
+										<label class="check">
+											<input type="checkbox" name="remove_holo_reverse" />
+											<span>Remove reverse holo foil</span>
+										</label>
+									{/if}
+								</fieldset>
+
 								<button type="submit" class="primary">Save changes</button>
 							</form>
 						</details>
@@ -793,6 +923,32 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
 		gap: 0.4rem 0.6rem;
+	}
+
+	/* Per-slot holo chances, below that slot's rarity grid. */
+	.slot-finish {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem 0.75rem;
+		margin-top: 0.5rem;
+		padding-top: 0.5rem;
+		border-top: 1px dashed var(--border);
+	}
+
+	.fin {
+		flex-direction: row;
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	.fin span {
+		font-size: 0.8rem;
+	}
+
+	.fin input {
+		width: 3.6rem;
+		padding: 0.2rem 0.3rem;
 	}
 
 	.slot-rate {
