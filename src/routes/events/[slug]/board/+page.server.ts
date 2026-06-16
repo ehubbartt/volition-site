@@ -18,23 +18,25 @@ import {
 	getDuoTileName,
 	getDuoTileFaq,
 	getDuoTileImg,
-	getDuoTileRequired
+	getDuoTileRequired,
+	getDuoTileAutoClear
 } from '$lib/server/duoWolfTiles';
-import {
-	BINGO_BUCKET,
-	MAX_UPLOAD_BYTES,
-	MAX_IMAGES_PER_SUBMISSION,
-	ALLOWED_MIME
-} from '$lib/bingo/config';
+import { createSubmission } from '$lib/server/submissions';
+import { BINGO_BUCKET } from '$lib/bingo/config';
 import type { Actions, PageServerLoad } from './$types';
 
 type SubmissionStatus = 'pending' | 'approved' | 'rejected';
 
+// DuoWolf submissions live in the generic, dual-purpose vs_submissions table
+// (team_id + target_id = the board node id), NOT the legacy vs_team_completions —
+// so they flow through the same createSubmission/loadPendingReview/decideSubmissions
+// pipeline as every other event and surface in /admin/submissions automatically.
 interface CompletionRow {
 	id: string;
 	team_id: string;
 	user_id: string;
-	tile_id: string;
+	target_id: string;
+	quantity: number | null;
 	proof_urls: string[] | null;
 	proof_paths: string[] | null;
 	submitted_at: string;
@@ -63,6 +65,7 @@ interface DuoCompletionDetail {
 	team_name: string | null;
 	submitted_at: string;
 	proof_urls: string[];
+	quantity: number;
 	reviewed_by_name: string | null;
 	isMine: boolean;
 }
@@ -70,6 +73,7 @@ interface DuoCompletionDetail {
 interface DuoTeamSubmission {
 	id: string;
 	proof_urls: string[];
+	quantity: number;
 	submitted_at: string;
 	status: SubmissionStatus;
 	reviewed_by_name: string | null;
@@ -80,14 +84,8 @@ interface TileContent {
 	name: string;
 	img: string | null;
 	faq_html: string | null;
+	autoClear: string | null; // boss-only instant-clear label (null otherwise)
 }
-
-const EXT_BY_MIME: Record<string, string> = {
-	'image/png': 'png',
-	'image/jpeg': 'jpg',
-	'image/webp': 'webp',
-	'image/gif': 'gif'
-};
 
 // Convert single newlines in the (markdown-able) FAQ into hard breaks, leaving
 // blank-line paragraph breaks intact. renderMarkdown runs with breaks:false.
@@ -100,7 +98,8 @@ function tileContent(id: string): TileContent {
 	return {
 		name: getDuoTileName(id) ?? id,
 		img: getDuoTileImg(id),
-		faq_html: faqToHtml(getDuoTileFaq(id))
+		faq_html: faqToHtml(getDuoTileFaq(id)),
+		autoClear: getDuoTileAutoClear(id)
 	};
 }
 
@@ -130,13 +129,16 @@ async function fetchTeamProgress(eventId: string, teamId: string): Promise<Progr
 	const approvedByTile: Record<string, number> = {};
 	const pendingByTile: Record<string, number> = {};
 	const { data: rows } = await db()
-		.from('vs_team_completions')
-		.select('tile_id, status')
+		.from('vs_submissions')
+		.select('target_id, status, quantity')
 		.eq('event_id', eventId)
 		.eq('team_id', teamId);
-	for (const r of (rows ?? []) as { tile_id: string; status: SubmissionStatus }[]) {
-		if (r.status === 'approved') approvedByTile[r.tile_id] = (approvedByTile[r.tile_id] ?? 0) + 1;
-		else if (r.status === 'pending') pendingByTile[r.tile_id] = (pendingByTile[r.tile_id] ?? 0) + 1;
+	// Sum each submission's quantity (default 1) — not a raw row count — so one proof can
+	// cover several of a count-based tile's required total.
+	for (const r of (rows ?? []) as { target_id: string; status: SubmissionStatus; quantity: number | null }[]) {
+		const q = Math.max(1, Number(r.quantity) || 1);
+		if (r.status === 'approved') approvedByTile[r.target_id] = (approvedByTile[r.target_id] ?? 0) + q;
+		else if (r.status === 'pending') pendingByTile[r.target_id] = (pendingByTile[r.target_id] ?? 0) + q;
 	}
 
 	const choiceByFloorSection: Record<string, number> = {};
@@ -155,7 +157,7 @@ async function fetchTeamProgress(eventId: string, teamId: string): Promise<Progr
 	return computeProgress({ approvedByTile, pendingByTile, requiredByTile, choiceByFloorSection });
 }
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, url }) => {
 	if (!locals.user) throw redirect(303, '/');
 	if (!locals.user.rsn || !locals.user.clan_allegiance || !locals.user.account_type) {
 		throw redirect(303, '/onboarding');
@@ -165,9 +167,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	if (!event) throw error(404, 'Event not found');
 
 	const admin = isAdmin(locals.user);
-	const status: BoardStatus = getBoardStatus(event.status, admin);
+	// Admins can preview the live PLAYER view (fog of war, per-team reveal) via
+	// ?view=player to test what teams actually see. `effectiveAdmin` drives the board
+	// payload (full board vs player reveal); the real `admin` still gates the toggle and
+	// the admin-only actions.
+	const previewAsPlayer = admin && url.searchParams.get('view') === 'player';
+	const effectiveAdmin = admin && !previewAsPlayer;
+	const status: BoardStatus = getBoardStatus(event.status, effectiveAdmin);
 	const isDuoWolf = event.slug === DUO_WOLF_EVENT_SLUG;
-	const contentVisible = isDuoWolf && (admin || status === 'open');
+	const contentVisible = isDuoWolf && (effectiveAdmin || status === 'open');
 
 	const content: Record<string, TileContent> = {};
 	let completionsForClient: Record<string, DuoCompletionDetail[]> = {};
@@ -185,9 +193,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		myTeamId = await getMyTeamId(event.id, locals.user.id);
 
 		const { data: completionsRaw, error: cErr } = await db()
-			.from('vs_team_completions')
+			.from('vs_submissions')
 			.select(
-				'id, team_id, user_id, tile_id, proof_urls, proof_paths, submitted_at, status, vs_users!user_id(rsn, discord_username, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username), team:vs_teams!team_id(id, name)'
+				'id, team_id, user_id, target_id, quantity, proof_urls, proof_paths, submitted_at, status, vs_users!user_id(rsn, discord_username, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username), team:vs_teams!team_id(id, name)'
 			)
 			.eq('event_id', event.id)
 			.order('submitted_at', { ascending: true });
@@ -203,14 +211,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		const myPending: Record<string, number> = {};
 
 		for (const c of completions) {
-			if (!DUO_TILE_IDS.has(c.tile_id)) continue;
+			if (!DUO_TILE_IDS.has(c.target_id)) continue;
 			const proofUrls = c.proof_urls ?? [];
+			const qty = Math.max(1, Number(c.quantity) || 1);
 			const reviewerName = c.reviewer ? (c.reviewer.rsn ?? c.reviewer.discord_username) : null;
 			const submitterName = c.vs_users.rsn ?? c.vs_users.discord_username;
 			const mine = myTeamId != null && c.team_id === myTeamId;
 
 			if (c.status === 'approved') {
-				const arr = completionsByTile[c.tile_id] ?? [];
+				const arr = completionsByTile[c.target_id] ?? [];
 				arr.push({
 					id: c.id,
 					user_id: c.user_id,
@@ -220,27 +229,30 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					team_name: c.team?.name ?? null,
 					submitted_at: c.submitted_at,
 					proof_urls: proofUrls,
+					quantity: qty,
 					reviewed_by_name: reviewerName,
 					isMine: mine
 				});
-				completionsByTile[c.tile_id] = arr;
-				completionCountByTile[c.tile_id] = (completionCountByTile[c.tile_id] ?? 0) + 1;
-				if (mine) myApproved[c.tile_id] = (myApproved[c.tile_id] ?? 0) + 1;
+				completionsByTile[c.target_id] = arr;
+				completionCountByTile[c.target_id] = (completionCountByTile[c.target_id] ?? 0) + 1;
+				// Progress sums approved quantity (not row count) so one proof can cover many.
+				if (mine) myApproved[c.target_id] = (myApproved[c.target_id] ?? 0) + qty;
 			} else if (c.status === 'pending' && mine) {
-				myPending[c.tile_id] = (myPending[c.tile_id] ?? 0) + 1;
+				myPending[c.target_id] = (myPending[c.target_id] ?? 0) + qty;
 			}
 
 			if (mine) {
-				const t = teamSubmissionsByTile[c.tile_id] ?? [];
+				const t = teamSubmissionsByTile[c.target_id] ?? [];
 				t.push({
 					id: c.id,
 					proof_urls: proofUrls,
+					quantity: qty,
 					submitted_at: c.submitted_at,
 					status: c.status,
 					reviewed_by_name: reviewerName,
 					submitted_by_name: submitterName
 				});
-				teamSubmissionsByTile[c.tile_id] = t;
+				teamSubmissionsByTile[c.target_id] = t;
 			}
 		}
 
@@ -266,7 +278,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			choiceByFloorSection
 		});
 
-		if (admin) {
+		if (effectiveAdmin) {
 			// Admins get the full board (preview) — no per-team gating styling.
 			// They review per team via /admin/duo/[slug]/review.
 			for (const ref of duoNodeRefs()) content[ref.id] = tileContent(ref.id);
@@ -289,6 +301,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	return {
 		event: { id: event.id, slug: event.slug, name: event.name, status: event.status },
 		status,
+		// adminView = the full-board admin payload is being shown; previewAsPlayer = an
+		// admin is currently viewing the player (fog-of-war) version; canToggleView = the
+		// real user is an admin (show the view toggle).
+		adminView: effectiveAdmin,
+		previewAsPlayer,
+		canToggleView: admin,
 		isClanMember: memberOfClan,
 		myTeamId,
 		hasTeam: myTeamId != null,
@@ -305,35 +323,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 function requireDuoWolf(slug: string): void {
 	if (slug !== DUO_WOLF_EVENT_SLUG) throw error(404, 'Not found');
-}
-
-async function uploadProof(
-	eventId: string,
-	userId: string,
-	tileId: string,
-	file: File
-): Promise<{ path: string; url: string } | { error: string }> {
-	if (file.size === 0) return { error: 'File is empty' };
-	if (file.size > MAX_UPLOAD_BYTES) {
-		const mb = Math.round(MAX_UPLOAD_BYTES / 1_000_000);
-		return { error: `File too large (max ${mb} MB)` };
-	}
-	if (!(ALLOWED_MIME as readonly string[]).includes(file.type)) {
-		return { error: 'Unsupported image type (use PNG, JPEG, WEBP, or GIF)' };
-	}
-	const ext = EXT_BY_MIME[file.type];
-	if (!ext) return { error: 'Unsupported image type' };
-
-	const path = `${eventId}/${userId}/${tileId}-${Date.now()}.${ext}`;
-	const storage = db().storage.from(BINGO_BUCKET);
-	const { error: upErr } = await storage.upload(path, file, {
-		contentType: file.type,
-		upsert: false
-	});
-	if (upErr) return { error: upErr.message };
-
-	const { data: pub } = storage.getPublicUrl(path);
-	return { path, url: pub.publicUrl };
 }
 
 export const actions: Actions = {
@@ -415,9 +404,17 @@ export const actions: Actions = {
 
 		if (!DUO_TILE_IDS.has(tileId)) return fail(400, { error: 'Unknown tile' });
 		if (files.length === 0) return fail(400, { error: 'Add at least one proof image' });
-		if (files.length > MAX_IMAGES_PER_SUBMISSION) {
-			return fail(400, { error: `Max ${MAX_IMAGES_PER_SUBMISSION} images per submission` });
-		}
+
+		// How many of the tile's required total this one proof covers (e.g. one pic of all
+		// 25 Wintertodt rewards). Clamp to 1..required so a single proof can't over-claim
+		// past the whole tile; the admin still verifies the amount on approval.
+		const required = getDuoTileRequired(tileId);
+		const rawQty = Math.floor(Number(form.get('quantity') ?? 1));
+		const quantity = Math.max(1, Math.min(Number.isFinite(rawQty) ? rawQty : 1, required));
+
+		// Test submission: only an admin can flag it (the board's "preview as player" mode
+		// posts test=1). Keeps test runs out of the live /admin/submissions queue.
+		const isTest = isAdmin(locals.user) && form.get('test') === '1';
 
 		// Authoritative gating: the tile must be in the team's current active step.
 		const prog = await fetchTeamProgress(event.id, teamId);
@@ -426,34 +423,72 @@ export const actions: Actions = {
 			return fail(400, { error: "That tile isn't open for your team yet." });
 		}
 
-		const urls: string[] = [];
-		const paths: string[] = [];
-		for (const file of files) {
-			const result = await uploadProof(event.id, locals.user.id, tileId, file);
-			if ('error' in result) {
-				if (paths.length) await db().storage.from(BINGO_BUCKET).remove(paths);
-				return fail(400, { error: result.error });
-			}
-			urls.push(result.url);
-			paths.push(result.path);
+		// One generic vs_submissions row (team_id + target_id = the board node), uploaded
+		// + inserted by the shared framework — it then shows in /admin/submissions.
+		const result = await createSubmission({
+			eventId: event.id,
+			userId: locals.user.id,
+			teamId,
+			targetId: tileId,
+			targetLabel: getDuoTileName(tileId) ?? tileId,
+			quantity,
+			test: isTest,
+			files
+		});
+		if (!result.ok) return fail(400, { error: result.error });
+
+		return { ok: true, action: 'submit' as const, tile_id: tileId };
+	},
+
+	// TEST TOOL (admin-only): insta-complete the team's current active tile by inserting
+	// an already-approved TEST submission covering whatever's left of its required total.
+	// Lets an admin blast through the progression while testing; the rows are test-flagged
+	// (hidden from the live queue, wiped by db/scripts/reset_duo_board.sql).
+	testComplete: async ({ params, locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		requireDuoWolf(params.slug);
+		if (!isAdmin(locals.user)) return fail(403, { error: 'Admins only (test tool).' });
+
+		const event = await fetchEvent(params.slug);
+		if (!event) return fail(404, { error: 'Event not found' });
+
+		const teamId = await getMyTeamId(event.id, locals.user.id);
+		if (!teamId) return fail(400, { error: 'Join the event and pair up with a teammate first.' });
+
+		const form = await request.formData();
+		const tileId = form.get('tile_id')?.toString() ?? '';
+		if (!DUO_TILE_IDS.has(tileId)) return fail(400, { error: 'Unknown tile' });
+
+		// Only the team's current active tile, so progression stays valid (choose a path
+		// first for section tiles).
+		const prog = await fetchTeamProgress(event.id, teamId);
+		if (prog.nodeState[tileId] !== 'active') {
+			return fail(400, { error: "That tile isn't active for your team right now." });
 		}
 
-		const { error: insErr } = await db().from('vs_team_completions').insert({
+		// Cover exactly what's left to finish the tile.
+		const required = getDuoTileRequired(tileId);
+		const approved = prog.nodeProgress[tileId]?.approved ?? 0;
+		const remaining = Math.max(1, required - approved);
+
+		const { error: insErr } = await db().from('vs_submissions').insert({
 			event_id: event.id,
 			team_id: teamId,
 			user_id: locals.user.id,
-			tile_id: tileId,
-			proof_urls: urls,
-			proof_paths: paths,
-			proof_url: urls[0],
-			proof_path: paths[0]
+			target_id: tileId,
+			target_label: getDuoTileName(tileId) ?? tileId,
+			quantity: remaining,
+			test: true,
+			status: 'approved',
+			reviewed_by: locals.user.id,
+			reviewed_at: new Date().toISOString(),
+			review_note: 'Test insta-complete',
+			proof_urls: [],
+			proof_paths: []
 		});
-		if (insErr) {
-			await db().storage.from(BINGO_BUCKET).remove(paths);
-			return fail(500, { error: insErr.message });
-		}
+		if (insErr) return fail(500, { error: insErr.message });
 
-		return { ok: true, action: 'submit' as const, tile_id: tileId };
+		return { ok: true, action: 'testComplete' as const, tile_id: tileId };
 	},
 
 	remove: async ({ params, locals, request }) => {
@@ -479,7 +514,7 @@ export const actions: Actions = {
 
 		// Any teammate may remove their team's submission.
 		const { data: existing } = await db()
-			.from('vs_team_completions')
+			.from('vs_submissions')
 			.select('id, proof_paths')
 			.eq('id', submissionId)
 			.eq('event_id', event.id)
@@ -488,7 +523,7 @@ export const actions: Actions = {
 		if (!existing) return fail(404, { error: 'Submission not found' });
 
 		const { error: delErr } = await db()
-			.from('vs_team_completions')
+			.from('vs_submissions')
 			.delete()
 			.eq('id', existing.id);
 		if (delErr) return fail(500, { error: delErr.message });
@@ -515,7 +550,7 @@ export const actions: Actions = {
 		if (!submissionId) return fail(400, { error: 'Missing submission_id' });
 
 		const { error: upErr } = await db()
-			.from('vs_team_completions')
+			.from('vs_submissions')
 			.update({
 				status: 'rejected',
 				reviewed_at: new Date().toISOString(),

@@ -16,8 +16,12 @@ export const DUO_WOLF_EVENT_SLUG = 'duo-wolf';
 export interface DuoTileContent {
 	name: string;
 	img: string;
-	required: number;
+	required: number; // for bosses, this is the HP pool (damage = approved submission quantity)
 	faq: string;
+	// Boss-only: a special drop that INSTANTLY clears the boss regardless of HP (a full-HP
+	// hit). The string is the player/admin-facing label (e.g. "Mutagen or Pet"). When set,
+	// the boss room shows an "Auto-clear" option. Floors 1 & 2 bosses have one; floor 3 doesn't.
+	autoClear?: string;
 }
 
 interface DuoFloorContent {
@@ -90,7 +94,7 @@ const FLOORS_CONTENT: DuoFloorContent[] = [
 				],
 			],
 		],
-		boss: { name: "Zulrah", img: "https://oldschool.runescape.wiki/images/thumb/Zulrah_%28tanzanite%29.png/249px-Zulrah_%28tanzanite%29.png?fd984", required: 1, faq: "Any 3 Uniques of the following:\nJar, Magic Fang, Serp Fang, Tanzanite Fang & Uncut Onyx.\n\nMutagen or Pet is insta clear of tile." }
+		boss: { name: "Zulrah", img: "https://oldschool.runescape.wiki/images/thumb/Zulrah_%28tanzanite%29.png/249px-Zulrah_%28tanzanite%29.png?fd984", required: 3, autoClear: "Mutagen or Pet", faq: "Any 3 Uniques of the following:\nJar, Magic Fang, Serp Fang, Tanzanite Fang & Uncut Onyx.\n\nMutagen or Pet is insta clear of tile." }
 	},
 	{
 		start: { name: "25 Mahogany Homes Contracts", img: "https://oldschool.runescape.wiki/images/thumb/Mahogany_Homes_logo.png/280px-Mahogany_Homes_logo.png?79681", required: 25, faq: "25 Mahogany Homes contracts. Pre-pic and post-pic of number done required" },
@@ -154,7 +158,7 @@ const FLOORS_CONTENT: DuoFloorContent[] = [
 				],
 			],
 		],
-		boss: { name: "God Wars", img: "https://oldschool.runescape.wiki/images/thumb/God_Wars_Dungeon_Entrance.png/300px-God_Wars_Dungeon_Entrance.png?8b0f5", required: 1, faq: "Any 6 Uniques from God Wars Bosses.\nGod sword shards does not Count.\nAny drop from a minion will autocomplete the tile. (F.x. Bandos tassets from a minion)." }
+		boss: { name: "God Wars", img: "https://oldschool.runescape.wiki/images/thumb/God_Wars_Dungeon_Entrance.png/300px-God_Wars_Dungeon_Entrance.png?8b0f5", required: 6, autoClear: "Any item from a minion", faq: "Any 6 Uniques from God Wars Bosses.\nGod sword shards does not Count.\nAny drop from a minion will autocomplete the tile. (F.x. Bandos tassets from a minion)." }
 	},
 	{
 		start: { name: "Any Raids Purple", img: "https://oldschool.runescape.wiki/images/thumb/Monumental_chest_%28teammate%27s%2C_closed%29.png/280px-Monumental_chest_%28teammate%27s%2C_closed%29.png?86e6f", required: 1, faq: "Any Raids Purple. Pic must be taken inside raid.\nAlt-scaling Cox is not allowed (2+13s etc)." },
@@ -203,7 +207,7 @@ const FLOORS_CONTENT: DuoFloorContent[] = [
 				],
 			],
 		],
-		boss: { name: "Desert Treasure 2", img: "https://oldschool.runescape.wiki/images/thumb/The_Whisperer.png/120px-The_Whisperer.png?aedab", required: 1, faq: "Any 2 drops of either:\nFull Ring (gold ring 1, gold ring 2 & Vestige)\nAny SRA piece\nAny Virtus\n\nMeaning:\n1 Full Ring + 1 SRA piece will clear this tile\nor\n1 SRA piece + 1 Virtus\nor 2 Virtus pieces." }
+		boss: { name: "Desert Treasure 2", img: "https://oldschool.runescape.wiki/images/thumb/The_Whisperer.png/120px-The_Whisperer.png?aedab", required: 2, faq: "Any 2 drops of either:\nFull Ring (gold ring 1, gold ring 2 & Vestige)\nAny SRA piece\nAny Virtus\n\nMeaning:\n1 Full Ring + 1 SRA piece will clear this tile\nor\n1 SRA piece + 1 Virtus\nor 2 Virtus pieces." }
 	}
 ];
 
@@ -253,4 +257,10 @@ export function getDuoTileImg(id: string): string | null {
 
 export function getDuoTileRequired(id: string): number {
 	return DUO_TILES.get(id)?.required ?? 1;
+}
+
+// Boss-only auto-clear label (a full-HP instant clear, e.g. "Mutagen or Pet"); null if
+// the tile has none (all non-bosses + floor-3 boss).
+export function getDuoTileAutoClear(id: string): string | null {
+	return DUO_TILES.get(id)?.autoClear ?? null;
 }

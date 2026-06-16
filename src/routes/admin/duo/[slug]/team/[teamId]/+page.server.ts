@@ -16,9 +16,11 @@ import type { Actions, PageServerLoad } from './$types';
 
 type SubmissionStatus = 'pending' | 'approved' | 'rejected';
 
+// DuoWolf submissions are generic vs_submissions rows (team_id + target_id = board node).
 interface SubRow {
 	id: string;
-	tile_id: string;
+	target_id: string;
+	quantity: number | null;
 	proof_urls: string[] | null;
 	submitted_at: string;
 	status: SubmissionStatus;
@@ -75,9 +77,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	);
 
 	const { data: subsRaw, error: sErr } = await db()
-		.from('vs_team_completions')
+		.from('vs_submissions')
 		.select(
-			'id, tile_id, proof_urls, submitted_at, status, submitter:vs_users!user_id(rsn, discord_username), reviewer:vs_users!reviewed_by(rsn, discord_username)'
+			'id, target_id, quantity, proof_urls, submitted_at, status, submitter:vs_users!user_id(rsn, discord_username), reviewer:vs_users!reviewed_by(rsn, discord_username)'
 		)
 		.eq('event_id', event.id)
 		.eq('team_id', team.id)
@@ -110,6 +112,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		submissions: Array<{
 			id: string;
 			proof_urls: string[];
+			quantity: number;
 			submitted_at: string;
 			status: SubmissionStatus;
 			submitted_by: string;
@@ -122,35 +125,38 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const pendingByTile: Record<string, number> = {};
 
 	for (const s of subs) {
-		if (!DUO_TILE_IDS.has(s.tile_id)) continue;
-		let g = groupsMap.get(s.tile_id);
+		if (!DUO_TILE_IDS.has(s.target_id)) continue;
+		let g = groupsMap.get(s.target_id);
 		if (!g) {
 			g = {
-				tile_id: s.tile_id,
-				tile_name: getDuoTileName(s.tile_id) ?? s.tile_id,
-				tile_img: getDuoTileImg(s.tile_id),
-				faq_html: faqToHtml(getDuoTileFaq(s.tile_id)),
-				required: getDuoTileRequired(s.tile_id),
-				order: orderByTile.get(s.tile_id) ?? 999,
+				tile_id: s.target_id,
+				tile_name: getDuoTileName(s.target_id) ?? s.target_id,
+				tile_img: getDuoTileImg(s.target_id),
+				faq_html: faqToHtml(getDuoTileFaq(s.target_id)),
+				required: getDuoTileRequired(s.target_id),
+				order: orderByTile.get(s.target_id) ?? 999,
 				status: 'rejected',
 				approved: 0,
 				submissions: []
 			};
-			groupsMap.set(s.tile_id, g);
+			groupsMap.set(s.target_id, g);
 		}
+		const qty = Math.max(1, Number(s.quantity) || 1);
 		g.submissions.push({
 			id: s.id,
 			proof_urls: s.proof_urls ?? [],
+			quantity: qty,
 			submitted_at: s.submitted_at,
 			status: s.status,
 			submitted_by: s.submitter ? (s.submitter.rsn ?? s.submitter.discord_username) : 'unknown',
 			reviewed_by_name: s.reviewer ? (s.reviewer.rsn ?? s.reviewer.discord_username) : null
 		});
+		// Sum quantities (one proof can cover several) — drives the tile's done/required status.
 		if (s.status === 'approved') {
-			g.approved += 1;
-			approvedByTile[s.tile_id] = (approvedByTile[s.tile_id] ?? 0) + 1;
+			g.approved += qty;
+			approvedByTile[s.target_id] = (approvedByTile[s.target_id] ?? 0) + qty;
 		} else if (s.status === 'pending') {
-			pendingByTile[s.tile_id] = (pendingByTile[s.tile_id] ?? 0) + 1;
+			pendingByTile[s.target_id] = (pendingByTile[s.target_id] ?? 0) + qty;
 		}
 	}
 
@@ -204,7 +210,7 @@ async function setSubmissionStatus(
 	if (!submissionId) return fail(400, { error: 'Missing submission_id' });
 
 	const { error: upErr } = await db()
-		.from('vs_team_completions')
+		.from('vs_submissions')
 		.update({
 			status: newStatus,
 			reviewed_at: new Date().toISOString(),

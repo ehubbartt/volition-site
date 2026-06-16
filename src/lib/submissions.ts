@@ -32,6 +32,7 @@ export interface ReviewItem {
 	proofUrls: string[];
 	submittedAt: string; // earliest submission in the group
 	count: number; // number of proof rows in the group
+	quantity: number; // summed claimed quantity (count-based tiles; = count for others)
 }
 
 // One already-reviewed submission group, for the read-only history view. Same shape

@@ -2,6 +2,7 @@
 	import type { PageData } from './$types';
 	import BoardMap from '$lib/board/BoardMap.svelte';
 	import BoardSubmitModal from '$lib/board/BoardSubmitModal.svelte';
+	import BoardBossModal from '$lib/board/BoardBossModal.svelte';
 	import BoardChoosePathModal from '$lib/board/BoardChoosePathModal.svelte';
 	import Lightbox from '$lib/Lightbox.svelte';
 	import { getBoardTopology } from '$lib/board/topology';
@@ -14,12 +15,24 @@
 	const contentVisible = $derived(Object.keys(data.content).length > 0);
 	const lockedFloors = $derived(contentVisible ? [] : [2, 3]);
 
+	// Admin-only view toggle (server-side preview): flips ?view=player so the load returns
+	// the real player payload — the full board SKELETON with names/images blocked to "?"
+	// for tiles the team hasn't revealed yet — and back to the full admin board.
+	const toggleHref = $derived(
+		data.previewAsPlayer
+			? `/events/${data.event.slug}/board`
+			: `/events/${data.event.slug}/board?view=player`
+	);
+
 	let openNodeId = $state<string | null>(null);
+	// Boss tiles open the dedicated "boss room" (HP bar + deal-damage) instead of the
+	// standard submit modal.
+	const openIsBoss = $derived(openNodeId ? parseDuoNodeId(openNodeId)?.kind === 'boss' : false);
 	const openTile = $derived.by(() => {
 		if (!openNodeId) return null;
 		const c = data.content[openNodeId];
 		if (!c) return null;
-		return { id: openNodeId, name: c.name, img: c.img, faq_html: c.faq_html };
+		return { id: openNodeId, name: c.name, img: c.img, faq_html: c.faq_html, autoClear: c.autoClear ?? null };
 	});
 
 	let openChoose = $state<{ floor: number; section: DuoSection } | null>(null);
@@ -69,6 +82,11 @@
 	<div class="hero-head">
 		<h1>{data.event.name} · Board</h1>
 		<span class="badge {data.event.status}">{data.event.status}</span>
+		{#if data.canToggleView}
+			<a class="view-toggle" class:previewing={data.previewAsPlayer} href={toggleHref} data-sveltekit-noscroll>
+				{data.previewAsPlayer ? '👁 Previewing as player — back to admin view' : '🧪 Preview as player'}
+			</a>
+		{/if}
 	</div>
 	{#if contentVisible}
 		<p class="muted teaser">
@@ -97,7 +115,21 @@
 	{onNodeClick}
 />
 
-{#if openTile}
+{#if openTile && openIsBoss}
+	<BoardBossModal
+		tile={openTile}
+		status={data.status}
+		teamSubmissions={data.teamSubmissionsByTile[openTile.id] ?? []}
+		community={data.completionsByTile[openTile.id] ?? []}
+		communityCount={data.completionCountByTile[openTile.id] ?? 0}
+		canSubmit={data.isClanMember && data.hasTeam && data.nodeState[openTile.id] === 'active'}
+		isAdmin={data.adminView}
+		testMode={data.previewAsPlayer}
+		progress={data.nodeProgress[openTile.id] ?? null}
+		onZoom={(url) => (lightboxSrc = url)}
+		onclose={closeModal}
+	/>
+{:else if openTile}
 	<BoardSubmitModal
 		tile={openTile}
 		status={data.status}
@@ -105,7 +137,8 @@
 		community={data.completionsByTile[openTile.id] ?? []}
 		communityCount={data.completionCountByTile[openTile.id] ?? 0}
 		canSubmit={data.isClanMember && data.hasTeam && data.nodeState[openTile.id] === 'active'}
-		isAdmin={data.isAdmin}
+		isAdmin={data.adminView}
+		testMode={data.previewAsPlayer}
 		progress={data.nodeProgress[openTile.id] ?? null}
 		onZoom={(url) => (lightboxSrc = url)}
 		onclose={closeModal}
@@ -186,5 +219,27 @@
 		background: var(--accent-soft);
 		border-color: var(--accent);
 		color: var(--accent);
+	}
+
+	.view-toggle {
+		margin-left: auto;
+		display: inline-block;
+		padding: 0.3rem 0.7rem;
+		font-size: 0.85rem;
+		border: 1px dashed var(--accent);
+		border-radius: 4px;
+		color: var(--accent);
+		text-decoration: none;
+		white-space: nowrap;
+	}
+
+	.view-toggle:hover {
+		background: var(--accent-soft);
+		text-decoration: none;
+	}
+
+	.view-toggle.previewing {
+		border-style: solid;
+		background: var(--accent-soft);
 	}
 </style>

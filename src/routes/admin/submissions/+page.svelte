@@ -105,13 +105,24 @@
 <EventsTasksTabs />
 
 <nav class="view-tabs">
-	<a href="?view=pending" class="view-tab" class:active={data.view === 'pending'}>
+	<a href="?view=pending{data.test ? '&test=1' : ''}" class="view-tab" class:active={data.view === 'pending'}>
 		Pending queue ({data.stats.pending})
 	</a>
-	<a href="?view=reviewed" class="view-tab" class:active={data.view === 'reviewed'}>
+	<a href="?view=reviewed{data.test ? '&test=1' : ''}" class="view-tab" class:active={data.view === 'reviewed'}>
 		Reviewed history
 	</a>
 </nav>
+
+<nav class="live-test">
+	<a href="?view={data.view}" class="lt-tab" class:active={!data.test}>Live</a>
+	<a href="?view={data.view}&test=1" class="lt-tab test" class:active={data.test}>🧪 Test</a>
+</nav>
+{#if data.test}
+	<p class="test-banner">
+		Showing <strong>test submissions</strong> only (admin preview runs). These are hidden from the
+		live queue. <a href="?view={data.view}">Switch to live →</a>
+	</p>
+{/if}
 
 <section class="hero">
 	<p class="muted">
@@ -314,7 +325,14 @@
 				<span class="src-pill">{SOURCE_LABEL[current.source] ?? current.source}</span>
 				<span class="event-name muted">{current.event.name}</span>
 			</div>
-			<h2 class="task-name">{current.task.label}</h2>
+			<h2 class="task-name">
+				{current.task.label}
+				{#if current.quantity > current.count}
+					<span class="claim-badge" title="The submitter says this proof covers this many of the tile's required total">
+						claims {current.quantity}
+					</span>
+				{/if}
+			</h2>
 			{#if current.task.detail_html}
 				<div class="details">
 					<h3>How to complete</h3>
@@ -501,6 +519,47 @@
 		color: var(--accent);
 	}
 
+	.live-test {
+		display: flex;
+		gap: 0.3rem;
+		margin: 0 0 1rem;
+	}
+
+	.lt-tab {
+		padding: 0.25rem 0.7rem;
+		font-size: 0.78rem;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		background: var(--surface-alt);
+		color: var(--muted);
+		text-decoration: none;
+	}
+
+	.lt-tab:hover {
+		border-color: var(--accent);
+		color: var(--text);
+	}
+
+	.lt-tab.active {
+		background: var(--accent-soft);
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+
+	.test-banner {
+		margin: 0 0 1rem;
+		padding: 0.5rem 0.8rem;
+		font-size: 0.85rem;
+		background: rgba(255, 152, 31, 0.12);
+		border: 1px dashed var(--accent);
+		border-radius: var(--radius);
+		color: var(--accent);
+	}
+
+	.test-banner a {
+		color: var(--accent);
+	}
+
 	.hero {
 		margin-bottom: 1.25rem;
 	}
@@ -681,6 +740,21 @@
 		margin: 0;
 		font-size: 1.2rem;
 		color: var(--accent);
+	}
+
+	.claim-badge {
+		display: inline-block;
+		margin-left: 0.4rem;
+		vertical-align: middle;
+		font-family: var(--font-body);
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		background: rgba(255, 152, 31, 0.18);
+		border: 1px solid var(--accent);
+		color: var(--accent);
+		padding: 0.05rem 0.45rem;
+		border-radius: 3px;
 	}
 
 	.details {

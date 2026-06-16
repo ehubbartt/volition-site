@@ -1,4 +1,8 @@
 <script lang="ts">
+	// Boss "room": clicking a boss tile opens this combat view instead of the standard
+	// submit modal. The boss's HP pool = the tile's `required`; each approved drop deals
+	// its `quantity` as damage (same vs_submissions pipeline as every other tile — see
+	// BoardSubmitModal). When damage ≥ HP the boss is defeated and the stage clears.
 	import { enhance } from '$app/forms';
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import { MAX_IMAGES_PER_SUBMISSION } from '$lib/bingo/config';
@@ -31,7 +35,7 @@
 	}
 
 	interface Props {
-		tile: { id: string; name: string; img: string | null; faq_html: string | null };
+		tile: { id: string; name: string; img: string | null; faq_html: string | null; autoClear?: string | null };
 		status: BoardStatus;
 		teamSubmissions: TeamSubmission[];
 		community: Completion[];
@@ -60,14 +64,27 @@
 
 	const submittable = $derived(status === 'open' && canSubmit);
 
-	// Count-based tiles (required > 1) let a single proof cover several — the submitter
-	// picks how many of `required` this one covers. Defaults to whatever's still needed.
-	const required = $derived(progress?.required ?? 1);
-	const approvedSoFar = $derived(progress?.approved ?? 0);
-	const needsQty = $derived(required > 1);
-	// Defaults to 1 (one proof = one of the required); the player bumps it if a single
-	// proof legitimately covers several.
-	let claimQty = $state(1);
+	// Boss HP model (optimistic). HP pool = required. Damage counts the moment it's
+	// submitted — confirmed (approved) + pending — so the team progresses without waiting
+	// for approval. Pending damage is provisional: if an admin rejects it, the HP comes
+	// back and the boss must be finished again.
+	const maxHp = $derived(Math.max(1, progress?.required ?? 1));
+	const confirmedDmg = $derived(Math.min(maxHp, progress?.approved ?? 0));
+	const pendingDmg = $derived(Math.max(0, progress?.pending ?? 0));
+	const totalDmg = $derived(Math.min(maxHp, confirmedDmg + pendingDmg));
+	const hp = $derived(Math.max(0, maxHp - totalDmg));
+	const defeated = $derived(totalDmg >= maxHp);
+	const hpPct = $derived((hp / maxHp) * 100);
+	// The provisional (pending) slice of damage, striped just past the remaining HP.
+	const pendingPct = $derived(((totalDmg - confirmedDmg) / maxHp) * 100);
+	const lowHp = $derived(hpPct <= 30 && !defeated);
+	// Floors 1 & 2 bosses accept a special "auto-clear" drop (mutagen/pet, minion item)
+	// that instantly defeats the boss (a full-HP hit). null = no auto-clear (floor 3).
+	const autoClear = $derived(tile.autoClear ?? null);
+	let autoClearMode = $state(false);
+
+	// Each regular drop is one hit (1 damage); an auto-clear deals the boss's full HP.
+	const submitQty = $derived(autoClearMode ? maxHp : 1);
 
 	let fileInput: HTMLInputElement | null = $state(null);
 	let staged = $state<Array<{ file: File; url: string }>>([]);
@@ -75,9 +92,6 @@
 	let submitting = $state(false);
 	let error = $state<string | null>(null);
 
-	// Mirror the staged files onto the hidden <input type="file" multiple> so the
-	// form submits them all under "proof". Setting .files programmatically does
-	// not refire the change event, so this won't loop with handleSelect.
 	function syncInput() {
 		if (!fileInput) return;
 		const dt = new DataTransfer();
@@ -90,7 +104,7 @@
 		for (const f of Array.from(files)) {
 			if (!f.type.startsWith('image/')) continue;
 			if (staged.length >= MAX_IMAGES_PER_SUBMISSION) {
-				error = `You can attach up to ${MAX_IMAGES_PER_SUBMISSION} images per submission.`;
+				error = `You can attach up to ${MAX_IMAGES_PER_SUBMISSION} images per drop.`;
 				break;
 			}
 			staged = [...staged, { file: f, url: URL.createObjectURL(f) }];
@@ -161,73 +175,64 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="backdrop" onclick={backdropClick}>
-	<div class="modal" role="dialog" aria-labelledby="modal-title" aria-modal="true">
+	<div class="room" class:defeated role="dialog" aria-labelledby="boss-title" aria-modal="true">
 		<button type="button" class="close" aria-label="Close" onclick={onclose}>×</button>
 
-		<header class="head">
+		<header class="boss-hero">
 			{#if tile.img}
-				<img class="tile-img" src={tile.img} alt={tile.name} loading="lazy" />
+				<img class="boss-img" src={tile.img} alt={tile.name} />
 			{/if}
-			<div class="head-text">
-				<h2 id="modal-title">{tile.name}</h2>
-				{#if progress}
-					{@const have = Math.min(progress.required, progress.approved + progress.pending)}
-					{@const done = progress.approved + progress.pending >= progress.required}
-					<div class="progress-line">
-						{#if progress.approved >= progress.required}
-							<span class="prog-done">✓ Complete ({progress.approved}/{progress.required})</span>
-						{:else if done}
-							<span class="prog-submitted">✓ Done — pending approval</span>
-						{:else}
-							<span class="prog-count">{have}/{progress.required}</span>
-						{/if}
-						{#if progress.pending > 0}
-							<span class="prog-pending">{progress.pending} in review</span>
-						{/if}
-					</div>
+			<div class="boss-name-row">
+				<span class="boss-tag">Boss</span>
+				<h2 id="boss-title">{tile.name}</h2>
+			</div>
+
+			<div class="hpbar" class:low={lowHp} role="img" aria-label={`${hp} of ${maxHp} HP`}>
+				<div class="hp-fill" style="width: {hpPct}%"></div>
+				{#if pendingPct > 0}
+					<div class="hp-pending" style="left: {hpPct}%; width: {pendingPct}%"></div>
 				{/if}
+				<span class="hp-text">
+					{#if defeated}
+						{confirmedDmg >= maxHp ? 'DEFEATED' : 'DEFEATED (pending approval)'}
+					{:else}
+						{hp.toLocaleString()} / {maxHp.toLocaleString()} HP
+					{/if}
+				</span>
+			</div>
+			<div class="hp-sub">
+				<span>{confirmedDmg.toLocaleString()} damage confirmed</span>
+				{#if pendingDmg > 0}<span class="pending">· {pendingDmg.toLocaleString()} pending (counts now)</span>{/if}
 			</div>
 		</header>
 
 		{#if tile.faq_html}
 			<section class="details">
-				<h3>How to complete</h3>
+				<h3>How to defeat</h3>
 				<div class="details-body">{@html tile.faq_html}</div>
 			</section>
 		{/if}
 
 		{#if teamSubmissions.length > 0}
-			<section class="my-proof">
-				<h3>Your team's proofs ({teamSubmissions.length})</h3>
-				<ul class="mine-list">
+			<section class="hits">
+				<h3>Your team's hits ({teamSubmissions.length})</h3>
+				<ul class="hit-list">
 					{#each teamSubmissions as sub (sub.id)}
-						<li class="mine-item status-{sub.status}">
+						<li class="hit-item status-{sub.status}">
 							<div class="thumb-row">
 								{#each sub.proof_urls as url, idx (url)}
-									<button
-										type="button"
-										class="proof-link"
-										onclick={() => onZoom(url)}
-										aria-label={`View proof ${idx + 1}`}
-									>
-										<img src={url} alt={`Team submission proof ${idx + 1}`} />
+									<button type="button" class="proof-link" onclick={() => onZoom(url)} aria-label={`View drop ${idx + 1}`}>
+										<img src={url} alt={`Drop proof ${idx + 1}`} />
 									</button>
 								{/each}
 							</div>
-							<div class="mine-meta">
-								<div class="mine-meta-left">
+							<div class="hit-meta">
+								<div class="hit-meta-left">
+									<span class="dmg-pill">{sub.quantity.toLocaleString()} dmg</span>
 									<span class="status-pill status-{sub.status}">
-										{sub.status === 'pending'
-											? 'Pending review'
-											: sub.status === 'approved'
-												? 'Approved'
-												: 'Rejected'}
+										{sub.status === 'pending' ? 'In review' : sub.status === 'approved' ? 'Landed' : 'Missed'}
 									</span>
-									{#if sub.quantity > 1}<span class="qty-badge">covers {sub.quantity}</span>{/if}
 									<span class="meta">By {sub.submitted_by_name} · {fmtDate(sub.submitted_at)}</span>
-									{#if sub.status === 'approved' && sub.reviewed_by_name}
-										<span class="meta">· Accepted by {sub.reviewed_by_name}</span>
-									{/if}
 								</div>
 								{#if submittable}
 									<form
@@ -278,25 +283,20 @@
 				<input type="hidden" name="tile_id" value={tile.id} />
 				{#if testMode}
 					<input type="hidden" name="test" value="1" />
-					<p class="test-note">🧪 Test mode — this submission is hidden from the live queue (see the <strong>Test</strong> tab in admin submissions). It still counts toward your test team's progress.</p>
+					<p class="test-note">🧪 Test mode — this drop is hidden from the live queue (see the <strong>Test</strong> tab in admin submissions). It still deals damage to your test team's boss.</p>
 				{/if}
 
-				{#if needsQty}
-					<label class="qty-field">
-						<span class="qty-label">How many of the {required} does this proof cover?</span>
-						<div class="qty-row">
-							<input
-								type="number"
-								name="quantity"
-								min="1"
-								max={required}
-								bind:value={claimQty}
-							/>
-							<span class="qty-hint">{approvedSoFar}/{required} approved so far</span>
-						</div>
+				<h3 class="attack-head">⚔ Attack the boss</h3>
+
+				<!-- Single source of truth for damage dealt: full HP for an auto-clear, else
+				     the chosen amount. -->
+				<input type="hidden" name="quantity" value={submitQty} />
+
+				{#if autoClear}
+					<label class="autoclear-toggle" class:on={autoClearMode}>
+						<input type="checkbox" bind:checked={autoClearMode} />
+						<span>💥 <strong>Auto-clear</strong> — {autoClear} (instantly defeats the boss)</span>
 					</label>
-				{:else}
-					<input type="hidden" name="quantity" value="1" />
 				{/if}
 
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -319,12 +319,8 @@
 						onchange={handleSelect}
 						hidden
 					/>
-					<span class="big">
-						{staged.length > 0 ? 'Add another image' : 'Drop or paste image'}
-					</span>
-					<span class="hint">
-						click to choose · paste (Ctrl/Cmd+V) · up to {MAX_IMAGES_PER_SUBMISSION} images, 10 MB each
-					</span>
+					<span class="big">{staged.length > 0 ? 'Add another image' : 'Drop or paste your proof'}</span>
+					<span class="hint">click to choose · paste (Ctrl/Cmd+V) · up to {MAX_IMAGES_PER_SUBMISSION} images, 10 MB each</span>
 				</label>
 
 				{#if staged.length > 0}
@@ -332,14 +328,7 @@
 						{#each staged as s, i (s.url)}
 							<div class="staged-item">
 								<img src={s.url} alt={`Staged ${i + 1}`} />
-								<button
-									type="button"
-									class="staged-remove"
-									aria-label="Remove image"
-									onclick={() => removeStaged(i)}
-								>
-									×
-								</button>
+								<button type="button" class="staged-remove" aria-label="Remove image" onclick={() => removeStaged(i)}>×</button>
 							</div>
 						{/each}
 					</div>
@@ -347,14 +336,16 @@
 
 				{#if error}<p class="error">{error}</p>{/if}
 
-				<p class="optimistic-hint">Submitting advances your team right away — if an admin rejects a proof, you'll need to redo this tile.</p>
+				<p class="optimistic-hint">Your hit lands right away — if an admin rejects it, the HP comes back and you'll have to finish the boss again.</p>
 
 				<div class="actions">
-					<button type="submit" class="primary" disabled={staged.length === 0 || submitting}>
+					<button type="submit" class="attack" class:autoclear={autoClearMode} disabled={staged.length === 0 || submitting}>
 						{#if submitting}
-							Submitting…
+							Attacking…
+						{:else if autoClearMode}
+							💥 Auto-clear the boss
 						{:else}
-							Submit {staged.length > 1 ? `${staged.length} images` : 'proof'}{#if needsQty} · covers {claimQty}{/if}
+							⚔ Deal 1 damage
 						{/if}
 					</button>
 					{#if staged.length > 0}
@@ -364,13 +355,14 @@
 			</form>
 		{:else}
 			<p class="locked-msg">
-				{#if !canSubmit && status === 'open'}
-					Only teams can submit for this event. Join the event and pair up with a teammate first,
-					or ping an admin if you think this is wrong.
+				{#if defeated}
+					🏆 This boss is defeated — your team has cleared it.
+				{:else if !canSubmit && status === 'open'}
+					Only teams can attack this boss. Join the event and pair up with a teammate first.
 				{:else if status === 'past-locked'}
-					This tile is locked — the event has ended.
+					The event has ended — this boss is locked.
 				{:else}
-					This tile is not yet open.
+					This boss isn't open for your team yet.
 				{/if}
 			</p>
 		{/if}
@@ -392,25 +384,20 @@
 				}}
 			>
 				<input type="hidden" name="tile_id" value={tile.id} />
-				<button type="submit" class="test-complete">🧪 Insta-complete (test)</button>
+				<button type="submit" class="test-complete">🧪 Insta-defeat (test)</button>
 			</form>
 		{/if}
 
 		{#if community.length > 0}
-			<section class="community">
-				<h3>Submissions ({community.length})</h3>
+			<section class="raid">
+				<h3>Other teams ({community.length})</h3>
 				<ul>
 					{#each community as c (c.id)}
 						<li>
 							<div class="thumb-row">
 								{#each c.proof_urls as url, idx (url)}
-									<button
-										type="button"
-										class="proof-thumb"
-										onclick={() => onZoom(url)}
-										aria-label={`View proof ${idx + 1} by ${c.rsn ?? c.discord_username}`}
-									>
-										<img src={url} alt={`Proof ${idx + 1} by ${c.rsn ?? c.discord_username}`} />
+									<button type="button" class="proof-thumb" onclick={() => onZoom(url)} aria-label={`View drop ${idx + 1} by ${c.rsn ?? c.discord_username}`}>
+										<img src={url} alt={`Drop ${idx + 1} by ${c.rsn ?? c.discord_username}`} />
 									</button>
 								{/each}
 							</div>
@@ -419,12 +406,8 @@
 								<strong>{c.rsn ?? c.discord_username}</strong>
 								{#if c.team_name}<span class="team-tag">{c.team_name}</span>{/if}
 								{#if c.isMine}<span class="me-tag">your team</span>{/if}
-								{#if c.quantity > 1}<span class="qty-badge">covers {c.quantity}</span>{/if}
+								<span class="dmg-pill small">{c.quantity.toLocaleString()} dmg</span>
 							</div>
-							<div class="when">{fmtDate(c.submitted_at)}</div>
-							{#if c.reviewed_by_name}
-								<div class="when accepted-by">Accepted by {c.reviewed_by_name}</div>
-							{/if}
 							{#if isAdmin}
 								<form
 									method="POST"
@@ -448,10 +431,8 @@
 				</ul>
 			</section>
 		{:else if communityCount > 0}
-			<section class="community community-count-only">
-				<h3>
-					{communityCount} team submission{communityCount === 1 ? '' : 's'}
-				</h3>
+			<section class="raid raid-count-only">
+				<h3>{communityCount} drop{communityCount === 1 ? '' : 's'} from other teams</h3>
 				<p class="muted small">Individual proofs are visible to admins only.</p>
 			</section>
 		{/if}
@@ -462,7 +443,7 @@
 	.backdrop {
 		position: fixed;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.72);
+		background: rgba(0, 0, 0, 0.8);
 		z-index: 100;
 		display: flex;
 		align-items: flex-start;
@@ -471,17 +452,25 @@
 		overflow-y: auto;
 	}
 
-	.modal {
+	.room {
 		position: relative;
 		width: 100%;
-		max-width: 38rem;
-		padding: 1.5rem;
-		background: linear-gradient(180deg, rgba(58, 48, 36, 0.97), rgba(40, 32, 24, 0.97));
-		border: 1px solid var(--border);
+		max-width: 42rem;
+		padding: 0 0 1.5rem;
+		background:
+			radial-gradient(ellipse 80% 50% at 50% 0%, rgba(255, 80, 40, 0.18), transparent 70%),
+			linear-gradient(180deg, rgba(40, 24, 20, 0.98), rgba(24, 18, 16, 0.98));
+		border: 1px solid var(--accent);
 		border-radius: var(--radius);
-		box-shadow: var(--shadow-card);
+		box-shadow: 0 0 40px rgba(255, 80, 40, 0.25), var(--shadow-card);
 		color: var(--text);
 		font-family: var(--font-body);
+		overflow: hidden;
+	}
+
+	.room.defeated {
+		border-color: var(--border);
+		box-shadow: var(--shadow-card);
 	}
 
 	.close {
@@ -492,91 +481,161 @@
 		height: 32px;
 		min-height: 0;
 		padding: 0;
+		z-index: 3;
 		font-family: var(--font-heading);
-		font-size: 1.4rem;
-		background: transparent;
+		font-size: 1.5rem;
+		background: rgba(0, 0, 0, 0.4);
 		border-color: transparent;
-		color: var(--muted);
+		color: #fff;
 	}
 
 	.close:hover {
 		color: var(--accent);
-		background: transparent;
+		background: rgba(0, 0, 0, 0.6);
 	}
 
-	.head {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		margin-bottom: 1rem;
-		padding-right: 2rem;
-	}
-
-	.tile-img {
-		width: 3rem;
-		height: 3rem;
-		object-fit: contain;
-		flex-shrink: 0;
-		image-rendering: auto;
-		filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
-	}
-
-	.head-text {
+	.boss-hero {
+		position: relative;
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
-		min-width: 0;
-	}
-
-	.head h2 {
-		margin: 0;
-		font-size: 1.3rem;
-	}
-
-	.progress-line {
-		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		flex-wrap: wrap;
-		font-size: 0.8rem;
+		padding: 1.5rem 1.5rem 1rem;
+		text-align: center;
 	}
 
-	.prog-done {
-		color: var(--success);
+	.boss-img {
+		width: min(18rem, 70%);
+		max-height: 14rem;
+		object-fit: contain;
+		image-rendering: auto;
+		filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.7));
+		animation: bossFloat 4s ease-in-out infinite;
+	}
+
+	.room.defeated .boss-img {
+		filter: grayscale(1) brightness(0.5) drop-shadow(0 6px 14px rgba(0, 0, 0, 0.7));
+		animation: none;
+	}
+
+	@keyframes bossFloat {
+		0%,
+		100% {
+			transform: translateY(0);
+		}
+		50% {
+			transform: translateY(-7px);
+		}
+	}
+
+	.boss-name-row {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+	}
+
+	.boss-tag {
 		font-family: var(--font-heading);
-	}
-
-	.prog-count {
-		color: var(--yellow);
-		font-family: var(--font-heading);
-	}
-
-	.prog-submitted {
+		font-size: 0.7rem;
+		letter-spacing: 2px;
+		text-transform: uppercase;
 		color: var(--accent);
-		font-family: var(--font-heading);
-	}
-
-	.prog-pending {
-		padding: 0.02rem 0.4rem;
-		border-radius: 3px;
-		background: rgba(255, 152, 31, 0.18);
 		border: 1px solid var(--accent);
+		border-radius: 3px;
+		padding: 0.05rem 0.4rem;
+	}
+
+	.boss-name-row h2 {
+		margin: 0;
+		font-size: 1.5rem;
+	}
+
+	.hpbar {
+		position: relative;
+		width: 100%;
+		max-width: 30rem;
+		height: 1.4rem;
+		margin-top: 0.4rem;
+		background: #1a0d0a;
+		border: 1px solid #000;
+		border-radius: 4px;
+		overflow: hidden;
+		box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+	}
+
+	.hp-fill {
+		position: absolute;
+		left: 0;
+		top: 0;
+		bottom: 0;
+		background: linear-gradient(180deg, #4ade80, #16a34a);
+		transition: width 0.4s ease;
+	}
+
+	/* Low HP → the bar runs red. */
+	.hpbar.low .hp-fill {
+		background: linear-gradient(180deg, #f87171, #dc2626);
+	}
+
+	.hp-pending {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		background-image: repeating-linear-gradient(
+			45deg,
+			rgba(255, 200, 60, 0.55),
+			rgba(255, 200, 60, 0.55) 6px,
+			rgba(255, 200, 60, 0.2) 6px,
+			rgba(255, 200, 60, 0.2) 12px
+		);
+	}
+
+	.hp-text {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-family: var(--font-heading);
+		font-size: 0.85rem;
+		color: #fff;
+		text-shadow: 1px 1px 2px #000, 0 0 3px #000;
+	}
+
+	.hp-sub {
+		display: flex;
+		gap: 0.4rem;
+		font-size: 0.8rem;
+		color: var(--muted);
+	}
+
+	.hp-sub .pending {
 		color: var(--accent);
+	}
+
+	.details,
+	.hits,
+	.raid {
+		margin: 0 1.5rem 1rem;
 	}
 
 	.details {
-		margin: 1rem 0;
 		padding: 0.85rem 1rem;
 		border: 1px solid var(--border);
-		background: var(--surface-alt);
+		background: rgba(0, 0, 0, 0.25);
 		border-radius: var(--radius);
 	}
 
-	.details h3 {
+	.details h3,
+	.attack-head {
 		margin: 0 0 0.5rem;
 		font-size: 0.95rem;
 		color: var(--accent);
 		letter-spacing: 1px;
+	}
+
+	.attack-head {
+		margin: 0 1.5rem 0.5rem;
 	}
 
 	.details-body :global(p) {
@@ -587,40 +646,14 @@
 		margin-bottom: 0;
 	}
 
-	.details-body :global(ul),
-	.details-body :global(ol) {
-		margin: 0.3rem 0 0.6rem;
-		padding-left: 1.2rem;
-	}
-
-	.details-body :global(li) {
-		margin-bottom: 0.15rem;
-	}
-
-	.details-body :global(code) {
-		padding: 0.05rem 0.35rem;
-		background: rgba(0, 0, 0, 0.35);
-		border: 1px solid var(--border);
-		border-radius: 3px;
-		font-size: 0.9em;
-	}
-
 	.details-body :global(a) {
 		color: var(--accent);
 	}
 
-	.my-proof {
-		margin: 1rem 0;
-		padding: 0.85rem;
-		border: 1px solid var(--success);
-		background: var(--success-bg);
-		border-radius: var(--radius);
-	}
-
-	.my-proof h3 {
-		margin: 0 0 0.5rem;
+	.hits h3,
+	.raid h3 {
+		margin: 0 0 0.6rem;
 		font-size: 0.95rem;
-		color: var(--success);
 	}
 
 	.thumb-row {
@@ -643,8 +676,8 @@
 
 	.thumb-row img {
 		display: block;
-		width: 6rem;
-		height: 6rem;
+		width: 5.5rem;
+		height: 5.5rem;
 		object-fit: cover;
 		border-radius: 3px;
 		border: 1px solid var(--border);
@@ -656,12 +689,7 @@
 		outline: 1px solid var(--accent);
 	}
 
-	.my-proof .meta {
-		color: var(--muted);
-		font-size: 0.8rem;
-	}
-
-	.mine-list {
+	.hit-list {
 		list-style: none;
 		padding: 0;
 		margin: 0;
@@ -670,13 +698,13 @@
 		gap: 0.6rem;
 	}
 
-	.mine-list li {
+	.hit-list li {
 		display: flex;
 		flex-direction: column;
 		gap: 0.35rem;
 	}
 
-	.mine-meta {
+	.hit-meta {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -684,11 +712,30 @@
 		flex-wrap: wrap;
 	}
 
-	.mine-meta-left {
+	.hit-meta-left {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
 		flex-wrap: wrap;
+	}
+
+	.meta {
+		color: var(--muted);
+		font-size: 0.8rem;
+	}
+
+	.dmg-pill {
+		font-family: var(--font-heading);
+		font-size: 0.72rem;
+		background: rgba(255, 152, 31, 0.18);
+		border: 1px solid var(--accent);
+		color: var(--accent);
+		padding: 0.05rem 0.45rem;
+		border-radius: 3px;
+	}
+
+	.dmg-pill.small {
+		font-size: 0.65rem;
 	}
 
 	.status-pill {
@@ -700,7 +747,6 @@
 		text-transform: uppercase;
 		border-radius: 3px;
 		border: 1px solid transparent;
-		text-shadow: none;
 	}
 
 	.status-pill.status-pending {
@@ -721,15 +767,49 @@
 		color: var(--danger);
 	}
 
-	.mine-item.status-rejected .proof-link img {
+	.hit-item.status-rejected .proof-link img {
 		opacity: 0.55;
 		filter: saturate(0.5);
 	}
 
-	button.danger.small {
-		font-size: 0.78rem;
-		padding: 0.25rem 0.55rem;
-		min-height: 0;
+	form {
+		margin: 0 1.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+	}
+
+	.test-note {
+		margin: 0;
+		padding: 0.5rem 0.7rem;
+		font-size: 0.8rem;
+		background: rgba(255, 152, 31, 0.12);
+		border: 1px dashed var(--accent);
+		border-radius: var(--radius);
+		color: var(--accent);
+	}
+
+	.autoclear-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.55rem 0.75rem;
+		background: rgba(180, 100, 255, 0.1);
+		border: 1px solid rgba(180, 100, 255, 0.45);
+		border-radius: var(--radius);
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+
+	.autoclear-toggle.on {
+		background: rgba(180, 100, 255, 0.22);
+		border-color: #b06bff;
+	}
+
+	.autoclear-toggle input {
+		width: 1.05rem;
+		height: 1.05rem;
+		accent-color: #b06bff;
 	}
 
 	.dropzone {
@@ -738,10 +818,9 @@
 		align-items: center;
 		justify-content: center;
 		gap: 0.4rem;
-		min-height: 9rem;
+		min-height: 8rem;
 		padding: 1rem;
-		margin: 0.5rem 0 0.75rem;
-		background: var(--surface-alt);
+		background: rgba(0, 0, 0, 0.25);
 		border: 2px dashed var(--border-strong);
 		border-radius: var(--radius);
 		text-align: center;
@@ -759,7 +838,6 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.4rem;
-		margin-bottom: 0.75rem;
 	}
 
 	.staged-item {
@@ -768,8 +846,8 @@
 
 	.staged-item img {
 		display: block;
-		width: 5.5rem;
-		height: 5.5rem;
+		width: 5rem;
+		height: 5rem;
 		object-fit: cover;
 		border-radius: 3px;
 		border: 1px solid var(--border);
@@ -793,81 +871,6 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-	}
-
-	.test-note {
-		margin: 0 0 0.6rem;
-		padding: 0.5rem 0.7rem;
-		font-size: 0.8rem;
-		background: rgba(255, 152, 31, 0.12);
-		border: 1px dashed var(--accent);
-		border-radius: var(--radius);
-		color: var(--accent);
-	}
-
-	.test-complete-form {
-		margin-top: 0.75rem;
-	}
-
-	button.test-complete {
-		width: 100%;
-		font-size: 0.85rem;
-		border: 1px dashed var(--accent);
-		color: var(--accent);
-		background: rgba(255, 152, 31, 0.08);
-	}
-
-	button.test-complete:hover {
-		background: var(--accent-soft);
-	}
-
-	.qty-field {
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-		margin: 0 0 0.75rem;
-		padding: 0.6rem 0.75rem;
-		background: var(--surface-alt);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-	}
-
-	.qty-label {
-		font-size: 0.85rem;
-		color: var(--text);
-	}
-
-	.qty-row {
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-	}
-
-	.qty-row input {
-		width: 5rem;
-		padding: 0.35rem 0.5rem;
-		background: var(--surface);
-		border: 1px solid var(--border-strong);
-		border-radius: 3px;
-		color: var(--text);
-		font-family: var(--font-heading);
-		font-size: 1rem;
-	}
-
-	.qty-hint {
-		font-size: 0.78rem;
-		color: var(--muted);
-	}
-
-	.qty-badge {
-		font-size: 0.65rem;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		background: rgba(255, 152, 31, 0.18);
-		border: 1px solid var(--accent);
-		color: var(--accent);
-		padding: 0.02rem 0.38rem;
-		border-radius: 3px;
 	}
 
 	.big {
@@ -894,12 +897,27 @@
 		flex-wrap: wrap;
 	}
 
-	button.primary {
+	button.attack {
+		padding: 0.6rem 1.4rem;
+		font-family: var(--font-heading);
+		letter-spacing: 1px;
+		background: linear-gradient(180deg, rgba(255, 120, 40, 0.25), rgba(220, 60, 20, 0.25));
 		border-color: var(--accent);
+		color: var(--accent);
 	}
 
-	button.primary:hover:not(:disabled) {
-		background: var(--accent-soft);
+	button.attack:hover:not(:disabled) {
+		background: linear-gradient(180deg, rgba(255, 120, 40, 0.4), rgba(220, 60, 20, 0.4));
+	}
+
+	button.attack.autoclear {
+		background: linear-gradient(180deg, rgba(180, 100, 255, 0.28), rgba(130, 60, 220, 0.28));
+		border-color: #b06bff;
+		color: #d9bcff;
+	}
+
+	button.attack.autoclear:hover:not(:disabled) {
+		background: linear-gradient(180deg, rgba(180, 100, 255, 0.45), rgba(130, 60, 220, 0.45));
 	}
 
 	button.danger {
@@ -907,12 +925,14 @@
 		color: var(--danger);
 	}
 
-	button.danger:hover {
-		background: var(--danger-bg);
+	button.danger.small {
+		font-size: 0.78rem;
+		padding: 0.25rem 0.55rem;
+		min-height: 0;
 	}
 
 	.error {
-		margin: 0.5rem 0;
+		margin: 0;
 		padding: 0.5rem 0.7rem;
 		background: var(--danger-bg);
 		border: 1px solid var(--danger);
@@ -921,31 +941,39 @@
 		font-size: 0.85rem;
 	}
 
+	.test-complete-form {
+		margin: 0 1.5rem;
+	}
+
+	button.test-complete {
+		width: 100%;
+		font-size: 0.85rem;
+		border: 1px dashed var(--accent);
+		color: var(--accent);
+		background: rgba(255, 152, 31, 0.08);
+	}
+
+	button.test-complete:hover {
+		background: var(--accent-soft);
+	}
+
 	.locked-msg {
+		margin: 0 1.5rem;
 		padding: 0.75rem;
-		background: var(--surface-alt);
+		background: rgba(0, 0, 0, 0.25);
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
 		color: var(--muted);
+		text-align: center;
 	}
 
-	.community {
+	.raid {
 		margin-top: 1.25rem;
 		padding-top: 1rem;
 		border-top: 1px solid var(--border);
 	}
 
-	.community-count-only .muted.small {
-		margin: 0;
-		font-size: 0.8rem;
-	}
-
-	.community h3 {
-		margin: 0 0 0.6rem;
-		font-size: 0.95rem;
-	}
-
-	.community ul {
+	.raid ul {
 		list-style: none;
 		padding: 0;
 		margin: 0;
@@ -954,27 +982,17 @@
 		grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
 	}
 
-	.community li {
+	.raid li {
 		display: flex;
 		flex-direction: column;
 		gap: 0.3rem;
 		padding: 0.45rem;
-		background: var(--surface-alt);
+		background: rgba(0, 0, 0, 0.25);
 		border: 1px solid var(--border);
 		border-radius: 3px;
-		color: var(--text);
 	}
 
-	.community li form {
-		display: flex;
-		margin-top: 0.15rem;
-	}
-
-	.community li form button {
-		width: 100%;
-	}
-
-	.community .who {
+	.raid .who {
 		display: flex;
 		align-items: center;
 		gap: 0.35rem;
@@ -982,13 +1000,12 @@
 		flex-wrap: wrap;
 	}
 
-	.community .when {
-		font-size: 0.7rem;
-		color: var(--muted);
+	.raid li form {
+		margin: 0.15rem 0 0;
 	}
 
-	.community .accepted-by {
-		color: var(--success);
+	.raid li form button {
+		width: 100%;
 	}
 
 	.team-tag {
@@ -1008,5 +1025,16 @@
 		color: var(--accent);
 		padding: 0.02rem 0.32rem;
 		border-radius: 3px;
+	}
+
+	.raid-count-only .muted.small {
+		margin: 0;
+		font-size: 0.8rem;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.boss-img {
+			animation: none;
+		}
 	}
 </style>

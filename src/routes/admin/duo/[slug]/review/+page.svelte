@@ -77,7 +77,7 @@
 			<div class="tile-line">
 				<span class="tile-prog">
 					{current.approved}/{current.tile.required} approved
-					{#if current.approved + current.submissions.length >= current.tile.required}
+					{#if current.approved + current.submissions.reduce((s, x) => s + x.quantity, 0) >= current.tile.required}
 						· <span class="will-complete">approving completes this tile</span>
 					{/if}
 				</span>
@@ -107,7 +107,7 @@
 								</button>
 							{/each}
 						</div>
-						<p class="meta muted">By {sub.submitted_by} · {fmt(sub.submitted_at)}</p>
+						<p class="meta muted">By {sub.submitted_by} · {fmt(sub.submitted_at)}{#if sub.quantity > 1} · <span class="covers">covers {sub.quantity}</span>{/if}</p>
 					</li>
 				{/each}
 			</ul>

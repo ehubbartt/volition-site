@@ -71,8 +71,14 @@ export function buildStages(): Stage[] {
 	return stages;
 }
 
+// Optimistic completion: a tile counts as done from approved AND pending submissions, so
+// a team progresses the instant they submit — without waiting for admin approval. A
+// REJECTED submission stops counting (it's neither approved nor pending), so the tile
+// drops back below `required` and the team has to redo it. Approved submissions are the
+// locked-in part; pending is provisional.
 function tileComplete(id: string, inp: ProgressInput): boolean {
-	return (inp.approvedByTile[id] ?? 0) >= (inp.requiredByTile[id] ?? 1);
+	const have = (inp.approvedByTile[id] ?? 0) + (inp.pendingByTile[id] ?? 0);
+	return have >= (inp.requiredByTile[id] ?? 1);
 }
 
 function stageSharedTileId(stage: Stage): string | null {

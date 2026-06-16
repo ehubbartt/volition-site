@@ -75,6 +75,7 @@
 							</div>
 							<div class="sub-meta">
 								<span class="pill status-{s.status}">{s.status}</span>
+								{#if s.quantity > 1}<span class="pill covers">covers {s.quantity}</span>{/if}
 								<span class="muted">By {s.submitted_by} · {fmt(s.submitted_at)}</span>
 								{#if s.reviewed_by_name}<span class="muted">· by {s.reviewed_by_name}</span>{/if}
 							</div>

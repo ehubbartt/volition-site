@@ -12,10 +12,13 @@ import {
 } from '$lib/server/duoWolfTiles';
 import type { Actions, PageServerLoad } from './$types';
 
+// DuoWolf submissions are generic vs_submissions rows (team_id + target_id = board
+// node), reviewable here or in the unified /admin/submissions queue.
 interface PendingRow {
 	id: string;
 	team_id: string;
-	tile_id: string;
+	target_id: string;
+	quantity: number | null;
 	proof_urls: string[] | null;
 	submitted_at: string;
 	status: 'pending' | 'approved' | 'rejected';
@@ -51,9 +54,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	if (!event) throw error(404, 'Event not found');
 
 	const { data: pendingRaw, error: qErr } = await db()
-		.from('vs_team_completions')
+		.from('vs_submissions')
 		.select(
-			'id, team_id, tile_id, proof_urls, submitted_at, status, vs_users!user_id(rsn, discord_username), team:vs_teams!team_id(id, name)'
+			'id, team_id, target_id, quantity, proof_urls, submitted_at, status, vs_users!user_id(rsn, discord_username), team:vs_teams!team_id(id, name)'
 		)
 		.eq('event_id', event.id)
 		.eq('status', 'pending')
@@ -62,16 +65,17 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const pending = (pendingRaw ?? []) as unknown as PendingRow[];
 
-	// Approved-so-far per (team, tile) so the reviewer sees "approving makes it N/M".
+	// Approved-so-far per (team, tile) — SUM of quantities (not row count) so the reviewer
+	// sees the true "approving makes it N/M" against count-based tiles.
 	const { data: approvedRaw } = await db()
-		.from('vs_team_completions')
-		.select('team_id, tile_id')
+		.from('vs_submissions')
+		.select('team_id, target_id, quantity')
 		.eq('event_id', event.id)
 		.eq('status', 'approved');
 	const approvedCountByKey = new Map<string, number>();
-	for (const r of (approvedRaw ?? []) as { team_id: string; tile_id: string }[]) {
-		const k = `${r.team_id}|${r.tile_id}`;
-		approvedCountByKey.set(k, (approvedCountByKey.get(k) ?? 0) + 1);
+	for (const r of (approvedRaw ?? []) as { team_id: string; target_id: string; quantity: number | null }[]) {
+		const k = `${r.team_id}|${r.target_id}`;
+		approvedCountByKey.set(k, (approvedCountByKey.get(k) ?? 0) + Math.max(1, Number(r.quantity) || 1));
 	}
 
 	interface PendingGroup {
@@ -83,6 +87,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		submissions: Array<{
 			id: string;
 			proof_urls: string[];
+			quantity: number;
 			submitted_at: string;
 			submitted_by: string;
 		}>;
@@ -90,20 +95,20 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const groupsMap = new Map<string, PendingGroup>();
 	for (const row of pending) {
-		if (!DUO_TILE_IDS.has(row.tile_id)) continue;
-		const key = `${row.team_id}|${row.tile_id}`;
+		if (!DUO_TILE_IDS.has(row.target_id)) continue;
+		const key = `${row.team_id}|${row.target_id}`;
 		let group = groupsMap.get(key);
 		if (!group) {
 			group = {
 				team_id: row.team_id,
-				tile_id: row.tile_id,
+				tile_id: row.target_id,
 				team_name: row.team?.name ?? 'Unnamed team',
 				tile: {
-					id: row.tile_id,
-					name: getDuoTileName(row.tile_id) ?? row.tile_id,
-					img: getDuoTileImg(row.tile_id),
-					faq_html: faqToHtml(getDuoTileFaq(row.tile_id)),
-					required: getDuoTileRequired(row.tile_id)
+					id: row.target_id,
+					name: getDuoTileName(row.target_id) ?? row.target_id,
+					img: getDuoTileImg(row.target_id),
+					faq_html: faqToHtml(getDuoTileFaq(row.target_id)),
+					required: getDuoTileRequired(row.target_id)
 				},
 				approved: approvedCountByKey.get(key) ?? 0,
 				submissions: []
@@ -113,6 +118,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		group.submissions.push({
 			id: row.id,
 			proof_urls: row.proof_urls ?? [],
+			quantity: Math.max(1, Number(row.quantity) || 1),
 			submitted_at: row.submitted_at,
 			submitted_by: row.vs_users ? (row.vs_users.rsn ?? row.vs_users.discord_username) : 'unknown'
 		});
@@ -121,12 +127,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const groups = Array.from(groupsMap.values());
 
 	const { count: approvedCount } = await db()
-		.from('vs_team_completions')
+		.from('vs_submissions')
 		.select('id', { count: 'exact', head: true })
 		.eq('event_id', event.id)
 		.eq('status', 'approved');
 	const { count: rejectedCount } = await db()
-		.from('vs_team_completions')
+		.from('vs_submissions')
 		.select('id', { count: 'exact', head: true })
 		.eq('event_id', event.id)
 		.eq('status', 'rejected');
@@ -159,7 +165,7 @@ async function updateGroupStatus({
 	note: string | null;
 }) {
 	return db()
-		.from('vs_team_completions')
+		.from('vs_submissions')
 		.update({
 			status: newStatus,
 			reviewed_at: new Date().toISOString(),
@@ -168,7 +174,7 @@ async function updateGroupStatus({
 		})
 		.eq('event_id', eventId)
 		.eq('team_id', teamId)
-		.eq('tile_id', tileId)
+		.eq('target_id', tileId)
 		.eq('status', 'pending');
 }
 
