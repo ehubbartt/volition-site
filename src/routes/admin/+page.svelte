@@ -39,6 +39,12 @@
 			show: data.admin
 		},
 		{
+			href: '/admin/crate-sim',
+			title: 'Crate Simulator',
+			desc: 'Bulk-simulate gamba crate opens — VP/GP generated, return ratio, and drop rates.',
+			show: data.admin
+		},
+		{
 			href: '/admin/guides',
 			title: 'Guides',
 			desc: 'Admin documentation: tile event, join process, bot commands.',
