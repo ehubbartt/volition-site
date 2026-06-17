@@ -36,7 +36,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		db()
 			.from('vs_card_packs')
 			.select(
-				'id, name, description, cost_vp, cost_gp, cards_per_pack, released, weekly_free, rarity_weights, slot_weights, slot_finishes, front_path, front_url, back_path, back_url, holo_regular_path, holo_regular_url, holo_reverse_path, holo_reverse_url, created_at'
+				'id, name, description, cost_vp, cost_gp, discount_pct, cards_per_pack, released, weekly_free, rarity_weights, slot_weights, slot_finishes, front_path, front_url, back_path, back_url, holo_regular_path, holo_regular_url, holo_reverse_path, holo_reverse_url, created_at'
 			)
 			.order('created_at', { ascending: false }),
 		// Grant tab: every member with a site profile (the only grantable targets —
@@ -120,6 +120,7 @@ const packSchema = z.object({
 	name: z.string().trim().min(1, 'Name is required').max(120),
 	description: z.string().trim().max(2000).optional().nullable(),
 	cost_vp: z.coerce.number().int().min(0).max(10_000_000),
+	discount_pct: z.coerce.number().int().min(0).max(100),
 	cards_per_pack: z.coerce.number().int().min(1).max(50)
 });
 
@@ -509,6 +510,7 @@ export const actions: Actions = {
 			name: form.get('name'),
 			description: form.get('description') || null,
 			cost_vp: form.get('cost_vp') ?? '0',
+			discount_pct: form.get('discount_pct') ?? '0',
 			cards_per_pack: form.get('cards_per_pack') ?? '5'
 		});
 		if (!parsed.success) {
@@ -522,6 +524,7 @@ export const actions: Actions = {
 				description: parsed.data.description,
 				cost_vp: parsed.data.cost_vp,
 				cost_gp: parsePackGp(form),
+				discount_pct: parsed.data.discount_pct,
 				cards_per_pack: parsed.data.cards_per_pack,
 				released: form.get('released') === 'on',
 				teaser: form.get('teaser') === 'on'
@@ -560,6 +563,7 @@ export const actions: Actions = {
 			name: form.get('name'),
 			description: form.get('description') || null,
 			cost_vp: form.get('cost_vp') ?? '0',
+			discount_pct: form.get('discount_pct') ?? '0',
 			cards_per_pack: form.get('cards_per_pack') ?? '5'
 		});
 		if (!parsed.success) {
@@ -592,6 +596,7 @@ export const actions: Actions = {
 			description: parsed.data.description,
 			cost_vp: parsed.data.cost_vp,
 			cost_gp: parsePackGp(form),
+			discount_pct: parsed.data.discount_pct,
 			cards_per_pack: parsed.data.cards_per_pack,
 			slot_weights: slotWeights,
 			slot_finishes: slotFinishes,

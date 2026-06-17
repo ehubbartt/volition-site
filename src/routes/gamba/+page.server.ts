@@ -29,6 +29,7 @@ import { sendBotMessage } from '$lib/server/botBridge';
 import { postCardDrop, postCrateDrop } from '$lib/server/dropsFeed';
 import { isValidRarity, DEFAULT_RARITY, RARE_RARITIES, RARITIES, toCardLayers, hiddenCard, type Card, type CardAbility, type CardLayer, type CardRarity } from '$lib/cards/rarity';
 import { isValidFinish, type CardFinish } from '$lib/cards/finishes';
+import { discountedPrice } from '$lib/cards/packs';
 import type { Actions, PageServerLoad } from './$types';
 
 interface CardRow {
@@ -305,7 +306,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		getWalletItems(locals.user.discord_id),
 		db()
 			.from('vs_card_packs')
-			.select('id, name, description, cost_vp, cost_gp, cards_per_pack, front_url, back_url')
+			.select('id, name, description, cost_vp, cost_gp, discount_pct, cards_per_pack, front_url, back_url')
 			.eq('released', true)
 			.order('cost_vp', { ascending: true }),
 		db()
@@ -338,7 +339,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// packs that aren't in the released store list can still be shown + opened.
 		db()
 			.from('vs_user_packs')
-			.select('quantity, vs_card_packs(id, name, description, cost_vp, cost_gp, cards_per_pack, front_url, back_url)')
+			.select('quantity, vs_card_packs(id, name, description, cost_vp, cost_gp, discount_pct, cards_per_pack, front_url, back_url)')
 			.eq('user_id', locals.user.id)
 			.gt('quantity', 0)
 	]);
@@ -431,6 +432,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			description: string | null;
 			cost_vp: number;
 			cost_gp: number | null;
+			discount_pct: number | null;
 			cards_per_pack: number;
 			front_url: string | null;
 			back_url: string | null;
@@ -458,6 +460,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 				description: p.description,
 				cost_vp: p.cost_vp,
 				cost_gp: p.cost_gp ?? null,
+				discount_pct: p.discount_pct ?? 0,
 				cards_per_pack: p.cards_per_pack,
 				front_url: p.front_url,
 				back_url: p.back_url,
@@ -550,6 +553,7 @@ interface OpenablePack {
 	name: string;
 	cost_vp: number | null;
 	cost_gp: number | null;
+	discount_pct: number | null;
 	cards_per_pack: number | null;
 	rarity_weights: unknown;
 	slot_weights: unknown;
@@ -567,7 +571,8 @@ interface OpenablePack {
 async function rollGrantReveal(
 	user: SessionUser,
 	pack: OpenablePack,
-	costVp: number
+	costVp: number,
+	costGp: number = 0
 ): Promise<{ ok: true; opened: (Card & { finish: CardFinish; isNew: boolean })[]; openId: string | null } | { ok: false; error: string }> {
 	const { data: poolRows, error: poolErr } = await db()
 		.from('vs_cards')
@@ -599,6 +604,7 @@ async function rollGrantReveal(
 		packId: pack.id,
 		packName: pack.name,
 		costVp,
+		costGp,
 		cards: rolled.map((r) => ({ card_id: r.card.id, card_name: r.card.name, rarity: r.card.rarity, finish: r.finish }))
 	});
 
@@ -688,12 +694,13 @@ export const actions: Actions = {
 		// Pack must exist AND be released.
 		const { data: pack, error: pErr } = await db()
 			.from('vs_card_packs')
-			.select('id, name, cost_vp, cost_gp, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, holo_regular_url, holo_reverse_url')
+			.select('id, name, cost_vp, cost_gp, discount_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, holo_regular_url, holo_reverse_url')
 			.eq('id', packId)
 			.maybeSingle();
 		if (pErr) return fail(500, { error: pErr.message });
 		if (!pack || !pack.released) return fail(404, { error: 'That pack is not available.' });
 
+		// The discount applies to GP only — VP is always the full price.
 		const cost = pack.cost_vp ?? 0;
 
 		// Spend VP first (optimistic — only if affordable and unchanged), then roll +
@@ -737,14 +744,15 @@ export const actions: Actions = {
 
 		const { data: pack, error: pErr } = await db()
 			.from('vs_card_packs')
-			.select('id, name, cost_vp, cost_gp, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, holo_regular_url, holo_reverse_url')
+			.select('id, name, cost_vp, cost_gp, discount_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, holo_regular_url, holo_reverse_url')
 			.eq('id', packId)
 			.maybeSingle();
 		if (pErr) return fail(500, { error: pErr.message });
 		if (!pack || !pack.released) return fail(404, { error: 'That pack is not available.' });
 
-		const cost = pack.cost_gp ?? 0;
-		if (cost <= 0) return fail(400, { error: "This pack can't be bought with GP." });
+		if (!pack.cost_gp || pack.cost_gp <= 0) return fail(400, { error: "This pack can't be bought with your wallet." });
+		// The charged price is the discounted one (computed server-side, never trusted).
+		const cost = discountedPrice(pack.cost_gp, pack.discount_pct);
 
 		// Spend GP first (optimistic), then roll + grant; refund the GP if the roll fails.
 		const spend = await spendGold(locals.user.discord_id, locals.user.rsn, cost);
@@ -758,10 +766,10 @@ export const actions: Actions = {
 			return fail(400, { error: msg, goldBalance: spend.balance });
 		}
 
-		const res = await rollGrantReveal(locals.user, pack, 0);
+		const res = await rollGrantReveal(locals.user, pack, 0, cost);
 		if (!res.ok) {
 			await grantGold(locals.user.discord_id, locals.user.rsn, cost);
-			return fail(500, { error: `${res.error} — your GP was refunded.` });
+			return fail(500, { error: `${res.error} — your wallet was refunded.` });
 		}
 
 		return {
@@ -801,7 +809,7 @@ export const actions: Actions = {
 
 		const { data: pack, error: pErr } = await db()
 			.from('vs_card_packs')
-			.select('id, name, cost_vp, cost_gp, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, holo_regular_url, holo_reverse_url')
+			.select('id, name, cost_vp, cost_gp, discount_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, holo_regular_url, holo_reverse_url')
 			.eq('id', packId)
 			.maybeSingle();
 		if (pErr) return fail(500, { error: pErr.message });

@@ -2,6 +2,7 @@
 	import type { PageData } from './$types';
 	import CardsTabs from '$lib/admin/CardsTabs.svelte';
 	import { rsnToSlug } from '$lib/rsn';
+	import { formatGP } from '$lib/gp';
 
 	let { data }: { data: PageData } = $props();
 
@@ -41,6 +42,10 @@
 		<div class="stat">
 			<span class="num">{fmt(data.totals.vpSpent)}</span>
 			<span class="lbl">VP spent</span>
+		</div>
+		<div class="stat">
+			<span class="num">{formatGP(data.totals.gpSpent)}</span>
+			<span class="lbl">GP spent</span>
 		</div>
 		<div class="stat">
 			<span class="num">{fmt(data.totals.cardsPulled)}</span>
@@ -118,6 +123,7 @@
 						<th>Pack</th>
 						<th class="r">Opens</th>
 						<th class="r">VP spent</th>
+						<th class="r">GP spent</th>
 						<th class="r">Cards pulled</th>
 					</tr>
 				</thead>
@@ -127,6 +133,7 @@
 							<td>{p.name}</td>
 							<td class="r">{fmt(p.opens)}</td>
 							<td class="r">{fmt(p.vp)}</td>
+							<td class="r">{p.gp > 0 ? formatGP(p.gp) : '—'}</td>
 							<td class="r">{fmt(p.cards)}</td>
 						</tr>
 					{/each}
@@ -147,6 +154,7 @@
 							<th>Player</th>
 							<th class="r">Opened</th>
 							<th class="r">VP spent</th>
+							<th class="r">GP spent</th>
 							<th class="r">Pulled</th>
 							<th class="r">Packs held</th>
 							<th class="r">Cards owned</th>
@@ -166,6 +174,7 @@
 								</td>
 								<td class="r">{fmt(p.packsOpened)}</td>
 								<td class="r">{fmt(p.vpSpent)}</td>
+								<td class="r">{p.gpSpent > 0 ? formatGP(p.gpSpent) : '—'}</td>
 								<td class="r">{fmt(p.cardsPulled)}</td>
 								<td class="r">{fmt(p.packsOwned)}</td>
 								<td class="r">{fmt(p.cardsOwned)}</td>

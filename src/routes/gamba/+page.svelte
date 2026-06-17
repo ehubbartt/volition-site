@@ -14,7 +14,7 @@
   import { SFX_CRATE_SPIN, SFX_TICK, SFX_TOCK } from "$lib/cards/sfx";
   import { isVideoUrl } from "$lib/cards/config";
   import { prefersReducedMotion, detectWebgl } from "$lib/cards/glCapabilities";
-  import { DEFAULT_PACK_FRONT } from "$lib/cards/packs";
+  import { DEFAULT_PACK_FRONT, discountedPrice } from "$lib/cards/packs";
   import { formatGP } from "$lib/gp";
   import { rsnToSlug } from "$lib/rsn";
   import { page } from "$app/stores";
@@ -788,10 +788,12 @@
         {:else}
           <div class="pack-grid">
             {#each data.packs as pack (pack.id)}
+              {@const disc = pack.discount_pct ?? 0}
               {@const affordable = data.vp_balance >= pack.cost_vp}
               {@const owned = pack.owned ?? 0}
-              {@const gpCost = pack.cost_gp ?? 0}
-              {@const gpAffordable = gpCost > 0 && data.gold_balance >= gpCost}
+              {@const gpBase = pack.cost_gp ?? 0}
+              {@const gpCost = discountedPrice(pack.cost_gp, pack.discount_pct)}
+              {@const gpAffordable = gpBase > 0 && data.gold_balance >= gpCost}
               <article
                 class="pack"
                 class:dim={(!affordable && owned === 0) ||
@@ -816,6 +818,9 @@
                   {#if owned > 0}
                     <span class="owned-tag">{owned} in inventory</span>
                   {/if}
+                  {#if data.isAdmin && disc > 0 && gpBase > 0}
+                    <span class="disc-tag">{disc}% OFF</span>
+                  {/if}
                 </div>
                 <div class="body">
                   <strong class="name">
@@ -831,6 +836,9 @@
                     >{pack.card_count} card{pack.card_count === 1 ? "" : "s"} in
                     set</span
                   >
+                  {#if data.isAdmin && disc > 0 && gpBase > 0}
+                    <span class="was small">{disc}% off wallet · was <s>{formatGP(gpBase)}</s></span>
+                  {/if}
 
                   {#if owned > 0}
                     <!-- Player owns one+ — offer a FREE open from inventory first. -->
@@ -873,7 +881,7 @@
                     {#if !affordable}
                       <span class="warn small">Not enough VP to buy more</span>
                     {/if}
-                    {#if data.isAdmin && gpCost > 0 && pack.card_count > 0}
+                    {#if data.isAdmin && gpBase > 0 && pack.card_count > 0}
                       <form
                         method="POST"
                         action="?/openWithGp"
@@ -919,7 +927,7 @@
                       <span class="warn small">Not enough VP</span>
                     {/if}
 
-                    {#if data.isAdmin && gpCost > 0 && pack.card_count > 0}
+                    {#if data.isAdmin && gpBase > 0 && pack.card_count > 0}
                       <form
                         method="POST"
                         action="?/openWithGp"
@@ -1613,6 +1621,30 @@
     /* Plain dark drop shadow for separation — the old accent glow bled colour
        around the edges and made it read as fuzzy. */
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Discount ribbon — top-left, red so it pops as a sale. */
+  .disc-tag {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 2;
+    padding: 0.1rem 0.5rem;
+    background: #d6362f;
+    color: #fff;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-family: ui-sans-serif, system-ui, Arial, sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+
+  .was {
+    color: var(--muted);
+  }
+  .was s {
+    opacity: 0.85;
   }
 
   /* Locked "coming soon" teaser pack: art + name only, no actions. */

@@ -15,6 +15,23 @@
 	const contentVisible = $derived(Object.keys(data.content).length > 0);
 	const lockedFloors = $derived(contentVisible ? [] : [2, 3]);
 
+	// Where to auto-center on load: the team's current frontier (the active tile, or the
+	// section being chosen). Only the player/preview payload carries per-team nodeState —
+	// the full admin board has none, so it stays at the default view. BoardMap reads this
+	// once on mount and centers + zooms the floor on the centroid of those nodes.
+	const focusTarget = $derived.by(() => {
+		const states = data.nodeState;
+		const active = topology.nodes.filter((n) => states[n.id] === 'active');
+		const choosable = topology.nodes.filter((n) => states[n.id] === 'choosable');
+		const frontier = active.length ? active : choosable;
+		if (!frontier.length) return null;
+		const floor = frontier[0].floor;
+		const onFloor = frontier.filter((n) => n.floor === floor);
+		const x = onFloor.reduce((s, n) => s + n.x, 0) / onFloor.length;
+		const y = onFloor.reduce((s, n) => s + n.y, 0) / onFloor.length;
+		return { floor, x, y };
+	});
+
 	// Admin-only view toggle (server-side preview): flips ?view=player so the load returns
 	// the real player payload — the full board SKELETON with names/images blocked to "?"
 	// for tiles the team hasn't revealed yet — and back to the full admin board.
@@ -33,6 +50,28 @@
 		const c = data.content[openNodeId];
 		if (!c) return null;
 		return { id: openNodeId, name: c.name, img: c.img, faq_html: c.faq_html, autoClear: c.autoClear ?? null };
+	});
+
+	// Swap options for the open tile: the same-step tiles on adjacent paths. Only offered
+	// when this is the team's active, not-yet-started path tile that hasn't been swapped and
+	// the team still has swaps. Empty ⇒ the modal hides the swap UI.
+	const swapOptions = $derived.by(() => {
+		const id = openNodeId;
+		if (!id || (data.swapsAvailable ?? 0) <= 0) return [];
+		const ref = parseDuoNodeId(id);
+		if (!ref || ref.kind !== 'path' || ref.section == null || ref.lane == null || ref.step == null) return [];
+		if (data.nodeState[id] !== 'active') return [];
+		const prog = data.nodeProgress[id];
+		if (prog && prog.approved + prog.pending > 0) return [];
+		if (data.swaps.some((s) => s.floor === ref.floor && s.section === ref.section && s.step === ref.step))
+			return [];
+		const opts: { to_lane: number; name: string; img: string | null }[] = [];
+		for (const to of [ref.lane - 1, ref.lane + 1]) {
+			if (to < 0 || to >= laneCountForFloor(ref.floor)) continue;
+			const c = data.content[duoPathId(ref.floor, ref.section, to, ref.step)];
+			if (c) opts.push({ to_lane: to, name: c.name, img: c.img });
+		}
+		return opts;
 	});
 
 	let openChoose = $state<{ floor: number; section: DuoSection } | null>(null);
@@ -82,6 +121,14 @@
 	<div class="hero-head">
 		<h1>{data.event.name} · Board</h1>
 		<span class="badge {data.event.status}">{data.event.status}</span>
+		{#if !data.adminView && data.hasTeam}
+			<span
+				class="swaps-badge"
+				title={`${data.swapsBase}/${data.swapsPerFloor} base swaps this floor${data.swapsBonus ? ` · ${data.swapsBonus} bonus` : ''} · resets after each floor boss`}
+			>
+				🔀 {data.swapsAvailable} swap{data.swapsAvailable === 1 ? '' : 's'}
+			</span>
+		{/if}
 		{#if data.canToggleView}
 			<a class="view-toggle" class:previewing={data.previewAsPlayer} href={toggleHref} data-sveltekit-noscroll>
 				{data.previewAsPlayer ? '👁 Previewing as player — back to admin view' : '🧪 Preview as player'}
@@ -112,6 +159,7 @@
 	content={data.content}
 	nodeState={data.nodeState}
 	nodeProgress={data.nodeProgress}
+	focus={focusTarget}
 	{onNodeClick}
 />
 
@@ -140,6 +188,8 @@
 		isAdmin={data.adminView}
 		testMode={data.previewAsPlayer}
 		progress={data.nodeProgress[openTile.id] ?? null}
+		swapsAvailable={data.swapsAvailable}
+		swapOptions={swapOptions}
 		onZoom={(url) => (lightboxSrc = url)}
 		onclose={closeModal}
 	/>
@@ -219,6 +269,19 @@
 		background: var(--accent-soft);
 		border-color: var(--accent);
 		color: var(--accent);
+	}
+
+	.swaps-badge {
+		display: inline-block;
+		padding: 0.1rem 0.55rem;
+		font-size: 0.8rem;
+		font-family: var(--font-heading);
+		letter-spacing: 0.5px;
+		border-radius: 3px;
+		background: rgba(240, 210, 60, 0.12);
+		border: 1px solid var(--yellow);
+		color: var(--yellow);
+		cursor: help;
 	}
 
 	.view-toggle {

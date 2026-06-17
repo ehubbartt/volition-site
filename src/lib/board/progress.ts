@@ -38,6 +38,9 @@ export interface ProgressInput {
 	pendingByTile: Record<string, number>;
 	requiredByTile: Record<string, number>;
 	choiceByFloorSection: Record<string, number>; // `${floor}:${section}` -> chosen lane
+	// SWAPS: `${floor}:${section}:${step}` -> the adjacent lane swapped IN at that position.
+	// When set, the team plays that lane's tile for the step instead of their chosen lane's.
+	swapByPositionKey?: Record<string, number>;
 }
 
 export interface ProgressResult {
@@ -51,6 +54,22 @@ export interface ProgressResult {
 
 export function fsKey(floor: number, section: DuoSection): string {
 	return `${floor}:${section}`;
+}
+
+export function swapPosKey(floor: number, section: DuoSection, step: number): string {
+	return `${floor}:${section}:${step}`;
+}
+
+// The lane a team actually plays for a path position: the swapped-in lane if a swap was
+// used at this (floor, section, step), else the lane they chose for the section.
+function effectiveLane(
+	inp: ProgressInput,
+	floor: number,
+	section: DuoSection,
+	step: number,
+	chosenLane: number
+): number {
+	return inp.swapByPositionKey?.[swapPosKey(floor, section, step)] ?? chosenLane;
 }
 
 // Ordered stages: per floor → start, A, mid-A, B, mid-B, C, boss.
@@ -90,9 +109,10 @@ function stageSharedTileId(stage: Stage): string | null {
 
 export function isStageComplete(stage: Stage, inp: ProgressInput): boolean {
 	if (stage.kind === 'section') {
-		const lane = inp.choiceByFloorSection[fsKey(stage.floor, stage.section!)];
-		if (lane === undefined) return false; // a section needs an explicit path choice
+		const chosen = inp.choiceByFloorSection[fsKey(stage.floor, stage.section!)];
+		if (chosen === undefined) return false; // a section needs an explicit path choice
 		for (let step = 0; step < DUO_SECTION_ROWS; step++) {
+			const lane = effectiveLane(inp, stage.floor, stage.section!, step, chosen);
 			if (!tileComplete(duoPathId(stage.floor, stage.section!, lane, step), inp)) return false;
 		}
 		return true;
@@ -134,15 +154,21 @@ export function computeProgress(inp: ProgressInput): ProgressResult {
 
 		let state: NodeState;
 		if (ref.kind === 'path') {
-			const lane = inp.choiceByFloorSection[fsKey(ref.floor, ref.section!)];
+			const chosen = inp.choiceByFloorSection[fsKey(ref.floor, ref.section!)];
+			// The lane actually played at this step (swapped-in lane if swapped, else chosen).
+			const eff =
+				chosen === undefined
+					? undefined
+					: effectiveLane(inp, ref.floor, ref.section!, ref.step!, chosen);
 			if (si < currentStageIndex) {
-				// Past section: only the chosen lane stays visible (completed).
-				state = lane === ref.lane ? 'complete' : 'locked';
+				// Past section: only the tiles actually taken (chosen lane, or a swapped-in lane
+				// for swapped steps) stay visible as completed.
+				state = eff !== undefined && ref.lane === eff ? 'complete' : 'locked';
 			} else if (si === currentStageIndex) {
-				if (lane === undefined)
+				if (chosen === undefined)
 					state = 'choosable'; // all lanes shown so the team can compare + pick
-				else if (lane === ref.lane) state = tileComplete(ref.id, inp) ? 'complete' : 'active';
-				else state = 'dimmed'; // the paths they didn't pick (already seen) — greyed
+				else if (ref.lane === eff) state = tileComplete(ref.id, inp) ? 'complete' : 'active';
+				else state = 'dimmed'; // unchosen / swapped-away paths (still visible) — greyed
 			} else {
 				state = 'locked';
 			}

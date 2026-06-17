@@ -43,17 +43,17 @@ const FLOORS_CONTENT: DuoFloorContent[] = [
 			[
 				[
 					{ name: "1 x Black Mask", img: "https://oldschool.runescape.wiki/images/thumb/Black_mask_detail.png/130px-Black_mask_detail.png?5b902", required: 1, faq: "Get a blackmask from Cave Horrors" },
-					{ name: "25 Wintertodt Rewards", img: "https://oldschool.runescape.wiki/images/thumb/Reward_Cart_%28empty%29.png/250px-Reward_Cart_%28empty%29.png?3c628", required: 25, faq: "Pre-pic of available rewards are required - KC can be done any team-size" },
+					{ name: "25 Wintertodt Rewards", img: "https://oldschool.runescape.wiki/images/thumb/Reward_Cart_%28empty%29.png/250px-Reward_Cart_%28empty%29.png?3c628", required: 25, faq: "Pre-pic of available rewards are required - KC can be done any team-size\n\nIf your starting available rewards are above 0, your progression submission must also include a final screenshot showing your remaining available rewards.\nThere is no requirement to do the pulls, just to get the rewards." },
 					{ name: "5 Ecu keys", img: "https://oldschool.runescape.wiki/images/thumb/Ecumenical_key_detail.png/150px-Ecumenical_key_detail.png?0e275", required: 5, faq: "Get 5 Ecu keys from Wilderness. Picture of each key should be made. Should you have keys already drop them prior so you can receive the keys." },
 				],
 				[
 					{ name: "2 x Any Zombie Helm/axe", img: "https://oldschool.runescape.wiki/images/thumb/Broken_zombie_axe_detail.png/120px-Broken_zombie_axe_detail.png?9768e", required: 2, faq: "Any combination of 2 x Zombie Axe or Helm" },
-					{ name: "45 Tempoross Rewards", img: "https://oldschool.runescape.wiki/images/thumb/Tempoross.png/300px-Tempoross.png?12042", required: 45, faq: "Pre-pick of available permits. KC can be done in any team size." },
+					{ name: "45 Tempoross Rewards", img: "https://oldschool.runescape.wiki/images/thumb/Tempoross.png/300px-Tempoross.png?12042", required: 45, faq: "Pre-pick of available permits. KC can be done in any team size.\n\nIf your starting available rewards are above 0, your progression submission must also include a final screenshot showing your remaining available rewards.\nThere is no requirement to do the pulls, just to get the rewards." },
 					{ name: "1 x Temotli", img: "https://oldschool.runescape.wiki/images/thumb/Glacial_temotli_detail.png/130px-Glacial_temotli_detail.png?37b7e", required: 1, faq: "Get a Glacial temotli drop." },
 				],
 				[
 					{ name: "1 x Sulphur Blades", img: "https://oldschool.runescape.wiki/images/thumb/Sulphur_blades_detail.png/130px-Sulphur_blades_detail.png?f6d50", required: 1, faq: "Get a Sulphur Blades drop." },
-					{ name: "25 Gotr Rewards", img: "https://oldschool.runescape.wiki/images/thumb/Abyssal_pearls_detail.png/120px-Abyssal_pearls_detail.png?1a047", required: 25, faq: "Pre-pic of available rewards. KC can be done in any team size" },
+					{ name: "25 Gotr Rewards", img: "https://oldschool.runescape.wiki/images/thumb/Abyssal_pearls_detail.png/120px-Abyssal_pearls_detail.png?1a047", required: 25, faq: "Pre-pic of available rewards. KC can be done in any team size\n\nIf your starting available rewards are above 0, your progression submission must also include a final screenshot showing your remaining available rewards.\nThere is no requirement to do the pulls, just to get the rewards." },
 					{ name: "Any 2 Tzhaar Drops", img: "https://oldschool.runescape.wiki/images/thumb/TzHaar-Ket_%28level_149%29.png/100px-TzHaar-Ket_%28level_149%29.png?ee1fa", required: 1, faq: "Any two Tzhaar Drops." },
 				],
 			],
@@ -118,7 +118,7 @@ const FLOORS_CONTENT: DuoFloorContent[] = [
 				[
 					{ name: "10 Giant Keys", img: "https://oldschool.runescape.wiki/images/thumb/Giant_key_detail.png/130px-Giant_key_detail.png?ca5dd", required: 10, faq: "10 Giant key drops. Pre-pic of collection log is recommended, if not 10 separate pictures required." },
 					{ name: "25 x Zombie Keys", img: "https://oldschool.runescape.wiki/images/thumb/Zombie_pirate_key_5_detail.png/150px-Zombie_pirate_key_5_detail.png?d61fc", required: 25, faq: "25 Zombie key drops. Take a picture of lootlogger after first kill with codeword shown and a pic when done" },
-					{ name: "3 x Dragon Sheets", img: "https://oldschool.runescape.wiki/images/thumb/Dragon_metal_sheet_detail.png/130px-Dragon_metal_sheet_detail.png?e2090", required: 3, faq: "up this to 5/6 if buff goes through" },
+					{ name: "3 x Dragon Sheets", img: "https://oldschool.runescape.wiki/images/thumb/Dragon_metal_sheet_detail.png/130px-Dragon_metal_sheet_detail.png?e2090", required: 3, faq: "3 Dragon Metal Sheets." },
 				],
 			],
 			// Section B (3 paths)

@@ -218,6 +218,7 @@ export async function logPackOpen(args: {
 	packId: string;
 	packName: string;
 	costVp: number;
+	costGp?: number;
 	cards: PackOpenCard[];
 }): Promise<string | null> {
 	const sb = db();
@@ -230,6 +231,7 @@ export async function logPackOpen(args: {
 		pack_id: args.packId,
 		pack_name: args.packName,
 		cost_vp: args.costVp,
+		cost_gp: args.costGp ?? 0,
 		card_count: args.cards.length,
 		opened_at: now
 	});

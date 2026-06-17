@@ -30,6 +30,12 @@
 		isMine: boolean;
 	}
 
+	interface SwapOption {
+		to_lane: number;
+		name: string;
+		img: string | null;
+	}
+
 	interface Props {
 		tile: { id: string; name: string; img: string | null; faq_html: string | null };
 		status: BoardStatus;
@@ -40,6 +46,10 @@
 		isAdmin: boolean;
 		testMode?: boolean;
 		progress?: { approved: number; required: number; pending: number } | null;
+		// Swaps: if this tile can be swapped, the adjacent-path tiles to swap to + how many
+		// swaps the team has left. Empty options ⇒ not swappable (already started / no swaps).
+		swapsAvailable?: number;
+		swapOptions?: SwapOption[];
 		onZoom: (url: string) => void;
 		onclose: () => void;
 	}
@@ -54,11 +64,18 @@
 		isAdmin,
 		testMode = false,
 		progress = null,
+		swapsAvailable = 0,
+		swapOptions = [],
 		onZoom,
 		onclose
 	}: Props = $props();
 
+	let showSwap = $state(false);
+
 	const submittable = $derived(status === 'open' && canSubmit);
+	// Swappable only when this is the team's active, not-yet-started tile and the page sent
+	// adjacent-path options + a positive balance.
+	const canSwap = $derived(submittable && swapsAvailable > 0 && swapOptions.length > 0);
 
 	// Count-based tiles (required > 1) let a single proof cover several — the submitter
 	// picks how many of `required` this one covers. Defaults to whatever's still needed.
@@ -193,6 +210,45 @@
 			<section class="details">
 				<h3>How to complete</h3>
 				<div class="details-body">{@html tile.faq_html}</div>
+			</section>
+		{/if}
+
+		{#if canSwap}
+			<section class="swap">
+				<button type="button" class="swap-toggle" onclick={() => (showSwap = !showSwap)}>
+					🔀 Swap this tile <span class="swap-left">{swapsAvailable} left</span>
+				</button>
+				{#if showSwap}
+					<p class="swap-note">
+						Replace this tile with the matching tile from an adjacent path. Uses 1 swap — you can't
+						swap a tile you've already started, and the swap is final.
+					</p>
+					<div class="swap-opts">
+						{#each swapOptions as opt (opt.to_lane)}
+							<form
+								method="POST"
+								action="?/swapTile"
+								use:enhance={() => {
+									return async ({ result, update }) => {
+										await update({ reset: false });
+										if (result.type === 'success') onclose();
+										else if (result.type === 'failure') {
+											const data = result.data as { error?: string } | undefined;
+											error = data?.error ?? 'Swap failed';
+										}
+									};
+								}}
+							>
+								<input type="hidden" name="tile_id" value={tile.id} />
+								<input type="hidden" name="to_lane" value={opt.to_lane} />
+								<button type="submit" class="swap-opt" title={`Swap to ${opt.name}`}>
+									{#if opt.img}<img src={opt.img} alt={opt.name} loading="lazy" />{/if}
+									<span class="swap-opt-name">{opt.name}</span>
+								</button>
+							</form>
+						{/each}
+					</div>
+				{/if}
 			</section>
 		{/if}
 
@@ -607,6 +663,80 @@
 
 	.details-body :global(a) {
 		color: var(--accent);
+	}
+
+	.swap {
+		margin: 1rem 0;
+	}
+
+	.swap-toggle {
+		width: 100%;
+		font-family: var(--font-heading);
+		font-size: 0.9rem;
+		letter-spacing: 0.5px;
+		border: 1px dashed var(--yellow);
+		color: var(--yellow);
+		background: rgba(240, 210, 60, 0.08);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+	}
+
+	.swap-toggle:hover {
+		background: rgba(240, 210, 60, 0.16);
+	}
+
+	.swap-left {
+		font-size: 0.7rem;
+		padding: 0.02rem 0.4rem;
+		border-radius: 999px;
+		background: rgba(240, 210, 60, 0.2);
+		border: 1px solid var(--yellow);
+	}
+
+	.swap-note {
+		margin: 0.6rem 0 0.5rem;
+		font-size: 0.8rem;
+		color: var(--muted);
+	}
+
+	.swap-opts {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+		gap: 0.5rem;
+	}
+
+	.swap-opt {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.45rem 0.6rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius);
+		color: var(--text);
+		text-align: left;
+		cursor: pointer;
+		min-height: 0;
+	}
+
+	.swap-opt:hover {
+		border-color: var(--yellow);
+		background: rgba(240, 210, 60, 0.1);
+	}
+
+	.swap-opt img {
+		width: 2rem;
+		height: 2rem;
+		object-fit: contain;
+		flex-shrink: 0;
+	}
+
+	.swap-opt-name {
+		font-size: 0.82rem;
+		line-height: 1.1;
 	}
 
 	.my-proof {

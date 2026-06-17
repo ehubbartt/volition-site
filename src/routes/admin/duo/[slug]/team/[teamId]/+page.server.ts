@@ -16,6 +16,8 @@ import type { Actions, PageServerLoad } from './$types';
 
 type SubmissionStatus = 'pending' | 'approved' | 'rejected';
 
+const SWAPS_PER_FLOOR = 2;
+
 // DuoWolf submissions are generic vs_submissions rows (team_id + target_id = board node).
 interface SubRow {
 	id: string;
@@ -97,6 +99,19 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		choiceByFloorSection[`${ch.floor}:${ch.section}`] = ch.lane;
 	}
 
+	// Swaps: substitutions (for accurate progress) + balance (2/floor base + admin bonus).
+	const [{ data: swapRows }, { data: grantRows }] = await Promise.all([
+		db().from('vs_team_tile_swaps').select('floor, section, step, lane').eq('event_id', event.id).eq('team_id', team.id),
+		db().from('vs_team_swap_grants').select('amount').eq('event_id', event.id).eq('team_id', team.id)
+	]);
+	const swapByPositionKey: Record<string, number> = {};
+	const swapsUsedByFloor: Record<number, number> = {};
+	for (const s of (swapRows ?? []) as { floor: number; section: string; step: number; lane: number }[]) {
+		swapByPositionKey[`${s.floor}:${s.section}:${s.step}`] = s.lane;
+		swapsUsedByFloor[s.floor] = (swapsUsedByFloor[s.floor] ?? 0) + 1;
+	}
+	const bonusGranted = ((grantRows ?? []) as { amount: number }[]).reduce((a, g) => a + (Number(g.amount) || 0), 0);
+
 	const orderByTile = new Map<string, number>();
 	duoNodeRefs().forEach((ref, i) => orderByTile.set(ref.id, i));
 
@@ -171,8 +186,21 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const requiredByTile: Record<string, number> = {};
 	for (const ref of duoNodeRefs()) requiredByTile[ref.id] = getDuoTileRequired(ref.id);
-	const prog = computeProgress({ approvedByTile, pendingByTile, requiredByTile, choiceByFloorSection });
+	const prog = computeProgress({
+		approvedByTile,
+		pendingByTile,
+		requiredByTile,
+		choiceByFloorSection,
+		swapByPositionKey
+	});
 	const tilesComplete = Object.values(prog.nodeState).filter((s) => s === 'complete').length;
+
+	const stage = prog.stages[prog.currentStageIndex];
+	const currentFloor = stage?.floor ?? null;
+	let bonusUsed = 0;
+	for (const f of Object.keys(swapsUsedByFloor)) bonusUsed += Math.max(0, swapsUsedByFloor[Number(f)] - SWAPS_PER_FLOOR);
+	const bonusRemaining = Math.max(0, bonusGranted - bonusUsed);
+	const baseRemaining = currentFloor ? Math.max(0, SWAPS_PER_FLOOR - (swapsUsedByFloor[currentFloor] ?? 0)) : 0;
 
 	return {
 		event: { slug: event.slug, name: event.name },
@@ -183,6 +211,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			totalSubmissions: subs.length,
 			stage: stageLabel(prog.stages[prog.currentStageIndex]),
 			finished: prog.currentStageIndex >= prog.stages.length
+		},
+		swaps: {
+			available: baseRemaining + bonusRemaining,
+			baseRemaining,
+			bonusRemaining,
+			bonusGranted,
+			used: Object.values(swapsUsedByFloor).reduce((a, b) => a + b, 0),
+			perFloor: SWAPS_PER_FLOOR,
+			currentFloor
 		}
 	};
 };
@@ -227,5 +264,31 @@ async function setSubmissionStatus(
 
 export const actions: Actions = {
 	approve: ({ params, locals, request }) => setSubmissionStatus(params, locals, request, 'approved'),
-	reject: ({ params, locals, request }) => setSubmissionStatus(params, locals, request, 'rejected')
+	reject: ({ params, locals, request }) => setSubmissionStatus(params, locals, request, 'rejected'),
+
+	// Grant bonus swaps (e.g. a pet relevant to the team's current tile). These persist
+	// across floors and are consumed only after a floor's 2 base swaps are used.
+	grantSwap: async ({ params, locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		if (!isAdmin(locals.user)) return fail(403, { error: 'Not allowed' });
+		if (params.slug !== DUO_WOLF_EVENT_SLUG) throw error(404, 'Not found');
+
+		const { data: event } = await db().from('vs_events').select('id').eq('slug', params.slug).maybeSingle();
+		if (!event) return fail(404, { error: 'Event not found' });
+
+		const form = await request.formData();
+		const amount = Math.max(1, Math.min(10, Math.floor(Number(form.get('amount') ?? 1)) || 1));
+		const note = form.get('note')?.toString().trim() || null;
+
+		const { error: insErr } = await db().from('vs_team_swap_grants').insert({
+			event_id: event.id,
+			team_id: params.teamId,
+			amount,
+			note,
+			granted_by: locals.user.id
+		});
+		if (insErr) return fail(500, { error: insErr.message });
+
+		return { ok: true, granted: amount };
+	}
 };

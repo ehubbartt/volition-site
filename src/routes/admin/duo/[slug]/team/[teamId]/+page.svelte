@@ -42,7 +42,28 @@
 			<span class="label">Progress</span>
 			<strong>{data.summary.finished ? '🏁 Finished' : data.summary.stage}</strong>
 		</div>
+		<div class="stat">
+			<span class="label">Swaps left</span>
+			<strong title={`${data.swaps.baseRemaining}/${data.swaps.perFloor} base this floor · ${data.swaps.bonusRemaining} bonus left (${data.swaps.bonusGranted} granted) · ${data.swaps.used} used`}>
+				🔀 {data.swaps.available}
+			</strong>
+		</div>
 	</div>
+
+	<form
+		class="grant"
+		method="POST"
+		action="?/grantSwap"
+		use:enhance={() => async ({ result, update }) => {
+			await update({ reset: false });
+			if (result.type === 'failure') error = (result.data as { error?: string })?.error ?? 'Grant failed';
+		}}
+	>
+		<span class="grant-label">Grant bonus swap (e.g. relevant pet):</span>
+		<input type="number" name="amount" min="1" max="10" value="1" aria-label="Bonus swaps" />
+		<input type="text" name="note" placeholder="note (optional, e.g. Zuk pet on Inferno)" />
+		<button type="submit" class="grant-btn">Grant</button>
+	</form>
 </section>
 
 {#if error}<p class="error">{error}</p>{/if}
@@ -186,6 +207,48 @@
 		color: var(--danger);
 		border-radius: 3px;
 		font-size: 0.85rem;
+	}
+
+	.grant {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		margin-top: 0.85rem;
+		padding: 0.6rem 0.75rem;
+		background: var(--surface-alt);
+		border: 1px dashed var(--yellow);
+		border-radius: var(--radius);
+	}
+	.grant-label {
+		font-size: 0.82rem;
+		color: var(--yellow);
+		font-family: var(--font-heading);
+		letter-spacing: 0.5px;
+	}
+	.grant input[type='number'] {
+		width: 4rem;
+	}
+	.grant input[type='text'] {
+		flex: 1;
+		min-width: 12rem;
+	}
+	.grant input {
+		padding: 0.3rem 0.5rem;
+		background: var(--surface);
+		border: 1px solid var(--border-strong);
+		border-radius: 3px;
+		color: var(--text);
+	}
+	.grant-btn {
+		border-color: var(--yellow);
+		color: var(--yellow);
+		font-size: 0.82rem;
+		padding: 0.3rem 0.8rem;
+		min-height: 0;
+	}
+	.grant-btn:hover {
+		background: rgba(240, 210, 60, 0.12);
 	}
 
 	.groups {

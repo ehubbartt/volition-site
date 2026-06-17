@@ -3,7 +3,7 @@ import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { isClanMember } from '$lib/server/clan';
 import { renderMarkdown } from '$lib/markdown';
-import { duoNodeRefs, DUO_SECTIONS } from '$lib/board/config';
+import { duoNodeRefs, DUO_SECTIONS, parseDuoNodeId } from '$lib/board/config';
 import { getBoardStatus, type BoardStatus } from '$lib/board/state';
 import {
 	computeProgress,
@@ -123,6 +123,52 @@ async function getMyTeamId(eventId: string, userId: string): Promise<string | nu
 	return data?.team_id ?? null;
 }
 
+// Each team gets this many swaps per floor; they reset on the next floor (no carry-over).
+const SWAPS_PER_FLOOR = 2;
+
+// A team's swap position map (`${floor}:${section}:${step}` -> swapped-in lane), used by
+// the progress engine so swapped tiles count + reveal correctly.
+async function fetchSwapMap(eventId: string, teamId: string): Promise<Record<string, number>> {
+	const map: Record<string, number> = {};
+	const { data } = await db()
+		.from('vs_team_tile_swaps')
+		.select('floor, section, step, lane')
+		.eq('event_id', eventId)
+		.eq('team_id', teamId);
+	for (const s of (data ?? []) as { floor: number; section: string; step: number; lane: number }[]) {
+		map[`${s.floor}:${s.section}:${s.step}`] = s.lane;
+	}
+	return map;
+}
+
+interface SwapBalance {
+	available: number;
+	baseRemaining: number; // of this floor's SWAPS_PER_FLOOR
+	bonusRemaining: number; // admin-granted, persist across floors
+	perFloor: number;
+}
+
+// Base swaps reset each floor (SWAPS_PER_FLOOR - used this floor); bonus (admin-granted)
+// swaps persist and are only consumed once a floor's base swaps are exhausted.
+async function fetchSwapBalance(
+	eventId: string,
+	teamId: string,
+	currentFloor: number | null
+): Promise<SwapBalance> {
+	const [{ data: swaps }, { data: grants }] = await Promise.all([
+		db().from('vs_team_tile_swaps').select('floor').eq('event_id', eventId).eq('team_id', teamId),
+		db().from('vs_team_swap_grants').select('amount').eq('event_id', eventId).eq('team_id', teamId)
+	]);
+	const usedByFloor: Record<number, number> = {};
+	for (const s of (swaps ?? []) as { floor: number }[]) usedByFloor[s.floor] = (usedByFloor[s.floor] ?? 0) + 1;
+	const bonusGranted = ((grants ?? []) as { amount: number }[]).reduce((a, g) => a + (Number(g.amount) || 0), 0);
+	let bonusUsed = 0;
+	for (const f of Object.keys(usedByFloor)) bonusUsed += Math.max(0, usedByFloor[Number(f)] - SWAPS_PER_FLOOR);
+	const bonusRemaining = Math.max(0, bonusGranted - bonusUsed);
+	const baseRemaining = currentFloor ? Math.max(0, SWAPS_PER_FLOOR - (usedByFloor[currentFloor] ?? 0)) : 0;
+	return { available: baseRemaining + bonusRemaining, baseRemaining, bonusRemaining, perFloor: SWAPS_PER_FLOOR };
+}
+
 // Per-team progression (counts + path choices → stage machine). Shared by the
 // load and the submit/choosePath actions so reveal + gating never drift.
 async function fetchTeamProgress(eventId: string, teamId: string): Promise<ProgressResult> {
@@ -154,7 +200,15 @@ async function fetchTeamProgress(eventId: string, teamId: string): Promise<Progr
 	const requiredByTile: Record<string, number> = {};
 	for (const ref of duoNodeRefs()) requiredByTile[ref.id] = getDuoTileRequired(ref.id);
 
-	return computeProgress({ approvedByTile, pendingByTile, requiredByTile, choiceByFloorSection });
+	const swapByPositionKey = await fetchSwapMap(eventId, teamId);
+
+	return computeProgress({
+		approvedByTile,
+		pendingByTile,
+		requiredByTile,
+		choiceByFloorSection,
+		swapByPositionKey
+	});
 }
 
 export const load: PageServerLoad = async ({ params, locals, url }) => {
@@ -187,6 +241,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	let currentStageIndex = -1;
 	let memberOfClan = false;
 	let myTeamId: string | null = null;
+	// SWAPS (player/preview only): how many the team can still use + the positions already
+	// swapped, so the board can show the balance + which tiles came from another path.
+	let swapsAvailable = 0;
+	let swapsBase = 0;
+	let swapsBonus = 0;
+	let mySwaps: { floor: number; section: string; step: number; lane: number }[] = [];
 
 	if (contentVisible) {
 		memberOfClan = await isClanMember(locals.user.discord_id, locals.user.rsn);
@@ -271,11 +331,14 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		const requiredByTile: Record<string, number> = {};
 		for (const ref of duoNodeRefs()) requiredByTile[ref.id] = getDuoTileRequired(ref.id);
 
+		const swapByPositionKey = myTeamId ? await fetchSwapMap(event.id, myTeamId) : {};
+
 		const prog = computeProgress({
 			approvedByTile: myApproved,
 			pendingByTile: myPending,
 			requiredByTile,
-			choiceByFloorSection
+			choiceByFloorSection,
+			swapByPositionKey
 		});
 
 		if (effectiveAdmin) {
@@ -294,6 +357,19 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			// Per-team proof detail is admin-only; community counts limited to revealed tiles.
 			for (const id of prog.revealedNodeIds) {
 				if (completionCountByTile[id]) completionCountForClient[id] = completionCountByTile[id];
+			}
+
+			// Swap balance for this team (base resets per floor; bonus persists).
+			if (myTeamId) {
+				const stage = prog.stages[prog.currentStageIndex];
+				const bal = await fetchSwapBalance(event.id, myTeamId, stage?.floor ?? null);
+				swapsAvailable = bal.available;
+				swapsBase = bal.baseRemaining;
+				swapsBonus = bal.bonusRemaining;
+				mySwaps = Object.entries(swapByPositionKey).map(([k, lane]) => {
+					const [floor, section, step] = k.split(':');
+					return { floor: Number(floor), section, step: Number(step), lane };
+				});
 			}
 		}
 	}
@@ -317,7 +393,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		nodeState,
 		nodeProgress,
 		chosenLaneByFloorSection,
-		currentStageIndex
+		currentStageIndex,
+		swapsAvailable,
+		swapsBase,
+		swapsBonus,
+		swapsPerFloor: SWAPS_PER_FLOOR,
+		swaps: mySwaps
 	};
 };
 
@@ -377,6 +458,75 @@ export const actions: Actions = {
 		}
 
 		return { ok: true, action: 'choosePath' as const, floor, section, lane };
+	},
+
+	// Use a SWAP: replace an active path tile with the same-position tile from an adjacent
+	// path. Costs one swap (2/floor + bonus). Server-authoritative — never trusts the client.
+	swapTile: async ({ params, locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		requireDuoWolf(params.slug);
+
+		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
+			return fail(403, { error: 'Only Volition clan members can play this event.' });
+		}
+
+		const event = await fetchEvent(params.slug);
+		if (!event) return fail(404, { error: 'Event not found' });
+		const admin = isAdmin(locals.user);
+		const isActive = event.status === 'open' || (event.status === 'preview' && admin);
+		if (!isActive) return fail(400, { error: 'The event is not open' });
+
+		const teamId = await getMyTeamId(event.id, locals.user.id);
+		if (!teamId) return fail(400, { error: 'Join the event and pair up with a teammate first.' });
+
+		const form = await request.formData();
+		const tileId = form.get('tile_id')?.toString() ?? '';
+		const toLane = Number(form.get('to_lane'));
+		const ref = parseDuoNodeId(tileId);
+		if (!ref || ref.kind !== 'path' || ref.section == null || ref.lane == null || ref.step == null) {
+			return fail(400, { error: 'You can only swap path tiles.' });
+		}
+		if (!Number.isInteger(toLane) || toLane < 0 || toLane >= laneCountForFloor(ref.floor)) {
+			return fail(400, { error: 'Invalid swap target.' });
+		}
+		// Adjacent path only (one lane up or down from the tile's own lane).
+		if (Math.abs(toLane - ref.lane) !== 1) {
+			return fail(400, { error: 'You can only swap to an adjacent path.' });
+		}
+
+		// Authoritative: the tile must be the team's CURRENT active tile and not yet started.
+		const prog = await fetchTeamProgress(event.id, teamId);
+		if (prog.nodeState[tileId] !== 'active') {
+			return fail(400, { error: "That tile isn't your team's active tile right now." });
+		}
+		const p = prog.nodeProgress[tileId];
+		if (p && p.approved + p.pending > 0) {
+			return fail(400, { error: "You've already started this tile — swap before submitting any proof." });
+		}
+
+		// Must have a swap available for this floor (2/floor + admin bonus).
+		const bal = await fetchSwapBalance(event.id, teamId, ref.floor);
+		if (bal.available <= 0) {
+			return fail(400, { error: 'No swaps left — they reset after each floor boss.' });
+		}
+
+		const { error: insErr } = await db().from('vs_team_tile_swaps').insert({
+			event_id: event.id,
+			team_id: teamId,
+			floor: ref.floor,
+			section: ref.section,
+			step: ref.step,
+			lane: toLane,
+			created_by: locals.user.id
+		});
+		if (insErr) {
+			if (insErr.message.includes('duplicate') || insErr.message.includes('unique')) {
+				return fail(409, { error: 'That tile has already been swapped.' });
+			}
+			return fail(500, { error: insErr.message });
+		}
+
+		return { ok: true, action: 'swapTile' as const, tile_id: tileId, to_lane: toLane };
 	},
 
 	submit: async ({ params, locals, request }) => {

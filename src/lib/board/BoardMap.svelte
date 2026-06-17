@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import type { BoardNode, BoardTopology } from './topology';
 	import type { NodeState, NodeProgress } from './progress';
 
@@ -8,12 +9,21 @@
 		faq_html: string | null;
 	}
 
+	// Where to auto-center the board on load (the team's current tile/section).
+	interface FocusTarget {
+		floor: number;
+		x: number; // viewBox coords (topology space)
+		y: number;
+		zoom?: number;
+	}
+
 	let {
 		topology,
 		lockedFloors = [2, 3],
 		content = {},
 		nodeState = {},
 		nodeProgress = {},
+		focus = null,
 		onNodeClick
 	}: {
 		topology: BoardTopology;
@@ -21,6 +31,7 @@
 		content?: Record<string, NodeContent>;
 		nodeState?: Record<string, NodeState>;
 		nodeProgress?: Record<string, NodeProgress>;
+		focus?: FocusTarget | null;
 		onNodeClick?: (id: string) => void;
 	} = $props();
 
@@ -28,6 +39,7 @@
 	const MAX_ZOOM = 5;
 	const PAD = 40;
 	const DRAG_THRESHOLD = 5;
+	const FOCUS_ZOOM = 1.7;
 
 	const lockedSet = $derived(new Set(lockedFloors));
 
@@ -42,6 +54,37 @@
 	let pointerDownX = 0;
 	let pointerDownY = 0;
 	let dragMoved = false;
+	let svgEl: SVGSVGElement;
+
+	// On load, jump the view to the team's current tile/section (see `focus`). Centers
+	// the focus point in the viewport and zooms in. Runs ONCE on mount so it never
+	// fights the user's own panning after an action re-renders the board.
+	function applyFocus() {
+		if (!focus || !svgEl) return;
+		const W = svgEl.clientWidth;
+		const H = svgEl.clientHeight;
+		if (!W || !H) {
+			requestAnimationFrame(applyFocus); // layout not settled yet
+			return;
+		}
+		const band = topology.floors.find((f) => f.floor === focus.floor) ?? topology.floors[0];
+		// The viewBox the SVG renders for this floor (mirrors vbStr) — used to map the
+		// focus point (topology coords) into element pixels via the meet-fit scale.
+		const minX = -PAD;
+		const vbW = topology.viewBox.w + PAD * 2;
+		const minY = band.y - 12;
+		const vbH = band.height + 24;
+		const s = Math.min(W / vbW, H / vbH); // preserveAspectRatio xMidYMid meet scale
+		const Z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, focus.zoom ?? FOCUS_ZOOM));
+		// Transform is scale(Z) translate(panX/Z, panY/Z) about the element centre, so a
+		// point's screen offset = Z·local + pan; solve pan so the focus point lands centre.
+		currentFloor = focus.floor;
+		zoom = Z;
+		panX = -Z * s * (focus.x - (minX + vbW / 2));
+		panY = -Z * s * (focus.y - (minY + vbH / 2));
+	}
+
+	onMount(applyFocus);
 
 	function handleNodeClick(id: string) {
 		if (dragMoved) return;
@@ -222,6 +265,7 @@
 		onwheel={onWheel}
 	>
 		<svg
+			bind:this={svgEl}
 			class="canvas-svg"
 			class:panning={isPanning}
 			viewBox={vbStr}
