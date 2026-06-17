@@ -24,7 +24,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
 	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
 
-	const config = await getLootConfig();
+	// Fresh read (bypass the 60s cache) so config-page edits are reflected immediately.
+	const config = await getLootConfig(true);
 	const cost = Math.max(1, config.spinCost ?? 5);
 	// Surface the config being simulated (cost, tiers, which items carry a known GP value).
 	const items = config.items
@@ -113,7 +114,7 @@ export const actions: Actions = {
 		const reinvest = form.get('reinvest') === '1';
 		const trials = Math.max(1, Math.min(MAX_TRIALS, Math.floor(Number(form.get('trials') ?? 1)) || 1));
 
-		const config: LootConfig = await getLootConfig();
+		const config: LootConfig = await getLootConfig(true);
 		const cost = Math.max(1, config.spinCost ?? 5);
 
 		if (mode === 'count') {

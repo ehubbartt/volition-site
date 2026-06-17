@@ -107,9 +107,12 @@ let cache: { value: LootConfig; at: number } | null = null;
 const CACHE_TTL_MS = 60_000;
 
 // Reads the shared loot-table config from bot_config (same source the bot uses),
-// cached for a minute. Falls back to the bundled defaults if unavailable.
-export async function getLootConfig(): Promise<LootConfig> {
-	if (cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.value;
+// cached for a minute. Falls back to the bundled defaults if unavailable. Pass
+// force=true to bypass the cache and re-read now (used by the crate simulator so an
+// admin's config edits show up immediately instead of after the ~60s TTL); it also
+// refreshes the cache so subsequent normal reads stay current.
+export async function getLootConfig(force = false): Promise<LootConfig> {
+	if (!force && cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.value;
 	try {
 		const { data } = await db()
 			.from('bot_config')
