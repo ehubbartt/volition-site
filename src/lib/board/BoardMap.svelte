@@ -290,7 +290,7 @@
 				{/each}
 			</g>
 
-			{#snippet nodeBody(n: BoardNode, c: NodeContent | undefined, done: boolean)}
+			{#snippet nodeBody(n: BoardNode, c: NodeContent | undefined, done: boolean, rejected: boolean)}
 				{#if n.kind === 'boss'}
 					<circle r="56" class="boss-aura" fill="url(#bossGlow)" />
 					<polygon points="0,-39 34,-17 29,29 -29,29 -34,-17" class="boss-shape" />
@@ -360,6 +360,13 @@
 					</g>
 				{/if}
 
+				{#if rejected}
+					<g class="reject-badge" transform="translate(-18,-18)">
+						<circle r="9.5" class="reject-bg" />
+						<path class="reject-x" d="M -3.3,-3.3 L 3.3,3.3 M 3.3,-3.3 L -3.3,3.3" />
+					</g>
+				{/if}
+
 				{#if c}
 					{@const p = nodeProgress[n.id]}
 					<foreignObject
@@ -387,6 +394,9 @@
 					{@const c = content[n.id]}
 					{@const st = nodeState[n.id]}
 					{@const done = st === 'complete'}
+					{@const p = nodeProgress[n.id]}
+					{@const rejected =
+						st === 'active' && !!p && p.rejected > 0 && p.approved + p.pending < p.required}
 					{#if c}
 						<g
 							class="node {n.kind} interactive"
@@ -394,6 +404,7 @@
 							class:choosable={st === 'choosable'}
 							class:active={st === 'active'}
 							class:dimmed={st === 'dimmed'}
+							class:rejected
 							transform="translate({n.x},{n.y})"
 							role="button"
 							tabindex={0}
@@ -401,11 +412,11 @@
 							onclick={() => handleNodeClick(n.id)}
 							onkeydown={(e) => handleNodeKey(e, n.id)}
 						>
-							{@render nodeBody(n, c, done)}
+							{@render nodeBody(n, c, done, rejected)}
 						</g>
 					{:else}
 						<g class="node {n.kind}" transform="translate({n.x},{n.y})">
-							{@render nodeBody(n, c, false)}
+							{@render nodeBody(n, c, false, false)}
 						</g>
 					{/if}
 				{/each}
@@ -715,6 +726,43 @@
 		}
 	}
 
+	/* Rejected → needs redo. Overrides the active orange with a pulsing red ring (placed
+	   after .node.active so it wins on the same specificity). */
+	.node.rejected .path-shape,
+	.node.rejected .comm-shape,
+	.node.rejected .boss-shape {
+		stroke: var(--danger);
+		stroke-width: 3;
+		animation: rejectPulse 1.3s ease-in-out infinite;
+	}
+
+	@keyframes rejectPulse {
+		0%,
+		100% {
+			filter: drop-shadow(0 0 2px rgba(229, 72, 77, 0.6));
+		}
+		50% {
+			filter: drop-shadow(0 0 7px rgba(229, 72, 77, 1));
+		}
+	}
+
+	.reject-badge {
+		pointer-events: none;
+	}
+
+	.reject-bg {
+		fill: var(--danger);
+		stroke: #0a0805;
+		stroke-width: 1;
+	}
+
+	.reject-x {
+		fill: none;
+		stroke: #fff;
+		stroke-width: 2.2;
+		stroke-linecap: round;
+	}
+
 	.label-fo {
 		overflow: visible;
 		pointer-events: none;
@@ -786,6 +834,13 @@
 		.node.choosable .path-shape,
 		.node.choosable .comm-shape {
 			animation: none;
+		}
+
+		.node.rejected .path-shape,
+		.node.rejected .comm-shape,
+		.node.rejected .boss-shape {
+			animation: none;
+			filter: drop-shadow(0 0 4px rgba(229, 72, 77, 0.9));
 		}
 
 		.canvas-svg {

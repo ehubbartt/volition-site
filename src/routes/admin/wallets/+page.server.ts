@@ -7,7 +7,8 @@ import type { Actions, PageServerLoad } from './$types';
 // Wallet panel (migrated from volition-admin-dashboard). Reads the bot's players +
 // wallet_items roster: each player's VP balance, their GP balance (converted from items
 // on the site), and the GP value of unpaid loot-crate items still in their wallet.
-// Item payouts happen in-game/bot-side; the GP balance is settled here (set to 0).
+// Unpaid items are paid out in-game/bot-side; the GP balance is SITE-ONLY (packs /
+// event buy-ins, NOT claimable in-game) — admins can zero it here for corrections.
 
 export type WalletItem = {
 	id: string | number;
@@ -102,7 +103,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 };
 
 export const actions: Actions = {
-	// Settle a player's GP balance after paying it out in-game — set it to 0. Audit-logged
+	// Zero a player's GP balance (manual correction — GP is site-only, not an in-game payout). Audit-logged
 	// automatically by the hook (it's an admin action). Targets the player's serial id.
 	settleGp: async ({ locals, request }) => {
 		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Not allowed' });

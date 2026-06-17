@@ -756,7 +756,8 @@
           <strong>Convert wallet items</strong>
           <span class="muted small">
             You have {formatGP(data.walletGpValue)} of items in your wallet. Convert them to a
-            spendable balance (still cashable in-game) to buy packs.
+            balance for buying packs + event buy-ins. ⚠️ Once converted it can no longer be
+            claimed in-game — Volition products only.
           </span>
           {#if convertMsg}<span class="convert-msg">{convertMsg}</span>{/if}
         </div>
@@ -767,7 +768,7 @@
           onsubmit={(e) => {
             if (
               !confirm(
-                `Convert all wallet items (${formatGP(data.walletGpValue)})? This settles those items — you won't be paid for them separately in-game.`,
+                `Convert all wallet items (${formatGP(data.walletGpValue)}) to a spendable balance?\n\nThis is PERMANENT — these items can no longer be claimed in-game. The balance can only be used for Volition products: buying packs and event buy-ins.\n\nContinue?`,
               )
             )
               e.preventDefault();

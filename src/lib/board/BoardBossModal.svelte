@@ -17,6 +17,7 @@
 		submitted_at: string;
 		status: SubmissionStatus;
 		reviewed_by_name: string | null;
+		review_note: string | null;
 		submitted_by_name: string;
 	}
 
@@ -43,7 +44,7 @@
 		canSubmit: boolean;
 		isAdmin: boolean;
 		testMode?: boolean;
-		progress?: { approved: number; required: number; pending: number } | null;
+		progress?: { approved: number; required: number; pending: number; rejected: number } | null;
 		onZoom: (url: string) => void;
 		onclose: () => void;
 	}
@@ -78,6 +79,14 @@
 	// The provisional (pending) slice of damage, striped just past the remaining HP.
 	const pendingPct = $derived(((totalDmg - confirmedDmg) / maxHp) * 100);
 	const lowHp = $derived(hpPct <= 30 && !defeated);
+	// A hit bounced: rejected drops on an undefeated boss → the team must keep attacking.
+	const wasRejected = $derived(!!progress && progress.rejected > 0 && !defeated);
+	const rejectionNote = $derived(
+		teamSubmissions
+			.filter((s) => s.status === 'rejected' && s.review_note)
+			.map((s) => s.review_note)
+			.at(-1) ?? null
+	);
 	// Floors 1 & 2 bosses accept a special "auto-clear" drop (mutagen/pet, minion item)
 	// that instantly defeats the boss (a full-HP hit). null = no auto-clear (floor 3).
 	const autoClear = $derived(tile.autoClear ?? null);
@@ -206,6 +215,19 @@
 			</div>
 		</header>
 
+		{#if wasRejected}
+			<div class="reject-banner" role="alert">
+				<strong>⚠ A hit was rejected — the boss recovered.</strong>
+				<p>
+					An admin rejected one of your team's drops, so that damage was undone. Keep
+					attacking — your team can't move on until the boss is down.
+				</p>
+				{#if rejectionNote}
+					<p class="reject-reason">Admin note: “{rejectionNote}”</p>
+				{/if}
+			</div>
+		{/if}
+
 		{#if tile.faq_html}
 			<section class="details">
 				<h3>How to defeat</h3>
@@ -233,6 +255,9 @@
 										{sub.status === 'pending' ? 'In review' : sub.status === 'approved' ? 'Landed' : 'Missed'}
 									</span>
 									<span class="meta">By {sub.submitted_by_name} · {fmtDate(sub.submitted_at)}</span>
+									{#if sub.status === 'rejected' && sub.review_note}
+										<span class="reject-reason-inline">✗ {sub.review_note}</span>
+									{/if}
 								</div>
 								{#if submittable}
 									<form
@@ -939,6 +964,38 @@
 		color: var(--danger);
 		border-radius: 3px;
 		font-size: 0.85rem;
+	}
+
+	.reject-banner {
+		margin: 0 1.5rem 1rem;
+		padding: 0.75rem 0.9rem;
+		background: var(--danger-bg);
+		border: 1px solid var(--danger);
+		border-left-width: 4px;
+		border-radius: var(--radius);
+	}
+
+	.reject-banner strong {
+		color: var(--danger);
+	}
+
+	.reject-banner p {
+		margin: 0.35rem 0 0;
+		font-size: 0.85rem;
+		color: var(--text);
+	}
+
+	.reject-banner .reject-reason {
+		margin-top: 0.4rem;
+		font-style: italic;
+		color: var(--muted);
+	}
+
+	.reject-reason-inline {
+		flex-basis: 100%;
+		font-size: 0.8rem;
+		font-style: italic;
+		color: var(--danger);
 	}
 
 	.test-complete-form {

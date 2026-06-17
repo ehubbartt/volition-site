@@ -31,6 +31,7 @@ export interface NodeProgress {
 	approved: number;
 	required: number;
 	pending: number;
+	rejected: number; // team's rejected submissions on this tile (drives the "redo" warning)
 }
 
 export interface ProgressInput {
@@ -41,6 +42,9 @@ export interface ProgressInput {
 	// SWAPS: `${floor}:${section}:${step}` -> the adjacent lane swapped IN at that position.
 	// When set, the team plays that lane's tile for the step instead of their chosen lane's.
 	swapByPositionKey?: Record<string, number>;
+	// Count of the team's REJECTED submissions per tile — display-only (the "redo this tile"
+	// warning); does not affect completion (only approved + pending count toward `required`).
+	rejectedByTile?: Record<string, number>;
 }
 
 export interface ProgressResult {
@@ -185,7 +189,8 @@ export function computeProgress(inp: ProgressInput): ProgressResult {
 			nodeProgress[ref.id] = {
 				approved: inp.approvedByTile[ref.id] ?? 0,
 				pending: inp.pendingByTile[ref.id] ?? 0,
-				required: inp.requiredByTile[ref.id] ?? 1
+				required: inp.requiredByTile[ref.id] ?? 1,
+				rejected: inp.rejectedByTile?.[ref.id] ?? 0
 			};
 		}
 	}

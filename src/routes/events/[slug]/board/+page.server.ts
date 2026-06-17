@@ -41,6 +41,7 @@ interface CompletionRow {
 	proof_paths: string[] | null;
 	submitted_at: string;
 	status: SubmissionStatus;
+	review_note: string | null;
 	vs_users: {
 		rsn: string | null;
 		discord_username: string;
@@ -77,6 +78,7 @@ interface DuoTeamSubmission {
 	submitted_at: string;
 	status: SubmissionStatus;
 	reviewed_by_name: string | null;
+	review_note: string | null;
 	submitted_by_name: string;
 }
 
@@ -255,7 +257,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		const { data: completionsRaw, error: cErr } = await db()
 			.from('vs_submissions')
 			.select(
-				'id, team_id, user_id, target_id, quantity, proof_urls, proof_paths, submitted_at, status, vs_users!user_id(rsn, discord_username, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username), team:vs_teams!team_id(id, name)'
+				'id, team_id, user_id, target_id, quantity, proof_urls, proof_paths, submitted_at, status, review_note, vs_users!user_id(rsn, discord_username, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username), team:vs_teams!team_id(id, name)'
 			)
 			.eq('event_id', event.id)
 			.order('submitted_at', { ascending: true });
@@ -269,6 +271,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		const completionCountByTile: Record<string, number> = {};
 		const myApproved: Record<string, number> = {};
 		const myPending: Record<string, number> = {};
+		const myRejected: Record<string, number> = {};
 
 		for (const c of completions) {
 			if (!DUO_TILE_IDS.has(c.target_id)) continue;
@@ -299,6 +302,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 				if (mine) myApproved[c.target_id] = (myApproved[c.target_id] ?? 0) + qty;
 			} else if (c.status === 'pending' && mine) {
 				myPending[c.target_id] = (myPending[c.target_id] ?? 0) + qty;
+			} else if (c.status === 'rejected' && mine) {
+				myRejected[c.target_id] = (myRejected[c.target_id] ?? 0) + 1;
 			}
 
 			if (mine) {
@@ -310,6 +315,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 					submitted_at: c.submitted_at,
 					status: c.status,
 					reviewed_by_name: reviewerName,
+					review_note: c.review_note ?? null,
 					submitted_by_name: submitterName
 				});
 				teamSubmissionsByTile[c.target_id] = t;
@@ -338,7 +344,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			pendingByTile: myPending,
 			requiredByTile,
 			choiceByFloorSection,
-			swapByPositionKey
+			swapByPositionKey,
+			rejectedByTile: myRejected
 		});
 
 		if (effectiveAdmin) {

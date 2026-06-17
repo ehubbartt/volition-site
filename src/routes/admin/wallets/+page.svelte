@@ -163,14 +163,14 @@
 												onsubmit={(e) => {
 													if (
 														!confirm(
-															`Settle ${p.rsn || p.discord_id}'s GP balance (${formatGP(p.gold_balance)}) to 0? Do this after paying them in-game.`
+															`Zero ${p.rsn || p.discord_id}'s GP balance (${formatGP(p.gold_balance)})? GP is site-only (packs / event buy-ins, NOT claimable in-game) — only do this as a manual correction.`
 														)
 													)
 														e.preventDefault();
 												}}
 											>
 												<input type="hidden" name="id" value={p.id} />
-												<button type="submit" class="settle-btn">Settle (set to 0)</button>
+												<button type="submit" class="settle-btn">Zero balance</button>
 											</form>
 										{/if}
 									</div>

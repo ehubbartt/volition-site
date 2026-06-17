@@ -13,6 +13,7 @@
 		submitted_at: string;
 		status: SubmissionStatus;
 		reviewed_by_name: string | null;
+		review_note: string | null;
 		submitted_by_name: string;
 	}
 
@@ -45,7 +46,7 @@
 		canSubmit: boolean;
 		isAdmin: boolean;
 		testMode?: boolean;
-		progress?: { approved: number; required: number; pending: number } | null;
+		progress?: { approved: number; required: number; pending: number; rejected: number } | null;
 		// Swaps: if this tile can be swapped, the adjacent-path tiles to swap to + how many
 		// swaps the team has left. Empty options ⇒ not swappable (already started / no swaps).
 		swapsAvailable?: number;
@@ -71,11 +72,26 @@
 	}: Props = $props();
 
 	let showSwap = $state(false);
+	// The swap target awaiting confirmation (null = no confirm dialog open).
+	let confirmSwap = $state<SwapOption | null>(null);
+	let swapping = $state(false);
 
 	const submittable = $derived(status === 'open' && canSubmit);
 	// Swappable only when this is the team's active, not-yet-started tile and the page sent
 	// adjacent-path options + a positive balance.
-	const canSwap = $derived(submittable && swapsAvailable > 0 && swapOptions.length > 0);
+	const canSwap = $derived(submittable && swapOptions.length > 0 && swapsAvailable > 0);
+	// This tile bounced: it has rejected proofs and is no longer complete — the team must
+	// redo it before they can progress.
+	const wasRejected = $derived(
+		!!progress && progress.rejected > 0 && progress.approved + progress.pending < progress.required
+	);
+	// The most recent rejection reason, if the admin left one.
+	const rejectionNote = $derived(
+		teamSubmissions
+			.filter((s) => s.status === 'rejected' && s.review_note)
+			.map((s) => s.review_note)
+			.at(-1) ?? null
+	);
 
 	// Count-based tiles (required > 1) let a single proof cover several — the submitter
 	// picks how many of `required` this one covers. Defaults to whatever's still needed.
@@ -206,6 +222,20 @@
 			</div>
 		</header>
 
+		{#if wasRejected}
+			<div class="reject-banner" role="alert">
+				<strong>⚠ This tile was rejected — redo it to continue.</strong>
+				<p>
+					An admin rejected your team's proof, so this tile is incomplete again. Your team
+					<strong>can't move on</strong> until you resubmit and get it back to
+					{progress?.required}{(progress?.required ?? 1) > 1 ? ' approved' : ''}.
+				</p>
+				{#if rejectionNote}
+					<p class="reject-reason">Admin note: “{rejectionNote}”</p>
+				{/if}
+			</div>
+		{/if}
+
 		{#if tile.faq_html}
 			<section class="details">
 				<h3>How to complete</h3>
@@ -215,39 +245,72 @@
 
 		{#if canSwap}
 			<section class="swap">
-				<button type="button" class="swap-toggle" onclick={() => (showSwap = !showSwap)}>
-					🔀 Swap this tile <span class="swap-left">{swapsAvailable} left</span>
-				</button>
-				{#if showSwap}
-					<p class="swap-note">
-						Replace this tile with the matching tile from another path. Uses 1 swap — you can't
-						swap a tile you've already started, and the swap is final.
-					</p>
-					<div class="swap-opts">
-						{#each swapOptions as opt (opt.to_lane)}
+				{#if confirmSwap}
+					<div class="swap-confirm">
+						<p class="swap-confirm-q">
+							Swap <strong>{tile.name}</strong> → <strong>{confirmSwap.name}</strong>?
+						</p>
+						<div class="swap-confirm-pair">
+							{#if tile.img}<img src={tile.img} alt={tile.name} />{/if}
+							<span class="swap-arrow" aria-hidden="true">→</span>
+							{#if confirmSwap.img}<img src={confirmSwap.img} alt={confirmSwap.name} />{/if}
+						</div>
+						<p class="swap-note">This uses 1 of your {swapsAvailable} swaps and can't be undone.</p>
+						<div class="swap-confirm-actions">
 							<form
 								method="POST"
 								action="?/swapTile"
 								use:enhance={() => {
+									swapping = true;
 									return async ({ result, update }) => {
 										await update({ reset: false });
-										if (result.type === 'success') onclose();
-										else if (result.type === 'failure') {
-											const data = result.data as { error?: string } | undefined;
-											error = data?.error ?? 'Swap failed';
+										swapping = false;
+										if (result.type === 'success') {
+											onclose();
+										} else {
+											confirmSwap = null;
+											if (result.type === 'failure') {
+												const data = result.data as { error?: string } | undefined;
+												error = data?.error ?? 'Swap failed';
+											} else if (result.type === 'error') {
+												error = result.error?.message ?? 'Something went wrong';
+											}
 										}
 									};
 								}}
 							>
 								<input type="hidden" name="tile_id" value={tile.id} />
-								<input type="hidden" name="to_lane" value={opt.to_lane} />
-								<button type="submit" class="swap-opt" title={`Swap to ${opt.name}`}>
+								<input type="hidden" name="to_lane" value={confirmSwap.to_lane} />
+								<button type="submit" class="primary" disabled={swapping}>
+									{swapping ? 'Swapping…' : 'Confirm swap'}
+								</button>
+							</form>
+							<button type="button" onclick={() => (confirmSwap = null)} disabled={swapping}>Cancel</button>
+						</div>
+					</div>
+				{:else}
+					<button type="button" class="swap-toggle" onclick={() => (showSwap = !showSwap)}>
+						🔀 Swap this tile <span class="swap-left">{swapsAvailable} left</span>
+					</button>
+					{#if showSwap}
+						<p class="swap-note">
+							Replace this tile with the matching tile from another path. Uses 1 swap — you can't
+							swap a tile you've already started, and the swap is final.
+						</p>
+						<div class="swap-opts">
+							{#each swapOptions as opt (opt.to_lane)}
+								<button
+									type="button"
+									class="swap-opt"
+									title={`Swap to ${opt.name}`}
+									onclick={() => (confirmSwap = opt)}
+								>
 									{#if opt.img}<img src={opt.img} alt={opt.name} loading="lazy" />{/if}
 									<span class="swap-opt-name">{opt.name}</span>
 								</button>
-							</form>
-						{/each}
-					</div>
+							{/each}
+						</div>
+					{/if}
 				{/if}
 			</section>
 		{/if}
@@ -283,6 +346,9 @@
 									<span class="meta">By {sub.submitted_by_name} · {fmtDate(sub.submitted_at)}</span>
 									{#if sub.status === 'approved' && sub.reviewed_by_name}
 										<span class="meta">· Accepted by {sub.reviewed_by_name}</span>
+									{/if}
+									{#if sub.status === 'rejected' && sub.review_note}
+										<span class="reject-reason-inline">✗ {sub.review_note}</span>
 									{/if}
 								</div>
 								{#if submittable}
@@ -739,6 +805,59 @@
 		line-height: 1.1;
 	}
 
+	.swap-confirm {
+		padding: 0.85rem 1rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--yellow);
+		border-radius: var(--radius);
+		text-align: center;
+	}
+
+	.swap-confirm-q {
+		margin: 0 0 0.6rem;
+		font-size: 0.95rem;
+	}
+
+	.swap-confirm-q strong {
+		color: var(--yellow);
+	}
+
+	.swap-confirm-pair {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.swap-confirm-pair img {
+		width: 3rem;
+		height: 3rem;
+		object-fit: contain;
+		filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
+	}
+
+	.swap-arrow {
+		font-family: var(--font-heading);
+		font-size: 1.3rem;
+		color: var(--yellow);
+	}
+
+	.swap-confirm-actions {
+		display: flex;
+		gap: 0.5rem;
+		justify-content: center;
+		margin-top: 0.6rem;
+	}
+
+	.swap-confirm-actions .primary {
+		border-color: var(--accent);
+	}
+
+	.swap-confirm-actions .primary:hover:not(:disabled) {
+		background: var(--accent-soft);
+	}
+
 	.my-proof {
 		margin: 1rem 0;
 		padding: 0.85rem;
@@ -1049,6 +1168,38 @@
 		color: var(--danger);
 		border-radius: 3px;
 		font-size: 0.85rem;
+	}
+
+	.reject-banner {
+		margin: 0 0 1rem;
+		padding: 0.75rem 0.9rem;
+		background: var(--danger-bg);
+		border: 1px solid var(--danger);
+		border-left-width: 4px;
+		border-radius: var(--radius);
+	}
+
+	.reject-banner strong {
+		color: var(--danger);
+	}
+
+	.reject-banner p {
+		margin: 0.35rem 0 0;
+		font-size: 0.85rem;
+		color: var(--text);
+	}
+
+	.reject-banner .reject-reason {
+		margin-top: 0.4rem;
+		font-style: italic;
+		color: var(--muted);
+	}
+
+	.reject-reason-inline {
+		flex-basis: 100%;
+		font-size: 0.8rem;
+		font-style: italic;
+		color: var(--danger);
 	}
 
 	.locked-msg {
