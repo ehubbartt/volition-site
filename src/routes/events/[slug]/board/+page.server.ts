@@ -489,9 +489,9 @@ export const actions: Actions = {
 		if (!Number.isInteger(toLane) || toLane < 0 || toLane >= laneCountForFloor(ref.floor)) {
 			return fail(400, { error: 'Invalid swap target.' });
 		}
-		// Adjacent path only (one lane up or down from the tile's own lane).
-		if (Math.abs(toLane - ref.lane) !== 1) {
-			return fail(400, { error: 'You can only swap to an adjacent path.' });
+		// Any OTHER parallel path at this step (left/middle/right) — just not the tile's own.
+		if (toLane === ref.lane) {
+			return fail(400, { error: 'Pick a different path to swap to.' });
 		}
 
 		// Authoritative: the tile must be the team's CURRENT active tile and not yet started.

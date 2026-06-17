@@ -66,8 +66,9 @@
 		if (data.swaps.some((s) => s.floor === ref.floor && s.section === ref.section && s.step === ref.step))
 			return [];
 		const opts: { to_lane: number; name: string; img: string | null }[] = [];
-		for (const to of [ref.lane - 1, ref.lane + 1]) {
-			if (to < 0 || to >= laneCountForFloor(ref.floor)) continue;
+		const lanes = laneCountForFloor(ref.floor);
+		for (let to = 0; to < lanes; to++) {
+			if (to === ref.lane) continue; // any OTHER parallel path at this step
 			const c = data.content[duoPathId(ref.floor, ref.section, to, ref.step)];
 			if (c) opts.push({ to_lane: to, name: c.name, img: c.img });
 		}

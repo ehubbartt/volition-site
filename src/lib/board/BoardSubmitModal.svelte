@@ -220,7 +220,7 @@
 				</button>
 				{#if showSwap}
 					<p class="swap-note">
-						Replace this tile with the matching tile from an adjacent path. Uses 1 swap — you can't
+						Replace this tile with the matching tile from another path. Uses 1 swap — you can't
 						swap a tile you've already started, and the swap is final.
 					</p>
 					<div class="swap-opts">
