@@ -161,9 +161,10 @@ export function computeProgress(inp: ProgressInput): ProgressResult {
 					? undefined
 					: effectiveLane(inp, ref.floor, ref.section!, ref.step!, chosen);
 			if (si < currentStageIndex) {
-				// Past section: only the tiles actually taken (chosen lane, or a swapped-in lane
-				// for swapped steps) stay visible as completed.
-				state = eff !== undefined && ref.lane === eff ? 'complete' : 'locked';
+				// Past section: the tiles actually taken (chosen lane, or a swapped-in lane for
+				// swapped steps) read as complete; the paths NOT taken stay visible but greyed
+				// (dimmed) — a finished floor shows the real tiles you skipped, not "?" blanks.
+				state = eff !== undefined && ref.lane === eff ? 'complete' : 'dimmed';
 			} else if (si === currentStageIndex) {
 				if (chosen === undefined)
 					state = 'choosable'; // all lanes shown so the team can compare + pick

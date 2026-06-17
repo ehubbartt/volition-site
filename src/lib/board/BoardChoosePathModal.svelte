@@ -102,10 +102,16 @@
 		background: rgba(0, 0, 0, 0.72);
 		z-index: 100;
 		display: flex;
-		align-items: flex-start;
+		align-items: center;
 		justify-content: center;
-		padding: 2rem 1rem 4rem;
+		padding: 2rem 1rem;
 		overflow-y: auto;
+	}
+
+	/* Keep the modal vertically centered, but if it's taller than the viewport let it
+	   scroll from the top instead of clipping (margin auto + flex centering). */
+	.modal {
+		margin: auto;
 	}
 
 	.modal {
