@@ -173,7 +173,9 @@
 
   function canOpen(pack: PageData["packs"][number]): boolean {
     return (
-      opening === null && pack.card_count > 0 && data.vp_balance >= pack.cost_vp
+      opening === null &&
+      pack.card_count > 0 &&
+      data.vp_balance >= discountedPrice(pack.cost_vp, pack.discount_vp_pct)
     );
   }
 
@@ -788,9 +790,11 @@
         {:else}
           <div class="pack-grid">
             {#each data.packs as pack (pack.id)}
-              {@const disc = pack.discount_pct ?? 0}
-              {@const affordable = data.vp_balance >= pack.cost_vp}
+              {@const vpDisc = pack.discount_vp_pct ?? 0}
+              {@const vpCost = discountedPrice(pack.cost_vp, pack.discount_vp_pct)}
+              {@const affordable = data.vp_balance >= vpCost}
               {@const owned = pack.owned ?? 0}
+              {@const gpDisc = pack.discount_pct ?? 0}
               {@const gpBase = pack.cost_gp ?? 0}
               {@const gpCost = discountedPrice(pack.cost_gp, pack.discount_pct)}
               {@const gpAffordable = gpBase > 0 && data.gold_balance >= gpCost}
@@ -818,9 +822,6 @@
                   {#if owned > 0}
                     <span class="owned-tag">{owned} in inventory</span>
                   {/if}
-                  {#if data.isAdmin && disc > 0 && gpBase > 0}
-                    <span class="disc-tag">{disc}% OFF</span>
-                  {/if}
                 </div>
                 <div class="body">
                   <strong class="name">
@@ -836,9 +837,6 @@
                     >{pack.card_count} card{pack.card_count === 1 ? "" : "s"} in
                     set</span
                   >
-                  {#if data.isAdmin && disc > 0 && gpBase > 0}
-                    <span class="was small">{disc}% off wallet · was <s>{formatGP(gpBase)}</s></span>
-                  {/if}
 
                   {#if owned > 0}
                     <!-- Player owns one+ — offer a FREE open from inventory first. -->
@@ -874,7 +872,8 @@
                           class="buy-more"
                           disabled={!canOpen(pack)}
                         >
-                          Buy another · {pack.cost_vp.toLocaleString()} VP
+                          Buy another · {vpCost.toLocaleString()} VP{#if vpDisc > 0}
+                            <span class="off">{vpDisc}% off</span>{/if}
                         </button>
                       </form>
                     </div>
@@ -894,9 +893,9 @@
                           class="gp-buy"
                           disabled={opening !== null || !gpAffordable}
                         >
-                          {opening === pack.id
-                            ? "Opening…"
-                            : `Buy with wallet · ${formatGP(gpCost)}`}
+                          {#if opening === pack.id}Opening…{:else}Buy with wallet · {formatGP(
+                              gpCost,
+                            )}{#if gpDisc > 0}<span class="off">{gpDisc}% off</span>{/if}{/if}
                         </button>
                       </form>
                     {/if}
@@ -918,7 +917,8 @@
                         {:else if pack.card_count === 0}
                           No cards yet
                         {:else}
-                          Rip open · {pack.cost_vp.toLocaleString()} VP
+                          Rip open · {vpCost.toLocaleString()} VP{#if vpDisc > 0}
+                            <span class="off">{vpDisc}% off</span>{/if}
                         {/if}
                       </button>
                     </form>
@@ -940,9 +940,9 @@
                           class="gp-buy"
                           disabled={opening !== null || !gpAffordable}
                         >
-                          {opening === pack.id
-                            ? "Opening…"
-                            : `Buy with wallet · ${formatGP(gpCost)}`}
+                          {#if opening === pack.id}Opening…{:else}Buy with wallet · {formatGP(
+                              gpCost,
+                            )}{#if gpDisc > 0}<span class="off">{gpDisc}% off</span>{/if}{/if}
                         </button>
                       </form>
                       {#if !gpAffordable}
@@ -1623,28 +1623,18 @@
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   }
 
-  /* Discount ribbon — top-left, red so it pops as a sale. */
-  .disc-tag {
-    position: absolute;
-    top: 0.5rem;
-    left: 0.5rem;
-    z-index: 2;
-    padding: 0.1rem 0.5rem;
+  /* Inline "% off" chip shown next to the discounted price in a buy button. */
+  .off {
+    margin-left: 0.4rem;
+    padding: 0.02rem 0.32rem;
+    border-radius: 999px;
     background: #d6362f;
     color: #fff;
-    border-radius: 999px;
-    font-size: 0.72rem;
     font-family: ui-sans-serif, system-ui, Arial, sans-serif;
+    font-size: 0.65rem;
     font-weight: 700;
-    letter-spacing: 0.03em;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-  }
-
-  .was {
-    color: var(--muted);
-  }
-  .was s {
-    opacity: 0.85;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
   }
 
   /* Locked "coming soon" teaser pack: art + name only, no actions. */

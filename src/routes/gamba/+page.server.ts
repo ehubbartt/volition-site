@@ -306,7 +306,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		getWalletItems(locals.user.discord_id),
 		db()
 			.from('vs_card_packs')
-			.select('id, name, description, cost_vp, cost_gp, discount_pct, cards_per_pack, front_url, back_url')
+			.select('id, name, description, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, front_url, back_url')
 			.eq('released', true)
 			.order('cost_vp', { ascending: true }),
 		db()
@@ -339,7 +339,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// packs that aren't in the released store list can still be shown + opened.
 		db()
 			.from('vs_user_packs')
-			.select('quantity, vs_card_packs(id, name, description, cost_vp, cost_gp, discount_pct, cards_per_pack, front_url, back_url)')
+			.select('quantity, vs_card_packs(id, name, description, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, front_url, back_url)')
 			.eq('user_id', locals.user.id)
 			.gt('quantity', 0)
 	]);
@@ -433,6 +433,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			cost_vp: number;
 			cost_gp: number | null;
 			discount_pct: number | null;
+			discount_vp_pct: number | null;
 			cards_per_pack: number;
 			front_url: string | null;
 			back_url: string | null;
@@ -461,6 +462,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 				cost_vp: p.cost_vp,
 				cost_gp: p.cost_gp ?? null,
 				discount_pct: p.discount_pct ?? 0,
+				discount_vp_pct: p.discount_vp_pct ?? 0,
 				cards_per_pack: p.cards_per_pack,
 				front_url: p.front_url,
 				back_url: p.back_url,
@@ -554,6 +556,7 @@ interface OpenablePack {
 	cost_vp: number | null;
 	cost_gp: number | null;
 	discount_pct: number | null;
+	discount_vp_pct: number | null;
 	cards_per_pack: number | null;
 	rarity_weights: unknown;
 	slot_weights: unknown;
@@ -694,14 +697,14 @@ export const actions: Actions = {
 		// Pack must exist AND be released.
 		const { data: pack, error: pErr } = await db()
 			.from('vs_card_packs')
-			.select('id, name, cost_vp, cost_gp, discount_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, holo_regular_url, holo_reverse_url')
+			.select('id, name, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, holo_regular_url, holo_reverse_url')
 			.eq('id', packId)
 			.maybeSingle();
 		if (pErr) return fail(500, { error: pErr.message });
 		if (!pack || !pack.released) return fail(404, { error: 'That pack is not available.' });
 
-		// The discount applies to GP only — VP is always the full price.
-		const cost = pack.cost_vp ?? 0;
+		// VP price after its own discount (discount_vp_pct), computed server-side.
+		const cost = discountedPrice(pack.cost_vp, pack.discount_vp_pct);
 
 		// Spend VP first (optimistic — only if affordable and unchanged), then roll +
 		// grant; refund the VP if the roll/grant fails.
@@ -744,7 +747,7 @@ export const actions: Actions = {
 
 		const { data: pack, error: pErr } = await db()
 			.from('vs_card_packs')
-			.select('id, name, cost_vp, cost_gp, discount_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, holo_regular_url, holo_reverse_url')
+			.select('id, name, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, holo_regular_url, holo_reverse_url')
 			.eq('id', packId)
 			.maybeSingle();
 		if (pErr) return fail(500, { error: pErr.message });
@@ -809,7 +812,7 @@ export const actions: Actions = {
 
 		const { data: pack, error: pErr } = await db()
 			.from('vs_card_packs')
-			.select('id, name, cost_vp, cost_gp, discount_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, holo_regular_url, holo_reverse_url')
+			.select('id, name, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, holo_regular_url, holo_reverse_url')
 			.eq('id', packId)
 			.maybeSingle();
 		if (pErr) return fail(500, { error: pErr.message });

@@ -764,6 +764,10 @@
 				<input name="discount_pct" type="number" min="0" max="100" value="0" />
 			</label>
 			<label>
+				<span>Discount % (off the VP price)</span>
+				<input name="discount_vp_pct" type="number" min="0" max="100" value="0" />
+			</label>
+			<label>
 				<span>Cards per open</span>
 				<input name="cards_per_pack" type="number" min="1" max="50" value="5" />
 			</label>
@@ -829,6 +833,10 @@
 			<label>
 				<span>Discount % (off the GP price)</span>
 				<input name="discount_pct" type="number" min="0" max="100" value={raw.discount_pct ?? 0} />
+			</label>
+			<label>
+				<span>Discount % (off the VP price)</span>
+				<input name="discount_vp_pct" type="number" min="0" max="100" value={raw.discount_vp_pct ?? 0} />
 			</label>
 			<label>
 				<span>Cards per open</span>
@@ -944,7 +952,7 @@
 				<span class="badge" class:live={raw.released}>{raw.released ? 'Released' : 'Draft'}</span>
 				{#if raw.weekly_free}<span class="badge weekly">Weekly</span>{/if}
 			</span>
-			<span class="muted small">{pack.cost_vp.toLocaleString()} VP{#if raw.cost_gp} · {formatGP(raw.cost_gp)} GP{/if}{#if raw.discount_pct} · {raw.discount_pct}% off GP{/if} · {raw.cards_per_pack}/open · {n} card{n === 1 ? '' : 's'}</span>
+			<span class="muted small">{pack.cost_vp.toLocaleString()} VP{#if raw.cost_gp} · {formatGP(raw.cost_gp)} GP{/if}{#if raw.discount_vp_pct} · {raw.discount_vp_pct}% off VP{/if}{#if raw.discount_pct} · {raw.discount_pct}% off GP{/if} · {raw.cards_per_pack}/open · {n} card{n === 1 ? '' : 's'}</span>
 		</button>
 		{#if canEdit}
 			<div class="pack-actions">
