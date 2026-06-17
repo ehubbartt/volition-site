@@ -9,6 +9,7 @@
 	import PackThumb from '$lib/cards/PackThumb.svelte';
 	import CardInspector3D from '$lib/cards/CardInspector3D.svelte';
 	import CardModelBuilder from '$lib/cards/CardModelBuilder.svelte';
+	import { formatGP } from '$lib/gp';
 	import {
 		RARITIES,
 		RARITY_BY_KEY,
@@ -755,6 +756,10 @@
 				<input name="cost_vp" type="number" min="0" value="0" />
 			</label>
 			<label>
+				<span>Cost (GP) — blank = not GP-buyable</span>
+				<input name="cost_gp" type="number" min="0" placeholder="e.g. 2000000" />
+			</label>
+			<label>
 				<span>Cards per open</span>
 				<input name="cards_per_pack" type="number" min="1" max="50" value="5" />
 			</label>
@@ -812,6 +817,10 @@
 			<label>
 				<span>Cost (VP)</span>
 				<input name="cost_vp" type="number" min="0" value={pack.cost_vp} />
+			</label>
+			<label>
+				<span>Cost (GP)</span>
+				<input name="cost_gp" type="number" min="0" value={raw.cost_gp ?? ''} placeholder="not GP-buyable" />
 			</label>
 			<label>
 				<span>Cards per open</span>
@@ -927,7 +936,7 @@
 				<span class="badge" class:live={raw.released}>{raw.released ? 'Released' : 'Draft'}</span>
 				{#if raw.weekly_free}<span class="badge weekly">Weekly</span>{/if}
 			</span>
-			<span class="muted small">{pack.cost_vp.toLocaleString()} VP · {raw.cards_per_pack}/open · {n} card{n === 1 ? '' : 's'}</span>
+			<span class="muted small">{pack.cost_vp.toLocaleString()} VP{#if raw.cost_gp} · {formatGP(raw.cost_gp)} GP{/if} · {raw.cards_per_pack}/open · {n} card{n === 1 ? '' : 's'}</span>
 		</button>
 		{#if canEdit}
 			<div class="pack-actions">

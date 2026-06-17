@@ -15,6 +15,7 @@
   import { isVideoUrl } from "$lib/cards/config";
   import { prefersReducedMotion, detectWebgl } from "$lib/cards/glCapabilities";
   import { DEFAULT_PACK_FRONT } from "$lib/cards/packs";
+  import { formatGP } from "$lib/gp";
   import { rsnToSlug } from "$lib/rsn";
   import { page } from "$app/stores";
 
@@ -192,7 +193,29 @@
         errorMsg = "Something went wrong opening that pack.";
       }
       opening = null;
-      // Refresh VP balance (and pack list) from the server without resetting UI.
+      // Refresh VP/GP balances (and pack list) from the server without resetting UI.
+      await update({ reset: false });
+    };
+  };
+
+  // ---- Convert wallet items → GP balance ----
+  let convertBusy = $state(false);
+  let convertMsg = $state<string | null>(null);
+
+  const submitConvert: SubmitFunction = () => {
+    convertBusy = true;
+    convertMsg = null;
+    return async ({ result, update }) => {
+      if (result.type === "success" && result.data?.convertOk) {
+        const gained = Number(result.data.gained ?? 0);
+        convertMsg = `Converted ${formatGP(gained)} into your balance.`;
+      } else if (result.type === "failure") {
+        convertMsg =
+          (result.data?.convertError as string) ?? "Could not convert your wallet.";
+      } else if (result.type === "error") {
+        convertMsg = "Something went wrong converting your wallet.";
+      }
+      convertBusy = false;
       await update({ reset: false });
     };
   };
@@ -623,9 +646,17 @@
         >View your collection →</a
       >
     </div>
-    <div class="vp" title="Volition Points">
-      <span class="vp-amount">{data.vp_balance.toLocaleString()}</span>
-      <span class="vp-label">VP</span>
+    <div class="balances">
+      <div class="vp" title="Volition Points">
+        <span class="vp-amount">{data.vp_balance.toLocaleString()}</span>
+        <span class="vp-label">VP</span>
+      </div>
+      {#if data.isAdmin}
+        <div class="vp gp" title="Wallet balance">
+          <span class="vp-amount">{formatGP(data.gold_balance)}</span>
+          <span class="vp-label">Wallet</span>
+        </div>
+      {/if}
     </div>
   </header>
 
@@ -717,6 +748,36 @@
       </label>
     </div>
 
+    {#if data.isAdmin && data.walletGpValue > 0}
+      <div class="convert-panel">
+        <div class="convert-text">
+          <strong>Convert wallet items</strong>
+          <span class="muted small">
+            You have {formatGP(data.walletGpValue)} of items in your wallet. Convert them to a
+            spendable balance (still cashable in-game) to buy packs.
+          </span>
+          {#if convertMsg}<span class="convert-msg">{convertMsg}</span>{/if}
+        </div>
+        <form
+          method="POST"
+          action="?/convertWallet"
+          use:enhance={submitConvert}
+          onsubmit={(e) => {
+            if (
+              !confirm(
+                `Convert all wallet items (${formatGP(data.walletGpValue)})? This settles those items — you won't be paid for them separately in-game.`,
+              )
+            )
+              e.preventDefault();
+          }}
+        >
+          <button type="submit" class="primary" disabled={convertBusy}>
+            {convertBusy ? "Converting…" : `Convert ${formatGP(data.walletGpValue)}`}
+          </button>
+        </form>
+      </div>
+    {/if}
+
     <div class="store" class:no-rail={data.recentRares.length === 0}>
       <div class="main">
         {#if data.packs.length === 0 && data.teaserPacks.length === 0}
@@ -729,6 +790,8 @@
             {#each data.packs as pack (pack.id)}
               {@const affordable = data.vp_balance >= pack.cost_vp}
               {@const owned = pack.owned ?? 0}
+              {@const gpCost = pack.cost_gp ?? 0}
+              {@const gpAffordable = gpCost > 0 && data.gold_balance >= gpCost}
               <article
                 class="pack"
                 class:dim={(!affordable && owned === 0) ||
@@ -810,6 +873,25 @@
                     {#if !affordable}
                       <span class="warn small">Not enough VP to buy more</span>
                     {/if}
+                    {#if data.isAdmin && gpCost > 0 && pack.card_count > 0}
+                      <form
+                        method="POST"
+                        action="?/openWithGp"
+                        use:enhance={submitOpen}
+                        class="open-form gp-form"
+                      >
+                        <input type="hidden" name="pack_id" value={pack.id} />
+                        <button
+                          type="submit"
+                          class="gp-buy"
+                          disabled={opening !== null || !gpAffordable}
+                        >
+                          {opening === pack.id
+                            ? "Opening…"
+                            : `Buy with wallet · ${formatGP(gpCost)}`}
+                        </button>
+                      </form>
+                    {/if}
                   {:else}
                     <form
                       method="POST"
@@ -835,6 +917,29 @@
 
                     {#if !affordable && pack.card_count > 0}
                       <span class="warn small">Not enough VP</span>
+                    {/if}
+
+                    {#if data.isAdmin && gpCost > 0 && pack.card_count > 0}
+                      <form
+                        method="POST"
+                        action="?/openWithGp"
+                        use:enhance={submitOpen}
+                        class="open-form"
+                      >
+                        <input type="hidden" name="pack_id" value={pack.id} />
+                        <button
+                          type="submit"
+                          class="gp-buy"
+                          disabled={opening !== null || !gpAffordable}
+                        >
+                          {opening === pack.id
+                            ? "Opening…"
+                            : `Buy with wallet · ${formatGP(gpCost)}`}
+                        </button>
+                      </form>
+                      {#if !gpAffordable}
+                        <span class="warn small">Not enough — convert your wallet above</span>
+                      {/if}
                     {/if}
                   {/if}
                 </div>
@@ -1236,6 +1341,69 @@
   .vp-label {
     color: var(--accent);
     font-size: 0.85rem;
+  }
+
+  .balances {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    flex: 0 0 auto;
+  }
+
+  /* GP balance badge — gold variant of the VP badge. */
+  .vp.gp {
+    background: rgba(255, 215, 0, 0.1);
+    border-color: #e9c349;
+    box-shadow: 0 0 1.2rem -0.3rem #e9c349;
+  }
+  .vp.gp .vp-amount,
+  .vp.gp .vp-label {
+    color: #e9c349;
+  }
+
+  .convert-panel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+    padding: 0.8rem 1rem;
+    background: rgba(255, 215, 0, 0.06);
+    border: 1px solid rgba(233, 195, 73, 0.45);
+    border-radius: var(--radius);
+  }
+  .convert-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+    flex: 1 1 16rem;
+  }
+  .convert-text strong {
+    color: #e9c349;
+  }
+  .convert-msg {
+    color: #7fd18a;
+    font-size: 0.85rem;
+  }
+
+  /* GP buy button — gold, distinct from the orange VP primary. */
+  .gp-buy {
+    width: 100%;
+    border: 1px solid #e9c349;
+    background: rgba(255, 215, 0, 0.1);
+    color: #e9c349;
+  }
+  .gp-buy:hover:not(:disabled) {
+    background: rgba(255, 215, 0, 0.2);
+  }
+  .gp-buy:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .gp-form {
+    margin-top: 0.4rem;
   }
 
   .error {

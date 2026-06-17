@@ -36,7 +36,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		db()
 			.from('vs_card_packs')
 			.select(
-				'id, name, description, cost_vp, cards_per_pack, released, weekly_free, rarity_weights, slot_weights, slot_finishes, front_path, front_url, back_path, back_url, holo_regular_path, holo_regular_url, holo_reverse_path, holo_reverse_url, created_at'
+				'id, name, description, cost_vp, cost_gp, cards_per_pack, released, weekly_free, rarity_weights, slot_weights, slot_finishes, front_path, front_url, back_path, back_url, holo_regular_path, holo_regular_url, holo_reverse_path, holo_reverse_url, created_at'
 			)
 			.order('created_at', { ascending: false }),
 		// Grant tab: every member with a site profile (the only grantable targets —
@@ -122,6 +122,15 @@ const packSchema = z.object({
 	cost_vp: z.coerce.number().int().min(0).max(10_000_000),
 	cards_per_pack: z.coerce.number().int().min(1).max(50)
 });
+
+// GP price is optional/nullable (empty or 0 = not buyable with GP). Parsed outside the
+// schema so a blank field stays NULL rather than coercing to 0.
+function parsePackGp(form: FormData): number | null {
+	const raw = form.get('cost_gp')?.toString().trim();
+	if (!raw) return null;
+	const n = Math.floor(Number(raw));
+	return Number.isFinite(n) && n > 0 ? n : null;
+}
 
 export const actions: Actions = {
 	createCard: async ({ locals, request }) => {
@@ -512,6 +521,7 @@ export const actions: Actions = {
 				name: parsed.data.name,
 				description: parsed.data.description,
 				cost_vp: parsed.data.cost_vp,
+				cost_gp: parsePackGp(form),
 				cards_per_pack: parsed.data.cards_per_pack,
 				released: form.get('released') === 'on',
 				teaser: form.get('teaser') === 'on'
@@ -581,6 +591,7 @@ export const actions: Actions = {
 			name: parsed.data.name,
 			description: parsed.data.description,
 			cost_vp: parsed.data.cost_vp,
+			cost_gp: parsePackGp(form),
 			cards_per_pack: parsed.data.cards_per_pack,
 			slot_weights: slotWeights,
 			slot_finishes: slotFinishes,
