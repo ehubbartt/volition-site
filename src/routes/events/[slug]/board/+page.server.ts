@@ -110,11 +110,22 @@ function tileContent(id: string): TileContent {
 async function fetchEvent(slug: string) {
 	const { data, error: qErr } = await db()
 		.from('vs_events')
-		.select('id, slug, name, status')
+		.select('id, slug, name, status, starts_at')
 		.eq('slug', slug)
 		.maybeSingle();
 	if (qErr) throw error(500, qErr.message);
 	return data;
+}
+
+// The DuoWolf climb is LIVE for players once the event is open AND its start time has
+// arrived. Before that (signups / pre-live) the board is sealed for non-admins — they see
+// the empty skeleton only. Admins always preview. (Needs `starts_at` set on the event.)
+function isClimbLive(event: { status: string | null; starts_at: string | null }): boolean {
+	return (
+		event.status === 'open' &&
+		event.starts_at != null &&
+		Date.now() >= new Date(event.starts_at).getTime()
+	);
 }
 
 async function getMyTeamId(eventId: string, userId: string): Promise<string | null> {
@@ -231,8 +242,14 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	// the admin-only actions.
 	const previewAsPlayer = admin && url.searchParams.get('view') === 'player';
 	const effectiveAdmin = admin && !previewAsPlayer;
-	const status: BoardStatus = getBoardStatus(event.status, effectiveAdmin);
 	const isDuoWolf = event.slug === DUO_WOLF_EVENT_SLUG;
+	const live = isClimbLive(event);
+	// Non-admins (incl. preview-as-player) only see the board once the climb is LIVE; before
+	// that it's sealed (empty skeleton, no content, no leaderboard). Admins preview anytime.
+	let status: BoardStatus;
+	if (effectiveAdmin) status = getBoardStatus(event.status, true);
+	else if (event.status === 'closed' || event.status === 'locked') status = 'past-locked';
+	else status = live ? 'open' : 'blurred';
 	const contentVisible = isDuoWolf && (effectiveAdmin || status === 'open');
 
 	const content: Record<string, TileContent> = {};
@@ -444,7 +461,7 @@ export const actions: Actions = {
 		const event = await fetchEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
 		const admin = isAdmin(locals.user);
-		const isActive = event.status === 'open' || (event.status === 'preview' && admin);
+		const isActive = admin ? event.status === 'open' || event.status === 'preview' : isClimbLive(event);
 		if (!isActive) return fail(400, { error: 'The event is not open' });
 
 		const teamId = await getMyTeamId(event.id, locals.user.id);
@@ -499,7 +516,7 @@ export const actions: Actions = {
 		const event = await fetchEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
 		const admin = isAdmin(locals.user);
-		const isActive = event.status === 'open' || (event.status === 'preview' && admin);
+		const isActive = admin ? event.status === 'open' || event.status === 'preview' : isClimbLive(event);
 		if (!isActive) return fail(400, { error: 'The event is not open' });
 
 		const teamId = await getMyTeamId(event.id, locals.user.id);
@@ -566,7 +583,7 @@ export const actions: Actions = {
 		const event = await fetchEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
 		const admin = isAdmin(locals.user);
-		const isActive = event.status === 'open' || (event.status === 'preview' && admin);
+		const isActive = admin ? event.status === 'open' || event.status === 'preview' : isClimbLive(event);
 		if (!isActive) return fail(400, { error: 'Submissions are closed' });
 
 		const teamId = await getMyTeamId(event.id, locals.user.id);
@@ -678,7 +695,7 @@ export const actions: Actions = {
 		const event = await fetchEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
 		const admin = isAdmin(locals.user);
-		const isActive = event.status === 'open' || (event.status === 'preview' && admin);
+		const isActive = admin ? event.status === 'open' || event.status === 'preview' : isClimbLive(event);
 		if (!isActive) return fail(400, { error: 'You can only remove submissions while the event is open' });
 
 		const teamId = await getMyTeamId(event.id, locals.user.id);
