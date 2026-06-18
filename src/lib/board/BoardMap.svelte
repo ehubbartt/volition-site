@@ -23,6 +23,7 @@
 		content = {},
 		nodeState = {},
 		nodeProgress = {},
+		teamMarkers = {},
 		focus = null,
 		onNodeClick
 	}: {
@@ -31,6 +32,9 @@
 		content?: Record<string, NodeContent>;
 		nodeState?: Record<string, NodeState>;
 		nodeProgress?: Record<string, NodeProgress>;
+		// nodeId -> the top-ranked teams whose current position is that node (their names sit
+		// beside the tile). Names/ranks only — no tile content.
+		teamMarkers?: Record<string, { rank: number; name: string }[]>;
 		focus?: FocusTarget | null;
 		onNodeClick?: (id: string) => void;
 	} = $props();
@@ -107,6 +111,27 @@
 	});
 
 	const nodeById = $derived(new Map(visible.nodes.map((n) => [n.id, n])));
+
+	// Structural cues so the three SECTIONS of one floor don't read as three floors: a light
+	// dotted bracket down the LEFT side of each section with its letter (A/B/C) in the middle,
+	// plus a small "Intermission" tag on each mid tile.
+	const sectionBrackets = $derived.by(() => {
+		const out: { section: string; top: number; bottom: number; x: number }[] = [];
+		for (const sec of ['A', 'B', 'C'] as const) {
+			const ns = visible.nodes.filter((n) => n.section === sec);
+			if (!ns.length) continue;
+			const ys = ns.map((n) => n.y);
+			const xs = ns.map((n) => n.x);
+			out.push({
+				section: sec,
+				top: Math.min(...ys) - 30,
+				bottom: Math.max(...ys) + 30,
+				x: Math.min(...xs) - 74 // left of the leftmost lane + its name label
+			});
+		}
+		return out;
+	});
+	const midNodes = $derived(visible.nodes.filter((n) => n.id.includes('-mid-')));
 
 	const vbStr = $derived.by(() => {
 		const band = visible.band;
@@ -194,11 +219,10 @@
 <div class="board">
 	<div class="floor-panel">
 		<div class="floor-meta">
-			<div class="floor-meta-label">{visible.band.label}</div>
-			<div class="floor-meta-sub">
-				{visible.band.ways}-way picks{visible.band.floor === 3 ? ' · final' : ''}
-			</div>
+			<div class="floor-meta-label">{visible.band.label} <span class="floor-of">of {topology.floors.length}</span></div>
+			<div class="floor-meta-sub">Sections A · B · C → Boss</div>
 		</div>
+		<span class="floor-tabs-hint">Switch floor</span>
 		<div class="floor-tabs" role="tablist" aria-label="Floor selector">
 			{#each topology.floors as f (f.floor)}
 				{@const locked = lockedSet.has(f.floor)}
@@ -421,6 +445,44 @@
 					{/if}
 				{/each}
 			</g>
+
+			<!-- Section brackets (left side) + intermission tags — make a floor's structure clear. -->
+			<g class="structure-labels">
+				{#each sectionBrackets as b (b.section)}
+					{@const mid = (b.top + b.bottom) / 2}
+					<line class="sec-bracket" x1={b.x} y1={b.top} x2={b.x} y2={mid - 13} />
+					<line class="sec-bracket" x1={b.x} y1={mid + 13} x2={b.x} y2={b.bottom} />
+					<line class="sec-bracket" x1={b.x} y1={b.top} x2={b.x + 10} y2={b.top} />
+					<line class="sec-bracket" x1={b.x} y1={b.bottom} x2={b.x + 10} y2={b.bottom} />
+					<text class="sec-letter" x={b.x} y={mid} text-anchor="middle" dominant-baseline="central">
+						{b.section}
+					</text>
+				{/each}
+				{#each midNodes as n (n.id)}
+					<foreignObject x={n.x - 70} y={n.y - 47} width="140" height="18" class="struct-fo">
+						<div class="mid-header" xmlns="http://www.w3.org/1999/xhtml">Intermission</div>
+					</foreignObject>
+				{/each}
+			</g>
+
+			<!-- Top-team name tags beside their current tile (subtle, non-interactive). -->
+			<g class="team-markers">
+				{#each visible.nodes as n (n.id)}
+					{#if teamMarkers[n.id]?.length}
+						{@const ms = teamMarkers[n.id]}
+						<foreignObject x={n.x + 24} y={n.y - 20} width="118" height="64" class="marker-fo">
+							<div class="marker-wrap" xmlns="http://www.w3.org/1999/xhtml">
+								{#each ms.slice(0, 3) as m (m.rank)}
+									<span class="marker-chip"><b>{m.rank}</b> {m.name}</span>
+								{/each}
+								{#if ms.length > 3}
+									<span class="marker-more">+{ms.length - 3} more</span>
+								{/if}
+							</div>
+						</foreignObject>
+					{/if}
+				{/each}
+			</g>
 		</svg>
 	</div>
 </div>
@@ -463,18 +525,34 @@
 
 	.floor-meta-label {
 		font-family: var(--font-heading);
-		font-size: 1.1rem;
+		font-size: 1.4rem;
 		color: var(--accent);
 		letter-spacing: 1px;
+		text-transform: uppercase;
 		text-shadow: var(--ts);
+	}
+
+	.floor-of {
+		font-size: 0.85rem;
+		color: var(--muted);
+		text-transform: none;
 	}
 
 	.floor-meta-sub {
 		font-family: var(--font-body);
 		font-size: 0.7rem;
 		color: var(--muted);
+		letter-spacing: 1px;
+		text-transform: uppercase;
+		text-shadow: var(--ts);
+	}
+
+	.floor-tabs-hint {
+		font-family: var(--font-body);
+		font-size: 0.62rem;
 		letter-spacing: 1.5px;
 		text-transform: uppercase;
+		color: var(--muted-soft, var(--muted));
 		text-shadow: var(--ts);
 	}
 
@@ -761,6 +839,81 @@
 		stroke: #fff;
 		stroke-width: 2.2;
 		stroke-linecap: round;
+	}
+
+	/* Section / intermission dividers — make a floor's internal structure unmistakable. */
+	.struct-fo {
+		overflow: visible;
+		pointer-events: none;
+	}
+
+	.sec-bracket {
+		stroke: rgba(240, 210, 60, 0.45);
+		stroke-width: 1.2;
+		stroke-dasharray: 1.5 4;
+		stroke-linecap: round;
+		fill: none;
+	}
+
+	.sec-letter {
+		fill: var(--yellow);
+		opacity: 0.8;
+		font-family: var(--font-heading);
+		font-size: 21px;
+		paint-order: stroke;
+		stroke: rgba(0, 0, 0, 0.7);
+		stroke-width: 3px;
+	}
+
+	.mid-header {
+		text-align: center;
+		font-family: var(--font-body);
+		font-size: 9px;
+		letter-spacing: 2px;
+		text-transform: uppercase;
+		color: var(--muted);
+		text-shadow: 1px 1px 2px #000, 0 0 3px #000;
+	}
+
+	/* Top-team name tags — kept deliberately subtle so they read as annotations, not clutter. */
+	.marker-fo {
+		overflow: visible;
+		pointer-events: none;
+	}
+
+	.marker-wrap {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 2px;
+	}
+
+	.marker-chip {
+		max-width: 116px;
+		padding: 0 4px;
+		font-family: var(--font-body);
+		font-size: 8.5px;
+		line-height: 1.4;
+		color: rgba(255, 255, 255, 0.82);
+		background: rgba(0, 0, 0, 0.6);
+		border: 1px solid rgba(255, 152, 31, 0.4);
+		border-radius: 3px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.marker-chip b {
+		color: var(--yellow);
+		font-family: var(--font-heading);
+		margin-right: 2px;
+	}
+
+	.marker-more {
+		padding: 0 4px;
+		font-size: 8px;
+		color: var(--muted);
+		text-shadow: 1px 1px 1px #000;
 	}
 
 	.label-fo {

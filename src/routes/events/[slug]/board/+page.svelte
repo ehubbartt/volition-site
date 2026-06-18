@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import BoardMap from '$lib/board/BoardMap.svelte';
+	import BoardLeaderboard from '$lib/board/BoardLeaderboard.svelte';
 	import BoardSubmitModal from '$lib/board/BoardSubmitModal.svelte';
 	import BoardBossModal from '$lib/board/BoardBossModal.svelte';
 	import BoardChoosePathModal from '$lib/board/BoardChoosePathModal.svelte';
@@ -139,11 +140,14 @@
 	{#if contentVisible}
 		<p class="muted teaser">
 			{#if data.status === 'open'}
-				Pick a path, complete its tiles, then tackle the intermission tile before choosing the next.
-				Click any tile for the rules and to submit your team's proof.
+				The climb has <strong>{topology.floors.length} floors</strong> — you're viewing one at a time
+				(switch with the floor tabs, top-left). Each floor has <strong>3 sections (A → B → C)</strong>
+				split by intermission tiles and ends in a <strong>boss</strong>; beat it to climb to the next.
+				Pick a path, complete its tiles, then tackle the intermission before choosing the next. Click
+				any tile for the rules and to submit your team's proof.
 			{:else}
-				Admin preview — the board is still sealed for players. Click any tile to review its rules and
-				proofs.
+				Admin preview — the board is still sealed for players. Each of the {topology.floors.length}
+				floors has 3 sections (A → B → C) + a boss. Click any tile to review its rules and proofs.
 			{/if}
 		</p>
 	{:else}
@@ -154,15 +158,23 @@
 	{/if}
 </section>
 
-<BoardMap
-	{topology}
-	{lockedFloors}
-	content={data.content}
-	nodeState={data.nodeState}
-	nodeProgress={data.nodeProgress}
-	focus={focusTarget}
-	{onNodeClick}
-/>
+<div class="board-layout" class:has-side={data.leaderboard.length > 0}>
+	<div class="board-main">
+		<BoardMap
+			{topology}
+			{lockedFloors}
+			content={data.content}
+			nodeState={data.nodeState}
+			nodeProgress={data.nodeProgress}
+			teamMarkers={data.teamMarkers}
+			focus={focusTarget}
+			{onNodeClick}
+		/>
+	</div>
+	{#if data.leaderboard.length > 0}
+		<BoardLeaderboard entries={data.leaderboard} teamCount={data.teamCount} />
+	{/if}
+</div>
 
 {#if openTile && openIsBoss}
 	<BoardBossModal
@@ -222,6 +234,23 @@
 
 	.crumbs a:hover {
 		color: var(--accent);
+	}
+
+	.board-layout {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 0.75rem;
+	}
+
+	.board-layout.has-side {
+		grid-template-columns: minmax(0, 1fr) 18rem;
+	}
+
+	/* Below ~900px the leaderboard drops under the board (full width, scrolls internally). */
+	@media (max-width: 900px) {
+		.board-layout.has-side {
+			grid-template-columns: 1fr;
+		}
 	}
 
 	.hero {

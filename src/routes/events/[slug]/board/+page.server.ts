@@ -3,14 +3,24 @@ import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { isClanMember } from '$lib/server/clan';
 import { renderMarkdown } from '$lib/markdown';
-import { duoNodeRefs, DUO_SECTIONS, parseDuoNodeId } from '$lib/board/config';
+import {
+	duoNodeRefs,
+	DUO_SECTIONS,
+	DUO_FLOORS,
+	parseDuoNodeId,
+	duoStartId,
+	duoMidId,
+	duoBossId,
+	duoPathId
+} from '$lib/board/config';
 import { getBoardStatus, type BoardStatus } from '$lib/board/state';
 import {
 	computeProgress,
 	laneCountForFloor,
 	type ProgressResult,
 	type NodeState,
-	type NodeProgress
+	type NodeProgress,
+	type Stage
 } from '$lib/board/progress';
 import {
 	DUO_WOLF_EVENT_SLUG,
@@ -87,6 +97,19 @@ interface TileContent {
 	img: string | null;
 	faq_html: string | null;
 	autoClear: string | null; // boss-only instant-clear label (null otherwise)
+}
+
+// One spoiler-free leaderboard row (no tile content — just how far the team has climbed).
+interface LeaderEntry {
+	rank: number;
+	name: string;
+	stageLabel: string;
+	floor: number;
+	stageIndex: number;
+	pct: number; // stageIndex / total stages
+	finished: boolean;
+	tilesComplete: number;
+	isMine: boolean;
 }
 
 // Convert single newlines in the (markdown-able) FAQ into hard breaks, leaving
@@ -213,6 +236,43 @@ async function fetchTeamProgress(eventId: string, teamId: string): Promise<Progr
 	});
 }
 
+// Spoiler-free stage label for the leaderboard (floor + section, NEVER the tile name).
+function duoStageLabel(stage: Stage | undefined): string {
+	if (!stage) return 'Finished';
+	if (stage.kind === 'start') return `Floor ${stage.floor} · Start`;
+	if (stage.kind === 'boss') return `Floor ${stage.floor} · Boss`;
+	if (stage.kind === 'mid') return `Floor ${stage.floor} · Intermission ${stage.section}`;
+	return `Floor ${stage.floor} · Section ${stage.section}`;
+}
+
+// A single representative board node for "where a team is", used to drop their name on the
+// board. start/mid/boss → that node; a chosen section → its current active tile (handles
+// swaps); an unchosen section → the middle lane's first tile (they're picking a path).
+function teamMarkerNode(prog: ProgressResult, _choice: Record<string, number>): string | null {
+	const stage = prog.stages[prog.currentStageIndex];
+	if (!stage) return null; // finished
+	if (stage.kind === 'start') return duoStartId(stage.floor);
+	if (stage.kind === 'boss') return duoBossId(stage.floor);
+	if (stage.kind === 'mid') return duoMidId(stage.floor, stage.section!);
+	let best: string | null = null;
+	let bestStep = Infinity;
+	for (const ref of duoNodeRefs()) {
+		if (
+			ref.kind === 'path' &&
+			ref.floor === stage.floor &&
+			ref.section === stage.section &&
+			prog.nodeState[ref.id] === 'active' &&
+			(ref.step ?? 0) < bestStep
+		) {
+			bestStep = ref.step ?? 0;
+			best = ref.id;
+		}
+	}
+	if (best) return best;
+	const lanes = laneCountForFloor(stage.floor);
+	return duoPathId(stage.floor, stage.section!, Math.floor(lanes / 2), 0);
+}
+
 export const load: PageServerLoad = async ({ params, locals, url }) => {
 	if (!locals.user) throw redirect(303, '/');
 	if (!locals.user.rsn || !locals.user.clan_allegiance || !locals.user.account_type) {
@@ -249,6 +309,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	let swapsBase = 0;
 	let swapsBonus = 0;
 	let mySwaps: { floor: number; section: string; step: number; lane: number }[] = [];
+	// Leaderboard (top 20, spoiler-free) + on-board markers (top 10 → nodeId → names).
+	let leaderboard: LeaderEntry[] = [];
+	let teamMarkers: Record<string, { rank: number; name: string }[]> = {};
+	let teamCount = 0;
 
 	if (contentVisible) {
 		memberOfClan = await isClanMember(locals.user.discord_id, locals.user.rsn);
@@ -379,6 +443,100 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 				});
 			}
 		}
+
+		// ---- Leaderboard + on-board markers (ALL teams) ----
+		// Run the SAME progress engine for every team to rank them by how far they've climbed.
+		// Only the STAGE (floor/section) is exposed — never the tile name/content — so the
+		// ranking can't spoil the board.
+		const [{ data: teamRows }, { data: allChoices }, { data: allSwaps }] = await Promise.all([
+			db().from('vs_teams').select('id, name').eq('event_id', event.id),
+			db().from('vs_team_path_choices').select('team_id, floor, section, lane').eq('event_id', event.id),
+			db()
+				.from('vs_team_tile_swaps')
+				.select('team_id, floor, section, step, lane')
+				.eq('event_id', event.id)
+		]);
+		teamCount = (teamRows ?? []).length;
+
+		const teamApproved: Record<string, Record<string, number>> = {};
+		const teamPending: Record<string, Record<string, number>> = {};
+		for (const c of completions) {
+			if (!DUO_TILE_IDS.has(c.target_id)) continue;
+			if (c.status !== 'approved' && c.status !== 'pending') continue;
+			const q = Math.max(1, Number(c.quantity) || 1);
+			const bucket = c.status === 'approved' ? teamApproved : teamPending;
+			const m = (bucket[c.team_id] ??= {});
+			m[c.target_id] = (m[c.target_id] ?? 0) + q;
+		}
+		const teamChoice: Record<string, Record<string, number>> = {};
+		for (const ch of (allChoices ?? []) as {
+			team_id: string;
+			floor: number;
+			section: string;
+			lane: number;
+		}[]) {
+			(teamChoice[ch.team_id] ??= {})[`${ch.floor}:${ch.section}`] = ch.lane;
+		}
+		const teamSwap: Record<string, Record<string, number>> = {};
+		for (const s of (allSwaps ?? []) as {
+			team_id: string;
+			floor: number;
+			section: string;
+			step: number;
+			lane: number;
+		}[]) {
+			(teamSwap[s.team_id] ??= {})[`${s.floor}:${s.section}:${s.step}`] = s.lane;
+		}
+
+		const ranked = ((teamRows ?? []) as { id: string; name: string | null }[])
+			.map((t) => {
+				const tprog = computeProgress({
+					approvedByTile: teamApproved[t.id] ?? {},
+					pendingByTile: teamPending[t.id] ?? {},
+					requiredByTile,
+					choiceByFloorSection: teamChoice[t.id] ?? {},
+					swapByPositionKey: teamSwap[t.id] ?? {}
+				});
+				const stagesTotal = tprog.stages.length;
+				const stage = tprog.stages[tprog.currentStageIndex];
+				const tilesComplete = Object.values(tprog.nodeState).filter((s) => s === 'complete').length;
+				return {
+					name: t.name ?? 'Unnamed team',
+					stageIndex: tprog.currentStageIndex,
+					pct: Math.round((Math.min(tprog.currentStageIndex, stagesTotal) / stagesTotal) * 100),
+					finished: tprog.currentStageIndex >= stagesTotal,
+					floor: stage?.floor ?? DUO_FLOORS,
+					stageLabel: duoStageLabel(stage),
+					tilesComplete,
+					markerNode: teamMarkerNode(tprog, teamChoice[t.id] ?? {}),
+					isMine: t.id === myTeamId
+				};
+			})
+			.sort(
+				(a, b) =>
+					b.stageIndex - a.stageIndex ||
+					b.tilesComplete - a.tilesComplete ||
+					a.name.localeCompare(b.name)
+			)
+			.map((t, i) => ({ ...t, rank: i + 1 }));
+
+		leaderboard = ranked.slice(0, 20).map((t) => ({
+			rank: t.rank,
+			name: t.name,
+			stageLabel: t.stageLabel,
+			floor: t.floor,
+			stageIndex: t.stageIndex,
+			pct: t.pct,
+			finished: t.finished,
+			tilesComplete: t.tilesComplete,
+			isMine: t.isMine
+		}));
+
+		// On-board markers for the top 10 (skip finished teams — they have no current node).
+		for (const t of ranked.slice(0, 10)) {
+			if (!t.markerNode || t.finished) continue;
+			(teamMarkers[t.markerNode] ??= []).push({ rank: t.rank, name: t.name });
+		}
 	}
 
 	return {
@@ -405,7 +563,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		swapsBase,
 		swapsBonus,
 		swapsPerFloor: SWAPS_PER_FLOOR,
-		swaps: mySwaps
+		swaps: mySwaps,
+		leaderboard,
+		teamMarkers,
+		teamCount
 	};
 };
 
