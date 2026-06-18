@@ -2,6 +2,7 @@
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
 	import AccountIcon from '$lib/AccountIcon.svelte';
+	import BoardLeaderboard from '$lib/board/BoardLeaderboard.svelte';
 	import { CLAN_OPTIONS } from '$lib/clans';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -134,7 +135,7 @@
 
 <section class="grid">
 	<div class="main">
-		{#if data.isAdmin}
+		{#if data.isAdmin && !data.eventLive}
 			<div class="card admin-card">
 				<h2>Manage event <span class="admin-tag">admin</span></h2>
 
@@ -205,17 +206,67 @@
 			</div>
 		{/if}
 
-		{#if !signedUp}
-			<div class="card join-card">
-				<h2>Join this event</h2>
-				<p class="muted">
-					Once you join, you'll show up in the player pool. Other players can invite you to
-					duo, or you can invite them.
-				</p>
-				<form method="POST" action="?/joinEvent" use:enhance>
-					<button type="submit" class="primary">Join event</button>
-				</form>
+		{#if data.eventLive}
+			{#if !onTeam}
+				<div class="card solo-cta">
+					<h2>🐺 Play solo</h2>
+					{#if signedUp}
+						<p class="muted">
+							Signups are closed and you didn't pair into a duo — no problem. Join the climb as a
+							team of one and play solo.
+						</p>
+						<form method="POST" action="?/goSolo" use:enhance>
+							<button type="submit" class="primary">Play solo (team of one)</button>
+						</form>
+					{:else}
+						<p class="muted">
+							You're not signed up for this event, so you can't join the climb. Catch the next one!
+						</p>
+					{/if}
+				</div>
+			{/if}
+
+			<div class="teams-view-head">
+				<div>
+					<h2>Teams &amp; progress</h2>
+					{#if data.standings?.myEntry}
+						<p class="muted">
+							Your team <strong>{data.standings.myEntry.name}</strong> —
+							<strong class="my-stage"
+								>{data.standings.myEntry.finished
+									? '🏁 Finished'
+									: data.standings.myEntry.stageLabel}</strong
+							> (rank #{data.standings.myEntry.rank} of {data.standings.teamCount})
+						</p>
+					{/if}
+				</div>
+				{#if onTeam}
+					<a class="board-open" href="/events/{data.event.slug}/board">Go to board →</a>
+				{/if}
 			</div>
+			{#if data.standings}
+				<BoardLeaderboard
+					leaderboard={data.standings.leaderboard}
+					byClan={data.standings.byClan}
+					teamCount={data.standings.teamCount}
+					maxHeight="40rem"
+				/>
+			{/if}
+		{/if}
+
+		{#if !signedUp}
+			{#if !data.eventLive}
+				<div class="card join-card">
+					<h2>Join this event</h2>
+					<p class="muted">
+						Once you join, you'll show up in the player pool. Other players can invite you to
+						duo, or you can invite them.
+					</p>
+					<form method="POST" action="?/joinEvent" use:enhance>
+						<button type="submit" class="primary">Join event</button>
+					</form>
+				</div>
+			{/if}
 		{:else}
 			{#if onTeam}
 			<div class="card team-card">
@@ -280,19 +331,24 @@
 					<button type="submit" class="danger">Leave team</button>
 				</form>
 			</div>
-		{:else}
+		{:else if !data.eventLive}
 			<div class="card signup-card">
 				<div class="signup-row">
 					<div>
 						<h2>You're signed up</h2>
 						<p class="muted">
-							You're in the player pool. Invite a player or accept an invite to form a duo —
-							or leave the event if you've changed your mind.
+							You're in the player pool. Invite a player or accept an invite to form a duo. No
+							partner? You can <strong>play solo</strong> as a team of one.
 						</p>
 					</div>
-					<form method="POST" action="?/leaveEvent" use:enhance>
-						<button type="submit" class="danger">Leave event</button>
-					</form>
+					<div class="signup-actions">
+						<form method="POST" action="?/goSolo" use:enhance>
+							<button type="submit" class="primary">Play solo</button>
+						</form>
+						<form method="POST" action="?/leaveEvent" use:enhance>
+							<button type="submit" class="danger">Leave event</button>
+						</form>
+					</div>
 				</div>
 			</div>
 
@@ -347,6 +403,7 @@
 			{/if}
 			{/if}
 
+			{#if !data.eventLive}
 			<div class="card">
 				<div class="section-head">
 					<h2>Player pool ({data.soloPool.length})</h2>
@@ -397,6 +454,7 @@
 					{/each}
 				{/if}
 			</div>
+			{/if}
 		{/if}
 
 		{#if data.teams.length > 0}
@@ -1078,5 +1136,64 @@
 			gap: 0.4rem;
 			align-items: flex-start;
 		}
+	}
+
+	/* "View teams" standings view (shown at ?view=teams once the climb is live). */
+	.teams-view-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.75rem;
+	}
+
+	.teams-view-head h2 {
+		margin: 0;
+	}
+
+	.teams-view-head .muted {
+		margin: 0.25rem 0 0;
+	}
+
+	.my-stage {
+		color: var(--yellow);
+	}
+
+	.board-open {
+		flex-shrink: 0;
+		padding: 0.5rem 1rem;
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		border-radius: var(--radius);
+		color: var(--accent);
+		text-decoration: none;
+		white-space: nowrap;
+	}
+
+	.board-open:hover {
+		background: var(--accent);
+		color: #1a1209;
+	}
+
+	.solo-cta {
+		border-color: var(--accent);
+		background: linear-gradient(180deg, rgba(255, 152, 31, 0.12), rgba(40, 32, 24, 0.85));
+	}
+
+	.solo-cta h2 {
+		margin: 0 0 0.4rem;
+	}
+
+	.solo-cta p {
+		margin: 0 0 0.75rem;
+	}
+
+	.signup-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		flex-shrink: 0;
 	}
 </style>

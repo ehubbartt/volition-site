@@ -13,12 +13,15 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
 
 	const view = url.searchParams.get('view') === 'reviewed' ? 'reviewed' : 'pending';
+	// Test view: admin preview-run submissions (vs_submissions.test), kept out of the
+	// live queue. Default (live) hides them; ?test=1 shows ONLY them.
+	const test = url.searchParams.get('test') === '1';
 
-	const { items, events, stats } = await loadPendingReview();
+	const { items, events, stats } = await loadPendingReview({ test });
 	// Only fetch the (heavier) reviewed history when that tab is active.
-	const reviewed = view === 'reviewed' ? await loadReviewedSubmissions() : null;
+	const reviewed = view === 'reviewed' ? await loadReviewedSubmissions({ test }) : null;
 
-	return { view, items, events, stats, reviewed };
+	return { view, test, items, events, stats, reviewed };
 };
 
 // Grant the event's vp_reward to the submitter the FIRST time one of their generic

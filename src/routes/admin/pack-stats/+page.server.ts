@@ -14,6 +14,7 @@ interface OpenRow {
 	pack_id: string | null;
 	pack_name: string | null;
 	cost_vp: number | null;
+	cost_gp: number | null;
 	card_count: number | null;
 	opened_at: string;
 }
@@ -46,6 +47,7 @@ export interface PlayerStat {
 	rsn: string | null; // for the public-profile link (/u/[rsn]); null = no profile URL
 	packsOpened: number;
 	vpSpent: number;
+	gpSpent: number;
 	cardsPulled: number; // cards obtained from opens (lifetime)
 	packsOwned: number; // unopened packs in inventory now
 	cardsOwned: number; // total card quantity owned now
@@ -62,7 +64,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// the first 1000 rows — vs_pack_open_cards (≈5 rows/open) blows past 1000 fast.
 	const [userRows, opens, openCards, cardRows, packRows] = await Promise.all([
 		selectAll<UserRow>('vs_users', 'id, rsn, discord_username'),
-		selectAll<OpenRow>('vs_pack_opens', 'user_id, pack_id, pack_name, cost_vp, card_count, opened_at'),
+		selectAll<OpenRow>('vs_pack_opens', 'user_id, pack_id, pack_name, cost_vp, cost_gp, card_count, opened_at'),
 		selectAll<OpenCardRow>('vs_pack_open_cards', 'rarity, finish'),
 		selectAll<UserCardRow>('vs_user_cards', 'user_id, quantity, card_id'),
 		selectAll<UserPackRow>('vs_user_packs', 'user_id, quantity')
@@ -88,6 +90,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 				rsn: rsnOf.get(userId) ?? null,
 				packsOpened: 0,
 				vpSpent: 0,
+				gpSpent: 0,
 				cardsPulled: 0,
 				packsOwned: 0,
 				cardsOwned: 0,
@@ -101,28 +104,33 @@ export const load: PageServerLoad = async ({ locals }) => {
 	};
 
 	// Open headers → per-player lifetime activity + per-pack breakdown.
-	const packBreak = new Map<string, { name: string; opens: number; vp: number; cards: number }>();
+	const packBreak = new Map<string, { name: string; opens: number; vp: number; gp: number; cards: number }>();
 	let totalOpens = 0;
 	let totalVpSpent = 0;
+	let totalGpSpent = 0;
 	let totalCardsPulled = 0;
 
 	for (const o of opens) {
 		const p = ensure(o.user_id);
 		const vp = o.cost_vp ?? 0;
+		const gp = o.cost_gp ?? 0;
 		const cc = o.card_count ?? 0;
 		p.packsOpened += 1;
 		p.vpSpent += vp;
+		p.gpSpent += gp;
 		p.cardsPulled += cc;
 		if (!p.lastOpened || o.opened_at > p.lastOpened) p.lastOpened = o.opened_at;
 
 		totalOpens += 1;
 		totalVpSpent += vp;
+		totalGpSpent += gp;
 		totalCardsPulled += cc;
 
 		const key = o.pack_id ?? o.pack_name ?? 'unknown';
-		const pb = packBreak.get(key) ?? { name: o.pack_name ?? 'Unknown pack', opens: 0, vp: 0, cards: 0 };
+		const pb = packBreak.get(key) ?? { name: o.pack_name ?? 'Unknown pack', opens: 0, vp: 0, gp: 0, cards: 0 };
 		pb.opens += 1;
 		pb.vp += vp;
+		pb.gp += gp;
 		pb.cards += cc;
 		packBreak.set(key, pb);
 	}
@@ -172,6 +180,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		totals: {
 			opens: totalOpens,
 			vpSpent: totalVpSpent,
+			gpSpent: totalGpSpent,
 			cardsPulled: totalCardsPulled,
 			openers: playerStats.filter((p) => p.packsOpened > 0).length
 		},

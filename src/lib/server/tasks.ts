@@ -337,12 +337,12 @@ async function duoWolfTask(user: SessionUser): Promise<PlayerTask | null> {
 	}
 
 	const { data: rows } = await db()
-		.from('vs_team_completions')
-		.select('tile_id')
+		.from('vs_submissions')
+		.select('target_id')
 		.eq('event_id', ev.id)
 		.eq('team_id', signup.team_id)
 		.eq('status', 'approved');
-	const done = new Set((rows ?? []).map((r) => r.tile_id as string)).size;
+	const done = new Set((rows ?? []).map((r) => r.target_id as string)).size;
 
 	return {
 		id: 'event-duowolf',

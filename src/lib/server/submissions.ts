@@ -58,6 +58,7 @@ interface RawRow {
 	team_name: string | null;
 	target_id: string;
 	target_label: string | null;
+	quantity: number; // count-based tiles: how many of `required` this row covers (else 1)
 	proof_urls: string[] | null;
 	submitted_at: string;
 	user: UserEmbed | null;
@@ -108,7 +109,7 @@ export async function countPendingReview(): Promise<number> {
 	const [bingo, team, generic] = await Promise.all([
 		sb.from('vs_bingo_completions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
 		sb.from('vs_team_completions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-		sb.from('vs_submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+		sb.from('vs_submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending').eq('test', false)
 	]);
 	return (bingo.count ?? 0) + (team.count ?? 0) + (generic.count ?? 0);
 }
@@ -116,7 +117,7 @@ export async function countPendingReview(): Promise<number> {
 // Loads every pending submission across all sources, normalised + grouped into one
 // ReviewItem per (source, event, submitter-or-team, task). Also returns the distinct
 // events present (for the queue's event filter) and headline counts.
-export async function loadPendingReview(): Promise<{
+export async function loadPendingReview({ test = false }: { test?: boolean } = {}): Promise<{
 	items: ReviewItem[];
 	events: { id: string; slug: string; name: string }[];
 	stats: { pending: number; approved: number; rejected: number };
@@ -142,9 +143,10 @@ export async function loadPendingReview(): Promise<{
 		sb
 			.from('vs_submissions')
 			.select(
-				'id, event_id, task_id, user_id, discord_id, submitter_name, team_id, target_id, target_label, proof_urls, submitted_at, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name), vs_tasks!task_id(id, name)'
+				'id, event_id, task_id, user_id, discord_id, submitter_name, team_id, target_id, target_label, quantity, proof_urls, submitted_at, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name), vs_tasks!task_id(id, name)'
 			)
 			.eq('status', 'pending')
+			.eq('test', test)
 			.order('submitted_at', { ascending: true }),
 		sb.from('vs_submissions').select('id', { count: 'exact', head: true }).eq('status', 'approved'),
 		sb.from('vs_submissions').select('id', { count: 'exact', head: true }).eq('status', 'rejected')
@@ -156,6 +158,9 @@ export async function loadPendingReview(): Promise<{
 
 	const raw: RawRow[] = [];
 
+	// bingo + team are legacy tables with no `test` column, so they only ever show in the
+	// LIVE queue; the test view is generic (vs_submissions) test rows only.
+	if (!test)
 	for (const r of (bingoRes.data ?? []) as unknown as Array<
 		Record<string, unknown> & { vs_users: UserEmbed | null }
 	>) {
@@ -172,12 +177,14 @@ export async function loadPendingReview(): Promise<{
 			team_name: null,
 			target_id: r.tile_id as string,
 			target_label: null,
+			quantity: 1,
 			proof_urls: (r.proof_urls as string[] | null) ?? [],
 			submitted_at: r.submitted_at as string,
 			user: r.vs_users
 		});
 	}
 
+	if (!test)
 	for (const r of (teamRes.data ?? []) as unknown as Array<
 		Record<string, unknown> & { vs_users: UserEmbed | null; vs_teams: { id: string; name: string | null } | null }
 	>) {
@@ -194,6 +201,7 @@ export async function loadPendingReview(): Promise<{
 			team_name: r.vs_teams?.name ?? null,
 			target_id: r.tile_id as string,
 			target_label: null,
+			quantity: 1,
 			proof_urls: (r.proof_urls as string[] | null) ?? [],
 			submitted_at: r.submitted_at as string,
 			user: r.vs_users
@@ -220,6 +228,7 @@ export async function loadPendingReview(): Promise<{
 			team_name: r.vs_teams?.name ?? null,
 			target_id: r.target_id as string,
 			target_label: (r.target_label as string | null) ?? null,
+			quantity: Math.max(1, Number(r.quantity) || 1),
 			submitted_at: r.submitted_at as string,
 			proof_urls: (r.proof_urls as string[] | null) ?? [],
 			user: r.vs_users
@@ -239,8 +248,10 @@ export async function loadPendingReview(): Promise<{
 		if (!context) continue;
 		const submitter = buildSubmitter(r);
 		if (!submitter) continue;
-		const owner = r.team_id ?? r.user_id ?? r.discord_id ?? r.submitter_name ?? r.id;
-		const key = `${r.source}|${context.id}|${owner}|${r.target_id}`;
+		// One card PER SUBMISSION ROW (each submit action) — separate submits to the same
+		// tile are reviewed independently (e.g. each proof covering part of a count-based
+		// tile's required total approved/rejected on its own).
+		const key = r.id;
 
 		// Task rows take their label from the task name; others from resolveTask.
 		const taskLabel =
@@ -264,13 +275,15 @@ export async function loadPendingReview(): Promise<{
 				task: taskLabel,
 				proofUrls: [],
 				submittedAt: r.submitted_at,
-				count: 0
+				count: 0,
+				quantity: 0
 			};
 			groups.set(key, group);
 		}
 		group.ids.push(r.id);
 		group.proofUrls.push(...(r.proof_urls ?? []));
 		group.count += 1;
+		group.quantity += r.quantity;
 		if (r.submitted_at < group.submittedAt) group.submittedAt = r.submitted_at;
 	}
 
@@ -295,7 +308,10 @@ export async function loadPendingReview(): Promise<{
 // the read-only history view, normalised + grouped the same way as the pending queue
 // (plus status / reviewer / reviewed-at / note). Bounded per source (newest reviewed
 // first) so the payload stays reasonable. Also returns the distinct events present.
-export async function loadReviewedSubmissions(limitPerSource = 200): Promise<{
+export async function loadReviewedSubmissions({
+	test = false,
+	limitPerSource = 200
+}: { test?: boolean; limitPerSource?: number } = {}): Promise<{
 	items: ReviewedItem[];
 	events: { id: string; slug: string; name: string }[];
 }> {
@@ -323,9 +339,10 @@ export async function loadReviewedSubmissions(limitPerSource = 200): Promise<{
 		sb
 			.from('vs_submissions')
 			.select(
-				'id, event_id, task_id, user_id, discord_id, submitter_name, team_id, target_id, target_label, proof_urls, submitted_at, status, reviewed_at, review_note, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name), vs_tasks!task_id(id, name), reviewer:vs_users!reviewed_by(rsn, discord_username)'
+				'id, event_id, task_id, user_id, discord_id, submitter_name, team_id, target_id, target_label, quantity, proof_urls, submitted_at, status, reviewed_at, review_note, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name), vs_tasks!task_id(id, name), reviewer:vs_users!reviewed_by(rsn, discord_username)'
 			)
 			.in('status', REVIEWED)
+			.eq('test', test)
 			.order('reviewed_at', { ascending: false })
 			.limit(limitPerSource)
 	]);
@@ -346,6 +363,8 @@ export async function loadReviewedSubmissions(limitPerSource = 200): Promise<{
 
 	const raw: ReviewedRaw[] = [];
 
+	// bingo + team are legacy (no `test` column) → live view only; test view is generic.
+	if (!test)
 	for (const r of (bingoRes.data ?? []) as unknown as Array<
 		Record<string, unknown> & {
 			vs_users: UserEmbed | null;
@@ -365,6 +384,7 @@ export async function loadReviewedSubmissions(limitPerSource = 200): Promise<{
 			team_name: null,
 			target_id: r.tile_id as string,
 			target_label: null,
+			quantity: 1,
 			proof_urls: (r.proof_urls as string[] | null) ?? [],
 			submitted_at: r.submitted_at as string,
 			user: r.vs_users,
@@ -375,6 +395,7 @@ export async function loadReviewedSubmissions(limitPerSource = 200): Promise<{
 		});
 	}
 
+	if (!test)
 	for (const r of (teamRes.data ?? []) as unknown as Array<
 		Record<string, unknown> & {
 			vs_users: UserEmbed | null;
@@ -395,6 +416,7 @@ export async function loadReviewedSubmissions(limitPerSource = 200): Promise<{
 			team_name: r.vs_teams?.name ?? null,
 			target_id: r.tile_id as string,
 			target_label: null,
+			quantity: 1,
 			proof_urls: (r.proof_urls as string[] | null) ?? [],
 			submitted_at: r.submitted_at as string,
 			user: r.vs_users,
@@ -426,6 +448,7 @@ export async function loadReviewedSubmissions(limitPerSource = 200): Promise<{
 			team_name: r.vs_teams?.name ?? null,
 			target_id: r.target_id as string,
 			target_label: (r.target_label as string | null) ?? null,
+			quantity: Math.max(1, Number(r.quantity) || 1),
 			proof_urls: (r.proof_urls as string[] | null) ?? [],
 			submitted_at: r.submitted_at as string,
 			user: r.vs_users,
@@ -436,8 +459,8 @@ export async function loadReviewedSubmissions(limitPerSource = 200): Promise<{
 		});
 	}
 
-	// Group by (source, context, owner, target, STATUS) — status is in the key so a
-	// group is homogeneous (a mixed-decision tile splits into two cards).
+	// One card PER SUBMISSION ROW (matches the pending queue), so each reviewed submit
+	// shows independently with its own decision.
 	const groups = new Map<string, ReviewedItem>();
 	for (const r of raw) {
 		const context =
@@ -449,8 +472,7 @@ export async function loadReviewedSubmissions(limitPerSource = 200): Promise<{
 		if (!context) continue;
 		const submitter = buildSubmitter(r);
 		if (!submitter) continue;
-		const owner = r.team_id ?? r.user_id ?? r.discord_id ?? r.submitter_name ?? r.id;
-		const key = `${r.source}|${context.id}|${owner}|${r.target_id}|${r.status}`;
+		const key = r.id;
 
 		const taskLabel =
 			r.source === 'generic' && r.task_id
@@ -699,6 +721,8 @@ export async function createSubmission({
 	teamId = null,
 	targetId,
 	targetLabel = null,
+	quantity = 1,
+	test = false,
 	files
 }: {
 	taskId?: string | null;
@@ -709,9 +733,15 @@ export async function createSubmission({
 	teamId?: string | null;
 	targetId: string;
 	targetLabel?: string | null;
+	// How many of a count-based tile's `required` this single proof covers (default 1).
+	// Progress sums approved quantities; non-count events just leave it 1.
+	quantity?: number;
+	// Test submission (admin preview run) — hidden from the live /admin/submissions queue.
+	test?: boolean;
 	files: File[];
 }): Promise<{ ok: true } | { ok: false; error: string }> {
 	if (!taskId && !eventId) return { ok: false, error: 'Missing task/event' };
+	const qty = Number.isFinite(quantity) ? Math.max(1, Math.floor(quantity)) : 1;
 
 	// One-and-done: a task this submitter has already had APPROVED can't be submitted
 	// again (no farming a completed task's reward). Pending duplicates are still allowed
@@ -765,6 +795,8 @@ export async function createSubmission({
 		team_id: teamId,
 		target_id: targetId,
 		target_label: targetLabel,
+		quantity: qty,
+		test,
 		proof_urls: urls,
 		proof_paths: paths
 	});

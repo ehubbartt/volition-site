@@ -29,7 +29,14 @@ export const GET: RequestHandler = async ({ url, cookies, locals }) => {
 	let tokens;
 	try {
 		tokens = await discord().validateAuthorizationCode(code, null);
-	} catch {
+	} catch (e) {
+		// Surface the REAL reason. arctic throws OAuth2RequestError (with .code like
+		// invalid_client / invalid_grant) when Discord rejects the exchange; a Fly→Discord
+		// network/egress failure throws a TypeError ("fetch failed") with a .cause instead.
+		const err = e as { code?: string; description?: string; message?: string; cause?: unknown };
+		console.error(
+			`[oauth] token exchange FAILED code=${err.code ?? 'n/a'} desc=${err.description ?? 'n/a'} msg=${err.message ?? String(e)} cause=${err.cause ? String(err.cause) : 'n/a'}`
+		);
 		throw error(400, 'Failed to validate Discord authorization code');
 	}
 

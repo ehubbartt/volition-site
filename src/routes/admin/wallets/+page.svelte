@@ -1,14 +1,15 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import { formatGP } from '$lib/gp';
+	import { enhance } from '$app/forms';
 	import StatsTabs from '$lib/admin/StatsTabs.svelte';
 
 	let { data }: { data: PageData } = $props();
 
 	let search = $state('');
-	let sortBy = $state<'rsn' | 'points' | 'walletValue' | 'unpaidCount' | 'clan_joined_at'>(
-		'walletValue'
-	);
+	let sortBy = $state<
+		'rsn' | 'points' | 'gold_balance' | 'walletValue' | 'unpaidCount' | 'clan_joined_at'
+	>('walletValue');
 	let sortDir = $state<'asc' | 'desc'>('desc');
 	let expanded = $state<string | number | null>(null);
 
@@ -72,6 +73,10 @@
 			<span class="lbl">Total VP</span>
 		</div>
 		<div class="stat">
+			<span class="num">{formatGP(data.totals.goldBalance)}</span>
+			<span class="lbl">GP balances</span>
+		</div>
+		<div class="stat">
 			<span class="num">{formatGP(data.totals.walletValue)}</span>
 			<span class="lbl">Wallet value (GP)</span>
 		</div>
@@ -100,6 +105,9 @@
 						<th class="click" onclick={() => toggleSort('rsn')}>RSN{arrow('rsn')}</th>
 						<th>Discord ID</th>
 						<th class="r click" onclick={() => toggleSort('points')}>VP{arrow('points')}</th>
+						<th class="r click" onclick={() => toggleSort('gold_balance')}
+							>GP bal{arrow('gold_balance')}</th
+						>
 						<th class="r click" onclick={() => toggleSort('walletValue')}
 							>Wallet value{arrow('walletValue')}</th
 						>
@@ -124,6 +132,11 @@
 							<td class="muted small">{p.discord_id || '—'}</td>
 							<td class="r">{fmt(p.points)}</td>
 							<td class="r">
+								{#if p.gold_balance > 0}<span class="gp gold">{formatGP(p.gold_balance)}</span>{:else}<span
+										class="muted">—</span
+									>{/if}
+							</td>
+							<td class="r">
 								{#if p.walletValue > 0}<span class="gp">{formatGP(p.walletValue)}</span>{:else}<span
 										class="muted">—</span
 									>{/if}
@@ -137,7 +150,30 @@
 						</tr>
 						{#if isOpen}
 							<tr class="detail">
-								<td colspan="7">
+								<td colspan="8">
+									<div class="gp-settle">
+										<span>
+											GP balance: <strong class="gp gold">{formatGP(p.gold_balance)}</strong>
+										</span>
+										{#if p.gold_balance > 0}
+											<form
+												method="POST"
+												action="?/settleGp"
+												use:enhance
+												onsubmit={(e) => {
+													if (
+														!confirm(
+															`Zero ${p.rsn || p.discord_id}'s GP balance (${formatGP(p.gold_balance)})? GP is site-only (packs / event buy-ins, NOT claimable in-game) — only do this as a manual correction.`
+														)
+													)
+														e.preventDefault();
+												}}
+											>
+												<input type="hidden" name="id" value={p.id} />
+												<button type="submit" class="settle-btn">Zero balance</button>
+											</form>
+										{/if}
+									</div>
 									{#if p.items.length === 0}
 										<p class="muted empty">No items in wallet.</p>
 									{:else}
@@ -169,7 +205,7 @@
 							</tr>
 						{/if}
 					{:else}
-						<tr><td colspan="7" class="empty muted">No members found.</td></tr>
+						<tr><td colspan="8" class="empty muted">No members found.</td></tr>
 					{/each}
 				</tbody>
 			</table>
@@ -292,6 +328,31 @@
 	}
 	.gp {
 		color: var(--success);
+	}
+	.gp.gold {
+		color: #e9c349;
+	}
+	.gp-settle {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+		padding: 0.5rem 0.25rem 0.75rem;
+		border-bottom: 1px dashed var(--border);
+		margin-bottom: 0.5rem;
+	}
+	.settle-btn {
+		border: 1px solid #e9c349;
+		background: rgba(255, 215, 0, 0.1);
+		color: #e9c349;
+		padding: 0.35rem 0.7rem;
+		border-radius: var(--radius);
+		cursor: pointer;
+		font-size: 0.85rem;
+	}
+	.settle-btn:hover {
+		background: rgba(255, 215, 0, 0.2);
 	}
 	.badge {
 		display: inline-block;

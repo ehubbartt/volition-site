@@ -13,6 +13,12 @@
 			show: data.admin
 		},
 		{
+			href: `/admin/duo/${data.duoSlug}/review`,
+			title: 'DuoWolf review',
+			desc: 'Approve or reject pending DuoWolf team submissions.',
+			show: data.admin
+		},
+		{
 			href: '/admin/cards',
 			title: 'Cards & Packs',
 			desc: data.cardTester
@@ -30,6 +36,12 @@
 			href: '/admin/stats',
 			title: 'Clan Stats',
 			desc: 'Members & economy stats, member wallets, and voice activity.',
+			show: data.admin
+		},
+		{
+			href: '/admin/crate-sim',
+			title: 'Crate Simulator',
+			desc: 'Bulk-simulate gamba crate opens — VP/GP generated, return ratio, and drop rates.',
 			show: data.admin
 		},
 		{

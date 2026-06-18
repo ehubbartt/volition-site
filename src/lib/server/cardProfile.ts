@@ -1,5 +1,6 @@
 import { db } from './db';
-import { getPlayerVp, getWalletItems, type WalletItem } from './playerStats';
+import { getPlayerVp, getPlayerGold, getWalletItems, type WalletItem } from './playerStats';
+import { itemPrice } from '$lib/gp';
 import {
 	isValidRarity,
 	DEFAULT_RARITY,
@@ -84,9 +85,14 @@ interface CatalogRow {
 // Collection entries carry an `owned` flag — unowned catalog cards show greyed out.
 export type CollectionCard = UserCard & { owned: boolean };
 
+// A wallet item with its GP value (qty × unit price) for the wallet tab.
+export type WalletItemValued = WalletItem & { unitPrice: number; value: number };
+
 export interface CardProfile {
 	vp_balance: number;
-	wallet: WalletItem[];
+	gold_balance: number;
+	wallet: WalletItemValued[];
+	walletGpValue: number;
 	collection: CollectionCard[];
 	collectionOwned: number;
 	collectionTotal: number;
@@ -113,8 +119,9 @@ export async function loadCardProfile(user: {
 	discord_id: string;
 	rsn: string | null;
 }): Promise<CardProfile> {
-	const [vp_balance, wallet, inventoryRes, packsRes, catalogRes, opensRes, crateRes] = await Promise.all([
+	const [vp_balance, gold_balance, walletRaw, inventoryRes, packsRes, catalogRes, opensRes, crateRes] = await Promise.all([
 		getPlayerVp(user.discord_id, user.rsn),
+		getPlayerGold(user.discord_id, user.rsn),
 		getWalletItems(user.discord_id),
 		db()
 			.from('vs_user_cards')
@@ -333,9 +340,18 @@ export async function loadCardProfile(user: {
 		last_open_date: string | null;
 	} | null;
 
+	// Wallet items with GP values + the total (for the wallet tab's convert flow).
+	const wallet: WalletItemValued[] = walletRaw.map((w) => {
+		const unitPrice = itemPrice(w.name);
+		return { ...w, unitPrice, value: unitPrice * w.quantity };
+	});
+	const walletGpValue = wallet.reduce((sum, w) => sum + w.value, 0);
+
 	return {
 		vp_balance,
+		gold_balance,
 		wallet,
+		walletGpValue,
 		collection,
 		// Count every VARIANT slot (one per finish a card can have) so it matches the
 		// grid: owned variants over total obtainable variants. An undiscovered secret

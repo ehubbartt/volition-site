@@ -16,3 +16,16 @@ export interface CardPack {
 export interface UserPack extends CardPack {
 	quantity: number;
 }
+
+// Apply a pack's percent discount to a price. Clamped 0–100, rounded to a whole
+// number. Used BOTH server-side (the actual charge) and client-side (display), so the
+// price shown always matches what's deducted. 0 / no discount returns the price as-is.
+export function discountedPrice(
+	price: number | null | undefined,
+	pct: number | null | undefined
+): number {
+	const p = Number(price) || 0;
+	const d = Math.min(100, Math.max(0, Number(pct) || 0));
+	if (d <= 0) return p;
+	return Math.round(p * (1 - d / 100));
+}

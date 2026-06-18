@@ -1,13 +1,19 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import type { SessionUser } from '$lib/server/auth';
+import { isAdmin, type SessionUser } from '$lib/server/auth';
 import {
 	getPlayerVp,
 	spendPlayerVp,
 	grantPlayerVp,
 	claimFreeLootDay,
-	getLastLootDate
+	getLastLootDate,
+	getPlayerGold,
+	spendGold,
+	grantGold,
+	convertWalletToGold,
+	getWalletItems
 } from '$lib/server/playerStats';
+import { itemPrice, formatGP } from '$lib/gp';
 import { grantCards, grantUserPack, logPackOpen, makeSlotRoller, rollOnePack, type CardGrant } from '$lib/server/gamba';
 import { isClanMember } from '$lib/server/clan';
 import {
@@ -23,6 +29,7 @@ import { sendBotMessage } from '$lib/server/botBridge';
 import { postCardDrop, postCrateDrop } from '$lib/server/dropsFeed';
 import { isValidRarity, DEFAULT_RARITY, RARE_RARITIES, RARITIES, toCardLayers, hiddenCard, type Card, type CardAbility, type CardLayer, type CardRarity } from '$lib/cards/rarity';
 import { isValidFinish, type CardFinish } from '$lib/cards/finishes';
+import { discountedPrice } from '$lib/cards/packs';
 import type { Actions, PageServerLoad } from './$types';
 
 interface CardRow {
@@ -293,11 +300,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 		throw redirect(303, '/onboarding');
 	}
 
-	const [vp_balance, packsRes, cardsRes, ownedRes, raresRes, lastLootDate, lootConfig, crateDropsRes, ownedPacksRes] = await Promise.all([
+	const [vp_balance, gold_balance, wallet, packsRes, cardsRes, ownedRes, raresRes, lastLootDate, lootConfig, crateDropsRes, ownedPacksRes] = await Promise.all([
 		getPlayerVp(locals.user.discord_id, locals.user.rsn),
+		getPlayerGold(locals.user.discord_id, locals.user.rsn),
+		getWalletItems(locals.user.discord_id),
 		db()
 			.from('vs_card_packs')
-			.select('id, name, description, cost_vp, cards_per_pack, front_url, back_url')
+			.select('id, name, description, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, front_url, back_url')
 			.eq('released', true)
 			.order('cost_vp', { ascending: true }),
 		db()
@@ -330,10 +339,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// packs that aren't in the released store list can still be shown + opened.
 		db()
 			.from('vs_user_packs')
-			.select('quantity, vs_card_packs(id, name, description, cost_vp, cards_per_pack, front_url, back_url)')
+			.select('quantity, vs_card_packs(id, name, description, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, front_url, back_url)')
 			.eq('user_id', locals.user.id)
 			.gt('quantity', 0)
 	]);
+
+	// Total GP value sitting unpaid in the player's wallet (for the "convert" panel).
+	const walletGpValue = wallet.reduce((sum, i) => sum + itemPrice(i.name) * i.quantity, 0);
 
 	if (packsRes.error) throw error(500, packsRes.error.message);
 
@@ -419,6 +431,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 			name: string;
 			description: string | null;
 			cost_vp: number;
+			cost_gp: number | null;
+			discount_pct: number | null;
+			discount_vp_pct: number | null;
 			cards_per_pack: number;
 			front_url: string | null;
 			back_url: string | null;
@@ -445,6 +460,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 				name: p.name,
 				description: p.description,
 				cost_vp: p.cost_vp,
+				cost_gp: p.cost_gp ?? null,
+				discount_pct: p.discount_pct ?? 0,
+				discount_vp_pct: p.discount_vp_pct ?? 0,
 				cards_per_pack: p.cards_per_pack,
 				front_url: p.front_url,
 				back_url: p.back_url,
@@ -518,7 +536,17 @@ export const load: PageServerLoad = async ({ locals }) => {
 		};
 	}
 
-	return { vp_balance, packs, teaserPacks, recentRares, crate, recentCrateDrops, weeklyPack };
+	return {
+		vp_balance,
+		gold_balance,
+		walletGpValue,
+		packs,
+		teaserPacks,
+		recentRares,
+		crate,
+		recentCrateDrops,
+		weeklyPack
+	};
 };
 
 // A pack's roll-relevant columns (shared by the VP open and the inventory open).
@@ -526,6 +554,9 @@ interface OpenablePack {
 	id: string;
 	name: string;
 	cost_vp: number | null;
+	cost_gp: number | null;
+	discount_pct: number | null;
+	discount_vp_pct: number | null;
 	cards_per_pack: number | null;
 	rarity_weights: unknown;
 	slot_weights: unknown;
@@ -543,7 +574,8 @@ interface OpenablePack {
 async function rollGrantReveal(
 	user: SessionUser,
 	pack: OpenablePack,
-	costVp: number
+	costVp: number,
+	costGp: number = 0
 ): Promise<{ ok: true; opened: (Card & { finish: CardFinish; isNew: boolean })[]; openId: string | null } | { ok: false; error: string }> {
 	const { data: poolRows, error: poolErr } = await db()
 		.from('vs_cards')
@@ -575,6 +607,7 @@ async function rollGrantReveal(
 		packId: pack.id,
 		packName: pack.name,
 		costVp,
+		costGp,
 		cards: rolled.map((r) => ({ card_id: r.card.id, card_name: r.card.name, rarity: r.card.rarity, finish: r.finish }))
 	});
 
@@ -664,13 +697,14 @@ export const actions: Actions = {
 		// Pack must exist AND be released.
 		const { data: pack, error: pErr } = await db()
 			.from('vs_card_packs')
-			.select('id, name, cost_vp, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, holo_regular_url, holo_reverse_url')
+			.select('id, name, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, holo_regular_url, holo_reverse_url')
 			.eq('id', packId)
 			.maybeSingle();
 		if (pErr) return fail(500, { error: pErr.message });
 		if (!pack || !pack.released) return fail(404, { error: 'That pack is not available.' });
 
-		const cost = pack.cost_vp ?? 0;
+		// VP price after its own discount (discount_vp_pct), computed server-side.
+		const cost = discountedPrice(pack.cost_vp, pack.discount_vp_pct);
 
 		// Spend VP first (optimistic — only if affordable and unchanged), then roll +
 		// grant; refund the VP if the roll/grant fails.
@@ -700,6 +734,74 @@ export const actions: Actions = {
 		};
 	},
 
+	// Buy a pack with the wallet GP balance (players.gold_balance). Same shape as `open`
+	// but spends GP instead of VP; the pack must have a cost_gp set (else it's VP-only).
+	openWithGp: async ({ locals, request }) => {
+		if (!locals.user) throw error(401, 'Sign in first');
+		// GP / wallet buying is admin-only for now (while it's being tested).
+		if (!isAdmin(locals.user)) return fail(403, { error: 'Buying with your wallet is not available yet.' });
+
+		const form = await request.formData();
+		const packId = form.get('pack_id')?.toString();
+		if (!packId) return fail(400, { error: 'Missing pack' });
+
+		const { data: pack, error: pErr } = await db()
+			.from('vs_card_packs')
+			.select('id, name, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, holo_regular_url, holo_reverse_url')
+			.eq('id', packId)
+			.maybeSingle();
+		if (pErr) return fail(500, { error: pErr.message });
+		if (!pack || !pack.released) return fail(404, { error: 'That pack is not available.' });
+
+		if (!pack.cost_gp || pack.cost_gp <= 0) return fail(400, { error: "This pack can't be bought with your wallet." });
+		// The charged price is the discounted one (computed server-side, never trusted).
+		const cost = discountedPrice(pack.cost_gp, pack.discount_pct);
+
+		// Spend GP first (optimistic), then roll + grant; refund the GP if the roll fails.
+		const spend = await spendGold(locals.user.discord_id, locals.user.rsn, cost);
+		if (!spend.ok) {
+			const msg =
+				spend.reason === 'insufficient'
+					? `Not enough in your wallet — this pack costs ${formatGP(cost)} and you have ${formatGP(spend.balance)}. Convert your wallet items first.`
+					: spend.reason === 'no_player'
+						? 'No RuneScape player record is linked to your account, so you have no wallet balance.'
+						: 'Could not complete the purchase — please try again.';
+			return fail(400, { error: msg, goldBalance: spend.balance });
+		}
+
+		const res = await rollGrantReveal(locals.user, pack, 0, cost);
+		if (!res.ok) {
+			await grantGold(locals.user.discord_id, locals.user.rsn, cost);
+			return fail(500, { error: `${res.error} — your wallet was refunded.` });
+		}
+
+		return {
+			ok: true,
+			opened: res.opened,
+			openId: res.openId,
+			pack: { name: pack.name, front_url: pack.front_url, back_url: pack.back_url },
+			goldBalance: spend.balance
+		};
+	},
+
+	// Convert ALL of the player's unpaid wallet items into GP (gold_balance).
+	convertWallet: async ({ locals }) => {
+		if (!locals.user) throw error(401, 'Sign in first');
+		// Wallet → GP conversion is admin-only for now (while it's being tested).
+		if (!isAdmin(locals.user)) return fail(403, { convertError: 'Converting your wallet is not available yet.' });
+		const res = await convertWalletToGold(locals.user.discord_id, locals.user.rsn);
+		if (!res.ok) {
+			const msg =
+				res.reason === 'empty'
+					? 'Your wallet has nothing to convert.'
+					: res.reason === 'no_player'
+						? 'No RuneScape player record is linked to your account.'
+						: 'Could not convert your wallet — please try again.';
+			return fail(400, { convertError: msg });
+		}
+		return { convertOk: true, gained: res.gained, goldBalance: res.newBalance };
+	},
+
 	// Open a pack the player already OWNS (consume a vs_user_packs row — no VP cost).
 	openOwned: async ({ locals, request }) => {
 		if (!locals.user) throw error(401, 'Sign in first');
@@ -710,7 +812,7 @@ export const actions: Actions = {
 
 		const { data: pack, error: pErr } = await db()
 			.from('vs_card_packs')
-			.select('id, name, cost_vp, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, holo_regular_url, holo_reverse_url')
+			.select('id, name, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, holo_regular_url, holo_reverse_url')
 			.eq('id', packId)
 			.maybeSingle();
 		if (pErr) return fail(500, { error: pErr.message });

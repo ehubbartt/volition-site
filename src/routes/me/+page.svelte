@@ -9,9 +9,16 @@
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
 	import { rsnToSlug } from '$lib/rsn';
+	import { formatGP } from '$lib/gp';
+	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/stores';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	// Wallet → GP conversion (posts to the gamba action; reloads /me on success).
+	let walletConverting = $state(false);
+	let walletMsg = $state<string | null>(null);
 
 	type Tab = 'profile' | 'collection' | 'stats' | 'wallet';
 	// Initial tab can be deep-linked via ?tab= (e.g. /me?tab=collection from the gamba page).
@@ -227,20 +234,72 @@
 		</div>
 	{:else if tab === 'wallet'}
 		<div class="panel">
+			{#if data.isAdmin}
+			<div class="wallet-head">
+				<div class="gp-bal" title="Your spendable wallet balance">
+					<span class="gp-amount">{formatGP(data.gold_balance)}</span>
+					<span class="gp-label">Wallet balance</span>
+				</div>
+				{#if data.walletGpValue > 0}
+					<form
+						method="POST"
+						action="/gamba?/convertWallet"
+						use:enhance={() => {
+							walletConverting = true;
+							walletMsg = null;
+							return async ({ result }) => {
+								walletConverting = false;
+								if (result.type === 'success' && (result.data as { convertOk?: boolean })?.convertOk) {
+									const g = Number((result.data as { gained?: number }).gained ?? 0);
+									walletMsg = `Converted ${formatGP(g)} into your balance.`;
+								} else if (result.type === 'failure') {
+									walletMsg =
+										((result.data as { convertError?: string })?.convertError) ??
+										'Could not convert your wallet.';
+								} else if (result.type === 'error') {
+									walletMsg = 'Something went wrong converting your wallet.';
+								}
+								await invalidateAll();
+							};
+						}}
+						onsubmit={(e) => {
+							if (
+								!confirm(
+									`Convert all wallet items (${formatGP(data.walletGpValue)}) to a spendable balance?\n\nThis is PERMANENT — these items can no longer be claimed in-game. The balance can only be used for Volition products: buying packs and event buy-ins.\n\nContinue?`
+								)
+							)
+								e.preventDefault();
+						}}
+					>
+						<button type="submit" class="convert-btn" disabled={walletConverting}>
+							{walletConverting ? 'Converting…' : `Convert ${formatGP(data.walletGpValue)}`}
+						</button>
+					</form>
+				{/if}
+			</div>
+			{#if walletMsg}<p class="wallet-msg">{walletMsg}</p>{/if}
+			{/if}
+
 			{#if data.wallet.length === 0}
 				<div class="empty">
-					<p>Your wallet is empty.</p>
-					<p class="muted">Items you win from gamble boxes show up here.</p>
+					<p>No unpaid items in your wallet.</p>
+					<p class="muted">Items you win from gamble boxes show up here{#if data.isAdmin}. Convert them to buy packs, or cash them out in-game{:else}, paid out in-game{/if}.</p>
 				</div>
 			{:else}
 				<ul class="wallet-list">
 					{#each data.wallet as item}
 						<li>
 							<span class="item-name">{item.name}</span>
-							<span class="item-qty">×{item.quantity}</span>
+							<span class="item-meta">
+								{#if data.isAdmin && item.unitPrice > 0}<span class="item-val">{formatGP(item.value)}</span>{/if}
+								<span class="item-qty">×{item.quantity}</span>
+							</span>
 						</li>
 					{/each}
 				</ul>
+				{#if data.isAdmin}
+					<p class="muted small wallet-total">Wallet value: <strong>{formatGP(data.walletGpValue)}</strong></p>
+				{/if}
 			{/if}
 		</div>
 	{/if}
@@ -623,8 +682,68 @@
 		border-radius: var(--radius);
 	}
 
+	.item-meta {
+		display: flex;
+		align-items: baseline;
+		gap: 0.6rem;
+	}
+	.item-val {
+		color: #e9c349;
+		font-size: 0.9rem;
+	}
 	.item-qty {
 		color: var(--muted);
+	}
+
+	.wallet-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.9rem;
+	}
+	.gp-bal {
+		display: flex;
+		align-items: baseline;
+		gap: 0.4rem;
+		padding: 0.45rem 0.9rem;
+		background: rgba(255, 215, 0, 0.1);
+		border: 1px solid #e9c349;
+		border-radius: 999px;
+	}
+	.gp-amount {
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-size: 1.4rem;
+		color: #e9c349;
+	}
+	.gp-label {
+		color: #e9c349;
+		font-size: 0.8rem;
+	}
+	.convert-btn {
+		border: 1px solid #e9c349;
+		background: rgba(255, 215, 0, 0.1);
+		color: #e9c349;
+		padding: 0.5rem 0.9rem;
+		border-radius: var(--radius);
+		cursor: pointer;
+	}
+	.convert-btn:hover:not(:disabled) {
+		background: rgba(255, 215, 0, 0.2);
+	}
+	.convert-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+	.wallet-msg {
+		color: #7fd18a;
+		margin: 0 0 0.8rem;
+		font-size: 0.9rem;
+	}
+	.wallet-total {
+		margin-top: 0.75rem;
+		text-align: right;
 	}
 
 	@media (max-width: 480px) {
