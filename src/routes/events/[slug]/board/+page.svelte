@@ -116,7 +116,7 @@
 </svelte:head>
 
 <nav class="crumbs">
-	<a href="/events/{data.event.slug}">← Back to {data.event.name}</a>
+	<a href="/events/{data.event.slug}?view=teams">👥 View teams &amp; standings</a>
 </nav>
 
 <section class="hero">
@@ -172,7 +172,12 @@
 		/>
 	</div>
 	{#if data.leaderboard.length > 0}
-		<BoardLeaderboard entries={data.leaderboard} teamCount={data.teamCount} />
+		<BoardLeaderboard
+			leaderboard={data.leaderboard}
+			byClan={data.byClan}
+			teamCount={data.teamCount}
+			fill
+		/>
 	{/if}
 </div>
 

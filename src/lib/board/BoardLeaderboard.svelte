@@ -1,6 +1,7 @@
 <script lang="ts">
-	// Spoiler-free standings: how far each team has climbed (floor/section stage only — never
-	// the tile name/content). Top 20.
+	// Spoiler-free standings (stage/position only — never tile content). Clan tabs let you
+	// see the top teams for each clan; "All" is the overall top N. Used by the board side
+	// panel (fill=true) and the duo event page's board panel (fill=false).
 	interface LeaderEntry {
 		rank: number;
 		name: string;
@@ -11,22 +12,70 @@
 		finished: boolean;
 		tilesComplete: number;
 		isMine: boolean;
+		clan: string;
+		clanLabel: string;
+	}
+	interface ClanGroup {
+		clan: string;
+		label: string;
+		entries: LeaderEntry[];
 	}
 
-	let { entries, teamCount }: { entries: LeaderEntry[]; teamCount: number } = $props();
+	let {
+		leaderboard,
+		byClan = [],
+		teamCount,
+		fill = false,
+		maxHeight = 'min(78vh, 760px)'
+	}: {
+		leaderboard: LeaderEntry[];
+		byClan?: ClanGroup[];
+		teamCount: number;
+		fill?: boolean;
+		maxHeight?: string;
+	} = $props();
+
+	let activeTab = $state('all');
+
+	const tabs = $derived([{ clan: 'all', label: 'All' }, ...byClan.map((g) => ({ clan: g.clan, label: g.label }))]);
+	const shown = $derived(
+		activeTab === 'all' ? leaderboard : (byClan.find((g) => g.clan === activeTab)?.entries ?? [])
+	);
+	const subtitle = $derived(
+		activeTab === 'all'
+			? `Top ${leaderboard.length} of ${teamCount} team${teamCount === 1 ? '' : 's'}`
+			: `${shown.length} team${shown.length === 1 ? '' : 's'}`
+	);
 </script>
 
-<aside class="lb">
+<aside class="lb" style:height={fill ? maxHeight : null} style:max-height={maxHeight}>
 	<div class="lb-head">
 		<h2>Leaderboard</h2>
-		<span class="lb-sub">Top {entries.length} of {teamCount} team{teamCount === 1 ? '' : 's'}</span>
+		<span class="lb-sub">{subtitle}</span>
 	</div>
 
-	{#if entries.length === 0}
-		<p class="lb-empty">No teams have started yet.</p>
+	{#if tabs.length > 1}
+		<div class="lb-tabs" role="tablist" aria-label="Filter leaderboard by clan">
+			{#each tabs as t (t.clan)}
+				<button
+					type="button"
+					role="tab"
+					aria-selected={activeTab === t.clan}
+					class="lb-tab"
+					class:active={activeTab === t.clan}
+					onclick={() => (activeTab = t.clan)}
+				>
+					{t.label}
+				</button>
+			{/each}
+		</div>
+	{/if}
+
+	{#if shown.length === 0}
+		<p class="lb-empty">No teams here yet.</p>
 	{:else}
 		<ol class="lb-list">
-			{#each entries as e (e.rank)}
+			{#each shown as e (e.rank)}
 				<li class:mine={e.isMine} class:done={e.finished}>
 					<span class="lb-rank" class:top={e.rank <= 3}>{e.rank}</span>
 					<div class="lb-body">
@@ -34,7 +83,10 @@
 							<span class="lb-name" title={e.name}>{e.name}</span>
 							{#if e.isMine}<span class="lb-you">you</span>{/if}
 						</div>
-						<span class="lb-stage">{e.finished ? '🏁 Finished' : e.stageLabel}</span>
+						<span class="lb-stage">
+							{e.finished ? '🏁 Finished' : e.stageLabel}
+							{#if activeTab === 'all'}<span class="lb-clan">· {e.clanLabel}</span>{/if}
+						</span>
 						<div class="lb-bar" title={`${e.pct}% of the climb`}>
 							<div class="lb-fill" style="width: {e.pct}%"></div>
 						</div>
@@ -49,7 +101,6 @@
 	.lb {
 		display: flex;
 		flex-direction: column;
-		height: min(78vh, 760px);
 		background: var(--surface-alt);
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
@@ -74,6 +125,36 @@
 		color: var(--muted);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
+	}
+
+	.lb-tabs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 3px;
+		padding: 0.5rem 0.55rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.lb-tab {
+		min-height: 0;
+		padding: 0.2rem 0.5rem;
+		font-size: 0.72rem;
+		background: transparent;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		color: var(--muted);
+		cursor: pointer;
+	}
+
+	.lb-tab:hover {
+		color: var(--accent);
+		border-color: var(--accent);
+	}
+
+	.lb-tab.active {
+		color: var(--accent);
+		border-color: var(--accent);
+		background: var(--accent-soft);
 	}
 
 	.lb-empty {
@@ -155,6 +236,10 @@
 	.lb-stage {
 		font-size: 0.72rem;
 		color: var(--muted);
+	}
+
+	.lb-clan {
+		opacity: 0.8;
 	}
 
 	.lb-list li.done .lb-stage {

@@ -6,6 +6,8 @@ import { renderMarkdown } from '$lib/markdown';
 import { isAdmin } from '$lib/server/auth';
 import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 import { isTaskEvent } from '$lib/events/simple';
+import { DUO_WOLF_EVENT_SLUG } from '$lib/server/duoWolfTiles';
+import { loadDuoStandings, type DuoStandings } from '$lib/server/duoStandings';
 import type { Actions, PageServerLoad } from './$types';
 
 interface SignupRow {
@@ -111,7 +113,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 	const { data: event, error: eventErr } = await supabase
 		.from('vs_events')
-		.select('id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, team_size')
+		.select(
+			'id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, starts_at, team_size'
+		)
 		.eq('slug', params.slug)
 		.maybeSingle();
 
@@ -122,6 +126,28 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	if (isTaskEvent(event.kind)) throw redirect(307, `/event/${params.slug}`);
 	if ((event.status === 'preview' || event.status === 'draft') && !isAdmin(locals.user)) {
 		throw error(404, 'Event not found');
+	}
+
+	// Once the DuoWolf climb is LIVE (event open + its start time has arrived), the board IS
+	// this page. TEAMED players go straight to the board; SOLO (un-teamed) players stay here
+	// so they can choose to "Play solo" (join the climb as a team of one). Anyone can reach
+	// the standings via ?view=teams. Pre-live it's the normal signup view.
+	const isDuo = event.slug === DUO_WOLF_EVENT_SLUG;
+	const startsAt = event.starts_at ? new Date(event.starts_at).getTime() : null;
+	const eventLive = isDuo && event.status === 'open' && startsAt != null && Date.now() >= startsAt;
+	const teamsView = eventLive && url.searchParams.get('view') === 'teams';
+	let hasTeamEarly = false;
+	if (eventLive) {
+		const { data: su } = await supabase
+			.from('vs_event_signups')
+			.select('team_id')
+			.eq('event_id', event.id)
+			.eq('user_id', locals.user.id)
+			.maybeSingle();
+		hasTeamEarly = !!su?.team_id;
+	}
+	if (eventLive && hasTeamEarly && !teamsView) {
+		throw redirect(307, `/events/${params.slug}/board`);
 	}
 
 	const [{ data: signupsRaw }, { data: teamsRaw }] = await Promise.all([
@@ -251,8 +277,23 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			}))
 		: [];
 
+	// Standings (all teams + how far they've climbed, with clan tabs). Served whenever the
+	// climb is live (the live event page = the solo landing + standings).
+	let standings: DuoStandings | null = null;
+	if (eventLive) {
+		standings = await loadDuoStandings(event.id, mySignup?.team_id ?? null, {
+			topN: 9999,
+			perClanCap: 9999,
+			markersTopN: 0
+		});
+	}
+
 	return {
 		isAdmin: admin,
+		isDuo,
+		eventLive,
+		teamsView,
+		standings,
 		adminSignups,
 		event: { ...event, description_html: renderMarkdown(event.description) },
 		mySignup: mySignup
@@ -288,6 +329,49 @@ function isEventOpen(event: { status: string; signup_closes_at: string | null })
 	return true;
 }
 
+// Put a signed-up player on a TEAM OF ONE so solos who never paired up can still play. The
+// board is team-based, so a solo team participates exactly like a duo (just one member).
+async function createSoloTeam(
+	supabase: ReturnType<typeof db>,
+	eventId: string,
+	userId: string,
+	rsn: string | null
+): Promise<{ ok: boolean; error?: string }> {
+	const { data: signup } = await supabase
+		.from('vs_event_signups')
+		.select('id, team_id')
+		.eq('event_id', eventId)
+		.eq('user_id', userId)
+		.maybeSingle();
+	if (!signup) return { ok: false, error: 'Join the event first.' };
+	if (signup.team_id) return { ok: true }; // already on a team
+
+	const { data: team, error: tErr } = await supabase
+		.from('vs_teams')
+		.insert({ event_id: eventId, name: rsn ?? null, created_by: userId })
+		.select('id')
+		.single();
+	if (tErr || !team) return { ok: false, error: tErr?.message ?? 'Could not create your team' };
+
+	// Race guard: only claim the signup if it's still un-teamed.
+	const { error: uErr } = await supabase
+		.from('vs_event_signups')
+		.update({ team_id: team.id })
+		.eq('id', signup.id)
+		.is('team_id', null);
+	if (uErr) return { ok: false, error: uErr.message };
+
+	// They're teamed now — clear any pending invites in either direction.
+	await supabase
+		.from('vs_team_invites')
+		.update({ status: 'cancelled', responded_at: new Date().toISOString() })
+		.eq('event_id', eventId)
+		.eq('status', 'pending')
+		.or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`);
+
+	return { ok: true };
+}
+
 export const actions: Actions = {
 	joinEvent: async ({ params, locals }) => {
 		if (!locals.user) throw redirect(303, '/');
@@ -312,6 +396,25 @@ export const actions: Actions = {
 			return fail(500, { error: insertError.message });
 		}
 
+		return { ok: true };
+	},
+
+	// Play solo: join the climb as a team of one (for players who didn't find a duo).
+	goSolo: async ({ params, locals }) => {
+		if (!locals.user) throw redirect(303, '/');
+		if (!locals.user.rsn) throw redirect(303, '/onboarding');
+
+		const supabase = db();
+		const { data: event } = await supabase
+			.from('vs_events')
+			.select('id, status')
+			.eq('slug', params.slug)
+			.maybeSingle();
+		if (!event) return fail(404, { error: 'Event not found' });
+		if (event.status !== 'open') return fail(400, { error: 'This event is not open.' });
+
+		const res = await createSoloTeam(supabase, event.id, locals.user.id, locals.user.rsn);
+		if (!res.ok) return fail(400, { error: res.error });
 		return { ok: true };
 	},
 
