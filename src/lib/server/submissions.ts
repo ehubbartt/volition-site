@@ -248,8 +248,10 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 		if (!context) continue;
 		const submitter = buildSubmitter(r);
 		if (!submitter) continue;
-		const owner = r.team_id ?? r.user_id ?? r.discord_id ?? r.submitter_name ?? r.id;
-		const key = `${r.source}|${context.id}|${owner}|${r.target_id}`;
+		// One card PER SUBMISSION ROW (each submit action) — separate submits to the same
+		// tile are reviewed independently (e.g. each proof covering part of a count-based
+		// tile's required total approved/rejected on its own).
+		const key = r.id;
 
 		// Task rows take their label from the task name; others from resolveTask.
 		const taskLabel =
@@ -457,8 +459,8 @@ export async function loadReviewedSubmissions({
 		});
 	}
 
-	// Group by (source, context, owner, target, STATUS) — status is in the key so a
-	// group is homogeneous (a mixed-decision tile splits into two cards).
+	// One card PER SUBMISSION ROW (matches the pending queue), so each reviewed submit
+	// shows independently with its own decision.
 	const groups = new Map<string, ReviewedItem>();
 	for (const r of raw) {
 		const context =
@@ -470,8 +472,7 @@ export async function loadReviewedSubmissions({
 		if (!context) continue;
 		const submitter = buildSubmitter(r);
 		if (!submitter) continue;
-		const owner = r.team_id ?? r.user_id ?? r.discord_id ?? r.submitter_name ?? r.id;
-		const key = `${r.source}|${context.id}|${owner}|${r.target_id}|${r.status}`;
+		const key = r.id;
 
 		const taskLabel =
 			r.source === 'generic' && r.task_id
