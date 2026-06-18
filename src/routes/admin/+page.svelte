@@ -53,7 +53,7 @@
 		{
 			href: '/admin/config',
 			title: 'Database',
-			desc: 'Edit the live bot config and any database table. Super-admins only.',
+			desc: 'Bot config, any database table, and player card inventories. Super-admins only.',
 			show: data.superAdmin
 		}
 	]);

@@ -244,10 +244,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	const effectiveAdmin = admin && !previewAsPlayer;
 	const isDuoWolf = event.slug === DUO_WOLF_EVENT_SLUG;
 	const live = isClimbLive(event);
-	// Non-admins (incl. preview-as-player) only see the board once the climb is LIVE; before
-	// that it's sealed (empty skeleton, no content, no leaderboard). Admins preview anytime.
+	// GENUINE non-admins only see the board once the climb is LIVE; before that it's sealed
+	// (empty skeleton, no content, no leaderboard). ANY admin sees it anytime — including
+	// "preview as player" (admin but effectiveAdmin=false), which still gets the player
+	// fog-of-war reveal but isn't blocked pre-live, since it's a testing tool.
 	let status: BoardStatus;
-	if (effectiveAdmin) status = getBoardStatus(event.status, true);
+	if (admin) status = getBoardStatus(event.status, true);
 	else if (event.status === 'closed' || event.status === 'locked') status = 'past-locked';
 	else status = live ? 'open' : 'blurred';
 	const contentVisible = isDuoWolf && (effectiveAdmin || status === 'open');
