@@ -10,6 +10,7 @@
 	import type { ClanValue } from '$lib/clans';
 	import { rsnToSlug } from '$lib/rsn';
 	import { formatGP } from '$lib/gp';
+	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -19,6 +20,8 @@
 	// Wallet → GP conversion (posts to the gamba action; reloads /me on success).
 	let walletConverting = $state(false);
 	let walletMsg = $state<string | null>(null);
+	let convertOpen = $state(false);
+	let convertForm = $state<HTMLFormElement>();
 
 	type Tab = 'profile' | 'collection' | 'stats' | 'wallet';
 	// Initial tab can be deep-linked via ?tab= (e.g. /me?tab=collection from the gamba page).
@@ -241,7 +244,17 @@
 					<span class="gp-label">Wallet balance</span>
 				</div>
 				{#if data.walletGpValue > 0}
+					<button
+						type="button"
+						class="convert-btn"
+						disabled={walletConverting}
+						onclick={() => (convertOpen = true)}
+					>
+						{walletConverting ? 'Converting…' : `Convert ${formatGP(data.walletGpValue)}`}
+					</button>
 					<form
+						bind:this={convertForm}
+						hidden
 						method="POST"
 						action="/gamba?/convertWallet"
 						use:enhance={() => {
@@ -249,6 +262,7 @@
 							walletMsg = null;
 							return async ({ result }) => {
 								walletConverting = false;
+								convertOpen = false;
 								if (result.type === 'success' && (result.data as { convertOk?: boolean })?.convertOk) {
 									const g = Number((result.data as { gained?: number }).gained ?? 0);
 									walletMsg = `Converted ${formatGP(g)} into your balance.`;
@@ -262,19 +276,17 @@
 								await invalidateAll();
 							};
 						}}
-						onsubmit={(e) => {
-							if (
-								!confirm(
-									`Convert all wallet items (${formatGP(data.walletGpValue)}) to a spendable balance?\n\nThis is PERMANENT — these items can no longer be claimed in-game. The balance can only be used for Volition products: buying packs and event buy-ins.\n\nContinue?`
-								)
-							)
-								e.preventDefault();
-						}}
-					>
-						<button type="submit" class="convert-btn" disabled={walletConverting}>
-							{walletConverting ? 'Converting…' : `Convert ${formatGP(data.walletGpValue)}`}
-						</button>
-					</form>
+					></form>
+					<ConfirmDialog
+						bind:open={convertOpen}
+						title="Convert wallet items?"
+						message={`Convert all wallet items (${formatGP(data.walletGpValue)}) into a spendable balance?\n\nThis is PERMANENT — these items can no longer be claimed in-game. The balance can only be used for Volition products: buying packs and event buy-ins.`}
+						confirmLabel={`Convert ${formatGP(data.walletGpValue)}`}
+						busyLabel="Converting…"
+						busy={walletConverting}
+						danger
+						onconfirm={() => convertForm?.requestSubmit()}
+					/>
 				{/if}
 			</div>
 			{#if walletMsg}<p class="wallet-msg">{walletMsg}</p>{/if}
