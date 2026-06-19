@@ -20,7 +20,7 @@
 			if (statusFilter === 'fail' && !(r.status != null && r.status >= 400)) return false;
 			if (search.trim()) {
 				const q = search.toLowerCase();
-				const hay = [r.actor_name, r.actor_discord_id, r.route_id, r.path, r.action, JSON.stringify(r.payload)]
+				const hay = [r.summary, r.actor_name, r.actor_discord_id, r.route_id, r.path, r.action, JSON.stringify(r.payload)]
 					.filter(Boolean)
 					.join(' ')
 					.toLowerCase();
@@ -42,11 +42,58 @@
 		return 'fail';
 	}
 
+	// Replace every user id (anywhere, incl. inside stringified JSON) with the person's RSN,
+	// using the server-built userId→RSN map. Non-user uuids (pack/card/team/event) pass through.
+	function humanize(v: unknown): unknown {
+		if (typeof v === 'string') {
+			if (data.userNames[v]) return data.userNames[v];
+			const t = v.trim();
+			if ((t.startsWith('{') || t.startsWith('[')) && !v.endsWith('…')) {
+				try {
+					return humanize(JSON.parse(t));
+				} catch {
+					return v;
+				}
+			}
+			return v;
+		}
+		if (Array.isArray(v)) return v.map(humanize);
+		if (v && typeof v === 'object') {
+			const o: Record<string, unknown> = {};
+			for (const [k, val] of Object.entries(v)) o[k] = humanize(val);
+			return o;
+		}
+		return v;
+	}
+
+	// Hide the bulky `_before` snapshot from the raw payload — the Changes diff renders it.
+	function displayPayload(payload: unknown): unknown {
+		let p = payload;
+		if (p && typeof p === 'object' && !Array.isArray(p) && '_before' in p) {
+			const { _before, ...rest } = p as Record<string, unknown>;
+			void _before;
+			p = rest;
+		}
+		return humanize(p);
+	}
+
 	function pretty(payload: unknown): string {
 		try {
 			return JSON.stringify(payload, null, 2);
 		} catch {
 			return String(payload);
+		}
+	}
+
+	// Compact one-line rendering of a diff value (old/new), with user ids → RSN.
+	function fmtVal(v: unknown): string {
+		const h = humanize(v);
+		if (h === null || h === undefined) return '∅';
+		if (typeof h === 'string') return h;
+		try {
+			return JSON.stringify(h);
+		} catch {
+			return String(h);
 		}
 	}
 </script>
@@ -99,21 +146,51 @@
 							{#if r.is_card_tester}<span class="badge tester">card</span>{/if}
 						</span>
 						<span class="what">
-							<span class="route">{r.route_id ?? r.path}</span>
-							{#if r.action}<span class="action">→ {r.action}</span>{/if}
+							{#if r.summary}
+								<span class="summary">{r.summary}</span>
+							{:else}
+								<span class="route">{r.route_id ?? r.path}</span>
+								{#if r.action}<span class="action">→ {r.action}</span>{/if}
+							{/if}
 						</span>
 						<span class="status {statusClass(r.status)}">{r.status ?? '—'}</span>
 						<span class="chev" aria-hidden="true">▾</span>
 					</summary>
 					<div class="detail">
 						<div class="meta-grid">
-							<div><span class="k">Path</span><span class="v">{r.path}</span></div>
+							<div><span class="k">Action</span><span class="v">{r.route_id ?? r.path}{r.action ? ` → ${r.action}` : ''}</span></div>
 							<div><span class="k">Method</span><span class="v">{r.method}</span></div>
 							<div><span class="k">Discord ID</span><span class="v">{r.actor_discord_id ?? '—'}</span></div>
 							<div><span class="k">IP</span><span class="v">{r.ip ?? '—'}</span></div>
 							<div class="wide"><span class="k">User agent</span><span class="v ua">{r.user_agent ?? '—'}</span></div>
 						</div>
-						<pre class="payload">{pretty(r.payload)}</pre>
+
+						{#if r.resolved.length > 0}
+							<div class="resolved">
+								{#each r.resolved as res (res.key)}
+									<span class="chip"><span class="ck">{res.key}</span> {res.label}</span>
+								{/each}
+							</div>
+						{/if}
+
+						{#if r.changes && r.changes.length > 0}
+							<table class="changes">
+								<thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead>
+								<tbody>
+									{#each r.changes as c (c.field)}
+										<tr>
+											<td class="cf">{c.field}</td>
+											<td class="cb">{fmtVal(c.before)}</td>
+											<td class="ca">{fmtVal(c.after)}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						{:else if r.action === 'update' && r.route_id === '/admin/tables/[table]'}
+							<p class="muted no-diff">No field changes detected (or the old row wasn't captured).</p>
+						{/if}
+
+						<pre class="payload">{pretty(displayPayload(r.payload))}</pre>
 					</div>
 				</details>
 			{/each}
@@ -230,6 +307,81 @@
 		color: var(--accent);
 		font-size: 0.82rem;
 		white-space: nowrap;
+	}
+
+	.summary {
+		color: var(--text);
+		font-size: 0.88rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.resolved {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		margin: 0.4rem 0;
+	}
+
+	.resolved .chip {
+		font-size: 0.78rem;
+		padding: 0.1rem 0.45rem;
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		border-radius: 999px;
+		color: var(--text);
+	}
+
+	.resolved .ck {
+		color: var(--muted);
+		margin-right: 0.25rem;
+		font-family: ui-monospace, monospace;
+		font-size: 0.72rem;
+	}
+
+	.changes {
+		width: 100%;
+		border-collapse: collapse;
+		margin: 0.5rem 0;
+		font-size: 0.8rem;
+	}
+
+	.changes th,
+	.changes td {
+		text-align: left;
+		padding: 0.3rem 0.5rem;
+		border-bottom: 1px solid var(--border);
+		vertical-align: top;
+		word-break: break-word;
+	}
+
+	.changes thead th {
+		color: var(--muted);
+		font-weight: normal;
+		font-size: 0.72rem;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+
+	.changes .cf {
+		font-family: ui-monospace, monospace;
+		color: var(--accent);
+		white-space: nowrap;
+	}
+
+	.changes .cb {
+		color: var(--muted);
+		text-decoration: line-through;
+	}
+
+	.changes .ca {
+		color: #6ee7a8;
+	}
+
+	.no-diff {
+		font-size: 0.8rem;
+		margin: 0.4rem 0;
 	}
 
 	.badge {

@@ -657,7 +657,7 @@
         <span class="vp-amount">{data.vp_balance.toLocaleString()}</span>
         <span class="vp-label">VP</span>
       </div>
-      {#if data.isAdmin}
+      {#if data.gold_balance > 0}
         <div class="vp gp" title="Wallet balance">
           <span class="vp-amount">{formatGP(data.gold_balance)}</span>
           <span class="vp-label">Wallet</span>

@@ -2,7 +2,7 @@ import type { Handle } from '@sveltejs/kit';
 import { env } from '$env/dynamic/public';
 import { readSession } from '$lib/server/auth';
 import { getBan } from '$lib/server/bans';
-import { shouldAudit, capturePayload, logAudit } from '$lib/server/audit';
+import { shouldAudit, capturePayload, captureBeforeState, logAudit } from '$lib/server/audit';
 
 // Force a single canonical origin. Discord OAuth stores its state in a
 // per-domain cookie, so starting login on ANY non-canonical host (the old Fly
@@ -59,6 +59,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// request. See src/lib/server/audit.ts.
 	const audit = shouldAudit(event);
 	const payload = audit ? await capturePayload(event.request.clone()) : null;
+	// For DB-row edits, snapshot the OLD row now (before resolve mutates it) so the audit
+	// viewer can show a before→after diff. Best-effort; only fires for the table editor.
+	if (audit && payload) {
+		const before = await captureBeforeState(event, payload);
+		if (before) payload._before = before;
+	}
 
 	const response = await resolve(event);
 
