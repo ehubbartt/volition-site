@@ -33,6 +33,11 @@ export interface ReviewItem {
 	submittedAt: string; // earliest submission in the group
 	count: number; // number of proof rows in the group
 	quantity: number; // summed claimed quantity (count-based tiles; = count for others)
+	// Count-based tiles (e.g. DuoWolf board nodes): the tile's required total and how
+	// many the owner has already had APPROVED, so the reviewer sees current X / required.
+	// null for tiles that aren't count-based.
+	required: number | null;
+	approvedSoFar: number | null;
 }
 
 // One already-reviewed submission group, for the read-only history view. Same shape

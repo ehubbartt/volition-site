@@ -325,14 +325,22 @@
 				<span class="src-pill">{SOURCE_LABEL[current.source] ?? current.source}</span>
 				<span class="event-name muted">{current.event.name}</span>
 			</div>
-			<h2 class="task-name">
-				{current.task.label}
-				{#if current.quantity > current.count}
-					<span class="claim-badge" title="The submitter says this proof covers this many of the tile's required total">
-						claims {current.quantity}
+			<h2 class="task-name">{current.task.label}</h2>
+			{#if current.required != null}
+				<div class="tile-prog">
+					<span class="prog-count">{current.approvedSoFar ?? 0}/{current.required} approved</span>
+					<span class="claim-badge" title="How many of the tile's required total this proof claims">
+						this proof claims {current.quantity}
 					</span>
-				{/if}
-			</h2>
+					{#if (current.approvedSoFar ?? 0) + current.quantity >= current.required}
+						<span class="will-complete">· approving completes this tile</span>
+					{/if}
+				</div>
+			{:else if current.quantity > current.count}
+				<span class="claim-badge" title="The submitter says this proof covers this many of the tile's required total">
+					claims {current.quantity}
+				</span>
+			{/if}
 			{#if current.task.detail_html}
 				<div class="details">
 					<h3>How to complete</h3>
@@ -755,6 +763,26 @@
 		color: var(--accent);
 		padding: 0.05rem 0.45rem;
 		border-radius: 3px;
+	}
+
+	.tile-prog {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		margin: 0.3rem 0 0;
+	}
+	.tile-prog .claim-badge {
+		margin-left: 0;
+	}
+	.prog-count {
+		font-family: var(--font-heading);
+		color: var(--yellow);
+		font-size: 0.9rem;
+	}
+	.will-complete {
+		color: var(--success);
+		font-size: 0.85rem;
 	}
 
 	.details {

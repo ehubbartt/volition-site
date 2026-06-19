@@ -17,6 +17,12 @@ import { renderMarkdown } from '$lib/markdown';
 import { CLAN_LABEL } from '$lib/clans';
 import { BINGO_BUCKET, MAX_UPLOAD_BYTES, MAX_IMAGES_PER_SUBMISSION, ALLOWED_MIME } from '$lib/bingo/config';
 import { BINGO_TILE_BY_ID, getTileDetails } from '$lib/server/bingoTiles';
+import {
+	DUO_TILE_IDS,
+	getDuoTileName,
+	getDuoTileFaq,
+	getDuoTileRequired
+} from '$lib/server/duoWolfTiles';
 import type {
 	ReviewItem,
 	ReviewedItem,
@@ -97,6 +103,16 @@ function resolveTask(source: SubmissionSource, targetId: string, targetLabel: st
 			id: targetId,
 			label: tile?.name ?? targetId,
 			detail_html: md ? renderMarkdown(md) : null
+		};
+	}
+	// DuoWolf board tiles arrive as generic rows whose target_id is a board node id.
+	// Surface the tile's real name + FAQ (single newlines → hard breaks, like the board).
+	if (DUO_TILE_IDS.has(targetId)) {
+		const faq = getDuoTileFaq(targetId);
+		return {
+			id: targetId,
+			label: getDuoTileName(targetId) ?? targetLabel?.trim() ?? targetId,
+			detail_html: faq ? renderMarkdown(faq.replace(/(?<!\n)\n(?!\n)/g, '  \n')) : null
 		};
 	}
 	return { id: targetId, label: targetLabel?.trim() || targetId, detail_html: null };
@@ -276,7 +292,9 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 				proofUrls: [],
 				submittedAt: r.submitted_at,
 				count: 0,
-				quantity: 0
+				quantity: 0,
+				required: DUO_TILE_IDS.has(r.target_id) ? getDuoTileRequired(r.target_id) : null,
+				approvedSoFar: null
 			};
 			groups.set(key, group);
 		}
@@ -288,6 +306,31 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 	}
 
 	const items = Array.from(groups.values()).sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
+
+	// Count-based team tiles (DuoWolf): fill approvedSoFar = how many of `required` the
+	// team already has APPROVED, so the reviewer sees current X / required on the card.
+	const countItems = items.filter((it) => it.required != null && it.team);
+	if (countItems.length > 0) {
+		const eventIds = [...new Set(countItems.map((it) => it.event.id))];
+		const { data: approvedRows } = await db()
+			.from('vs_submissions')
+			.select('event_id, team_id, target_id, quantity')
+			.in('event_id', eventIds)
+			.eq('status', 'approved');
+		const approvedByKey = new Map<string, number>();
+		for (const r of (approvedRows ?? []) as Array<{
+			event_id: string;
+			team_id: string | null;
+			target_id: string;
+			quantity: number | null;
+		}>) {
+			const k = `${r.event_id}|${r.team_id}|${r.target_id}`;
+			approvedByKey.set(k, (approvedByKey.get(k) ?? 0) + Math.max(1, Number(r.quantity) || 1));
+		}
+		for (const it of countItems) {
+			it.approvedSoFar = approvedByKey.get(`${it.event.id}|${it.team!.id}|${it.task.id}`) ?? 0;
+		}
+	}
 
 	// Distinct events present in the queue, for the filter dropdown.
 	const presentEvents = new Map<string, { id: string; slug: string; name: string }>();
