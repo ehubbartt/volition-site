@@ -18,9 +18,9 @@
 	// The event codeword players must have in their WOM plug-in / mobile chat box.
 	const EVENT_CODEWORD = 'VOLI';
 
-	// First-visit acknowledgement gate: shown to players on the LIVE board until they confirm
-	// they've read the rules (remembered via the per-event cookie). Skipped for the full admin
-	// board view (adminView) — admins previewing-as-player still see it to test the flow.
+	// First-visit acknowledgement gate: shown on the LIVE board until the player confirms
+	// they've read the rules (remembered via the per-event cookie). Skipped in the admin
+	// whole-board view (adminView); admins in the default live view see it like anyone else.
 	let ackConfirmed = $state(false);
 	const ackOpen = $derived(
 		!ackConfirmed && data.status === 'open' && !data.adminView && !data.boardAck
@@ -52,13 +52,13 @@
 		return { floor, x, y };
 	});
 
-	// Admin-only view toggle (server-side preview): flips ?view=player so the load returns
-	// the real player payload — the full board SKELETON with names/images blocked to "?"
-	// for tiles the team hasn't revealed yet — and back to the full admin board.
+	// Admin-only "view whole board" toggle: ?view=all asks the server for the full board
+	// (every tile, all floors, no fog of war). Default (no param) is the real live player
+	// view, so admins see exactly what players do until they opt in.
 	const toggleHref = $derived(
-		data.previewAsPlayer
+		data.adminView
 			? `/events/${data.event.slug}/board`
-			: `/events/${data.event.slug}/board?view=player`
+			: `/events/${data.event.slug}/board?view=all`
 	);
 
 	let openNodeId = $state<string | null>(null);
@@ -181,22 +181,23 @@
 			</span>
 		{/if}
 		{#if data.canToggleView}
-			<a class="view-toggle" class:previewing={data.previewAsPlayer} href={toggleHref} data-sveltekit-noscroll>
-				{data.previewAsPlayer ? '👁 Previewing as player — back to admin view' : '🧪 Preview as player'}
+			<a class="view-toggle" class:previewing={data.adminView} href={toggleHref} data-sveltekit-noscroll>
+				{data.adminView ? '👁 Viewing whole board — back to live view' : '🗺 View whole board'}
 			</a>
 		{/if}
 	</div>
 	{#if contentVisible}
 		<p class="muted teaser">
-			{#if data.status === 'open'}
+			{#if data.adminView}
+				Whole-board view (admin) — every tile across all {topology.floors.length} floors is shown,
+				no fog of war. Players get a per-team reveal instead. Click any tile to review its rules and
+				proofs; switch floors with the tabs, top-left.
+			{:else}
 				The climb has <strong>{topology.floors.length} floors</strong> — you're viewing one at a time
 				(switch with the floor tabs, top-left). Each floor has <strong>3 sections (A → B → C)</strong>
 				split by intermission tiles and ends in a <strong>boss</strong>; beat it to climb to the next.
 				Pick a path, complete its tiles, then tackle the intermission before choosing the next. Click
 				any tile for the rules and to submit your team's proof.
-			{:else}
-				Admin preview — the board is still sealed for players. Each of the {topology.floors.length}
-				floors has 3 sections (A → B → C) + a boss. Click any tile to review its rules and proofs.
 			{/if}
 		</p>
 	{:else}
@@ -240,7 +241,6 @@
 		communityCount={data.completionCountByTile[openTile.id] ?? 0}
 		canSubmit={data.isClanMember && data.hasTeam && data.nodeState[openTile.id] === 'active'}
 		isAdmin={data.adminView}
-		testMode={data.previewAsPlayer}
 		progress={data.nodeProgress[openTile.id] ?? null}
 		onZoom={(url) => (lightboxSrc = url)}
 		onclose={closeModal}
@@ -255,7 +255,6 @@
 		communityCount={data.completionCountByTile[openTile.id] ?? 0}
 		canSubmit={data.isClanMember && data.hasTeam && data.nodeState[openTile.id] === 'active'}
 		isAdmin={data.adminView}
-		testMode={data.previewAsPlayer}
 		progress={data.nodeProgress[openTile.id] ?? null}
 		swapsAvailable={data.swapsAvailable}
 		swapOptions={swapOptions}

@@ -53,7 +53,6 @@
 		communityCount: number;
 		canSubmit: boolean;
 		isAdmin: boolean;
-		testMode?: boolean;
 		progress?: { approved: number; required: number; pending: number; rejected: number } | null;
 		// Swaps: if this tile can be swapped, the adjacent-path tiles to swap to + how many
 		// swaps the team has left. Empty options ⇒ not swappable (already started / no swaps).
@@ -71,7 +70,6 @@
 		communityCount,
 		canSubmit,
 		isAdmin,
-		testMode = false,
 		progress = null,
 		swapsAvailable = 0,
 		swapOptions = [],
@@ -495,10 +493,6 @@
 				}}
 			>
 				<input type="hidden" name="tile_id" value={tile.id} />
-				{#if testMode}
-					<input type="hidden" name="test" value="1" />
-					<p class="test-note">🧪 Test mode — this submission is hidden from the live queue (see the <strong>Test</strong> tab in admin submissions). It still counts toward your test team's progress.</p>
-				{/if}
 
 				{#if needsQty}
 					<label class="qty-field">
@@ -579,27 +573,6 @@
 					This tile is not yet open.
 				{/if}
 			</p>
-		{/if}
-
-		{#if testMode && submittable}
-			<form
-				method="POST"
-				action="?/testComplete"
-				class="test-complete-form"
-				use:enhance={() => {
-					return async ({ result, update }) => {
-						await update({ reset: false });
-						if (result.type === 'success') onclose();
-						else if (result.type === 'failure') {
-							const data = result.data as { error?: string } | undefined;
-							error = data?.error ?? 'Insta-complete failed';
-						}
-					};
-				}}
-			>
-				<input type="hidden" name="tile_id" value={tile.id} />
-				<button type="submit" class="test-complete">🧪 Insta-complete (test)</button>
-			</form>
 		{/if}
 
 		{#if community.length > 0}
@@ -1228,32 +1201,6 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-	}
-
-	.test-note {
-		margin: 0 0 0.6rem;
-		padding: 0.5rem 0.7rem;
-		font-size: 0.8rem;
-		background: rgba(255, 152, 31, 0.12);
-		border: 1px dashed var(--accent);
-		border-radius: var(--radius);
-		color: var(--accent);
-	}
-
-	.test-complete-form {
-		margin-top: 0.75rem;
-	}
-
-	button.test-complete {
-		width: 100%;
-		font-size: 0.85rem;
-		border: 1px dashed var(--accent);
-		color: var(--accent);
-		background: rgba(255, 152, 31, 0.08);
-	}
-
-	button.test-complete:hover {
-		background: var(--accent-soft);
 	}
 
 	.qty-field {

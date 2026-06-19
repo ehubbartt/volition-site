@@ -246,23 +246,21 @@ export const load: PageServerLoad = async ({ params, locals, url, cookies }) => 
 	await ensureDuoTilesFresh();
 
 	const admin = isAdmin(locals.user);
-	// Admins can preview the live PLAYER view (fog of war, per-team reveal) via
-	// ?view=player to test what teams actually see. `effectiveAdmin` drives the board
-	// payload (full board vs player reveal); the real `admin` still gates the toggle and
-	// the admin-only actions.
-	const previewAsPlayer = admin && url.searchParams.get('view') === 'player';
-	const effectiveAdmin = admin && !previewAsPlayer;
+	// By default EVERYONE (admins included) sees the real live player board — fog of war,
+	// per-team reveal — so the event is exactly what players get. An admin can opt into the
+	// full board (every tile, all floors, no fog) on demand with ?view=all; that's the only
+	// thing `viewAll` unlocks. `admin` itself still gates the toggle + admin-only actions.
+	const viewAll = admin && url.searchParams.get('view') === 'all';
 	const isDuoWolf = event.slug === DUO_WOLF_EVENT_SLUG;
 	const live = isClimbLive(event);
-	// GENUINE non-admins only see the board once the climb is LIVE; before that it's sealed
-	// (empty skeleton, no content, no leaderboard). ANY admin sees it anytime — including
-	// "preview as player" (admin but effectiveAdmin=false), which still gets the player
-	// fog-of-war reveal but isn't blocked pre-live, since it's a testing tool.
+	// Non-admins (and admins in the default player view) only see the board once the climb is
+	// LIVE; before that it's the sealed skeleton. The whole-board view (viewAll) is admin-only
+	// and bypasses the go-live gate so admins can always inspect every tile.
 	let status: BoardStatus;
-	if (admin) status = getBoardStatus(event.status, true);
+	if (viewAll) status = getBoardStatus(event.status, true);
 	else if (event.status === 'closed' || event.status === 'locked') status = 'past-locked';
 	else status = live ? 'open' : 'blurred';
-	const contentVisible = isDuoWolf && (effectiveAdmin || status === 'open');
+	const contentVisible = isDuoWolf && (viewAll || status === 'open');
 
 	const content: Record<string, TileContent> = {};
 	let completionsForClient: Record<string, DuoCompletionDetail[]> = {};
@@ -384,8 +382,8 @@ export const load: PageServerLoad = async ({ params, locals, url, cookies }) => 
 			rejectedByTile: myRejected
 		});
 
-		if (effectiveAdmin) {
-			// Admins get the full board (preview) — no per-team gating styling.
+		if (viewAll) {
+			// Whole-board view (admin): every tile, all floors, no per-team gating styling.
 			// They review per team via /admin/duo/[slug]/review.
 			for (const ref of duoNodeRefs()) content[ref.id] = tileContent(ref.id);
 			completionsForClient = completionsByTile;
@@ -436,11 +434,9 @@ export const load: PageServerLoad = async ({ params, locals, url, cookies }) => 
 		status,
 		boardAck,
 		ackCookieName,
-		// adminView = the full-board admin payload is being shown; previewAsPlayer = an
-		// admin is currently viewing the player (fog-of-war) version; canToggleView = the
-		// real user is an admin (show the view toggle).
-		adminView: effectiveAdmin,
-		previewAsPlayer,
+		// adminView = the full whole-board payload is being shown (admin opted in via ?view=all);
+		// canToggleView = the real user is an admin (show the "view whole board" button).
+		adminView: viewAll,
 		canToggleView: admin,
 		isClanMember: memberOfClan,
 		myTeamId,
@@ -628,10 +624,6 @@ export const actions: Actions = {
 		const rawQty = Math.floor(Number(form.get('quantity') ?? 1));
 		const quantity = Math.max(1, Math.min(Number.isFinite(rawQty) ? rawQty : 1, required));
 
-		// Test submission: only an admin can flag it (the board's "preview as player" mode
-		// posts test=1). Keeps test runs out of the live /admin/submissions queue.
-		const isTest = isAdmin(locals.user) && form.get('test') === '1';
-
 		// Authoritative gating: the tile must be in the team's current active step.
 		const prog = await fetchTeamProgress(event.id, teamId);
 		const state = prog.nodeState[tileId];
@@ -648,63 +640,11 @@ export const actions: Actions = {
 			targetId: tileId,
 			targetLabel: getDuoTileName(tileId) ?? tileId,
 			quantity,
-			test: isTest,
 			files
 		});
 		if (!result.ok) return fail(400, { error: result.error });
 
 		return { ok: true, action: 'submit' as const, tile_id: tileId };
-	},
-
-	// TEST TOOL (admin-only): insta-complete the team's current active tile by inserting
-	// an already-approved TEST submission covering whatever's left of its required total.
-	// Lets an admin blast through the progression while testing; the rows are test-flagged
-	// (hidden from the live queue, wiped by db/scripts/reset_duo_board.sql).
-	testComplete: async ({ params, locals, request }) => {
-		if (!locals.user) throw redirect(303, '/');
-		requireDuoWolf(params.slug);
-		if (!isAdmin(locals.user)) return fail(403, { error: 'Admins only (test tool).' });
-
-		const event = await fetchEvent(params.slug);
-		if (!event) return fail(404, { error: 'Event not found' });
-
-		const teamId = await getMyTeamId(event.id, locals.user.id);
-		if (!teamId) return fail(400, { error: 'Join the event and pair up with a teammate first.' });
-
-		const form = await request.formData();
-		const tileId = form.get('tile_id')?.toString() ?? '';
-		if (!DUO_TILE_IDS.has(tileId)) return fail(400, { error: 'Unknown tile' });
-
-		// Only the team's current active tile, so progression stays valid (choose a path
-		// first for section tiles).
-		const prog = await fetchTeamProgress(event.id, teamId);
-		if (prog.nodeState[tileId] !== 'active') {
-			return fail(400, { error: "That tile isn't active for your team right now." });
-		}
-
-		// Cover exactly what's left to finish the tile.
-		const required = getDuoTileRequired(tileId);
-		const approved = prog.nodeProgress[tileId]?.approved ?? 0;
-		const remaining = Math.max(1, required - approved);
-
-		const { error: insErr } = await db().from('vs_submissions').insert({
-			event_id: event.id,
-			team_id: teamId,
-			user_id: locals.user.id,
-			target_id: tileId,
-			target_label: getDuoTileName(tileId) ?? tileId,
-			quantity: remaining,
-			test: true,
-			status: 'approved',
-			reviewed_by: locals.user.id,
-			reviewed_at: new Date().toISOString(),
-			review_note: 'Test insta-complete',
-			proof_urls: [],
-			proof_paths: []
-		});
-		if (insErr) return fail(500, { error: insErr.message });
-
-		return { ok: true, action: 'testComplete' as const, tile_id: tileId };
 	},
 
 	remove: async ({ params, locals, request }) => {

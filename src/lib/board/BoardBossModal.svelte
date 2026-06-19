@@ -43,7 +43,6 @@
 		communityCount: number;
 		canSubmit: boolean;
 		isAdmin: boolean;
-		testMode?: boolean;
 		progress?: { approved: number; required: number; pending: number; rejected: number } | null;
 		onZoom: (url: string) => void;
 		onclose: () => void;
@@ -60,7 +59,6 @@
 		communityCount,
 		canSubmit,
 		isAdmin,
-		testMode = false,
 		progress = null,
 		onZoom,
 		onclose,
@@ -314,10 +312,6 @@
 				}}
 			>
 				<input type="hidden" name="tile_id" value={tile.id} />
-				{#if testMode}
-					<input type="hidden" name="test" value="1" />
-					<p class="test-note">🧪 Test mode — this drop is hidden from the live queue (see the <strong>Test</strong> tab in admin submissions). It still deals damage to your test team's boss.</p>
-				{/if}
 
 				<h3 class="attack-head">⚔ Attack the boss</h3>
 
@@ -398,28 +392,6 @@
 					This boss isn't open for your team yet.
 				{/if}
 			</p>
-		{/if}
-
-		{#if testMode && submittable}
-			<form
-				method="POST"
-				action="?/testComplete"
-				class="test-complete-form"
-				use:enhance={() => {
-					return async ({ result, update }) => {
-						await update({ reset: false });
-						// Insta-defeat clears the boss → run the same victory flow (or just close).
-						if (result.type === 'success') (onDefeat ?? onclose)();
-						else if (result.type === 'failure') {
-							const data = result.data as { error?: string } | undefined;
-							error = data?.error ?? 'Insta-complete failed';
-						}
-					};
-				}}
-			>
-				<input type="hidden" name="tile_id" value={tile.id} />
-				<button type="submit" class="test-complete">🧪 Insta-defeat (test)</button>
-			</form>
 		{/if}
 
 		{#if community.length > 0}
@@ -813,15 +785,6 @@
 		gap: 0.6rem;
 	}
 
-	.test-note {
-		margin: 0;
-		padding: 0.5rem 0.7rem;
-		font-size: 0.8rem;
-		background: rgba(255, 152, 31, 0.12);
-		border: 1px dashed var(--accent);
-		border-radius: var(--radius);
-		color: var(--accent);
-	}
 
 	.autoclear-toggle {
 		display: flex;
@@ -1007,21 +970,6 @@
 		color: var(--danger);
 	}
 
-	.test-complete-form {
-		margin: 0 1.5rem;
-	}
-
-	button.test-complete {
-		width: 100%;
-		font-size: 0.85rem;
-		border: 1px dashed var(--accent);
-		color: var(--accent);
-		background: rgba(255, 152, 31, 0.08);
-	}
-
-	button.test-complete:hover {
-		background: var(--accent-soft);
-	}
 
 	.locked-msg {
 		margin: 0 1.5rem;
