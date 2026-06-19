@@ -79,7 +79,7 @@
 	<section id="prize-pool" class="card">
 		<div class="section-header"><h2>Prize Pool</h2></div>
 		<p>
-			If there is a A sign-up fee (amount announced per event) it will be collected before the event. This goes into a
+			If there is a sign-up fee (amount announced per event), it will be collected before the event. This goes into a
 			prize pot that will be split between the <strong>top 3 teams</strong> of the event. A clear
 			breakdown of the prize pool will be announced 2 days prior to the event, along with the full
 			bingo board.

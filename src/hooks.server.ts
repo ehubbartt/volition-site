@@ -1,5 +1,6 @@
 import type { Handle } from '@sveltejs/kit';
 import { env } from '$env/dynamic/public';
+import { env as serverEnv } from '$env/dynamic/private';
 import { readSession } from '$lib/server/auth';
 import { getBan } from '$lib/server/bans';
 import { shouldAudit, capturePayload, captureBeforeState, logAudit } from '$lib/server/audit';
@@ -21,6 +22,18 @@ try {
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
+	// Health probe — answer BEFORE the canonical-host redirect below. Fly's internal
+	// check hits the machine on its *.internal/.fly.dev host (Host !== CANONICAL_HOST),
+	// so otherwise it would get a 308 and read as unhealthy. Also skips the session read,
+	// ban check, and audit work — a health probe needs none of it. Used by the Fly
+	// http_service check (fly.toml) + any external uptime monitor.
+	if (event.url.pathname === '/health') {
+		return new Response(JSON.stringify({ ok: true, region: serverEnv.FLY_REGION ?? 'local' }), {
+			status: 200,
+			headers: { 'content-type': 'application/json', 'cache-control': 'no-store' }
+		});
+	}
+
 	if (
 		CANONICAL_HOST &&
 		CANONICAL.startsWith('https://') &&

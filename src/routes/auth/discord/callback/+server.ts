@@ -1,8 +1,33 @@
 import { redirect, error } from '@sveltejs/kit';
-import { discord, fetchDiscordUser } from '$lib/server/discord';
+import {
+	discord,
+	fetchDiscordUser,
+	asDiscordOutage,
+	type DiscordUser,
+	type DiscordRateLimitError
+} from '$lib/server/discord';
 import { db } from '$lib/server/db';
 import { createSession } from '$lib/server/auth';
+import { postOpsAlert } from '$lib/server/opsAlert';
 import type { RequestHandler } from './$types';
+
+// Discord 429'd us (shared-egress-IP ban) or was unreachable — NOT the user's fault.
+// Alert the team and send the user to a friendly retry page instead of a raw error.
+function discordOutage(rl: DiscordRateLimitError): never {
+	const status = rl.status === 0 ? 'a network/egress failure' : `HTTP ${rl.status}`;
+	const retry = rl.retryAfter != null ? ` (retry-after ${rl.retryAfter}s)` : '';
+	console.error(`[oauth] degraded stage=${rl.stage} status=${rl.status}${retry}`);
+	postOpsAlert({
+		title: '⚠️ Discord sign-in degraded',
+		detail: `OAuth ${rl.stage} call returned ${status}${retry}. Members may be unable to sign in — likely the shared-egress-IP rate limit.`,
+		fields: [
+			{ name: 'Stage', value: rl.stage },
+			{ name: 'Status', value: String(rl.status) },
+			...(rl.retryAfter != null ? [{ name: 'Retry-After', value: `${rl.retryAfter}s` }] : [])
+		]
+	});
+	throw redirect(302, '/login-busy');
+}
 
 export const GET: RequestHandler = async ({ url, cookies, locals }) => {
 	const code = url.searchParams.get('code');
@@ -37,10 +62,22 @@ export const GET: RequestHandler = async ({ url, cookies, locals }) => {
 		console.error(
 			`[oauth] token exchange FAILED code=${err.code ?? 'n/a'} desc=${err.description ?? 'n/a'} msg=${err.message ?? String(e)} cause=${err.cause ? String(err.cause) : 'n/a'}`
 		);
+		// A 429/5xx/egress outage is retryable and not the user's fault → degrade gracefully.
+		const rl = asDiscordOutage(e, 'token');
+		if (rl) discordOutage(rl);
 		throw error(400, 'Failed to validate Discord authorization code');
 	}
 
-	const discordUser = await fetchDiscordUser(tokens.accessToken());
+	let discordUser: DiscordUser;
+	try {
+		discordUser = await fetchDiscordUser(tokens.accessToken());
+	} catch (e) {
+		// /users/@me can 429 the same way the token exchange can — handle it identically
+		// instead of letting it bubble to a raw 500.
+		const rl = asDiscordOutage(e, 'userinfo');
+		if (rl) discordOutage(rl);
+		throw e;
+	}
 	const displayName = discordUser.global_name ?? discordUser.username;
 
 	const supabase = db();

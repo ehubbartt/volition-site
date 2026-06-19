@@ -15,6 +15,15 @@ primary_region = 'iad'
   min_machines_running = 1
   processes = ['app']
 
+# Restart a wedged machine automatically. /health is answered in hooks.server.ts
+# before the canonical-host redirect, so the internal probe gets a 200 (not a 308).
+[[http_service.checks]]
+  method = 'get'
+  path = '/health'
+  interval = '30s'
+  timeout = '5s'
+  grace_period = '10s'
+
 [[vm]]
   size = 'shared-cpu-1x'
   memory = '512mb'
