@@ -754,7 +754,7 @@
       </label>
     </div>
 
-    {#if data.isAdmin && data.walletGpValue > 0}
+    {#if data.walletGpValue > 0}
       <div class="convert-panel">
         <div class="convert-text">
           <strong>Convert wallet items</strong>
@@ -813,7 +813,7 @@
               {@const gpAffordable = gpBase > 0 && data.gold_balance >= gpCost}
               <article
                 class="pack"
-                class:dim={(!affordable && owned === 0) ||
+                class:dim={(!affordable && !gpAffordable && owned === 0) ||
                   pack.card_count === 0}
               >
                 <div class="pack-art">

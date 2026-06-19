@@ -237,7 +237,6 @@
 		</div>
 	{:else if tab === 'wallet'}
 		<div class="panel">
-			{#if data.isAdmin}
 			<div class="wallet-head">
 				<div class="gp-bal" title="Your spendable wallet balance">
 					<span class="gp-amount">{formatGP(data.gold_balance)}</span>
@@ -290,12 +289,11 @@
 				{/if}
 			</div>
 			{#if walletMsg}<p class="wallet-msg">{walletMsg}</p>{/if}
-			{/if}
 
 			{#if data.wallet.length === 0}
 				<div class="empty">
 					<p>No unpaid items in your wallet.</p>
-					<p class="muted">Items you win from gamble boxes show up here{#if data.isAdmin}. Convert them to buy packs, or cash them out in-game{:else}, paid out in-game{/if}.</p>
+					<p class="muted">Items you win from gamble boxes show up here. Convert them into a spendable balance, or have them paid out in-game.</p>
 				</div>
 			{:else}
 				<ul class="wallet-list">
@@ -303,15 +301,13 @@
 						<li>
 							<span class="item-name">{item.name}</span>
 							<span class="item-meta">
-								{#if data.isAdmin && item.unitPrice > 0}<span class="item-val">{formatGP(item.value)}</span>{/if}
+								{#if item.unitPrice > 0}<span class="item-val">{formatGP(item.value)}</span>{/if}
 								<span class="item-qty">×{item.quantity}</span>
 							</span>
 						</li>
 					{/each}
 				</ul>
-				{#if data.isAdmin}
-					<p class="muted small wallet-total">Wallet value: <strong>{formatGP(data.walletGpValue)}</strong></p>
-				{/if}
+				<p class="muted small wallet-total">Wallet value: <strong>{formatGP(data.walletGpValue)}</strong></p>
 			{/if}
 		</div>
 	{/if}

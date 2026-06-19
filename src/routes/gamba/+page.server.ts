@@ -787,8 +787,8 @@ export const actions: Actions = {
 	// Convert ALL of the player's unpaid wallet items into GP (gold_balance).
 	convertWallet: async ({ locals }) => {
 		if (!locals.user) throw error(401, 'Sign in first');
-		// Wallet → GP conversion is admin-only for now (while it's being tested).
-		if (!isAdmin(locals.user)) return fail(403, { convertError: 'Converting your wallet is not available yet.' });
+		// Open to all members — you can only convert your OWN wallet (keyed to your
+		// discord_id), and it's a no-op ('empty') if you have no items.
 		const res = await convertWalletToGold(locals.user.discord_id, locals.user.rsn);
 		if (!res.ok) {
 			const msg =
