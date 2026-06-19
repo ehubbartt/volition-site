@@ -690,17 +690,25 @@
     </div>
   {/if}
 
-  <div class="view-tabs">
-    <button
-      type="button"
-      class:active={view === "packs"}
-      onclick={() => (view = "packs")}>Packs</button
-    >
-    <button
-      type="button"
-      class:active={view === "crates"}
-      onclick={() => (view = "crates")}>Crates</button
-    >
+  <div class="store-bar">
+    <div class="view-tabs">
+      <button
+        type="button"
+        class:active={view === "packs"}
+        onclick={() => (view = "packs")}>Packs</button
+      >
+      <button
+        type="button"
+        class:active={view === "crates"}
+        onclick={() => (view = "crates")}>Crates</button
+      >
+    </div>
+    {#if view === "packs"}
+      <label class="anim-toggle" title="Show flat pack images instead of the rotating 3D packs">
+        <input type="checkbox" bind:checked={noAnim} />
+        <span>2D packs (no animation)</span>
+      </label>
+    {/if}
   </div>
 
   {#if view === "packs"}
@@ -709,50 +717,36 @@
     {/if}
 
     {#if data.weeklyPack}
-      <div class="weekly-pack">
-        <img
-          class="wp-art"
-          src={data.weeklyPack.front_url || DEFAULT_PACK_FRONT}
-          alt={data.weeklyPack.name}
-        />
-        <div class="wp-body">
-          <h2>Free weekly pack</h2>
-          <p class="muted">
-            A free <strong>{data.weeklyPack.name}</strong> every week.
-            {#if data.weeklyPack.claimedThisWeek}
-              Next one in <span class="cd">{weeklyCountdown}</span>.
-            {/if}
-          </p>
+      {#if data.weeklyPack.claimedThisWeek && data.weeklyPack.isMember}
+        <!-- Already claimed this week → slim one-line strip instead of the full banner. -->
+        <div class="weekly-slim">
+          🎁 <strong>Free weekly pack</strong> claimed · next in
+          <span class="cd">{weeklyCountdown}</span>
+        </div>
+      {:else}
+        <div class="weekly-pack">
+          <img
+            class="wp-art"
+            src={data.weeklyPack.front_url || DEFAULT_PACK_FRONT}
+            alt={data.weeklyPack.name}
+          />
+          <div class="wp-body">
+            <h2>Free weekly pack</h2>
+            <p class="muted">A free <strong>{data.weeklyPack.name}</strong> every week.</p>
+          </div>
           {#if !data.weeklyPack.isMember}
-            <span class="muted small">Only Volition clan members can claim the weekly pack.</span>
+            <span class="wp-note muted small">Only Volition clan members can claim the weekly pack.</span>
           {:else}
-            <form method="POST" action="?/claimWeeklyPack" use:enhance={submitWeekly}>
-              <button
-                type="submit"
-                class="primary"
-                disabled={!data.weeklyPack.claimable || weeklyBusy}
-              >
-                {#if weeklyBusy}
-                  Claiming…
-                {:else if data.weeklyPack.claimedThisWeek}
-                  Claimed · {weeklyCountdown}
-                {:else}
-                  Claim free pack
-                {/if}
+            <form class="wp-claim" method="POST" action="?/claimWeeklyPack" use:enhance={submitWeekly}>
+              <button type="submit" class="primary" disabled={!data.weeklyPack.claimable || weeklyBusy}>
+                {weeklyBusy ? 'Claiming…' : 'Claim free pack'}
               </button>
             </form>
           {/if}
-          {#if weeklyError}<span class="warn small">{weeklyError}</span>{/if}
+          {#if weeklyError}<span class="warn small wp-err">{weeklyError}</span>{/if}
         </div>
-      </div>
+      {/if}
     {/if}
-
-    <div class="pack-tools">
-      <label class="anim-toggle" title="Show flat pack images instead of the rotating 3D packs">
-        <input type="checkbox" bind:checked={noAnim} />
-        <span>2D packs (no animation)</span>
-      </label>
-    </div>
 
     {#if data.walletGpValue > 0}
       <div class="convert-panel">
@@ -893,7 +887,7 @@
                     {#if !affordable}
                       <span class="warn small">Not enough VP to buy more</span>
                     {/if}
-                    {#if data.isAdmin && gpBase > 0 && pack.card_count > 0}
+                    {#if gpBase > 0 && pack.card_count > 0}
                       <form
                         method="POST"
                         action="?/openWithGp"
@@ -940,7 +934,7 @@
                       <span class="warn small">Not enough VP</span>
                     {/if}
 
-                    {#if data.isAdmin && gpBase > 0 && pack.card_count > 0}
+                    {#if gpBase > 0 && pack.card_count > 0}
                       <form
                         method="POST"
                         action="?/openWithGp"
@@ -1506,9 +1500,10 @@
   .weekly-pack {
     display: flex;
     align-items: center;
-    gap: 1.1rem;
-    padding: 1.1rem 1.25rem;
-    margin-bottom: 1.25rem;
+    flex-wrap: wrap;
+    gap: 0.9rem;
+    padding: 0.7rem 1rem;
+    margin-bottom: 0.85rem;
     background: var(--accent-soft);
     border: 1px solid var(--accent);
     border-radius: var(--radius-lg);
@@ -1516,7 +1511,7 @@
   }
   .wp-art {
     flex: 0 0 auto;
-    width: 4.5rem;
+    width: 3rem;
     aspect-ratio: 5 / 7;
     object-fit: contain;
     border-radius: var(--radius);
@@ -1525,28 +1520,49 @@
     min-width: 0;
   }
   .wp-body h2 {
-    margin: 0 0 0.2rem;
+    margin: 0;
     color: var(--accent);
     text-shadow: var(--ts);
-    font-size: 1.1rem;
+    font-size: 1rem;
   }
   .wp-body p {
-    margin: 0 0 0.6rem;
-    font-size: 0.9rem;
+    margin: 0;
+    font-size: 0.85rem;
   }
-  .wp-body .primary {
+  /* Push the claim button (or the members-only note) to the right of the row. */
+  .wp-claim,
+  .wp-note {
+    margin-left: auto;
+  }
+  .wp-claim .primary {
     width: auto;
   }
-  .wp-body .warn {
-    display: block;
-    margin-top: 0.4rem;
+  .wp-err {
+    flex-basis: 100%;
   }
 
-  /* "Prefer 2D packs" toggle + the flat pack image it switches to */
-  .pack-tools {
+  /* Compact strip shown once the weekly pack has been claimed this week. */
+  .weekly-slim {
+    margin-bottom: 0.85rem;
+    padding: 0.45rem 0.85rem;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .weekly-slim strong {
+    color: var(--accent);
+  }
+
+  /* Row holding the Packs/Crates tabs (left) + the "2D packs" toggle (right). */
+  .store-bar {
     display: flex;
-    justify-content: flex-end;
-    margin-bottom: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
   }
   .anim-toggle {
     display: inline-flex;
@@ -1568,8 +1584,8 @@
 
   .pack-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
-    gap: 1.25rem;
+    grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
+    gap: 1rem;
   }
 
   .pack {
@@ -1596,7 +1612,7 @@
   .pack-art {
     position: relative;
     width: 100%;
-    aspect-ratio: 5 / 7;
+    aspect-ratio: 4 / 5;
     background: #120d08;
     border-bottom: 1px solid var(--border);
     overflow: hidden;
@@ -1637,17 +1653,23 @@
   }
 
   /* Inline "% off" chip shown next to the discounted price in a buy button. */
+  /* Discount chip: floats in the buy button's top-right corner so the button label
+     stays a single line (it used to sit inline and wrap the button to two lines). */
   .off {
-    margin-left: 0.4rem;
+    position: absolute;
+    top: -0.4rem;
+    right: -0.2rem;
+    z-index: 3;
     padding: 0.02rem 0.32rem;
     border-radius: 999px;
     background: #d6362f;
     color: #fff;
     font-family: ui-sans-serif, system-ui, Arial, sans-serif;
-    font-size: 0.65rem;
+    font-size: 0.6rem;
     font-weight: 700;
     letter-spacing: 0.02em;
     white-space: nowrap;
+    pointer-events: none;
   }
 
   /* Locked "coming soon" teaser pack: art + name only, no actions. */
@@ -1687,8 +1709,8 @@
   .body {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
-    padding: 0.85rem;
+    gap: 0.3rem;
+    padding: 0.7rem;
     flex: 1;
   }
 
@@ -1713,7 +1735,7 @@
   }
 
   .name {
-    font-size: 1.1rem;
+    font-size: 1rem;
   }
 
   .edition {
@@ -1759,6 +1781,18 @@
     cursor: not-allowed;
   }
 
+  /* Pack buy buttons (VP + GP): one uniform compact, single-line height. `relative` is
+     the positioning context for the corner `.off` discount chip; `nowrap` keeps the
+     label from wrapping. `.pack`-scoped so crate/other buttons are untouched. */
+  .pack .open-form button,
+  .pack .pack-actions button,
+  .pack .gp-buy {
+    position: relative;
+    white-space: nowrap;
+    font-size: 0.85rem;
+    font-family: var(--font-body);
+  }
+
   .warn {
     color: var(--danger);
     text-align: center;
@@ -1768,7 +1802,6 @@
   .view-tabs {
     display: inline-flex;
     gap: 0.25rem;
-    margin-bottom: 1.25rem;
     padding: 0.25rem;
     background: var(--surface-alt);
     border: 1px solid var(--border);

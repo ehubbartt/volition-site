@@ -38,7 +38,15 @@
 	}
 
 	interface Props {
-		tile: { id: string; name: string; img: string | null; faq_html: string | null };
+		tile: {
+			id: string;
+			name: string;
+			img: string | null;
+			faq_html: string | null;
+			// When set, this tile needs a before/after proof — render two labelled drop boxes
+			// (Pre-pic + Post-pic) instead of one. postRequired ⇒ the post box is mandatory too.
+			prePic?: { postRequired: boolean } | null;
+		};
 		status: BoardStatus;
 		teamSubmissions: TeamSubmission[];
 		community: Completion[];
@@ -102,58 +110,93 @@
 	// proof legitimately covers several.
 	let claimQty = $state(1);
 
+	// Pre-pic tiles get a guided two-box submit: a Pre-pic box + a Post-pic box. It's just a
+	// nudge — the two boxes are merged (pre first, then post) into the one hidden `proof`
+	// input, so the server still receives a normal multi-image submission.
+	type Bucket = 'single' | 'pre' | 'post';
+	const isPrePic = $derived(!!tile.prePic);
+	const postRequired = $derived(tile.prePic?.postRequired ?? false);
+
 	let fileInput: HTMLInputElement | null = $state(null);
-	let staged = $state<Array<{ file: File; url: string }>>([]);
-	let dragOver = $state(false);
+	let staged = $state<Array<{ file: File; url: string }>>([]); // single-box (non pre-pic tiles)
+	let stagedPre = $state<Array<{ file: File; url: string }>>([]); // pre-pic box
+	let stagedPost = $state<Array<{ file: File; url: string }>>([]); // post-pic box
+	let dragOver = $state<Bucket | null>(null);
+	// Which box the cursor is over — routes window paste (Ctrl/Cmd+V) to it.
+	let hoverBucket = $state<Bucket | null>(null);
 	let submitting = $state(false);
 	let error = $state<string | null>(null);
 
-	// Mirror the staged files onto the hidden <input type="file" multiple> so the
-	// form submits them all under "proof". Setting .files programmatically does
-	// not refire the change event, so this won't loop with handleSelect.
+	// All files that will actually be submitted (pre then post on pre-pic tiles, else the
+	// single box). Bound to the hidden `proof` input via syncInput().
+	const stagedAll = $derived(isPrePic ? [...stagedPre, ...stagedPost] : staged);
+	// Submit is allowed once the required box(es) have an image: pre always, post only when
+	// postRequired; non-pre-pic tiles just need any image.
+	const canSubmitFiles = $derived(
+		isPrePic ? stagedPre.length > 0 && (!postRequired || stagedPost.length > 0) : staged.length > 0
+	);
+
+	function bucketFiles(bucket: Bucket) {
+		return bucket === 'pre' ? stagedPre : bucket === 'post' ? stagedPost : staged;
+	}
+
+	function setBucket(bucket: Bucket, next: Array<{ file: File; url: string }>) {
+		if (bucket === 'pre') stagedPre = next;
+		else if (bucket === 'post') stagedPost = next;
+		else staged = next;
+	}
+
+	// Mirror the combined staged files onto the hidden <input type="file" multiple> so the
+	// form submits them all under "proof". Setting .files programmatically does not refire a
+	// change event, so this won't loop with the per-box pickers.
 	function syncInput() {
 		if (!fileInput) return;
 		const dt = new DataTransfer();
-		for (const s of staged) dt.items.add(s.file);
+		for (const s of stagedAll) dt.items.add(s.file);
 		fileInput.files = dt.files;
 	}
 
-	function addFiles(files: FileList | File[]) {
+	function addFiles(files: FileList | File[], bucket: Bucket) {
 		error = null;
 		for (const f of Array.from(files)) {
 			if (!f.type.startsWith('image/')) continue;
-			if (staged.length >= MAX_IMAGES_PER_SUBMISSION) {
+			// The cap covers the whole submission (pre + post combined).
+			if (staged.length + stagedPre.length + stagedPost.length >= MAX_IMAGES_PER_SUBMISSION) {
 				error = `You can attach up to ${MAX_IMAGES_PER_SUBMISSION} images per submission.`;
 				break;
 			}
-			staged = [...staged, { file: f, url: URL.createObjectURL(f) }];
+			setBucket(bucket, [...bucketFiles(bucket), { file: f, url: URL.createObjectURL(f) }]);
 		}
 		syncInput();
 	}
 
-	function removeStaged(i: number) {
-		const s = staged[i];
+	function removeStaged(i: number, bucket: Bucket) {
+		const arr = bucketFiles(bucket);
+		const s = arr[i];
 		if (s) URL.revokeObjectURL(s.url);
-		staged = staged.filter((_, idx) => idx !== i);
+		setBucket(bucket, arr.filter((_, idx) => idx !== i));
 		syncInput();
 	}
 
 	function clearStaged() {
-		for (const s of staged) URL.revokeObjectURL(s.url);
+		for (const s of [...staged, ...stagedPre, ...stagedPost]) URL.revokeObjectURL(s.url);
 		staged = [];
+		stagedPre = [];
+		stagedPost = [];
 		if (fileInput) fileInput.value = '';
 	}
 
-	function handleDrop(e: DragEvent) {
+	function handleDrop(e: DragEvent, bucket: Bucket) {
 		e.preventDefault();
-		dragOver = false;
+		dragOver = null;
 		if (!submittable) return;
-		if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+		if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files, bucket);
 	}
 
-	function handleSelect(e: Event) {
+	function handleSelect(e: Event, bucket: Bucket) {
 		const target = e.target as HTMLInputElement;
-		if (target.files?.length) addFiles(target.files);
+		if (target.files?.length) addFiles(target.files, bucket);
+		target.value = ''; // allow picking the same file again
 	}
 
 	function handlePaste(e: ClipboardEvent) {
@@ -165,7 +208,13 @@
 				const f = item.getAsFile();
 				if (f) {
 					e.preventDefault();
-					addFiles([f]);
+					// Route to the hovered box on pre-pic tiles (default to Pre-pic), else the single box.
+					const bucket: Bucket = isPrePic
+						? hoverBucket === 'pre' || hoverBucket === 'post'
+							? hoverBucket
+							: 'pre'
+						: 'single';
+					addFiles([f], bucket);
 					return;
 				}
 			}
@@ -191,6 +240,54 @@
 
 <svelte:window onkeydown={onKey} onpaste={handlePaste} />
 
+{#snippet dropbox(bucket: Bucket, title: string, hint: string)}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<label
+		class="dropzone"
+		class:drag-over={dragOver === bucket}
+		onpointerenter={() => (hoverBucket = bucket)}
+		onpointerleave={() => {
+			if (hoverBucket === bucket) hoverBucket = null;
+		}}
+		ondragover={(e) => {
+			e.preventDefault();
+			dragOver = bucket;
+		}}
+		ondragleave={() => {
+			if (dragOver === bucket) dragOver = null;
+		}}
+		ondrop={(e) => handleDrop(e, bucket)}
+	>
+		<input
+			type="file"
+			accept="image/png,image/jpeg,image/webp,image/gif"
+			multiple
+			onchange={(e) => handleSelect(e, bucket)}
+			hidden
+		/>
+		<span class="big">{bucketFiles(bucket).length > 0 ? 'Add another image' : title}</span>
+		<span class="hint">{hint}</span>
+	</label>
+
+	{#if bucketFiles(bucket).length > 0}
+		<div class="staged">
+			{#each bucketFiles(bucket) as s, i (s.url)}
+				<div class="staged-item">
+					<img src={s.url} alt={`Staged ${i + 1}`} />
+					<button
+						type="button"
+						class="staged-remove"
+						aria-label="Remove image"
+						onclick={() => removeStaged(i, bucket)}
+					>
+						×
+					</button>
+				</div>
+			{/each}
+		</div>
+	{/if}
+{/snippet}
+
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="backdrop" onclick={backdropClick}>
@@ -199,7 +296,7 @@
 
 		<header class="head">
 			{#if tile.img}
-				<img class="tile-img" src={tile.img} alt={tile.name} loading="lazy" />
+				<img class="tile-img" src={tile.img} alt={tile.name} loading="lazy" referrerpolicy="no-referrer" />
 			{/if}
 			<div class="head-text">
 				<h2 id="modal-title">{tile.name}</h2>
@@ -251,9 +348,9 @@
 							Swap <strong>{tile.name}</strong> → <strong>{confirmSwap.name}</strong>?
 						</p>
 						<div class="swap-confirm-pair">
-							{#if tile.img}<img src={tile.img} alt={tile.name} />{/if}
+							{#if tile.img}<img src={tile.img} alt={tile.name} referrerpolicy="no-referrer" />{/if}
 							<span class="swap-arrow" aria-hidden="true">→</span>
-							{#if confirmSwap.img}<img src={confirmSwap.img} alt={confirmSwap.name} />{/if}
+							{#if confirmSwap.img}<img src={confirmSwap.img} alt={confirmSwap.name} referrerpolicy="no-referrer" />{/if}
 						</div>
 						<p class="swap-note">This uses 1 of your {swapsAvailable} swaps and can't be undone.</p>
 						<div class="swap-confirm-actions">
@@ -305,7 +402,7 @@
 									title={`Swap to ${opt.name}`}
 									onclick={() => (confirmSwap = opt)}
 								>
-									{#if opt.img}<img src={opt.img} alt={opt.name} loading="lazy" />{/if}
+									{#if opt.img}<img src={opt.img} alt={opt.name} loading="lazy" referrerpolicy="no-referrer" />{/if}
 									<span class="swap-opt-name">{opt.name}</span>
 								</button>
 							{/each}
@@ -421,50 +518,37 @@
 					<input type="hidden" name="quantity" value="1" />
 				{/if}
 
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<label
-					class="dropzone"
-					class:drag-over={dragOver}
-					ondragover={(e) => {
-						e.preventDefault();
-						dragOver = true;
-					}}
-					ondragleave={() => (dragOver = false)}
-					ondrop={handleDrop}
-				>
-					<input
-						bind:this={fileInput}
-						type="file"
-						name="proof"
-						accept="image/png,image/jpeg,image/webp,image/gif"
-						multiple
-						onchange={handleSelect}
-						hidden
-					/>
-					<span class="big">
-						{staged.length > 0 ? 'Add another image' : 'Drop or paste image'}
-					</span>
-					<span class="hint">
-						click to choose · paste (Ctrl/Cmd+V) · up to {MAX_IMAGES_PER_SUBMISSION} images, 10 MB each
-					</span>
-				</label>
+				<!-- Hidden carrier: the per-box pickers stage files; syncInput() mirrors the
+				     combined set (pre then post) onto this so the form submits them as `proof`. -->
+				<input bind:this={fileInput} type="file" name="proof" multiple hidden />
 
-				{#if staged.length > 0}
-					<div class="staged">
-						{#each staged as s, i (s.url)}
-							<div class="staged-item">
-								<img src={s.url} alt={`Staged ${i + 1}`} />
-								<button
-									type="button"
-									class="staged-remove"
-									aria-label="Remove image"
-									onclick={() => removeStaged(i)}
-								>
-									×
-								</button>
-							</div>
-						{/each}
+				{#if isPrePic}
+					<p class="prepic-note">
+						This tile needs a <strong>before</strong> and an <strong>after</strong> screenshot — add
+						each in its box. They're submitted together as one proof.
+						<a class="guide-link" href="/evidence-guide#anti-stacking" target="_blank" rel="noopener">
+							📋 Read the anti-stacking evidence rules →
+						</a>
+					</p>
+					<div class="prepic-grid">
+						<div class="prepic-col">
+							<span class="prepic-h">📸 Pre-pic <em class="req">required</em></span>
+							{@render dropbox('pre', 'Drop or paste your BEFORE pic', 'click · drag · paste · 10 MB each')}
+						</div>
+						<div class="prepic-col">
+							<span class="prepic-h">
+								📸 Post-pic
+								{#if postRequired}<em class="req">required</em>{:else}<em class="opt">if applicable</em>{/if}
+							</span>
+							{@render dropbox('post', 'Drop or paste your AFTER pic', 'click · drag · paste · 10 MB each')}
+						</div>
 					</div>
+				{:else}
+					{@render dropbox(
+						'single',
+						'Drop or paste image',
+						`click to choose · paste (Ctrl/Cmd+V) · up to ${MAX_IMAGES_PER_SUBMISSION} images, 10 MB each`
+					)}
 				{/if}
 
 				{#if error}<p class="error">{error}</p>{/if}
@@ -472,14 +556,14 @@
 				<p class="optimistic-hint">Submitting advances your team right away — if an admin rejects a proof, you'll need to redo this tile.</p>
 
 				<div class="actions">
-					<button type="submit" class="primary" disabled={staged.length === 0 || submitting}>
+					<button type="submit" class="primary" disabled={!canSubmitFiles || submitting}>
 						{#if submitting}
 							Submitting…
 						{:else}
-							Submit {staged.length > 1 ? `${staged.length} images` : 'proof'}{#if needsQty} · covers {claimQty}{/if}
+							Submit {stagedAll.length > 1 ? `${stagedAll.length} images` : 'proof'}{#if needsQty} · covers {claimQty}{/if}
 						{/if}
 					</button>
-					{#if staged.length > 0}
+					{#if stagedAll.length > 0}
 						<button type="button" onclick={clearStaged}>Clear</button>
 					{/if}
 				</div>
@@ -729,6 +813,17 @@
 
 	.details-body :global(a) {
 		color: var(--accent);
+	}
+
+	/* Highlighted + bold pre-pic requirement inside a tile's FAQ. */
+	.details-body :global(.prepic) {
+		font-weight: 700;
+		color: var(--yellow);
+		background: rgba(255, 152, 31, 0.18);
+		padding: 0.04rem 0.32rem;
+		border-radius: 3px;
+		box-decoration-break: clone;
+		-webkit-box-decoration-break: clone;
 	}
 
 	.swap {
@@ -1002,6 +1097,97 @@
 	.dropzone.drag-over {
 		border-color: var(--accent);
 		background: var(--accent-soft);
+	}
+
+	.prepic-note {
+		margin: 0.25rem 0 0.6rem;
+		padding: 0.5rem 0.7rem;
+		font-size: 0.82rem;
+		background: rgba(255, 152, 31, 0.1);
+		border: 1px dashed var(--accent);
+		border-radius: var(--radius);
+		color: var(--text);
+	}
+
+	.prepic-note strong {
+		color: var(--yellow);
+	}
+
+	.prepic-note .guide-link {
+		display: inline-block;
+		margin-top: 0.4rem;
+		font-weight: 700;
+		color: var(--accent);
+		text-decoration: none;
+	}
+
+	.prepic-note .guide-link:hover {
+		text-decoration: underline;
+	}
+
+	.prepic-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
+		margin-bottom: 0.5rem;
+	}
+
+	@media (max-width: 30rem) {
+		.prepic-grid {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	.prepic-col {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		min-width: 0;
+	}
+
+	.prepic-h {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-family: var(--font-heading);
+		font-size: 0.85rem;
+		color: var(--accent);
+		letter-spacing: 0.5px;
+	}
+
+	.prepic-h .req,
+	.prepic-h .opt {
+		font-family: var(--font-body);
+		font-style: normal;
+		font-size: 0.62rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		padding: 0.02rem 0.36rem;
+		border-radius: 999px;
+	}
+
+	.prepic-h .req {
+		background: rgba(255, 152, 31, 0.18);
+		border: 1px solid var(--accent);
+		color: var(--accent);
+	}
+
+	.prepic-h .opt {
+		background: var(--surface);
+		border: 1px solid var(--border);
+		color: var(--muted);
+	}
+
+	/* Two side-by-side boxes are tighter than the single full-width dropzone. */
+	.prepic-grid .dropzone {
+		min-height: 6.5rem;
+		margin: 0;
+		padding: 0.75rem;
+	}
+
+	.prepic-grid .big {
+		font-size: 0.92rem;
+		text-align: center;
 	}
 
 	.staged {

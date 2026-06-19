@@ -12,6 +12,7 @@ import {
 	getDuoTileFaq,
 	getDuoTileRequired
 } from '$lib/server/duoWolfTiles';
+import { ensureDuoTilesFresh } from '$lib/server/duoTileStore';
 import type { Actions, PageServerLoad } from './$types';
 
 type SubmissionStatus = 'pending' | 'approved' | 'rejected';
@@ -55,6 +56,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		.maybeSingle();
 	if (evErr) throw error(500, evErr.message);
 	if (!event) throw error(404, 'Event not found');
+
+	await ensureDuoTilesFresh();
 
 	const { data: team, error: tErr } = await db()
 		.from('vs_teams')

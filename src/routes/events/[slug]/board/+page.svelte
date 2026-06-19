@@ -5,12 +5,29 @@
 	import BoardSubmitModal from '$lib/board/BoardSubmitModal.svelte';
 	import BoardBossModal from '$lib/board/BoardBossModal.svelte';
 	import BoardChoosePathModal from '$lib/board/BoardChoosePathModal.svelte';
+	import BoardAckModal from '$lib/board/BoardAckModal.svelte';
 	import Lightbox from '$lib/Lightbox.svelte';
 	import { getBoardTopology } from '$lib/board/topology';
 	import { parseDuoNodeId, duoPathId, DUO_SECTION_ROWS, type DuoSection } from '$lib/board/config';
 	import { laneCountForFloor } from '$lib/board/progress';
 
 	let { data }: { data: PageData } = $props();
+
+	// The event codeword players must have in their WOM plug-in / mobile chat box.
+	const EVENT_CODEWORD = 'VOLI';
+
+	// First-visit acknowledgement gate: shown to players on the LIVE board until they confirm
+	// they've read the rules (remembered via the per-event cookie). Skipped for the full admin
+	// board view (adminView) — admins previewing-as-player still see it to test the flow.
+	let ackConfirmed = $state(false);
+	const ackOpen = $derived(
+		!ackConfirmed && data.status === 'open' && !data.adminView && !data.boardAck
+	);
+
+	function confirmAck() {
+		document.cookie = `${data.ackCookieName}=1; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+		ackConfirmed = true;
+	}
 
 	const topology = getBoardTopology();
 	const contentVisible = $derived(Object.keys(data.content).length > 0);
@@ -50,7 +67,7 @@
 		if (!openNodeId) return null;
 		const c = data.content[openNodeId];
 		if (!c) return null;
-		return { id: openNodeId, name: c.name, img: c.img, faq_html: c.faq_html, autoClear: c.autoClear ?? null };
+		return { id: openNodeId, name: c.name, img: c.img, faq_html: c.faq_html, autoClear: c.autoClear ?? null, prePic: c.prePic ?? null };
 	});
 
 	// Swap options for the open tile: the same-step tiles on adjacent paths. Only offered
@@ -113,10 +130,16 @@
 
 <svelte:head>
 	<title>{data.event.name} · Board · Volition</title>
+	<!-- Tile item art is often hotlinked from external wikis (OSRS wiki, Fandom) that block
+	     requests carrying a referrer. The board renders node art as SVG <image>, where the
+	     per-img referrerpolicy attr isn't honored — so set it document-wide here instead.
+	     Safe: SvelteKit's CSRF check uses the Origin header, not Referer. -->
+	<meta name="referrer" content="no-referrer" />
 </svelte:head>
 
 <nav class="crumbs">
 	<a href="/events/{data.event.slug}?view=teams">👥 View teams &amp; standings</a>
+	<a href="/evidence-guide" target="_blank" rel="noopener">📋 Evidence guide</a>
 </nav>
 
 <section class="hero">
@@ -226,8 +249,20 @@
 	<Lightbox src={lightboxSrc} alt="DuoWolf proof" onclose={() => (lightboxSrc = null)} />
 {/if}
 
+{#if ackOpen}
+	<BoardAckModal
+		eventName={data.event.name}
+		codeword={EVENT_CODEWORD}
+		guideHref="/evidence-guide"
+		onConfirm={confirmAck}
+	/>
+{/if}
+
 <style>
 	.crumbs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem 1.25rem;
 		margin-bottom: 0.75rem;
 	}
 

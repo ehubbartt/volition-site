@@ -75,7 +75,7 @@
 		{#each data.groups as g (g.tile_id)}
 			<li class="group status-{g.status}">
 				<div class="g-head">
-					{#if g.tile_img}<img class="g-img" src={g.tile_img} alt={g.tile_name} />{/if}
+					{#if g.tile_img}<img class="g-img" src={g.tile_img} alt={g.tile_name} referrerpolicy="no-referrer" />{/if}
 					<div class="g-text">
 						<strong>{g.tile_name}</strong>
 						<span class="g-prog" class:full={g.approved >= g.required}>

@@ -63,7 +63,7 @@
 		<header class="card-head">
 			<div class="who">
 				{#if current.tile.img}
-					<img class="tile-img" src={current.tile.img} alt={current.tile.name} />
+					<img class="tile-img" src={current.tile.img} alt={current.tile.name} referrerpolicy="no-referrer" />
 				{/if}
 				<div class="who-text">
 					<a class="rsn" href="/admin/duo/{data.event.slug}/team/{current.team_id}">{current.team_name}</a>

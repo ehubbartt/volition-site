@@ -14,6 +14,7 @@ import {
 } from '$lib/board/config';
 import { computeProgress, laneCountForFloor, type ProgressResult, type Stage } from '$lib/board/progress';
 import { DUO_TILE_IDS, getDuoTileRequired } from './duoWolfTiles';
+import { ensureDuoTilesFresh } from './duoTileStore';
 import { CLAN_OPTIONS, CLAN_LABEL } from '$lib/clans';
 
 export interface LeaderEntry {
@@ -95,6 +96,9 @@ export async function loadDuoStandings(
 	const topN = opts.topN ?? 20;
 	const markersTopN = opts.markersTopN ?? 10;
 	const perClanCap = opts.perClanCap ?? 20;
+
+	// Required counts feed the progress engine — keep the admin-edited tile content fresh.
+	await ensureDuoTilesFresh();
 
 	const sb = db();
 	const [{ data: teamRows }, { data: allChoices }, { data: allSwaps }, { data: subs }, { data: signups }] =

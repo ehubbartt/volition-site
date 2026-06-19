@@ -189,7 +189,7 @@
 
 		<header class="boss-hero">
 			{#if tile.img}
-				<img class="boss-img" src={tile.img} alt={tile.name} />
+				<img class="boss-img" src={tile.img} alt={tile.name} referrerpolicy="no-referrer" />
 			{/if}
 			<div class="boss-name-row">
 				<span class="boss-tag">Boss</span>

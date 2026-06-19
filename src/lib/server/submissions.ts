@@ -23,6 +23,7 @@ import {
 	getDuoTileFaq,
 	getDuoTileRequired
 } from '$lib/server/duoWolfTiles';
+import { ensureDuoTilesFresh } from '$lib/server/duoTileStore';
 import type {
 	ReviewItem,
 	ReviewedItem,
@@ -139,6 +140,9 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 	stats: { pending: number; approved: number; rejected: number };
 }> {
 	const sb = db();
+
+	// Duo tile labels/FAQ in resolveTask() read the live tile map — keep admin edits fresh.
+	await ensureDuoTilesFresh();
 
 	const [eventsRes, bingoRes, teamRes, genericRes, approvedRes, rejectedRes] = await Promise.all([
 		sb.from('vs_events').select('id, slug, name'),
@@ -360,6 +364,9 @@ export async function loadReviewedSubmissions({
 }> {
 	const sb = db();
 	const REVIEWED = ['approved', 'rejected'];
+
+	// Duo tile labels in resolveTask() read the live tile map — keep admin edits fresh.
+	await ensureDuoTilesFresh();
 
 	const [eventsRes, bingoRes, teamRes, genericRes] = await Promise.all([
 		sb.from('vs_events').select('id, slug, name'),

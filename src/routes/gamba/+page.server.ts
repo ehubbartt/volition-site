@@ -1,6 +1,6 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { isAdmin, type SessionUser } from '$lib/server/auth';
+import { type SessionUser } from '$lib/server/auth';
 import {
 	getPlayerVp,
 	spendPlayerVp,
@@ -738,8 +738,8 @@ export const actions: Actions = {
 	// but spends GP instead of VP; the pack must have a cost_gp set (else it's VP-only).
 	openWithGp: async ({ locals, request }) => {
 		if (!locals.user) throw error(401, 'Sign in first');
-		// GP / wallet buying is admin-only for now (while it's being tested).
-		if (!isAdmin(locals.user)) return fail(403, { error: 'Buying with your wallet is not available yet.' });
+		// Open to all members — spends the player's own GP balance (gold_balance), which
+		// they built by converting their wallet. Cost is charged server-side via spendGold.
 
 		const form = await request.formData();
 		const packId = form.get('pack_id')?.toString();

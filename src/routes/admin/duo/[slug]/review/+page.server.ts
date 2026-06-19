@@ -10,6 +10,7 @@ import {
 	getDuoTileFaq,
 	getDuoTileRequired
 } from '$lib/server/duoWolfTiles';
+import { ensureDuoTilesFresh } from '$lib/server/duoTileStore';
 import type { Actions, PageServerLoad } from './$types';
 
 // DuoWolf submissions are generic vs_submissions rows (team_id + target_id = board
@@ -52,6 +53,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const event = await fetchEvent(params.slug);
 	if (!event) throw error(404, 'Event not found');
+
+	await ensureDuoTilesFresh();
 
 	const { data: pendingRaw, error: qErr } = await db()
 		.from('vs_submissions')

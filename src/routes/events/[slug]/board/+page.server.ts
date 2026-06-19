@@ -20,8 +20,10 @@ import {
 	getDuoTileFaq,
 	getDuoTileImg,
 	getDuoTileRequired,
-	getDuoTileAutoClear
+	getDuoTileAutoClear,
+	getDuoTilePrePic
 } from '$lib/server/duoWolfTiles';
+import { ensureDuoTilesFresh } from '$lib/server/duoTileStore';
 import { createSubmission } from '$lib/server/submissions';
 import { BINGO_BUCKET } from '$lib/bingo/config';
 import type { Actions, PageServerLoad } from './$types';
@@ -88,6 +90,8 @@ interface TileContent {
 	img: string | null;
 	faq_html: string | null;
 	autoClear: string | null; // boss-only instant-clear label (null otherwise)
+	// When set, the tile requires a pre-pic: the submit modal shows a Pre-pic + Post-pic box.
+	prePic: { postRequired: boolean } | null;
 }
 
 
@@ -103,7 +107,8 @@ function tileContent(id: string): TileContent {
 		name: getDuoTileName(id) ?? id,
 		img: getDuoTileImg(id),
 		faq_html: faqToHtml(getDuoTileFaq(id)),
-		autoClear: getDuoTileAutoClear(id)
+		autoClear: getDuoTileAutoClear(id),
+		prePic: getDuoTilePrePic(id)
 	};
 }
 
@@ -187,6 +192,8 @@ async function fetchSwapBalance(
 // Per-team progression (counts + path choices → stage machine). Shared by the
 // load and the submit/choosePath actions so reveal + gating never drift.
 async function fetchTeamProgress(eventId: string, teamId: string): Promise<ProgressResult> {
+	// Required counts come from the (possibly admin-edited) tile content — keep it fresh.
+	await ensureDuoTilesFresh();
 	const approvedByTile: Record<string, number> = {};
 	const pendingByTile: Record<string, number> = {};
 	const { data: rows } = await db()
@@ -226,7 +233,7 @@ async function fetchTeamProgress(eventId: string, teamId: string): Promise<Progr
 	});
 }
 
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+export const load: PageServerLoad = async ({ params, locals, url, cookies }) => {
 	if (!locals.user) throw redirect(303, '/');
 	if (!locals.user.rsn || !locals.user.clan_allegiance || !locals.user.account_type) {
 		throw redirect(303, '/onboarding');
@@ -234,6 +241,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 	const event = await fetchEvent(params.slug);
 	if (!event) throw error(404, 'Event not found');
+
+	// Pull any admin tile edits into the live map before reading tile content below.
+	await ensureDuoTilesFresh();
 
 	const admin = isAdmin(locals.user);
 	// Admins can preview the live PLAYER view (fog of war, per-team reveal) via
@@ -415,9 +425,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		teamCount = standings.teamCount;
 	}
 
+	// First-visit acknowledgement gate: the player must confirm they've read the rules before
+	// using the live board. Tracked by a per-event cookie (set client-side on confirm), so a
+	// new event re-prompts. The board page only shows the gate once the climb is live.
+	const ackCookieName = `voli_duo_ack_${event.id}`;
+	const boardAck = cookies.get(ackCookieName) === '1';
+
 	return {
 		event: { id: event.id, slug: event.slug, name: event.name, status: event.status },
 		status,
+		boardAck,
+		ackCookieName,
 		// adminView = the full-board admin payload is being shown; previewAsPlayer = an
 		// admin is currently viewing the player (fog-of-war) version; canToggleView = the
 		// real user is an admin (show the view toggle).
@@ -599,6 +617,9 @@ export const actions: Actions = {
 
 		if (!DUO_TILE_IDS.has(tileId)) return fail(400, { error: 'Unknown tile' });
 		if (files.length === 0) return fail(400, { error: 'Add at least one proof image' });
+
+		// Pull any admin tile edits in before reading required/name below.
+		await ensureDuoTilesFresh();
 
 		// How many of the tile's required total this one proof covers (e.g. one pic of all
 		// 25 Wintertodt rewards). Clamp to 1..required so a single proof can't over-claim
