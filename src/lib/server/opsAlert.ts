@@ -1,11 +1,15 @@
 import { env } from '$env/dynamic/private';
 
-// SERVER-ONLY ops alert → a private Discord channel via its OWN webhook
-// (DISCORD_OPS_WEBHOOK_URL). Fire-and-forget, best-effort, NEVER throws — mirrors the
-// postEmbed pattern in dropsFeed.ts. Used to ping the team the instant a privileged
-// path degrades. Current caller: the OAuth callback, when Discord 429-rate-limits /
-// is unreachable from Fly's egress IP (the shared-IP ban that locks members out of
-// sign-in). Separate from the people-facing drops feed and the bot bridge.
+// SERVER-ONLY ops alert → a Discord channel via a webhook. Prefers a dedicated
+// DISCORD_OPS_WEBHOOK_URL, else falls back to the existing bot-bridge webhook
+// (DISCORD_BOT_BRIDGE_WEBHOOK_URL) so alerts land in the same channel as the gamba
+// role grants with no new secret to set. Fire-and-forget, best-effort, NEVER throws —
+// mirrors the postEmbed pattern in dropsFeed.ts. Current caller: the OAuth callback,
+// when Discord 429-rate-limits / is unreachable from Fly's egress IP (the shared-IP
+// ban that locks members out of sign-in).
+//
+// Posting to the bridge channel is safe: this sends ONLY an embed (no ```json `content`
+// command block), so the bot's bridge parser finds no command `type` and ignores it.
 
 let warnedNoWebhook = false;
 
@@ -14,12 +18,15 @@ export function postOpsAlert(a: {
 	detail?: string;
 	fields?: { name: string; value: string }[];
 }): void {
-	const url = env.DISCORD_OPS_WEBHOOK_URL;
+	const url = env.DISCORD_OPS_WEBHOOK_URL ?? env.DISCORD_BOT_BRIDGE_WEBHOOK_URL;
 	if (!url) {
 		// One-time hint so a missing webhook is obvious in the logs instead of silent.
 		if (!warnedNoWebhook) {
 			warnedNoWebhook = true;
-			console.warn('[ops-alert] DISCORD_OPS_WEBHOOK_URL not set — alert dropped:', a.title);
+			console.warn(
+				'[ops-alert] no webhook set (DISCORD_OPS_WEBHOOK_URL / DISCORD_BOT_BRIDGE_WEBHOOK_URL) — alert dropped:',
+				a.title
+			);
 		}
 		return;
 	}
