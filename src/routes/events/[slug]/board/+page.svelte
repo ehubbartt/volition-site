@@ -6,9 +6,11 @@
 	import BoardBossModal from '$lib/board/BoardBossModal.svelte';
 	import BoardChoosePathModal from '$lib/board/BoardChoosePathModal.svelte';
 	import BoardAckModal from '$lib/board/BoardAckModal.svelte';
+	import BoardFireworks from '$lib/board/BoardFireworks.svelte';
+	import BoardCompleteModal from '$lib/board/BoardCompleteModal.svelte';
 	import Lightbox from '$lib/Lightbox.svelte';
 	import { getBoardTopology } from '$lib/board/topology';
-	import { parseDuoNodeId, duoPathId, DUO_SECTION_ROWS, type DuoSection } from '$lib/board/config';
+	import { parseDuoNodeId, duoPathId, DUO_SECTION_ROWS, DUO_FLOORS, type DuoSection } from '$lib/board/config';
 	import { laneCountForFloor } from '$lib/board/progress';
 
 	let { data }: { data: PageData } = $props();
@@ -63,6 +65,30 @@
 	// Boss tiles open the dedicated "boss room" (HP bar + deal-damage) instead of the
 	// standard submit modal.
 	const openIsBoss = $derived(openNodeId ? parseDuoNodeId(openNodeId)?.kind === 'boss' : false);
+
+	// Boss-kill celebration. `celebrating` = fireworks for a non-final boss (then pan to the
+	// next floor); `completed` = the final boss → fireworks + the "completed Duo Wolf" screen.
+	// `recenterNonce` is bumped to make BoardMap re-focus the freshly-unlocked next floor.
+	let celebrating = $state(false);
+	let completed = $state(false);
+	let recenterNonce = $state(0);
+
+	function handleBossDefeat() {
+		const ref = openNodeId ? parseDuoNodeId(openNodeId) : null;
+		const isFinalBoss = !!ref && ref.kind === 'boss' && ref.floor >= DUO_FLOORS;
+		openNodeId = null; // close the boss room so the celebration is front-and-centre
+		if (isFinalBoss) {
+			completed = true;
+		} else {
+			celebrating = true;
+		}
+	}
+
+	// Non-final boss: once the fireworks finish, pan/zoom the board onto the next floor.
+	function onCelebrationDone() {
+		celebrating = false;
+		recenterNonce += 1;
+	}
 	const openTile = $derived.by(() => {
 		if (!openNodeId) return null;
 		const c = data.content[openNodeId];
@@ -191,6 +217,7 @@
 			nodeProgress={data.nodeProgress}
 			teamMarkers={data.teamMarkers}
 			focus={focusTarget}
+			focusNonce={recenterNonce}
 			{onNodeClick}
 		/>
 	</div>
@@ -217,6 +244,7 @@
 		progress={data.nodeProgress[openTile.id] ?? null}
 		onZoom={(url) => (lightboxSrc = url)}
 		onclose={closeModal}
+		onDefeat={handleBossDefeat}
 	/>
 {:else if openTile}
 	<BoardSubmitModal
@@ -256,6 +284,15 @@
 		guideHref="/evidence-guide"
 		onConfirm={confirmAck}
 	/>
+{/if}
+
+{#if celebrating}
+	<BoardFireworks oncomplete={onCelebrationDone} />
+{/if}
+
+{#if completed}
+	<BoardFireworks loop />
+	<BoardCompleteModal eventName={data.event.name} onclose={() => (completed = false)} />
 {/if}
 
 <style>

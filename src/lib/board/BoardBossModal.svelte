@@ -47,6 +47,9 @@
 		progress?: { approved: number; required: number; pending: number; rejected: number } | null;
 		onZoom: (url: string) => void;
 		onclose: () => void;
+		// Fired the moment a hit takes the boss from alive → defeated (the killing blow), so the
+		// board can play the victory fireworks + advance to the next floor.
+		onDefeat?: () => void;
 	}
 
 	let {
@@ -60,7 +63,8 @@
 		testMode = false,
 		progress = null,
 		onZoom,
-		onclose
+		onclose,
+		onDefeat
 	}: Props = $props();
 
 	const submittable = $derived(status === 'open' && canSubmit);
@@ -291,11 +295,15 @@
 				action="?/submit"
 				use:enhance={() => {
 					submitting = true;
+					// Captured before submit: does this drop deal the killing blow? (boss was alive
+					// and this hit's damage finishes the HP pool). Drives the victory celebration.
+					const killingBlow = !defeated && totalDmg + submitQty >= maxHp;
 					return async ({ result, update }) => {
 						await update({ reset: false });
 						submitting = false;
 						if (result.type === 'success') {
 							clearStaged();
+							if (killingBlow) onDefeat?.();
 						} else if (result.type === 'failure') {
 							const data = result.data as { error?: string } | undefined;
 							error = data?.error ?? 'Submit failed';
@@ -400,7 +408,8 @@
 				use:enhance={() => {
 					return async ({ result, update }) => {
 						await update({ reset: false });
-						if (result.type === 'success') onclose();
+						// Insta-defeat clears the boss → run the same victory flow (or just close).
+						if (result.type === 'success') (onDefeat ?? onclose)();
 						else if (result.type === 'failure') {
 							const data = result.data as { error?: string } | undefined;
 							error = data?.error ?? 'Insta-complete failed';
