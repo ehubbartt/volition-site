@@ -23,7 +23,7 @@
 </svelte:head>
 
 <nav class="crumbs">
-	<a href="/admin/duo/{data.event.slug}/review">← Review queue</a>
+	<a href="/admin/submissions">← All submissions</a>
 	<span class="sep">·</span>
 	<a href="/events/{data.event.slug}/board">View board →</a>
 </nav>

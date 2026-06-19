@@ -2,7 +2,13 @@ import { redirect, fail, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { renderMarkdown } from '$lib/markdown';
-import { duoNodeRefs, DUO_SECTIONS, parseDuoNodeId } from '$lib/board/config';
+import {
+	duoNodeRefs,
+	DUO_SECTIONS,
+	parseDuoNodeId,
+	DUO_PET_SWAP_TARGET,
+	DUO_PET_SWAP_LABEL
+} from '$lib/board/config';
 import { getBoardStatus, type BoardStatus } from '$lib/board/state';
 import {
 	computeProgress,
@@ -77,6 +83,18 @@ interface DuoTeamSubmission {
 	id: string;
 	proof_urls: string[];
 	quantity: number;
+	submitted_at: string;
+	status: SubmissionStatus;
+	reviewed_by_name: string | null;
+	review_note: string | null;
+	submitted_by_name: string;
+}
+
+// A team's pet-for-bonus-swap submission (not tied to a board tile). Each approved one
+// is worth +1 bonus swap; shown in the pet modal so the team sees pending/approved pets.
+interface DuoPetSubmission {
+	id: string;
+	proof_urls: string[];
 	submitted_at: string;
 	status: SubmissionStatus;
 	reviewed_by_name: string | null;
@@ -174,13 +192,22 @@ async function fetchSwapBalance(
 	teamId: string,
 	currentFloor: number | null
 ): Promise<SwapBalance> {
-	const [{ data: swaps }, { data: grants }] = await Promise.all([
+	const [{ data: swaps }, { data: grants }, { count: petCount }] = await Promise.all([
 		db().from('vs_team_tile_swaps').select('floor').eq('event_id', eventId).eq('team_id', teamId),
-		db().from('vs_team_swap_grants').select('amount').eq('event_id', eventId).eq('team_id', teamId)
+		db().from('vs_team_swap_grants').select('amount').eq('event_id', eventId).eq('team_id', teamId),
+		// Each APPROVED pet submission = +1 bonus swap (unlimited, admin-gatekept on approval).
+		db()
+			.from('vs_submissions')
+			.select('id', { count: 'exact', head: true })
+			.eq('event_id', eventId)
+			.eq('team_id', teamId)
+			.eq('target_id', DUO_PET_SWAP_TARGET)
+			.eq('status', 'approved')
 	]);
 	const usedByFloor: Record<number, number> = {};
 	for (const s of (swaps ?? []) as { floor: number }[]) usedByFloor[s.floor] = (usedByFloor[s.floor] ?? 0) + 1;
-	const bonusGranted = ((grants ?? []) as { amount: number }[]).reduce((a, g) => a + (Number(g.amount) || 0), 0);
+	const adminGranted = ((grants ?? []) as { amount: number }[]).reduce((a, g) => a + (Number(g.amount) || 0), 0);
+	const bonusGranted = adminGranted + (petCount ?? 0);
 	let bonusUsed = 0;
 	for (const f of Object.keys(usedByFloor)) bonusUsed += Math.max(0, usedByFloor[Number(f)] - SWAPS_PER_FLOOR);
 	const bonusRemaining = Math.max(0, bonusGranted - bonusUsed);
@@ -265,6 +292,8 @@ export const load: PageServerLoad = async ({ params, locals, url, cookies }) => 
 	let completionsForClient: Record<string, DuoCompletionDetail[]> = {};
 	let completionCountForClient: Record<string, number> = {};
 	const teamSubmissionsByTile: Record<string, DuoTeamSubmission[]> = {};
+	// The team's own pet-for-swap submissions (not tile-bound), for the pet modal.
+	const myPetSubmissions: DuoPetSubmission[] = [];
 	let nodeState: Record<string, NodeState> = {};
 	let nodeProgress: Record<string, NodeProgress> = {};
 	let chosenLaneByFloorSection: Record<string, number | null> = {};
@@ -305,6 +334,22 @@ export const load: PageServerLoad = async ({ params, locals, url, cookies }) => 
 		const myRejected: Record<string, number> = {};
 
 		for (const c of completions) {
+			// Pet-for-swap rows aren't board tiles — collect the team's own, then skip the
+			// tile-progress logic below (they never count toward a node).
+			if (c.target_id === DUO_PET_SWAP_TARGET) {
+				if (myTeamId != null && c.team_id === myTeamId) {
+					myPetSubmissions.push({
+						id: c.id,
+						proof_urls: c.proof_urls ?? [],
+						submitted_at: c.submitted_at,
+						status: c.status,
+						reviewed_by_name: c.reviewer ? (c.reviewer.rsn ?? c.reviewer.discord_username) : null,
+						review_note: c.review_note ?? null,
+						submitted_by_name: c.vs_users.rsn ?? c.vs_users.discord_username
+					});
+				}
+				continue;
+			}
 			if (!DUO_TILE_IDS.has(c.target_id)) continue;
 			const proofUrls = c.proof_urls ?? [];
 			const qty = Math.max(1, Number(c.quantity) || 1);
@@ -381,7 +426,7 @@ export const load: PageServerLoad = async ({ params, locals, url, cookies }) => 
 
 		if (viewAll) {
 			// Whole-board view (admin): every tile, all floors, no per-team gating styling.
-			// They review per team via /admin/duo/[slug]/review.
+			// Submissions are reviewed in the unified /admin/submissions queue.
 			for (const ref of duoNodeRefs()) content[ref.id] = tileContent(ref.id);
 			completionsForClient = completionsByTile;
 			completionCountForClient = completionCountByTile;
@@ -441,6 +486,7 @@ export const load: PageServerLoad = async ({ params, locals, url, cookies }) => 
 		completionsByTile: completionsForClient,
 		completionCountByTile: completionCountForClient,
 		teamSubmissionsByTile,
+		petSubmissions: myPetSubmissions,
 		nodeState,
 		nodeProgress,
 		chosenLaneByFloorSection,
@@ -629,6 +675,41 @@ export const actions: Actions = {
 		if (!result.ok) return fail(400, { error: result.error });
 
 		return { ok: true, action: 'submit' as const, tile_id: tileId };
+	},
+
+	// Submit a pet drop for a BONUS SWAP. Not tied to a tile — one generic vs_submissions
+	// row with the pet target; each APPROVED one adds +1 to the team's bonus swap balance
+	// (fetchSwapBalance counts approved pet rows). Surfaces in /admin/submissions for review.
+	submitPet: async ({ params, locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		requireDuoWolf(params.slug);
+
+		const event = await fetchEvent(params.slug);
+		if (!event) return fail(404, { error: 'Event not found' });
+		const admin = isAdmin(locals.user);
+		const isActive = admin ? event.status === 'open' || event.status === 'preview' : isClimbLive(event);
+		if (!isActive) return fail(400, { error: 'Submissions are closed' });
+
+		const teamId = await getMyTeamId(event.id, locals.user.id);
+		if (!teamId) {
+			return fail(400, { error: 'Join the event and pair up with a teammate before submitting.' });
+		}
+
+		const form = await request.formData();
+		const files = form.getAll('proof').filter((f): f is File => f instanceof File && f.size > 0);
+		if (files.length === 0) return fail(400, { error: 'Add at least one proof image of the pet' });
+
+		const result = await createSubmission({
+			eventId: event.id,
+			userId: locals.user.id,
+			teamId,
+			targetId: DUO_PET_SWAP_TARGET,
+			targetLabel: DUO_PET_SWAP_LABEL,
+			files
+		});
+		if (!result.ok) return fail(400, { error: result.error });
+
+		return { ok: true, action: 'submitPet' as const };
 	},
 
 	remove: async ({ params, locals, request }) => {

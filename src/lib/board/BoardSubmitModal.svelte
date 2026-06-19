@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import { MAX_IMAGES_PER_SUBMISSION } from '$lib/bingo/config';
+	import { saveDraftFiles, loadDraftFiles, clearDraftFiles, sweepExpiredDrafts } from './draftStore';
 	import type { BoardStatus } from './state';
 
 	type SubmissionStatus = 'pending' | 'approved' | 'rejected';
@@ -52,12 +53,20 @@
 		community: Completion[];
 		communityCount: number;
 		canSubmit: boolean;
+		// Whether the viewer is on a team for this event. canSubmit already folds this in, but
+		// it's passed separately so the "can't submit" message can tell "you have no team" apart
+		// from "this tile just isn't your active one right now" (e.g. a tile you already cleared).
+		hasTeam: boolean;
 		isAdmin: boolean;
 		progress?: { approved: number; required: number; pending: number; rejected: number } | null;
 		// Swaps: if this tile can be swapped, the adjacent-path tiles to swap to + how many
 		// swaps the team has left. Empty options ⇒ not swappable (already started / no swaps).
 		swapsAvailable?: number;
 		swapOptions?: SwapOption[];
+		// `${eventId}:${teamId}` — namespaces persisted draft images so staged proofs survive
+		// a refresh / navigate-away / modal close (restored when the tile is reopened). Empty
+		// string disables persistence (e.g. no team).
+		draftScope?: string;
 		onZoom: (url: string) => void;
 		onclose: () => void;
 	}
@@ -69,10 +78,12 @@
 		community,
 		communityCount,
 		canSubmit,
+		hasTeam,
 		isAdmin,
 		progress = null,
 		swapsAvailable = 0,
 		swapOptions = [],
+		draftScope = '',
 		onZoom,
 		onclose
 	}: Props = $props();
@@ -83,6 +94,9 @@
 	let swapping = $state(false);
 
 	const submittable = $derived(status === 'open' && canSubmit);
+	// This tile is already done for the team (approved + pending optimistic count ≥ required) —
+	// so it's not submittable, but the reason is "cleared", not "no team".
+	const isComplete = $derived(!!progress && progress.approved + progress.pending >= progress.required);
 	// Swappable only when this is the team's active, not-yet-started tile and the page sent
 	// adjacent-path options + a positive balance.
 	const canSwap = $derived(submittable && swapOptions.length > 0 && swapsAvailable > 0);
@@ -166,6 +180,7 @@
 			setBucket(bucket, [...bucketFiles(bucket), { file: f, url: URL.createObjectURL(f) }]);
 		}
 		syncInput();
+		persistBucket(bucket);
 	}
 
 	function removeStaged(i: number, bucket: Bucket) {
@@ -174,6 +189,7 @@
 		if (s) URL.revokeObjectURL(s.url);
 		setBucket(bucket, arr.filter((_, idx) => idx !== i));
 		syncInput();
+		persistBucket(bucket);
 	}
 
 	function clearStaged() {
@@ -182,7 +198,59 @@
 		stagedPre = [];
 		stagedPost = [];
 		if (fileInput) fileInput.value = '';
+		clearAllDrafts();
 	}
+
+	// --- Draft persistence: keep staged proofs across refresh / navigate / modal close ---
+	// (IndexedDB, keyed per tile + box). A pre-pic you took before the content survives so you
+	// can come back for the after-pic; cleared on submit (clearStaged) and manual Clear.
+	const BUCKETS: Bucket[] = ['single', 'pre', 'post'];
+	function draftKey(bucket: Bucket): string {
+		return `${draftScope}:${tile.id}:${bucket}`;
+	}
+	function persistBucket(bucket: Bucket) {
+		if (!draftScope) return;
+		void saveDraftFiles(draftKey(bucket), bucketFiles(bucket).map((s) => s.file));
+	}
+	function clearAllDrafts() {
+		if (!draftScope) return;
+		for (const b of BUCKETS) void clearDraftFiles(draftKey(b));
+	}
+
+	// Restore persisted images when the modal opens for a tile (and reset on tile change).
+	// Reads draftScope + tile.id synchronously (so the effect re-runs only when the tile
+	// changes, not when staging mutates), then hydrates after the async load.
+	$effect(() => {
+		const scope = draftScope;
+		const tileId = tile.id;
+		if (!scope || !tileId) return;
+		let cancelled = false;
+		void sweepExpiredDrafts();
+		(async () => {
+			const [single, pre, post] = await Promise.all([
+				loadDraftFiles(`${scope}:${tileId}:single`),
+				loadDraftFiles(`${scope}:${tileId}:pre`),
+				loadDraftFiles(`${scope}:${tileId}:post`)
+			]);
+			if (cancelled) return;
+			for (const s of [...staged, ...stagedPre, ...stagedPost]) URL.revokeObjectURL(s.url);
+			const wrap = (fs: File[]) => fs.map((f) => ({ file: f, url: URL.createObjectURL(f) }));
+			staged = wrap(single);
+			stagedPre = wrap(pre);
+			stagedPost = wrap(post);
+		})();
+		return () => {
+			cancelled = true;
+		};
+	});
+
+	// Mirror the staged set onto the hidden `proof` input whenever it (or the input element)
+	// changes — covers the async restore above, which the per-action syncInput() calls miss.
+	$effect(() => {
+		stagedAll;
+		fileInput;
+		syncInput();
+	});
 
 	function handleDrop(e: DragEvent, bucket: Bucket) {
 		e.preventDefault();
@@ -520,6 +588,7 @@
 					<p class="prepic-note">
 						This tile needs a <strong>before</strong> and an <strong>after</strong> screenshot — add
 						each in its box. They're submitted together as one proof.
+						<span class="saved-hint">💾 Saved on this device — add the before-pic now, go do the content, and come back for the after-pic.</span>
 						<a class="guide-link" href="/evidence-guide#anti-stacking" target="_blank" rel="noopener">
 							📋 Read the anti-stacking evidence rules →
 						</a>
@@ -564,13 +633,17 @@
 			</form>
 		{:else}
 			<p class="locked-msg">
-				{#if !canSubmit && status === 'open'}
+				{#if status === 'past-locked'}
+					This tile is locked — the event has ended.
+				{:else if status !== 'open'}
+					This tile is not yet open.
+				{:else if !hasTeam}
 					Only teams can submit for this event. Join the event and pair up with a teammate first,
 					or ping an admin if you think this is wrong.
-				{:else if status === 'past-locked'}
-					This tile is locked — the event has ended.
+				{:else if isComplete}
+					✓ Your team has already cleared this tile — nothing more to submit here.
 				{:else}
-					This tile is not yet open.
+					This isn't your team's current tile — finish your active tile to keep climbing.
 				{/if}
 			</p>
 		{/if}
@@ -1084,6 +1157,13 @@
 
 	.prepic-note strong {
 		color: var(--yellow);
+	}
+
+	.prepic-note .saved-hint {
+		display: block;
+		margin-top: 0.4rem;
+		color: var(--muted);
+		font-size: 0.78rem;
 	}
 
 	.prepic-note .guide-link {

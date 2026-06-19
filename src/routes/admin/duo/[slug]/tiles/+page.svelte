@@ -73,7 +73,7 @@
 <section>
 	<nav class="crumbs">
 		<a href="/admin/events">← Events</a>
-		<a href="/admin/duo/{data.event.slug}/review">Review submissions →</a>
+		<a href="/admin/submissions">Review submissions →</a>
 		<a href="/events/{data.event.slug}/board" target="_blank" rel="noopener">Open board ↗</a>
 	</nav>
 

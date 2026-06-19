@@ -13,12 +13,6 @@
 			show: data.admin
 		},
 		{
-			href: `/admin/duo/${data.duoSlug}/review`,
-			title: 'DuoWolf review',
-			desc: 'Approve or reject pending DuoWolf team submissions.',
-			show: data.admin
-		},
-		{
 			href: '/admin/cards',
 			title: 'Cards & Packs',
 			desc: data.cardTester

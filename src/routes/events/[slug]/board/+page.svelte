@@ -8,6 +8,7 @@
 	import BoardAckModal from '$lib/board/BoardAckModal.svelte';
 	import BoardFireworks from '$lib/board/BoardFireworks.svelte';
 	import BoardCompleteModal from '$lib/board/BoardCompleteModal.svelte';
+	import BoardPetModal from '$lib/board/BoardPetModal.svelte';
 	import Lightbox from '$lib/Lightbox.svelte';
 	import { getBoardTopology } from '$lib/board/topology';
 	import { parseDuoNodeId, duoPathId, DUO_SECTION_ROWS, DUO_FLOORS, type DuoSection } from '$lib/board/config';
@@ -60,6 +61,9 @@
 			? `/events/${data.event.slug}/board`
 			: `/events/${data.event.slug}/board?view=all`
 	);
+
+	// "Submit a pet for a bonus swap" modal (board hero button).
+	let petModalOpen = $state(false);
 
 	let openNodeId = $state<string | null>(null);
 	// Boss tiles open the dedicated "boss room" (HP bar + deal-damage) instead of the
@@ -179,6 +183,9 @@
 			>
 				🔀 {data.swapsAvailable} swap{data.swapsAvailable === 1 ? '' : 's'}
 			</span>
+			<button type="button" class="pet-btn" onclick={() => (petModalOpen = true)} title="Submit a pet drop to earn a bonus swap">
+				🐾 Submit a pet
+			</button>
 		{/if}
 		{#if data.canToggleView}
 			<a class="view-toggle" class:previewing={data.adminView} href={toggleHref} data-sveltekit-noscroll>
@@ -240,6 +247,7 @@
 		community={data.completionsByTile[openTile.id] ?? []}
 		communityCount={data.completionCountByTile[openTile.id] ?? 0}
 		canSubmit={data.hasTeam && data.nodeState[openTile.id] === 'active'}
+		hasTeam={data.hasTeam}
 		isAdmin={data.adminView}
 		progress={data.nodeProgress[openTile.id] ?? null}
 		onZoom={(url) => (lightboxSrc = url)}
@@ -254,10 +262,12 @@
 		community={data.completionsByTile[openTile.id] ?? []}
 		communityCount={data.completionCountByTile[openTile.id] ?? 0}
 		canSubmit={data.hasTeam && data.nodeState[openTile.id] === 'active'}
+		hasTeam={data.hasTeam}
 		isAdmin={data.adminView}
 		progress={data.nodeProgress[openTile.id] ?? null}
 		swapsAvailable={data.swapsAvailable}
 		swapOptions={swapOptions}
+		draftScope={`${data.event.id}:${data.myTeamId ?? ''}`}
 		onZoom={(url) => (lightboxSrc = url)}
 		onclose={closeModal}
 	/>
@@ -269,6 +279,14 @@
 		section={openChoose.section}
 		lanes={openChooseLanes}
 		onclose={() => (openChoose = null)}
+	/>
+{/if}
+
+{#if petModalOpen}
+	<BoardPetModal
+		petSubmissions={data.petSubmissions}
+		canSubmit={data.hasTeam}
+		onclose={() => (petModalOpen = false)}
 	/>
 {/if}
 
@@ -388,6 +406,23 @@
 		border: 1px solid var(--yellow);
 		color: var(--yellow);
 		cursor: help;
+	}
+
+	.pet-btn {
+		display: inline-block;
+		padding: 0.1rem 0.55rem;
+		font-size: 0.8rem;
+		font-family: var(--font-heading);
+		letter-spacing: 0.5px;
+		border-radius: 3px;
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		color: var(--accent);
+		cursor: pointer;
+		min-height: 0;
+	}
+	.pet-btn:hover {
+		background: rgba(255, 152, 31, 0.28);
 	}
 
 	.view-toggle {

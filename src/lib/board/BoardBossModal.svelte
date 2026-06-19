@@ -42,6 +42,9 @@
 		community: Completion[];
 		communityCount: number;
 		canSubmit: boolean;
+		// Whether the viewer is on a team (canSubmit folds this in; passed separately so the
+		// locked message can distinguish "no team" from "this boss just isn't your active one").
+		hasTeam: boolean;
 		isAdmin: boolean;
 		progress?: { approved: number; required: number; pending: number; rejected: number } | null;
 		onZoom: (url: string) => void;
@@ -58,6 +61,7 @@
 		community,
 		communityCount,
 		canSubmit,
+		hasTeam,
 		isAdmin,
 		progress = null,
 		onZoom,
@@ -384,10 +388,10 @@
 			<p class="locked-msg">
 				{#if defeated}
 					🏆 This boss is defeated — your team has cleared it.
-				{:else if !canSubmit && status === 'open'}
-					Only teams can attack this boss. Join the event and pair up with a teammate first.
 				{:else if status === 'past-locked'}
 					The event has ended — this boss is locked.
+				{:else if !hasTeam && status === 'open'}
+					Only teams can attack this boss. Join the event and pair up with a teammate first.
 				{:else}
 					This boss isn't open for your team yet.
 				{/if}

@@ -223,7 +223,7 @@
 							{/if}
 							{#if ev.slug === DUO_SLUG}
 								<a class="review-link" href="/admin/duo/{ev.slug}/tiles">Board tiles →</a>
-								<a class="review-link" href="/admin/duo/{ev.slug}/review">Review submissions →</a>
+								<a class="review-link" href="/admin/submissions">Review submissions →</a>
 							{/if}
 							<form method="POST" action="?/updateStatus" use:enhance>
 								<input type="hidden" name="id" value={ev.id} />
