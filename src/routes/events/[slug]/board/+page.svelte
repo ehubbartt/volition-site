@@ -239,7 +239,7 @@
 		teamSubmissions={data.teamSubmissionsByTile[openTile.id] ?? []}
 		community={data.completionsByTile[openTile.id] ?? []}
 		communityCount={data.completionCountByTile[openTile.id] ?? 0}
-		canSubmit={data.isClanMember && data.hasTeam && data.nodeState[openTile.id] === 'active'}
+		canSubmit={data.hasTeam && data.nodeState[openTile.id] === 'active'}
 		isAdmin={data.adminView}
 		progress={data.nodeProgress[openTile.id] ?? null}
 		onZoom={(url) => (lightboxSrc = url)}
@@ -253,7 +253,7 @@
 		teamSubmissions={data.teamSubmissionsByTile[openTile.id] ?? []}
 		community={data.completionsByTile[openTile.id] ?? []}
 		communityCount={data.completionCountByTile[openTile.id] ?? 0}
-		canSubmit={data.isClanMember && data.hasTeam && data.nodeState[openTile.id] === 'active'}
+		canSubmit={data.hasTeam && data.nodeState[openTile.id] === 'active'}
 		isAdmin={data.adminView}
 		progress={data.nodeProgress[openTile.id] ?? null}
 		swapsAvailable={data.swapsAvailable}

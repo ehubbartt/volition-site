@@ -1,7 +1,6 @@
 import { redirect, fail, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
-import { isClanMember } from '$lib/server/clan';
 import { renderMarkdown } from '$lib/markdown';
 import { duoNodeRefs, DUO_SECTIONS, parseDuoNodeId } from '$lib/board/config';
 import { getBoardStatus, type BoardStatus } from '$lib/board/state';
@@ -270,7 +269,6 @@ export const load: PageServerLoad = async ({ params, locals, url, cookies }) => 
 	let nodeProgress: Record<string, NodeProgress> = {};
 	let chosenLaneByFloorSection: Record<string, number | null> = {};
 	let currentStageIndex = -1;
-	let memberOfClan = false;
 	let myTeamId: string | null = null;
 	// SWAPS (player/preview only): how many the team can still use + the positions already
 	// swapped, so the board can show the balance + which tiles came from another path.
@@ -285,7 +283,6 @@ export const load: PageServerLoad = async ({ params, locals, url, cookies }) => 
 	let teamCount = 0;
 
 	if (contentVisible) {
-		memberOfClan = await isClanMember(locals.user.discord_id, locals.user.rsn);
 		myTeamId = await getMyTeamId(event.id, locals.user.id);
 
 		const { data: completionsRaw, error: cErr } = await db()
@@ -438,7 +435,6 @@ export const load: PageServerLoad = async ({ params, locals, url, cookies }) => 
 		// canToggleView = the real user is an admin (show the "view whole board" button).
 		adminView: viewAll,
 		canToggleView: admin,
-		isClanMember: memberOfClan,
 		myTeamId,
 		hasTeam: myTeamId != null,
 		content,
@@ -469,10 +465,6 @@ export const actions: Actions = {
 	choosePath: async ({ params, locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
 		requireDuoWolf(params.slug);
-
-		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
-			return fail(403, { error: 'Only Volition clan members can play this event.' });
-		}
 
 		const event = await fetchEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
@@ -524,10 +516,6 @@ export const actions: Actions = {
 	swapTile: async ({ params, locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
 		requireDuoWolf(params.slug);
-
-		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
-			return fail(403, { error: 'Only Volition clan members can play this event.' });
-		}
 
 		const event = await fetchEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
@@ -592,10 +580,6 @@ export const actions: Actions = {
 		if (!locals.user) throw redirect(303, '/');
 		requireDuoWolf(params.slug);
 
-		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
-			return fail(403, { error: 'Only Volition clan members can submit tiles for this event.' });
-		}
-
 		const event = await fetchEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
 		const admin = isAdmin(locals.user);
@@ -650,10 +634,6 @@ export const actions: Actions = {
 	remove: async ({ params, locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
 		requireDuoWolf(params.slug);
-
-		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
-			return fail(403, { error: 'Only Volition clan members can manage submissions.' });
-		}
 
 		const event = await fetchEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
