@@ -11,7 +11,7 @@
 // Adding a future event type needs NO change here: it just writes to vs_submissions
 // (via createSubmission) and its pending rows show up in /admin/submissions.
 
-import { db } from './db';
+import { db, fetchAllFiltered } from './db';
 import { grantPlayerVp } from './playerStats';
 import { renderMarkdown } from '$lib/markdown';
 import { CLAN_LABEL } from '$lib/clans';
@@ -146,28 +146,39 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 
 	const [eventsRes, bingoRes, teamRes, genericRes, approvedRes, rejectedRes] = await Promise.all([
 		sb.from('vs_events').select('id, slug, name'),
-		sb
-			.from('vs_bingo_completions')
-			.select(
-				'id, event_id, user_id, tile_id, proof_urls, submitted_at, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance)'
-			)
-			.eq('status', 'pending')
-			.order('submitted_at', { ascending: true }),
-		sb
-			.from('vs_team_completions')
-			.select(
-				'id, event_id, user_id, team_id, tile_id, proof_urls, submitted_at, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name)'
-			)
-			.eq('status', 'pending')
-			.order('submitted_at', { ascending: true }),
-		sb
-			.from('vs_submissions')
-			.select(
-				'id, event_id, task_id, user_id, discord_id, submitter_name, team_id, target_id, target_label, quantity, proof_urls, submitted_at, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name), vs_tasks!task_id(id, name)'
-			)
-			.eq('status', 'pending')
-			.eq('test', test)
-			.order('submitted_at', { ascending: true }),
+		// Paginate the pending queues past the 1000-row cap (a large backlog would otherwise
+		// silently drop the newest pending submissions from the review queue).
+		fetchAllFiltered((f, t) =>
+			sb
+				.from('vs_bingo_completions')
+				.select(
+					'id, event_id, user_id, tile_id, proof_urls, submitted_at, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance)'
+				)
+				.eq('status', 'pending')
+				.order('submitted_at', { ascending: true })
+				.range(f, t)
+		),
+		fetchAllFiltered((f, t) =>
+			sb
+				.from('vs_team_completions')
+				.select(
+					'id, event_id, user_id, team_id, tile_id, proof_urls, submitted_at, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name)'
+				)
+				.eq('status', 'pending')
+				.order('submitted_at', { ascending: true })
+				.range(f, t)
+		),
+		fetchAllFiltered((f, t) =>
+			sb
+				.from('vs_submissions')
+				.select(
+					'id, event_id, task_id, user_id, discord_id, submitter_name, team_id, target_id, target_label, quantity, proof_urls, submitted_at, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name), vs_tasks!task_id(id, name)'
+				)
+				.eq('status', 'pending')
+				.eq('test', test)
+				.order('submitted_at', { ascending: true })
+				.range(f, t)
+		),
 		sb.from('vs_submissions').select('id', { count: 'exact', head: true }).eq('status', 'approved'),
 		sb.from('vs_submissions').select('id', { count: 'exact', head: true }).eq('status', 'rejected')
 	]);

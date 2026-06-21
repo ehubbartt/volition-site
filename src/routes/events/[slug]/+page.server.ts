@@ -1,5 +1,5 @@
 import { redirect, fail, error } from '@sveltejs/kit';
-import { db } from '$lib/server/db';
+import { db, fetchAllFiltered } from '$lib/server/db';
 import { CLAN_LABEL, CLAN_OPTIONS } from '$lib/clans';
 import { ACCOUNT_TYPES } from '$lib/accountTypes';
 import { renderMarkdown } from '$lib/markdown';
@@ -150,20 +150,24 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		throw redirect(307, `/events/${params.slug}/board`);
 	}
 
+	// Paginate: a large event's signups (and teams) can exceed the 1000-row cap.
 	const [{ data: signupsRaw }, { data: teamsRaw }] = await Promise.all([
-		supabase
-			.from('vs_event_signups')
-			.select(
-				'id, user_id, team_id, joined_at, vs_users(id, rsn, discord_username, clan_allegiance, account_type)'
-			)
-			.eq('event_id', event.id)
-			.order('joined_at', { ascending: true }),
-		supabase.from('vs_teams').select('id, name').eq('event_id', event.id)
+		fetchAllFiltered((f, t) =>
+			supabase
+				.from('vs_event_signups')
+				.select(
+					'id, user_id, team_id, joined_at, vs_users(id, rsn, discord_username, clan_allegiance, account_type)'
+				)
+				.eq('event_id', event.id)
+				.order('joined_at', { ascending: true })
+				.range(f, t)
+		),
+		fetchAllFiltered((f, t) => supabase.from('vs_teams').select('id, name').eq('event_id', event.id).range(f, t))
 	]);
 
 	const signups = (signupsRaw ?? []) as unknown as SignupRow[];
 	const teamNameById = new Map<string, string | null>(
-		(teamsRaw ?? []).map((t) => [t.id, t.name])
+		((teamsRaw ?? []) as { id: string; name: string | null }[]).map((t) => [t.id, t.name])
 	);
 
 	const mySignup = signups.find((s) => s.user_id === locals.user!.id) ?? null;

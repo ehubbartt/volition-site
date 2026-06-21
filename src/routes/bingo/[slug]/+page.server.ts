@@ -1,5 +1,5 @@
 import { redirect, fail, error } from '@sveltejs/kit';
-import { db } from '$lib/server/db';
+import { db, fetchAllFiltered } from '$lib/server/db';
 import {
 	BINGO_BUCKET,
 	BINGO_EVENT_SLUG,
@@ -113,13 +113,18 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const baseState = getBingoState((event.starts_at ?? event.signup_opens_at), new Date());
 	const state = archived ? { ...baseState, status: 'ended' as const } : baseState;
 
-	const { data: completionsRaw, error: cErr } = await db()
-		.from('vs_bingo_completions')
-		.select(
-			'id, user_id, tile_id, proof_urls, proof_paths, submitted_at, status, vs_users!user_id(id, rsn, discord_username, clan_allegiance, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username)'
-		)
-		.eq('event_id', event.id)
-		.order('submitted_at', { ascending: true });
+	// Paginate: once an event passes 1000 tile submissions an un-paged read drops the
+	// newest rows (oldest-first order) → an incomplete leaderboard.
+	const { data: completionsRaw, error: cErr } = await fetchAllFiltered((f, t) =>
+		db()
+			.from('vs_bingo_completions')
+			.select(
+				'id, user_id, tile_id, proof_urls, proof_paths, submitted_at, status, vs_users!user_id(id, rsn, discord_username, clan_allegiance, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username)'
+			)
+			.eq('event_id', event.id)
+			.order('submitted_at', { ascending: true })
+			.range(f, t)
+	);
 
 	if (cErr) throw new Error(cErr.message);
 

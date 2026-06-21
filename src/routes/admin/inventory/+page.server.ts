@@ -1,5 +1,5 @@
 import { redirect, error, fail } from '@sveltejs/kit';
-import { db } from '$lib/server/db';
+import { db, fetchAllFiltered } from '$lib/server/db';
 import { isSuperAdmin } from '$lib/server/auth';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -41,9 +41,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const userId = url.searchParams.get('user');
 
 	const [{ data: users }, { data: cardOwners }, { data: packOwners }] = await Promise.all([
-		db().from('vs_users').select('id, rsn, discord_username, discord_id').order('rsn', { ascending: true }),
-		db().from('vs_user_cards').select('user_id'),
-		db().from('vs_user_packs').select('user_id')
+		fetchAllFiltered((f, t) =>
+			db().from('vs_users').select('id, rsn, discord_username, discord_id').order('rsn', { ascending: true }).range(f, t)
+		),
+		fetchAllFiltered((f, t) => db().from('vs_user_cards').select('user_id').range(f, t)),
+		fetchAllFiltered((f, t) => db().from('vs_user_packs').select('user_id').range(f, t))
 	]);
 
 	const withInv = new Set<string>([
