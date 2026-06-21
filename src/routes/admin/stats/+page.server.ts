@@ -1,5 +1,5 @@
 import { redirect, error } from '@sveltejs/kit';
-import { db } from '$lib/server/db';
+import { db, fetchAllFiltered } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { itemPrice } from '$lib/gp';
 import type { PageServerLoad } from './$types';
@@ -33,8 +33,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 		{ data: reroll },
 		{ data: leavers }
 	] = await Promise.all([
-		db().from('players').select('id, points, clan_joined_at, last_loot_date, discord_id, rsn, rank'),
-		db().from('wallet_items').select('user_id, item_name, paid_out'),
+		// Paginate full-table reads past the 1000-row cap.
+		fetchAllFiltered((f, t) =>
+			db().from('players').select('id, points, clan_joined_at, last_loot_date, discord_id, rsn, rank').range(f, t)
+		),
+		fetchAllFiltered((f, t) => db().from('wallet_items').select('user_id, item_name, paid_out').range(f, t)),
 		db().from('lootcrate_rare_drops').select('*', { count: 'exact', head: true }),
 		db().from('lootcrate_rare_drops').select('*', { count: 'exact', head: true }).eq('was_free', true),
 		db().from('lootcrate_rare_drops').select('*', { count: 'exact', head: true }).eq('was_free', false),
@@ -46,13 +49,16 @@ export const load: PageServerLoad = async ({ locals }) => {
 			.select('id, user_id, item_name, drop_type, amount, chance_percent, was_free, timestamp')
 			.order('timestamp', { ascending: false })
 			.limit(10),
-		db()
-			.from('lootcrate_rare_drops')
-			.select('item_name, drop_type, was_free, timestamp')
-			.gte('timestamp', since30)
-			.order('timestamp', { ascending: true }),
-		db().from('reroll_tokens').select('id, user_id'),
-		db().from('clan_leavers').select('left_at').gte('left_at', since90)
+		fetchAllFiltered((f, t) =>
+			db()
+				.from('lootcrate_rare_drops')
+				.select('item_name, drop_type, was_free, timestamp')
+				.gte('timestamp', since30)
+				.order('timestamp', { ascending: true })
+				.range(f, t)
+		),
+		fetchAllFiltered((f, t) => db().from('reroll_tokens').select('id, user_id').range(f, t)),
+		fetchAllFiltered((f, t) => db().from('clan_leavers').select('left_at').gte('left_at', since90).range(f, t))
 	]);
 
 	const ps = (players ?? []) as Array<{

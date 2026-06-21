@@ -2,7 +2,7 @@ import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { renderMarkdown } from '$lib/markdown';
-import { duoNodeRefs } from '$lib/board/config';
+import { duoNodeRefs, DUO_PET_SWAP_TARGET } from '$lib/board/config';
 import { computeProgress } from '$lib/board/progress';
 import {
 	DUO_WOLF_EVENT_SLUG,
@@ -12,6 +12,7 @@ import {
 	getDuoTileFaq,
 	getDuoTileRequired
 } from '$lib/server/duoWolfTiles';
+import { ensureDuoTilesFresh } from '$lib/server/duoTileStore';
 import type { Actions, PageServerLoad } from './$types';
 
 type SubmissionStatus = 'pending' | 'approved' | 'rejected';
@@ -56,6 +57,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	if (evErr) throw error(500, evErr.message);
 	if (!event) throw error(404, 'Event not found');
 
+	await ensureDuoTilesFresh();
+
 	const { data: team, error: tErr } = await db()
 		.from('vs_teams')
 		.select('id, name')
@@ -99,10 +102,18 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		choiceByFloorSection[`${ch.floor}:${ch.section}`] = ch.lane;
 	}
 
-	// Swaps: substitutions (for accurate progress) + balance (2/floor base + admin bonus).
-	const [{ data: swapRows }, { data: grantRows }] = await Promise.all([
+	// Swaps: substitutions (for accurate progress) + balance (2/floor base + admin bonus +
+	// approved pet submissions, each worth +1 — same derivation as the player board).
+	const [{ data: swapRows }, { data: grantRows }, { count: petCount }] = await Promise.all([
 		db().from('vs_team_tile_swaps').select('floor, section, step, lane').eq('event_id', event.id).eq('team_id', team.id),
-		db().from('vs_team_swap_grants').select('amount').eq('event_id', event.id).eq('team_id', team.id)
+		db().from('vs_team_swap_grants').select('amount').eq('event_id', event.id).eq('team_id', team.id),
+		db()
+			.from('vs_submissions')
+			.select('id', { count: 'exact', head: true })
+			.eq('event_id', event.id)
+			.eq('team_id', team.id)
+			.eq('target_id', DUO_PET_SWAP_TARGET)
+			.eq('status', 'approved')
 	]);
 	const swapByPositionKey: Record<string, number> = {};
 	const swapsUsedByFloor: Record<number, number> = {};
@@ -110,7 +121,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		swapByPositionKey[`${s.floor}:${s.section}:${s.step}`] = s.lane;
 		swapsUsedByFloor[s.floor] = (swapsUsedByFloor[s.floor] ?? 0) + 1;
 	}
-	const bonusGranted = ((grantRows ?? []) as { amount: number }[]).reduce((a, g) => a + (Number(g.amount) || 0), 0);
+	const bonusGranted =
+		((grantRows ?? []) as { amount: number }[]).reduce((a, g) => a + (Number(g.amount) || 0), 0) +
+		(petCount ?? 0);
 
 	const orderByTile = new Map<string, number>();
 	duoNodeRefs().forEach((ref, i) => orderByTile.set(ref.id, i));

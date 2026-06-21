@@ -1,5 +1,5 @@
 import { redirect, fail, error } from '@sveltejs/kit';
-import { db } from '$lib/server/db';
+import { db, fetchAllFiltered } from '$lib/server/db';
 import { CLAN_LABEL, CLAN_OPTIONS } from '$lib/clans';
 import { ACCOUNT_TYPES } from '$lib/accountTypes';
 import { renderMarkdown } from '$lib/markdown';
@@ -150,20 +150,24 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		throw redirect(307, `/events/${params.slug}/board`);
 	}
 
+	// Paginate: a large event's signups (and teams) can exceed the 1000-row cap.
 	const [{ data: signupsRaw }, { data: teamsRaw }] = await Promise.all([
-		supabase
-			.from('vs_event_signups')
-			.select(
-				'id, user_id, team_id, joined_at, vs_users(id, rsn, discord_username, clan_allegiance, account_type)'
-			)
-			.eq('event_id', event.id)
-			.order('joined_at', { ascending: true }),
-		supabase.from('vs_teams').select('id, name').eq('event_id', event.id)
+		fetchAllFiltered((f, t) =>
+			supabase
+				.from('vs_event_signups')
+				.select(
+					'id, user_id, team_id, joined_at, vs_users(id, rsn, discord_username, clan_allegiance, account_type)'
+				)
+				.eq('event_id', event.id)
+				.order('joined_at', { ascending: true })
+				.range(f, t)
+		),
+		fetchAllFiltered((f, t) => supabase.from('vs_teams').select('id, name').eq('event_id', event.id).range(f, t))
 	]);
 
 	const signups = (signupsRaw ?? []) as unknown as SignupRow[];
 	const teamNameById = new Map<string, string | null>(
-		(teamsRaw ?? []).map((t) => [t.id, t.name])
+		((teamsRaw ?? []) as { id: string; name: string | null }[]).map((t) => [t.id, t.name])
 	);
 
 	const mySignup = signups.find((s) => s.user_id === locals.user!.id) ?? null;
@@ -630,11 +634,19 @@ export const actions: Actions = {
 
 		const { data: event } = await supabase
 			.from('vs_events')
-			.select('id')
+			.select('id, status, starts_at')
 			.eq('slug', params.slug)
 			.maybeSingle();
 
 		if (!event) return fail(404, { error: 'Event not found' });
+
+		// Team names lock once the climb has started (open + past starts_at) — mirrors the
+		// load's `eventLive`, so the button is hidden AND the action is refused after go-live.
+		const startsAt = event.starts_at ? new Date(event.starts_at).getTime() : null;
+		const started = event.status === 'open' && startsAt != null && Date.now() >= startsAt;
+		if (started) {
+			return fail(400, { error: 'Team names are locked once the event has started.' });
+		}
 
 		const { data: mySignup } = await supabase
 			.from('vs_event_signups')

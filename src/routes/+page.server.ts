@@ -1,6 +1,6 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
-import { db } from '$lib/server/db';
+import { db, fetchAllFiltered } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { ensureWelcomePack } from '$lib/server/welcomePack';
 import { loadCalendarItems } from '$lib/server/calendar';
@@ -89,10 +89,11 @@ export const load: PageServerLoad = async ({ parent }) => {
 
 	const [calendar, playersRes, siteUsersRes, eventsRes, packsRes, tasks] = await Promise.all([
 		loadCalendarItems(admin),
-		sb
-			.from('players')
-			.select('id, rsn, discord_id, rank, points, clan_joined_at, created_at'),
-		sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null),
+		// Paginate: the full clan roster + all site users can exceed the 1000-row cap.
+		fetchAllFiltered((f, t) =>
+			sb.from('players').select('id, rsn, discord_id, rank, points, clan_joined_at, created_at').range(f, t)
+		),
+		fetchAllFiltered((f, t) => sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null).range(f, t)),
 		sb.from('vs_events').select('status, ends_at').in('status', ['draft', 'preview', 'open', 'locked', 'closed']),
 		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true }),
 		// To-do surface is open to all onboarded users — always aggregate it.

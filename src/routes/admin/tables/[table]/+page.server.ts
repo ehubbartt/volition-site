@@ -63,8 +63,12 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
 	let total = 0;
 
 	if (search) {
-		// Search needs a cross-column scan → fetch all, filter in JS, then sort + paginate.
-		const { data, error: e } = await db().from(table).select('*');
+		// Search needs a cross-column scan → fetch rows, filter in JS, then sort + paginate.
+		// EXPLICIT bound (not the silent 1000 cap, not an unbounded pull-the-whole-table — some
+		// bot tables are huge): scans up to SEARCH_SCAN rows. For full coverage of an enormous
+		// table, browse it un-searched (that path is server-paginated).
+		const SEARCH_SCAN = 10000;
+		const { data, error: e } = await db().from(table).select('*').limit(SEARCH_SCAN);
 		if (e) throw error(500, e.message);
 		const all = (data ?? []) as Record<string, unknown>[];
 		columns = all.length > 0 ? Object.keys(all[0]) : [];

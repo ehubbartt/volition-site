@@ -54,7 +54,7 @@
 						{#each ln.tiles as t (t.id)}
 							<li>
 								{#if t.img}
-									<img src={t.img} alt={t.name} loading="lazy" />
+									<img src={t.img} alt={t.name} loading="lazy" referrerpolicy="no-referrer" />
 								{/if}
 								<span class="t-name">{t.name}</span>
 								{#if t.required > 1}

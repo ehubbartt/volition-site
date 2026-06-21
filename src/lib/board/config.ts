@@ -18,6 +18,14 @@ export const DUO_SECTIONS = ['A', 'B', 'C'] as const;
 export type DuoSection = (typeof DUO_SECTIONS)[number];
 export const DUO_SECTION_ROWS = 3;
 
+// Pet → bonus swap. A team can submit a pet drop for proof; each APPROVED pet grants the
+// team +1 bonus swap (counted in the swap balance alongside admin grants). This is a
+// non-tile submission `target_id`, so the progress engine + tile rendering ignore it
+// (it's never in DUO_TILE_IDS / duoNodeRefs). The swap balance is derived live from the
+// count of approved pet rows — no grant row, no migration, reversible on un-approve.
+export const DUO_PET_SWAP_TARGET = 'pet-swap';
+export const DUO_PET_SWAP_LABEL = 'Pet — bonus swap';
+
 // ---------------------------------------------------------------------------
 // Canonical node-id builders — MUST match the ids produced by getBoardTopology
 // in board/topology.ts.

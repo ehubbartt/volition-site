@@ -11,12 +11,19 @@
 // Adding a future event type needs NO change here: it just writes to vs_submissions
 // (via createSubmission) and its pending rows show up in /admin/submissions.
 
-import { db } from './db';
+import { db, fetchAllFiltered } from './db';
 import { grantPlayerVp } from './playerStats';
 import { renderMarkdown } from '$lib/markdown';
 import { CLAN_LABEL } from '$lib/clans';
 import { BINGO_BUCKET, MAX_UPLOAD_BYTES, MAX_IMAGES_PER_SUBMISSION, ALLOWED_MIME } from '$lib/bingo/config';
 import { BINGO_TILE_BY_ID, getTileDetails } from '$lib/server/bingoTiles';
+import {
+	DUO_TILE_IDS,
+	getDuoTileName,
+	getDuoTileFaq,
+	getDuoTileRequired
+} from '$lib/server/duoWolfTiles';
+import { ensureDuoTilesFresh } from '$lib/server/duoTileStore';
 import type {
 	ReviewItem,
 	ReviewedItem,
@@ -99,6 +106,16 @@ function resolveTask(source: SubmissionSource, targetId: string, targetLabel: st
 			detail_html: md ? renderMarkdown(md) : null
 		};
 	}
+	// DuoWolf board tiles arrive as generic rows whose target_id is a board node id.
+	// Surface the tile's real name + FAQ (single newlines → hard breaks, like the board).
+	if (DUO_TILE_IDS.has(targetId)) {
+		const faq = getDuoTileFaq(targetId);
+		return {
+			id: targetId,
+			label: getDuoTileName(targetId) ?? targetLabel?.trim() ?? targetId,
+			detail_html: faq ? renderMarkdown(faq.replace(/(?<!\n)\n(?!\n)/g, '  \n')) : null
+		};
+	}
 	return { id: targetId, label: targetLabel?.trim() || targetId, detail_html: null };
 }
 
@@ -124,30 +141,44 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 }> {
 	const sb = db();
 
+	// Duo tile labels/FAQ in resolveTask() read the live tile map — keep admin edits fresh.
+	await ensureDuoTilesFresh();
+
 	const [eventsRes, bingoRes, teamRes, genericRes, approvedRes, rejectedRes] = await Promise.all([
 		sb.from('vs_events').select('id, slug, name'),
-		sb
-			.from('vs_bingo_completions')
-			.select(
-				'id, event_id, user_id, tile_id, proof_urls, submitted_at, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance)'
-			)
-			.eq('status', 'pending')
-			.order('submitted_at', { ascending: true }),
-		sb
-			.from('vs_team_completions')
-			.select(
-				'id, event_id, user_id, team_id, tile_id, proof_urls, submitted_at, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name)'
-			)
-			.eq('status', 'pending')
-			.order('submitted_at', { ascending: true }),
-		sb
-			.from('vs_submissions')
-			.select(
-				'id, event_id, task_id, user_id, discord_id, submitter_name, team_id, target_id, target_label, quantity, proof_urls, submitted_at, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name), vs_tasks!task_id(id, name)'
-			)
-			.eq('status', 'pending')
-			.eq('test', test)
-			.order('submitted_at', { ascending: true }),
+		// Paginate the pending queues past the 1000-row cap (a large backlog would otherwise
+		// silently drop the newest pending submissions from the review queue).
+		fetchAllFiltered((f, t) =>
+			sb
+				.from('vs_bingo_completions')
+				.select(
+					'id, event_id, user_id, tile_id, proof_urls, submitted_at, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance)'
+				)
+				.eq('status', 'pending')
+				.order('submitted_at', { ascending: true })
+				.range(f, t)
+		),
+		fetchAllFiltered((f, t) =>
+			sb
+				.from('vs_team_completions')
+				.select(
+					'id, event_id, user_id, team_id, tile_id, proof_urls, submitted_at, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name)'
+				)
+				.eq('status', 'pending')
+				.order('submitted_at', { ascending: true })
+				.range(f, t)
+		),
+		fetchAllFiltered((f, t) =>
+			sb
+				.from('vs_submissions')
+				.select(
+					'id, event_id, task_id, user_id, discord_id, submitter_name, team_id, target_id, target_label, quantity, proof_urls, submitted_at, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name), vs_tasks!task_id(id, name)'
+				)
+				.eq('status', 'pending')
+				.eq('test', test)
+				.order('submitted_at', { ascending: true })
+				.range(f, t)
+		),
 		sb.from('vs_submissions').select('id', { count: 'exact', head: true }).eq('status', 'approved'),
 		sb.from('vs_submissions').select('id', { count: 'exact', head: true }).eq('status', 'rejected')
 	]);
@@ -276,7 +307,9 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 				proofUrls: [],
 				submittedAt: r.submitted_at,
 				count: 0,
-				quantity: 0
+				quantity: 0,
+				required: DUO_TILE_IDS.has(r.target_id) ? getDuoTileRequired(r.target_id) : null,
+				approvedSoFar: null
 			};
 			groups.set(key, group);
 		}
@@ -288,6 +321,31 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 	}
 
 	const items = Array.from(groups.values()).sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
+
+	// Count-based team tiles (DuoWolf): fill approvedSoFar = how many of `required` the
+	// team already has APPROVED, so the reviewer sees current X / required on the card.
+	const countItems = items.filter((it) => it.required != null && it.team);
+	if (countItems.length > 0) {
+		const eventIds = [...new Set(countItems.map((it) => it.event.id))];
+		const { data: approvedRows } = await db()
+			.from('vs_submissions')
+			.select('event_id, team_id, target_id, quantity')
+			.in('event_id', eventIds)
+			.eq('status', 'approved');
+		const approvedByKey = new Map<string, number>();
+		for (const r of (approvedRows ?? []) as Array<{
+			event_id: string;
+			team_id: string | null;
+			target_id: string;
+			quantity: number | null;
+		}>) {
+			const k = `${r.event_id}|${r.team_id}|${r.target_id}`;
+			approvedByKey.set(k, (approvedByKey.get(k) ?? 0) + Math.max(1, Number(r.quantity) || 1));
+		}
+		for (const it of countItems) {
+			it.approvedSoFar = approvedByKey.get(`${it.event.id}|${it.team!.id}|${it.task.id}`) ?? 0;
+		}
+	}
 
 	// Distinct events present in the queue, for the filter dropdown.
 	const presentEvents = new Map<string, { id: string; slug: string; name: string }>();
@@ -310,41 +368,92 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 // first) so the payload stays reasonable. Also returns the distinct events present.
 export async function loadReviewedSubmissions({
 	test = false,
-	limitPerSource = 200
-}: { test?: boolean; limitPerSource?: number } = {}): Promise<{
+	limitPerSource = 200,
+	search = ''
+}: { test?: boolean; limitPerSource?: number; search?: string } = {}): Promise<{
 	items: ReviewedItem[];
 	events: { id: string; slug: string; name: string }[];
+	searched: boolean;
 }> {
 	const sb = db();
 	const REVIEWED = ['approved', 'rejected'];
 
+	// Duo tile labels in resolveTask() read the live tile map — keep admin edits fresh.
+	await ensureDuoTilesFresh();
+
+	// SERVER-SIDE SEARCH: with a term, match reviewed rows across ALL history (not just the
+	// recent window) by submitter (rsn/discord), team name, event name, and the generic
+	// target_label/submitter_name. Strip chars that would break PostgREST's or() syntax.
+	const term = (search ?? '').replace(/[,()*%]/g, ' ').trim();
+	const searching = term.length > 0;
+	const limit = searching ? 500 : limitPerSource;
+
+	let userIds: string[] = [];
+	let teamIds: string[] = [];
+	let eventIds: string[] = [];
+	if (searching) {
+		// Cap each resolved id list: it's spliced into an or() IN(...) clause, and a huge list
+		// would blow the request URL size. A "find this player/team" search matches few anyway.
+		const [u, t, e] = await Promise.all([
+			sb.from('vs_users').select('id').or(`rsn.ilike.*${term}*,discord_username.ilike.*${term}*`).limit(100),
+			sb.from('vs_teams').select('id').ilike('name', `%${term}%`).limit(100),
+			sb.from('vs_events').select('id').or(`name.ilike.*${term}*,slug.ilike.*${term}*`).limit(100)
+		]);
+		userIds = (u.data ?? []).map((r) => (r as { id: string }).id);
+		teamIds = (t.data ?? []).map((r) => (r as { id: string }).id);
+		eventIds = (e.data ?? []).map((r) => (r as { id: string }).id);
+	}
+
+	// Per-source or() from the resolved ids + columns; null ⇒ this source can't match → skip.
+	const orFilter = (opts: { team: boolean; generic: boolean }): string | null => {
+		const c: string[] = [];
+		if (userIds.length) c.push(`user_id.in.(${userIds.join(',')})`);
+		if (opts.team && teamIds.length) c.push(`team_id.in.(${teamIds.join(',')})`);
+		if (eventIds.length) c.push(`event_id.in.(${eventIds.join(',')})`);
+		if (opts.generic) {
+			c.push(`target_label.ilike.*${term}*`);
+			c.push(`submitter_name.ilike.*${term}*`);
+		}
+		return c.length ? c.join(',') : null;
+	};
+	const genericOr = searching ? orFilter({ team: true, generic: true }) : null;
+	const bingoOr = searching ? orFilter({ team: false, generic: false }) : null;
+	const teamOr = searching ? orFilter({ team: true, generic: false }) : null;
+
+	const empty = Promise.resolve({ data: [] as unknown[], error: null });
+
+	let bingoQ = sb
+		.from('vs_bingo_completions')
+		.select(
+			'id, event_id, user_id, tile_id, proof_urls, submitted_at, status, reviewed_at, review_note, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), reviewer:vs_users!reviewed_by(rsn, discord_username)'
+		)
+		.in('status', REVIEWED);
+	if (bingoOr) bingoQ = bingoQ.or(bingoOr);
+
+	let teamQ = sb
+		.from('vs_team_completions')
+		.select(
+			'id, event_id, user_id, team_id, tile_id, proof_urls, submitted_at, status, reviewed_at, review_note, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name), reviewer:vs_users!reviewed_by(rsn, discord_username)'
+		)
+		.in('status', REVIEWED);
+	if (teamOr) teamQ = teamQ.or(teamOr);
+
+	let genericQ = sb
+		.from('vs_submissions')
+		.select(
+			'id, event_id, task_id, user_id, discord_id, submitter_name, team_id, target_id, target_label, quantity, proof_urls, submitted_at, status, reviewed_at, review_note, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name), vs_tasks!task_id(id, name), reviewer:vs_users!reviewed_by(rsn, discord_username)'
+		)
+		.in('status', REVIEWED)
+		.eq('test', test);
+	if (genericOr) genericQ = genericQ.or(genericOr);
+
 	const [eventsRes, bingoRes, teamRes, genericRes] = await Promise.all([
 		sb.from('vs_events').select('id, slug, name'),
-		sb
-			.from('vs_bingo_completions')
-			.select(
-				'id, event_id, user_id, tile_id, proof_urls, submitted_at, status, reviewed_at, review_note, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), reviewer:vs_users!reviewed_by(rsn, discord_username)'
-			)
-			.in('status', REVIEWED)
-			.order('reviewed_at', { ascending: false })
-			.limit(limitPerSource),
-		sb
-			.from('vs_team_completions')
-			.select(
-				'id, event_id, user_id, team_id, tile_id, proof_urls, submitted_at, status, reviewed_at, review_note, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name), reviewer:vs_users!reviewed_by(rsn, discord_username)'
-			)
-			.in('status', REVIEWED)
-			.order('reviewed_at', { ascending: false })
-			.limit(limitPerSource),
-		sb
-			.from('vs_submissions')
-			.select(
-				'id, event_id, task_id, user_id, discord_id, submitter_name, team_id, target_id, target_label, quantity, proof_urls, submitted_at, status, reviewed_at, review_note, vs_users!user_id(id, rsn, discord_username, account_type, clan_allegiance), vs_teams!team_id(id, name), vs_tasks!task_id(id, name), reviewer:vs_users!reviewed_by(rsn, discord_username)'
-			)
-			.in('status', REVIEWED)
-			.eq('test', test)
-			.order('reviewed_at', { ascending: false })
-			.limit(limitPerSource)
+		// bingo + team are legacy (no `test` column) → live view only; and skip entirely when
+		// a search can't possibly match them.
+		test || (searching && !bingoOr) ? empty : bingoQ.order('reviewed_at', { ascending: false }).limit(limit),
+		test || (searching && !teamOr) ? empty : teamQ.order('reviewed_at', { ascending: false }).limit(limit),
+		searching && !genericOr ? empty : genericQ.order('reviewed_at', { ascending: false }).limit(limit)
 	]);
 
 	const eventById = new Map<string, { id: string; slug: string; name: string }>(
@@ -519,7 +628,8 @@ export async function loadReviewedSubmissions({
 
 	return {
 		items,
-		events: Array.from(presentEvents.values()).sort((a, b) => a.name.localeCompare(b.name))
+		events: Array.from(presentEvents.values()).sort((a, b) => a.name.localeCompare(b.name)),
+		searched: searching
 	};
 }
 

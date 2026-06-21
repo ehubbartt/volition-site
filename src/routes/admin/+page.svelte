@@ -13,12 +13,6 @@
 			show: data.admin
 		},
 		{
-			href: `/admin/duo/${data.duoSlug}/review`,
-			title: 'DuoWolf review',
-			desc: 'Approve or reject pending DuoWolf team submissions.',
-			show: data.admin
-		},
-		{
 			href: '/admin/cards',
 			title: 'Cards & Packs',
 			desc: data.cardTester
@@ -53,7 +47,7 @@
 		{
 			href: '/admin/config',
 			title: 'Database',
-			desc: 'Edit the live bot config and any database table. Super-admins only.',
+			desc: 'Bot config, any database table, and player card inventories. Super-admins only.',
 			show: data.superAdmin
 		}
 	]);

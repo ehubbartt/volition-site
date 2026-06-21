@@ -1,5 +1,5 @@
 import { redirect, error, fail } from '@sveltejs/kit';
-import { db } from '$lib/server/db';
+import { db, fetchAllFiltered } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { itemPrice } from '$lib/gp';
 import type { Actions, PageServerLoad } from './$types';
@@ -39,11 +39,16 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
 
 	const [{ data: players }, { data: items }] = await Promise.all([
-		db().from('players').select('id, discord_id, rsn, points, gold_balance, clan_joined_at, rank'),
-		db()
-			.from('wallet_items')
-			.select('id, user_id, item_name, paid_out, won_at, paid_out_at, paid_out_by')
-			.order('won_at', { ascending: false })
+		fetchAllFiltered((f, t) =>
+			db().from('players').select('id, discord_id, rsn, points, gold_balance, clan_joined_at, rank').range(f, t)
+		),
+		fetchAllFiltered((f, t) =>
+			db()
+				.from('wallet_items')
+				.select('id, user_id, item_name, paid_out, won_at, paid_out_at, paid_out_by')
+				.order('won_at', { ascending: false })
+				.range(f, t)
+		)
 	]);
 
 	// wallet_items.user_id is the player's Discord id (string); fall back to the serial id.

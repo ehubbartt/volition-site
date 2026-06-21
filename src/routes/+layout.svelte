@@ -46,7 +46,7 @@
 
 <footer>
 	<div class="container footer-row">
-		<span class="muted">Volition · OSRS</span>
+		<span class="muted">Volition · OSRS <span class="credit">— site &amp; Discord bot by Bajj</span></span>
 		<a
 			class="discord-link"
 			href="https://discord.gg/fwFPKzJkSJ"
@@ -230,6 +230,11 @@
 	.muted {
 		color: rgba(255, 255, 255, 0.4);
 		font-size: 0.9rem;
+	}
+
+	.credit {
+		color: rgba(255, 255, 255, 0.3);
+		font-size: 0.8rem;
 	}
 
 	@media (max-width: 720px) {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import type { BoardNode, BoardTopology } from './topology';
 	import type { NodeState, NodeProgress } from './progress';
 
@@ -25,6 +25,7 @@
 		nodeProgress = {},
 		teamMarkers = {},
 		focus = null,
+		focusNonce = 0,
 		onNodeClick
 	}: {
 		topology: BoardTopology;
@@ -36,6 +37,9 @@
 		// beside the tile). Names/ranks only — no tile content.
 		teamMarkers?: Record<string, { rank: number; name: string }[]>;
 		focus?: FocusTarget | null;
+		// Bump this (parent ++) to re-run applyFocus on demand — e.g. after a boss kill, to
+		// pan/zoom the board onto the newly-unlocked next floor. (>0 so mount doesn't double-fire.)
+		focusNonce?: number;
 		onNodeClick?: (id: string) => void;
 	} = $props();
 
@@ -89,6 +93,13 @@
 	}
 
 	onMount(applyFocus);
+
+	// Re-center when the parent bumps focusNonce (e.g. boss killed → focus the next floor). Only
+	// focusNonce is tracked; applyFocus's reads of `focus`/state are untracked so a normal data
+	// reload never yanks the view (focus still stays put except on an explicit nonce bump).
+	$effect(() => {
+		if (focusNonce > 0) untrack(applyFocus);
+	});
 
 	function handleNodeClick(id: string) {
 		if (dragMoved) return;

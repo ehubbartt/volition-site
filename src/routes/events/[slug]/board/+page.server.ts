@@ -1,9 +1,14 @@
 import { redirect, fail, error } from '@sveltejs/kit';
-import { db } from '$lib/server/db';
+import { db, fetchAllFiltered } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
-import { isClanMember } from '$lib/server/clan';
 import { renderMarkdown } from '$lib/markdown';
-import { duoNodeRefs, DUO_SECTIONS, parseDuoNodeId } from '$lib/board/config';
+import {
+	duoNodeRefs,
+	DUO_SECTIONS,
+	parseDuoNodeId,
+	DUO_PET_SWAP_TARGET,
+	DUO_PET_SWAP_LABEL
+} from '$lib/board/config';
 import { getBoardStatus, type BoardStatus } from '$lib/board/state';
 import {
 	computeProgress,
@@ -20,8 +25,10 @@ import {
 	getDuoTileFaq,
 	getDuoTileImg,
 	getDuoTileRequired,
-	getDuoTileAutoClear
+	getDuoTileAutoClear,
+	getDuoTilePrePic
 } from '$lib/server/duoWolfTiles';
+import { ensureDuoTilesFresh } from '$lib/server/duoTileStore';
 import { createSubmission } from '$lib/server/submissions';
 import { BINGO_BUCKET } from '$lib/bingo/config';
 import type { Actions, PageServerLoad } from './$types';
@@ -83,11 +90,25 @@ interface DuoTeamSubmission {
 	submitted_by_name: string;
 }
 
+// A team's pet-for-bonus-swap submission (not tied to a board tile). Each approved one
+// is worth +1 bonus swap; shown in the pet modal so the team sees pending/approved pets.
+interface DuoPetSubmission {
+	id: string;
+	proof_urls: string[];
+	submitted_at: string;
+	status: SubmissionStatus;
+	reviewed_by_name: string | null;
+	review_note: string | null;
+	submitted_by_name: string;
+}
+
 interface TileContent {
 	name: string;
 	img: string | null;
 	faq_html: string | null;
 	autoClear: string | null; // boss-only instant-clear label (null otherwise)
+	// When set, the tile requires a pre-pic: the submit modal shows a Pre-pic + Post-pic box.
+	prePic: { postRequired: boolean } | null;
 }
 
 
@@ -103,18 +124,30 @@ function tileContent(id: string): TileContent {
 		name: getDuoTileName(id) ?? id,
 		img: getDuoTileImg(id),
 		faq_html: faqToHtml(getDuoTileFaq(id)),
-		autoClear: getDuoTileAutoClear(id)
+		autoClear: getDuoTileAutoClear(id),
+		prePic: getDuoTilePrePic(id)
 	};
 }
 
 async function fetchEvent(slug: string) {
 	const { data, error: qErr } = await db()
 		.from('vs_events')
-		.select('id, slug, name, status')
+		.select('id, slug, name, status, starts_at')
 		.eq('slug', slug)
 		.maybeSingle();
 	if (qErr) throw error(500, qErr.message);
 	return data;
+}
+
+// The DuoWolf climb is LIVE for players once the event is open AND its start time has
+// arrived. Before that (signups / pre-live) the board is sealed for non-admins — they see
+// the empty skeleton only. Admins always preview. (Needs `starts_at` set on the event.)
+function isClimbLive(event: { status: string | null; starts_at: string | null }): boolean {
+	return (
+		event.status === 'open' &&
+		event.starts_at != null &&
+		Date.now() >= new Date(event.starts_at).getTime()
+	);
 }
 
 async function getMyTeamId(eventId: string, userId: string): Promise<string | null> {
@@ -159,13 +192,22 @@ async function fetchSwapBalance(
 	teamId: string,
 	currentFloor: number | null
 ): Promise<SwapBalance> {
-	const [{ data: swaps }, { data: grants }] = await Promise.all([
+	const [{ data: swaps }, { data: grants }, { count: petCount }] = await Promise.all([
 		db().from('vs_team_tile_swaps').select('floor').eq('event_id', eventId).eq('team_id', teamId),
-		db().from('vs_team_swap_grants').select('amount').eq('event_id', eventId).eq('team_id', teamId)
+		db().from('vs_team_swap_grants').select('amount').eq('event_id', eventId).eq('team_id', teamId),
+		// Each APPROVED pet submission = +1 bonus swap (unlimited, admin-gatekept on approval).
+		db()
+			.from('vs_submissions')
+			.select('id', { count: 'exact', head: true })
+			.eq('event_id', eventId)
+			.eq('team_id', teamId)
+			.eq('target_id', DUO_PET_SWAP_TARGET)
+			.eq('status', 'approved')
 	]);
 	const usedByFloor: Record<number, number> = {};
 	for (const s of (swaps ?? []) as { floor: number }[]) usedByFloor[s.floor] = (usedByFloor[s.floor] ?? 0) + 1;
-	const bonusGranted = ((grants ?? []) as { amount: number }[]).reduce((a, g) => a + (Number(g.amount) || 0), 0);
+	const adminGranted = ((grants ?? []) as { amount: number }[]).reduce((a, g) => a + (Number(g.amount) || 0), 0);
+	const bonusGranted = adminGranted + (petCount ?? 0);
 	let bonusUsed = 0;
 	for (const f of Object.keys(usedByFloor)) bonusUsed += Math.max(0, usedByFloor[Number(f)] - SWAPS_PER_FLOOR);
 	const bonusRemaining = Math.max(0, bonusGranted - bonusUsed);
@@ -176,6 +218,8 @@ async function fetchSwapBalance(
 // Per-team progression (counts + path choices → stage machine). Shared by the
 // load and the submit/choosePath actions so reveal + gating never drift.
 async function fetchTeamProgress(eventId: string, teamId: string): Promise<ProgressResult> {
+	// Required counts come from the (possibly admin-edited) tile content — keep it fresh.
+	await ensureDuoTilesFresh();
 	const approvedByTile: Record<string, number> = {};
 	const pendingByTile: Record<string, number> = {};
 	const { data: rows } = await db()
@@ -215,7 +259,7 @@ async function fetchTeamProgress(eventId: string, teamId: string): Promise<Progr
 	});
 }
 
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+export const load: PageServerLoad = async ({ params, locals, url, cookies }) => {
 	if (!locals.user) throw redirect(303, '/');
 	if (!locals.user.rsn || !locals.user.clan_allegiance || !locals.user.account_type) {
 		throw redirect(303, '/onboarding');
@@ -224,26 +268,36 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	const event = await fetchEvent(params.slug);
 	if (!event) throw error(404, 'Event not found');
 
+	// Pull any admin tile edits into the live map before reading tile content below.
+	await ensureDuoTilesFresh();
+
 	const admin = isAdmin(locals.user);
-	// Admins can preview the live PLAYER view (fog of war, per-team reveal) via
-	// ?view=player to test what teams actually see. `effectiveAdmin` drives the board
-	// payload (full board vs player reveal); the real `admin` still gates the toggle and
-	// the admin-only actions.
-	const previewAsPlayer = admin && url.searchParams.get('view') === 'player';
-	const effectiveAdmin = admin && !previewAsPlayer;
-	const status: BoardStatus = getBoardStatus(event.status, effectiveAdmin);
+	// By default EVERYONE (admins included) sees the real live player board — fog of war,
+	// per-team reveal — so the event is exactly what players get. An admin can opt into the
+	// full board (every tile, all floors, no fog) on demand with ?view=all; that's the only
+	// thing `viewAll` unlocks. `admin` itself still gates the toggle + admin-only actions.
+	const viewAll = admin && url.searchParams.get('view') === 'all';
 	const isDuoWolf = event.slug === DUO_WOLF_EVENT_SLUG;
-	const contentVisible = isDuoWolf && (effectiveAdmin || status === 'open');
+	const live = isClimbLive(event);
+	// Non-admins (and admins in the default player view) only see the board once the climb is
+	// LIVE; before that it's the sealed skeleton. The whole-board view (viewAll) is admin-only
+	// and bypasses the go-live gate so admins can always inspect every tile.
+	let status: BoardStatus;
+	if (viewAll) status = getBoardStatus(event.status, true);
+	else if (event.status === 'closed' || event.status === 'locked') status = 'past-locked';
+	else status = live ? 'open' : 'blurred';
+	const contentVisible = isDuoWolf && (viewAll || status === 'open');
 
 	const content: Record<string, TileContent> = {};
 	let completionsForClient: Record<string, DuoCompletionDetail[]> = {};
 	let completionCountForClient: Record<string, number> = {};
 	const teamSubmissionsByTile: Record<string, DuoTeamSubmission[]> = {};
+	// The team's own pet-for-swap submissions (not tile-bound), for the pet modal.
+	const myPetSubmissions: DuoPetSubmission[] = [];
 	let nodeState: Record<string, NodeState> = {};
 	let nodeProgress: Record<string, NodeProgress> = {};
 	let chosenLaneByFloorSection: Record<string, number | null> = {};
 	let currentStageIndex = -1;
-	let memberOfClan = false;
 	let myTeamId: string | null = null;
 	// SWAPS (player/preview only): how many the team can still use + the positions already
 	// swapped, so the board can show the balance + which tiles came from another path.
@@ -258,16 +312,21 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	let teamCount = 0;
 
 	if (contentVisible) {
-		memberOfClan = await isClanMember(locals.user.discord_id, locals.user.rsn);
 		myTeamId = await getMyTeamId(event.id, locals.user.id);
 
-		const { data: completionsRaw, error: cErr } = await db()
-			.from('vs_submissions')
-			.select(
-				'id, team_id, user_id, target_id, quantity, proof_urls, proof_paths, submitted_at, status, review_note, vs_users!user_id(rsn, discord_username, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username), team:vs_teams!team_id(id, name)'
-			)
-			.eq('event_id', event.id)
-			.order('submitted_at', { ascending: true });
+		// Paginate past the 1000-row cap: once the event passes 1000 submissions an
+		// un-paged query silently drops the NEWEST rows (oldest-first order), which makes
+		// teams' recent progress vanish — tiles stuck at "0/3", "tile not open" on submit.
+		const { data: completionsRaw, error: cErr } = await fetchAllFiltered((f, t) =>
+			db()
+				.from('vs_submissions')
+				.select(
+					'id, team_id, user_id, target_id, quantity, proof_urls, proof_paths, submitted_at, status, review_note, vs_users!user_id(rsn, discord_username, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username), team:vs_teams!team_id(id, name)'
+				)
+				.eq('event_id', event.id)
+				.order('submitted_at', { ascending: true })
+				.range(f, t)
+		);
 		// Degrade gracefully if the tables aren't there yet (migrations applied by
 		// hand): admins can still preview tile content; submissions show empty.
 		if (cErr) console.warn('[duo board] could not load completions:', cErr.message);
@@ -281,6 +340,22 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		const myRejected: Record<string, number> = {};
 
 		for (const c of completions) {
+			// Pet-for-swap rows aren't board tiles — collect the team's own, then skip the
+			// tile-progress logic below (they never count toward a node).
+			if (c.target_id === DUO_PET_SWAP_TARGET) {
+				if (myTeamId != null && c.team_id === myTeamId) {
+					myPetSubmissions.push({
+						id: c.id,
+						proof_urls: c.proof_urls ?? [],
+						submitted_at: c.submitted_at,
+						status: c.status,
+						reviewed_by_name: c.reviewer ? (c.reviewer.rsn ?? c.reviewer.discord_username) : null,
+						review_note: c.review_note ?? null,
+						submitted_by_name: c.vs_users.rsn ?? c.vs_users.discord_username
+					});
+				}
+				continue;
+			}
 			if (!DUO_TILE_IDS.has(c.target_id)) continue;
 			const proofUrls = c.proof_urls ?? [];
 			const qty = Math.max(1, Number(c.quantity) || 1);
@@ -355,9 +430,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			rejectedByTile: myRejected
 		});
 
-		if (effectiveAdmin) {
-			// Admins get the full board (preview) — no per-team gating styling.
-			// They review per team via /admin/duo/[slug]/review.
+		if (viewAll) {
+			// Whole-board view (admin): every tile, all floors, no per-team gating styling.
+			// Submissions are reviewed in the unified /admin/submissions queue.
 			for (const ref of duoNodeRefs()) content[ref.id] = tileContent(ref.id);
 			completionsForClient = completionsByTile;
 			completionCountForClient = completionCountByTile;
@@ -396,22 +471,28 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		teamCount = standings.teamCount;
 	}
 
+	// First-visit acknowledgement gate: the player must confirm they've read the rules before
+	// using the live board. Tracked by a per-event cookie (set client-side on confirm), so a
+	// new event re-prompts. The board page only shows the gate once the climb is live.
+	const ackCookieName = `voli_duo_ack_${event.id}`;
+	const boardAck = cookies.get(ackCookieName) === '1';
+
 	return {
 		event: { id: event.id, slug: event.slug, name: event.name, status: event.status },
 		status,
-		// adminView = the full-board admin payload is being shown; previewAsPlayer = an
-		// admin is currently viewing the player (fog-of-war) version; canToggleView = the
-		// real user is an admin (show the view toggle).
-		adminView: effectiveAdmin,
-		previewAsPlayer,
+		boardAck,
+		ackCookieName,
+		// adminView = the full whole-board payload is being shown (admin opted in via ?view=all);
+		// canToggleView = the real user is an admin (show the "view whole board" button).
+		adminView: viewAll,
 		canToggleView: admin,
-		isClanMember: memberOfClan,
 		myTeamId,
 		hasTeam: myTeamId != null,
 		content,
 		completionsByTile: completionsForClient,
 		completionCountByTile: completionCountForClient,
 		teamSubmissionsByTile,
+		petSubmissions: myPetSubmissions,
 		nodeState,
 		nodeProgress,
 		chosenLaneByFloorSection,
@@ -437,14 +518,10 @@ export const actions: Actions = {
 		if (!locals.user) throw redirect(303, '/');
 		requireDuoWolf(params.slug);
 
-		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
-			return fail(403, { error: 'Only Volition clan members can play this event.' });
-		}
-
 		const event = await fetchEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
 		const admin = isAdmin(locals.user);
-		const isActive = event.status === 'open' || (event.status === 'preview' && admin);
+		const isActive = admin ? event.status === 'open' || event.status === 'preview' : isClimbLive(event);
 		if (!isActive) return fail(400, { error: 'The event is not open' });
 
 		const teamId = await getMyTeamId(event.id, locals.user.id);
@@ -492,14 +569,10 @@ export const actions: Actions = {
 		if (!locals.user) throw redirect(303, '/');
 		requireDuoWolf(params.slug);
 
-		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
-			return fail(403, { error: 'Only Volition clan members can play this event.' });
-		}
-
 		const event = await fetchEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
 		const admin = isAdmin(locals.user);
-		const isActive = event.status === 'open' || (event.status === 'preview' && admin);
+		const isActive = admin ? event.status === 'open' || event.status === 'preview' : isClimbLive(event);
 		if (!isActive) return fail(400, { error: 'The event is not open' });
 
 		const teamId = await getMyTeamId(event.id, locals.user.id);
@@ -559,14 +632,10 @@ export const actions: Actions = {
 		if (!locals.user) throw redirect(303, '/');
 		requireDuoWolf(params.slug);
 
-		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
-			return fail(403, { error: 'Only Volition clan members can submit tiles for this event.' });
-		}
-
 		const event = await fetchEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
 		const admin = isAdmin(locals.user);
-		const isActive = event.status === 'open' || (event.status === 'preview' && admin);
+		const isActive = admin ? event.status === 'open' || event.status === 'preview' : isClimbLive(event);
 		if (!isActive) return fail(400, { error: 'Submissions are closed' });
 
 		const teamId = await getMyTeamId(event.id, locals.user.id);
@@ -581,16 +650,15 @@ export const actions: Actions = {
 		if (!DUO_TILE_IDS.has(tileId)) return fail(400, { error: 'Unknown tile' });
 		if (files.length === 0) return fail(400, { error: 'Add at least one proof image' });
 
+		// Pull any admin tile edits in before reading required/name below.
+		await ensureDuoTilesFresh();
+
 		// How many of the tile's required total this one proof covers (e.g. one pic of all
 		// 25 Wintertodt rewards). Clamp to 1..required so a single proof can't over-claim
 		// past the whole tile; the admin still verifies the amount on approval.
 		const required = getDuoTileRequired(tileId);
 		const rawQty = Math.floor(Number(form.get('quantity') ?? 1));
 		const quantity = Math.max(1, Math.min(Number.isFinite(rawQty) ? rawQty : 1, required));
-
-		// Test submission: only an admin can flag it (the board's "preview as player" mode
-		// posts test=1). Keeps test runs out of the live /admin/submissions queue.
-		const isTest = isAdmin(locals.user) && form.get('test') === '1';
 
 		// Authoritative gating: the tile must be in the team's current active step.
 		const prog = await fetchTeamProgress(event.id, teamId);
@@ -608,7 +676,6 @@ export const actions: Actions = {
 			targetId: tileId,
 			targetLabel: getDuoTileName(tileId) ?? tileId,
 			quantity,
-			test: isTest,
 			files
 		});
 		if (!result.ok) return fail(400, { error: result.error });
@@ -616,69 +683,49 @@ export const actions: Actions = {
 		return { ok: true, action: 'submit' as const, tile_id: tileId };
 	},
 
-	// TEST TOOL (admin-only): insta-complete the team's current active tile by inserting
-	// an already-approved TEST submission covering whatever's left of its required total.
-	// Lets an admin blast through the progression while testing; the rows are test-flagged
-	// (hidden from the live queue, wiped by db/scripts/reset_duo_board.sql).
-	testComplete: async ({ params, locals, request }) => {
+	// Submit a pet drop for a BONUS SWAP. Not tied to a tile — one generic vs_submissions
+	// row with the pet target; each APPROVED one adds +1 to the team's bonus swap balance
+	// (fetchSwapBalance counts approved pet rows). Surfaces in /admin/submissions for review.
+	submitPet: async ({ params, locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
 		requireDuoWolf(params.slug);
-		if (!isAdmin(locals.user)) return fail(403, { error: 'Admins only (test tool).' });
 
 		const event = await fetchEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
+		const admin = isAdmin(locals.user);
+		const isActive = admin ? event.status === 'open' || event.status === 'preview' : isClimbLive(event);
+		if (!isActive) return fail(400, { error: 'Submissions are closed' });
 
 		const teamId = await getMyTeamId(event.id, locals.user.id);
-		if (!teamId) return fail(400, { error: 'Join the event and pair up with a teammate first.' });
-
-		const form = await request.formData();
-		const tileId = form.get('tile_id')?.toString() ?? '';
-		if (!DUO_TILE_IDS.has(tileId)) return fail(400, { error: 'Unknown tile' });
-
-		// Only the team's current active tile, so progression stays valid (choose a path
-		// first for section tiles).
-		const prog = await fetchTeamProgress(event.id, teamId);
-		if (prog.nodeState[tileId] !== 'active') {
-			return fail(400, { error: "That tile isn't active for your team right now." });
+		if (!teamId) {
+			return fail(400, { error: 'Join the event and pair up with a teammate before submitting.' });
 		}
 
-		// Cover exactly what's left to finish the tile.
-		const required = getDuoTileRequired(tileId);
-		const approved = prog.nodeProgress[tileId]?.approved ?? 0;
-		const remaining = Math.max(1, required - approved);
+		const form = await request.formData();
+		const files = form.getAll('proof').filter((f): f is File => f instanceof File && f.size > 0);
+		if (files.length === 0) return fail(400, { error: 'Add at least one proof image of the pet' });
 
-		const { error: insErr } = await db().from('vs_submissions').insert({
-			event_id: event.id,
-			team_id: teamId,
-			user_id: locals.user.id,
-			target_id: tileId,
-			target_label: getDuoTileName(tileId) ?? tileId,
-			quantity: remaining,
-			test: true,
-			status: 'approved',
-			reviewed_by: locals.user.id,
-			reviewed_at: new Date().toISOString(),
-			review_note: 'Test insta-complete',
-			proof_urls: [],
-			proof_paths: []
+		const result = await createSubmission({
+			eventId: event.id,
+			userId: locals.user.id,
+			teamId,
+			targetId: DUO_PET_SWAP_TARGET,
+			targetLabel: DUO_PET_SWAP_LABEL,
+			files
 		});
-		if (insErr) return fail(500, { error: insErr.message });
+		if (!result.ok) return fail(400, { error: result.error });
 
-		return { ok: true, action: 'testComplete' as const, tile_id: tileId };
+		return { ok: true, action: 'submitPet' as const };
 	},
 
 	remove: async ({ params, locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
 		requireDuoWolf(params.slug);
 
-		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
-			return fail(403, { error: 'Only Volition clan members can manage submissions.' });
-		}
-
 		const event = await fetchEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
 		const admin = isAdmin(locals.user);
-		const isActive = event.status === 'open' || (event.status === 'preview' && admin);
+		const isActive = admin ? event.status === 'open' || event.status === 'preview' : isClimbLive(event);
 		if (!isActive) return fail(400, { error: 'You can only remove submissions while the event is open' });
 
 		const teamId = await getMyTeamId(event.id, locals.user.id);

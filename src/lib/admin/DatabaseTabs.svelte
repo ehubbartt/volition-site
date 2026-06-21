@@ -8,7 +8,8 @@
 
 	const TABS: TabDef[] = [
 		{ label: 'Bot Config', href: '/admin/config', prefix: '/admin/config' },
-		{ label: 'Table Editor', href: '/admin/tables', prefix: '/admin/tables' }
+		{ label: 'Table Editor', href: '/admin/tables', prefix: '/admin/tables' },
+		{ label: 'Player Inventory', href: '/admin/inventory', prefix: '/admin/inventory' }
 	];
 
 	let path = $derived($page.url.pathname);

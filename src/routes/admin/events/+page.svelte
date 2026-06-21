@@ -2,11 +2,24 @@
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
 	import EventsTasksTabs from '$lib/admin/EventsTasksTabs.svelte';
-	import { isTaskEvent } from '$lib/events/simple';
+	import { isTaskEvent, isEventEnded } from '$lib/events/simple';
 	import { dateFormEnhance } from '$lib/datetime';
 	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 
+	// Client-safe duo slug (mirrors DUO_WOLF_EVENT_SLUG in the server-only duoWolfTiles.ts).
+	const DUO_SLUG = 'duo-wolf';
+
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	type EventRow = (typeof data.events)[number];
+
+	// "Past" = archived (status=closed) OR an open event whose end time has passed (ended but
+	// not yet flipped to closed). Everything else (draft/preview/open-live/upcoming/locked) is active.
+	function isPastEvent(ev: EventRow): boolean {
+		return ev.status === 'closed' || isEventEnded(ev.status, ev.ends_at);
+	}
+	const activeEvents = $derived(data.events.filter((ev) => !isPastEvent(ev)));
+	const pastEvents = $derived(data.events.filter(isPastEvent));
 
 	// ── Event creator ─────────────────────────────────────────────────────────
 	// The type dropdown drives which fields show: 'simple'/'sequential' are
@@ -192,13 +205,8 @@
 		</form>
 	</details>
 
-	<h2>Existing events</h2>
-	{#if data.events.length === 0}
-		<p class="muted">No events yet.</p>
-	{:else}
-		<ul class="event-list">
-			{#each data.events as ev}
-				<li class="card">
+	{#snippet eventCard(ev: EventRow)}
+			<li class="card">
 					<div class="event-head">
 						<div>
 							<strong>{ev.name}</strong>
@@ -212,6 +220,10 @@
 								<a class="review-link" href="/admin/bingo/{ev.slug}/review">
 									Review submissions →
 								</a>
+							{/if}
+							{#if ev.slug === DUO_SLUG}
+								<a class="review-link" href="/admin/duo/{ev.slug}/tiles">Board tiles →</a>
+								<a class="review-link" href="/admin/submissions">Review submissions →</a>
 							{/if}
 							<form method="POST" action="?/updateStatus" use:enhance>
 								<input type="hidden" name="id" value={ev.id} />
@@ -346,15 +358,56 @@
 							<button type="submit" class="primary">Save changes</button>
 						</form>
 					</details>
-				</li>
-			{/each}
+			</li>
+	{/snippet}
+
+	<h2>Active events <span class="count">({activeEvents.length})</span></h2>
+	{#if data.events.length === 0}
+		<p class="muted">No events yet.</p>
+	{:else if activeEvents.length === 0}
+		<p class="muted">No active events — see past events below.</p>
+	{:else}
+		<ul class="event-list">
+			{#each activeEvents as ev (ev.id)}{@render eventCard(ev)}{/each}
 		</ul>
+	{/if}
+
+	{#if pastEvents.length > 0}
+		<details class="past-block">
+			<summary>Past events <span class="count">({pastEvents.length})</span></summary>
+			<ul class="event-list">
+				{#each pastEvents as ev (ev.id)}{@render eventCard(ev)}{/each}
+			</ul>
+		</details>
 	{/if}
 </section>
 
 <style>
 	h2 {
 		margin: 2rem 0 1rem;
+	}
+
+	.count {
+		color: var(--muted);
+		font-weight: normal;
+		font-size: 0.8em;
+	}
+
+	.past-block {
+		margin-top: 2rem;
+	}
+
+	.past-block > summary {
+		cursor: pointer;
+		font-family: var(--font-heading);
+		font-size: 1.3rem;
+		color: var(--accent);
+		text-shadow: var(--ts);
+		margin-bottom: 1rem;
+	}
+
+	.past-block[open] > summary {
+		margin-bottom: 0.5rem;
 	}
 
 	.muted {

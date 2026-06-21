@@ -1,5 +1,5 @@
 import { redirect, error } from '@sveltejs/kit';
-import { db } from '$lib/server/db';
+import { db, fetchAllFiltered } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import type { PageServerLoad } from './$types';
 
@@ -21,14 +21,18 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const [{ data: players }, { data: userStats }, { data: daily }, { data: todayActive }, { data: recent }] =
 		await Promise.all([
-			db().from('players').select('discord_id, rsn'),
-			db().from('voice_user_stats').select('user_id, total_minutes, total_ticks, username'),
+			fetchAllFiltered((f, t) => db().from('players').select('discord_id, rsn').range(f, t)),
+			fetchAllFiltered((f, t) =>
+				db().from('voice_user_stats').select('user_id, total_minutes, total_ticks, username').range(f, t)
+			),
 			db()
 				.from('voice_daily_metrics')
 				.select('date, total_minutes, total_ticks, unique_users, peak_concurrent')
 				.gte('date', since30)
 				.order('date', { ascending: true }),
-			db().from('voice_activity_log').select('user_id').gte('created_at', todayStart.toISOString()),
+			fetchAllFiltered((f, t) =>
+				db().from('voice_activity_log').select('user_id').gte('created_at', todayStart.toISOString()).range(f, t)
+			),
 			db()
 				.from('voice_activity_log')
 				.select('*')

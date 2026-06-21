@@ -42,11 +42,16 @@
 		community: Completion[];
 		communityCount: number;
 		canSubmit: boolean;
+		// Whether the viewer is on a team (canSubmit folds this in; passed separately so the
+		// locked message can distinguish "no team" from "this boss just isn't your active one").
+		hasTeam: boolean;
 		isAdmin: boolean;
-		testMode?: boolean;
 		progress?: { approved: number; required: number; pending: number; rejected: number } | null;
 		onZoom: (url: string) => void;
 		onclose: () => void;
+		// Fired the moment a hit takes the boss from alive → defeated (the killing blow), so the
+		// board can play the victory fireworks + advance to the next floor.
+		onDefeat?: () => void;
 	}
 
 	let {
@@ -56,11 +61,12 @@
 		community,
 		communityCount,
 		canSubmit,
+		hasTeam,
 		isAdmin,
-		testMode = false,
 		progress = null,
 		onZoom,
-		onclose
+		onclose,
+		onDefeat
 	}: Props = $props();
 
 	const submittable = $derived(status === 'open' && canSubmit);
@@ -189,7 +195,7 @@
 
 		<header class="boss-hero">
 			{#if tile.img}
-				<img class="boss-img" src={tile.img} alt={tile.name} />
+				<img class="boss-img" src={tile.img} alt={tile.name} referrerpolicy="no-referrer" />
 			{/if}
 			<div class="boss-name-row">
 				<span class="boss-tag">Boss</span>
@@ -291,11 +297,15 @@
 				action="?/submit"
 				use:enhance={() => {
 					submitting = true;
+					// Captured before submit: does this drop deal the killing blow? (boss was alive
+					// and this hit's damage finishes the HP pool). Drives the victory celebration.
+					const killingBlow = !defeated && totalDmg + submitQty >= maxHp;
 					return async ({ result, update }) => {
 						await update({ reset: false });
 						submitting = false;
 						if (result.type === 'success') {
 							clearStaged();
+							if (killingBlow) onDefeat?.();
 						} else if (result.type === 'failure') {
 							const data = result.data as { error?: string } | undefined;
 							error = data?.error ?? 'Submit failed';
@@ -306,10 +316,6 @@
 				}}
 			>
 				<input type="hidden" name="tile_id" value={tile.id} />
-				{#if testMode}
-					<input type="hidden" name="test" value="1" />
-					<p class="test-note">🧪 Test mode — this drop is hidden from the live queue (see the <strong>Test</strong> tab in admin submissions). It still deals damage to your test team's boss.</p>
-				{/if}
 
 				<h3 class="attack-head">⚔ Attack the boss</h3>
 
@@ -382,35 +388,14 @@
 			<p class="locked-msg">
 				{#if defeated}
 					🏆 This boss is defeated — your team has cleared it.
-				{:else if !canSubmit && status === 'open'}
-					Only teams can attack this boss. Join the event and pair up with a teammate first.
 				{:else if status === 'past-locked'}
 					The event has ended — this boss is locked.
+				{:else if !hasTeam && status === 'open'}
+					Only teams can attack this boss. Join the event and pair up with a teammate first.
 				{:else}
 					This boss isn't open for your team yet.
 				{/if}
 			</p>
-		{/if}
-
-		{#if testMode && submittable}
-			<form
-				method="POST"
-				action="?/testComplete"
-				class="test-complete-form"
-				use:enhance={() => {
-					return async ({ result, update }) => {
-						await update({ reset: false });
-						if (result.type === 'success') onclose();
-						else if (result.type === 'failure') {
-							const data = result.data as { error?: string } | undefined;
-							error = data?.error ?? 'Insta-complete failed';
-						}
-					};
-				}}
-			>
-				<input type="hidden" name="tile_id" value={tile.id} />
-				<button type="submit" class="test-complete">🧪 Insta-defeat (test)</button>
-			</form>
 		{/if}
 
 		{#if community.length > 0}
@@ -804,15 +789,6 @@
 		gap: 0.6rem;
 	}
 
-	.test-note {
-		margin: 0;
-		padding: 0.5rem 0.7rem;
-		font-size: 0.8rem;
-		background: rgba(255, 152, 31, 0.12);
-		border: 1px dashed var(--accent);
-		border-radius: var(--radius);
-		color: var(--accent);
-	}
 
 	.autoclear-toggle {
 		display: flex;
@@ -998,21 +974,6 @@
 		color: var(--danger);
 	}
 
-	.test-complete-form {
-		margin: 0 1.5rem;
-	}
-
-	button.test-complete {
-		width: 100%;
-		font-size: 0.85rem;
-		border: 1px dashed var(--accent);
-		color: var(--accent);
-		background: rgba(255, 152, 31, 0.08);
-	}
-
-	button.test-complete:hover {
-		background: var(--accent-soft);
-	}
 
 	.locked-msg {
 		margin: 0 1.5rem;

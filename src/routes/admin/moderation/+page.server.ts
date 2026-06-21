@@ -1,5 +1,5 @@
 import { redirect, error, fail } from '@sveltejs/kit';
-import { db } from '$lib/server/db';
+import { db, fetchAllFiltered } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -57,8 +57,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 			.from('warnings')
 			.select('id, discord_id, username, reason, warned_by_tag, created_at, expires_at')
 			.order('created_at', { ascending: false }),
-		sb.from('vs_users').select('discord_id, rsn, discord_username').not('discord_id', 'is', null),
-		sb.from('players').select('discord_id, rsn').not('discord_id', 'is', null)
+		fetchAllFiltered((f, t) =>
+			sb.from('vs_users').select('discord_id, rsn, discord_username').not('discord_id', 'is', null).range(f, t)
+		),
+		fetchAllFiltered((f, t) => sb.from('players').select('discord_id, rsn').not('discord_id', 'is', null).range(f, t))
 	]);
 
 	const now = Date.now();

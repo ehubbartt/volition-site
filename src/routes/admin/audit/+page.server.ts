@@ -1,6 +1,7 @@
 import { redirect, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
+import { enrichAuditRows, type AuditEnrichment } from '$lib/server/audit';
 import type { PageServerLoad } from './$types';
 
 // How many recent rows to load per page. Filtering happens client-side over this set;
@@ -25,6 +26,8 @@ export interface AuditRow {
 	user_agent: string | null;
 }
 
+export type EnrichedAuditRow = AuditRow & AuditEnrichment;
+
 // Admin-only (the audit log is sensitive — card testers don't see it).
 export const load: PageServerLoad = async ({ locals, url }) => {
 	if (!locals.user) throw redirect(303, '/');
@@ -45,7 +48,16 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const { data, error: qErr } = await q;
 	if (qErr) throw error(500, qErr.message);
 
-	const rows = (data ?? []) as AuditRow[];
+	const baseRows = (data ?? []) as AuditRow[];
+
+	// Smart-parse the catch-all payloads: resolve ids → names + build a human summary and a
+	// before→after diff for DB edits (read-side only; doesn't change what's stored).
+	// `userNames` (userId → RSN) lets the viewer print every user id as the person's RSN.
+	const { byRow, userNames } = await enrichAuditRows(baseRows);
+	const rows: EnrichedAuditRow[] = baseRows.map((r) => ({
+		...r,
+		...(byRow.get(r.id) ?? { summary: null, changes: null, resolved: [] })
+	}));
 
 	// Distinct actors + routes present in this page, for the filter chips/dropdowns.
 	const actorSet = new Map<string, string>(); // discord_id|name -> label
@@ -63,6 +75,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	return {
 		rows,
+		userNames,
 		actors,
 		routes,
 		pageSize: PAGE_SIZE,

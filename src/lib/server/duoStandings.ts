@@ -3,10 +3,11 @@
 // Shared by the board page (leaderboard side panel + on-board markers) AND the duo event
 // page (the "board is live" panel that replaces signups once they close).
 
-import { db } from './db';
+import { db, fetchAllFiltered } from './db';
 import {
 	duoNodeRefs,
 	DUO_FLOORS,
+	DUO_SECTION_ROWS,
 	duoStartId,
 	duoMidId,
 	duoBossId,
@@ -14,6 +15,7 @@ import {
 } from '$lib/board/config';
 import { computeProgress, laneCountForFloor, type ProgressResult, type Stage } from '$lib/board/progress';
 import { DUO_TILE_IDS, getDuoTileRequired } from './duoWolfTiles';
+import { ensureDuoTilesFresh } from './duoTileStore';
 import { CLAN_OPTIONS, CLAN_LABEL } from '$lib/clans';
 
 export interface LeaderEntry {
@@ -28,6 +30,11 @@ export interface LeaderEntry {
 	isMine: boolean;
 	clan: string; // team's clan key (single clan, or 'mixed' / 'unknown')
 	clanLabel: string;
+	members: string[]; // the team members' RSNs (falls back to Discord name)
+	// Tiles done in the CURRENT section (only when the current stage is a section, i.e.
+	// sectionTotal > 0) — lets the leaderboard show "Section A (2/3)" instead of just the section.
+	sectionDone: number;
+	sectionTotal: number;
 }
 
 export interface ClanGroup {
@@ -96,31 +103,45 @@ export async function loadDuoStandings(
 	const markersTopN = opts.markersTopN ?? 10;
 	const perClanCap = opts.perClanCap ?? 20;
 
+	// Required counts feed the progress engine — keep the admin-edited tile content fresh.
+	await ensureDuoTilesFresh();
+
 	const sb = db();
+	// Paginate every event-wide read past the 1000-row cap — `subs` especially, which silently
+	// truncated (and broke all progress) once the event crossed 1000 submissions.
 	const [{ data: teamRows }, { data: allChoices }, { data: allSwaps }, { data: subs }, { data: signups }] =
 		await Promise.all([
-			sb.from('vs_teams').select('id, name').eq('event_id', eventId),
-			sb.from('vs_team_path_choices').select('team_id, floor, section, lane').eq('event_id', eventId),
-			sb
-				.from('vs_team_tile_swaps')
-				.select('team_id, floor, section, step, lane')
-				.eq('event_id', eventId),
-			sb.from('vs_submissions').select('team_id, target_id, status, quantity').eq('event_id', eventId),
-			sb
-				.from('vs_event_signups')
-				.select('team_id, vs_users(clan_allegiance)')
-				.eq('event_id', eventId)
+			fetchAllFiltered((f, t) => sb.from('vs_teams').select('id, name').eq('event_id', eventId).range(f, t)),
+			fetchAllFiltered((f, t) =>
+				sb.from('vs_team_path_choices').select('team_id, floor, section, lane').eq('event_id', eventId).range(f, t)
+			),
+			fetchAllFiltered((f, t) =>
+				sb.from('vs_team_tile_swaps').select('team_id, floor, section, step, lane').eq('event_id', eventId).range(f, t)
+			),
+			fetchAllFiltered((f, t) =>
+				sb.from('vs_submissions').select('team_id, target_id, status, quantity').eq('event_id', eventId).range(f, t)
+			),
+			fetchAllFiltered((f, t) =>
+				sb
+					.from('vs_event_signups')
+					.select('team_id, vs_users(rsn, discord_username, clan_allegiance)')
+					.eq('event_id', eventId)
+					.range(f, t)
+			)
 		]);
 
 	// A team's clan = its members' clan if they share one, else "mixed" (matches the
 	// signup-page grouping). Used for the leaderboard's per-clan tabs.
 	const teamClanSets: Record<string, Set<string>> = {};
+	const teamMembers: Record<string, string[]> = {};
 	for (const s of (signups ?? []) as unknown as {
 		team_id: string | null;
-		vs_users: { clan_allegiance: string | null } | null;
+		vs_users: { rsn: string | null; discord_username: string | null; clan_allegiance: string | null } | null;
 	}[]) {
 		if (!s.team_id) continue;
 		(teamClanSets[s.team_id] ??= new Set()).add(s.vs_users?.clan_allegiance ?? 'unknown');
+		const name = s.vs_users?.rsn ?? s.vs_users?.discord_username;
+		if (name) (teamMembers[s.team_id] ??= []).push(name);
 	}
 	const teamClan: Record<string, string> = {};
 	for (const [tid, set] of Object.entries(teamClanSets)) {
@@ -178,6 +199,22 @@ export async function loadDuoStandings(
 			const stage = prog.stages[prog.currentStageIndex];
 			const tilesComplete = Object.values(prog.nodeState).filter((s) => s === 'complete').length;
 			const clan = teamClan[t.id] ?? 'unknown';
+			// Tiles complete within the current section (a section has DUO_SECTION_ROWS tiles;
+			// only the played lane's tiles ever reach 'complete', so this counts 0..3).
+			let sectionDone = 0;
+			let sectionTotal = 0;
+			if (stage && stage.kind === 'section') {
+				sectionTotal = DUO_SECTION_ROWS;
+				for (const ref of duoNodeRefs()) {
+					if (
+						ref.kind === 'path' &&
+						ref.floor === stage.floor &&
+						ref.section === stage.section &&
+						prog.nodeState[ref.id] === 'complete'
+					)
+						sectionDone++;
+				}
+			}
 			return {
 				teamId: t.id,
 				name: t.name ?? 'Unnamed team',
@@ -190,7 +227,10 @@ export async function loadDuoStandings(
 				markerNode: teamMarkerNode(prog),
 				isMine: t.id === myTeamId,
 				clan,
-				clanLabel: clanLabelFor(clan)
+				clanLabel: clanLabelFor(clan),
+				members: teamMembers[t.id] ?? [],
+				sectionDone,
+				sectionTotal
 			};
 		})
 		.sort(
@@ -212,7 +252,10 @@ export async function loadDuoStandings(
 		tilesComplete: t.tilesComplete,
 		isMine: t.isMine,
 		clan: t.clan,
-		clanLabel: t.clanLabel
+		clanLabel: t.clanLabel,
+		members: t.members,
+		sectionDone: t.sectionDone,
+		sectionTotal: t.sectionTotal
 	});
 
 	const teamMarkers: Record<string, { rank: number; name: string }[]> = {};

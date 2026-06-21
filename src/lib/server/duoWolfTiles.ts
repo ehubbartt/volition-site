@@ -13,11 +13,23 @@ import { duoNodeRefs, DUO_SECTIONS, type DuoSection } from '$lib/board/config';
 
 export const DUO_WOLF_EVENT_SLUG = 'duo-wolf';
 
+// Tiles that need a before/after proof get a GUIDED two-box submit on the board (a Pre-pic
+// box + a Post-pic box). It's purely a UI nudge so players attach the right screenshots —
+// the two images are still submitted together as one normal proof. `postRequired` (default
+// true) is set false where the FAQ only conditionally needs the post screenshot, so the
+// post box is shown + encouraged but never hard-blocks the submission.
+export interface DuoPrePic {
+	postRequired: boolean;
+}
+
 export interface DuoTileContent {
 	name: string;
 	img: string;
 	required: number; // for bosses, this is the HP pool (damage = approved submission quantity)
 	faq: string;
+	// When set, this tile requires a pre-pic — the board submit modal shows two labelled
+	// drop boxes (Pre-pic / Post-pic) instead of one. See DuoPrePic above.
+	prePic?: DuoPrePic;
 	// Boss-only: a special drop that INSTANTLY clears the boss regardless of HP (a full-HP
 	// hit). The string is the player/admin-facing label (e.g. "Mutagen or Pet"). When set,
 	// the boss room shows an "Auto-clear" option. Floors 1 & 2 bosses have one; floor 3 doesn't.
@@ -43,17 +55,17 @@ const FLOORS_CONTENT: DuoFloorContent[] = [
 			[
 				[
 					{ name: "Black Mask", img: "https://oldschool.runescape.wiki/images/thumb/Black_mask_detail.png/130px-Black_mask_detail.png?5b902", required: 1, faq: "Get a blackmask from Cave Horrors" },
-					{ name: "Wintertodt Rewards", img: "https://oldschool.runescape.wiki/images/thumb/Reward_Cart_%28empty%29.png/250px-Reward_Cart_%28empty%29.png?3c628", required: 25, faq: "Pre-pic of available rewards are required - KC can be done any team-size\n\nIf your starting available rewards are above 0, your progression submission must also include a final screenshot showing your remaining available rewards.\nThere is no requirement to do the pulls, just to get the rewards." },
+					{ name: "Wintertodt Rewards", img: "https://oldschool.runescape.wiki/images/thumb/Reward_Cart_%28empty%29.png/250px-Reward_Cart_%28empty%29.png?3c628", required: 25, prePic: { postRequired: true }, faq: "<strong class='prepic'>Pre-pic of available rewards is required</strong> - KC can be done any team-size\n\nIf your starting available rewards are above 0, <strong class='prepic'>your progression submission must also include a final screenshot showing your remaining available rewards.</strong>\nThere is no requirement to do the pulls, just to get the rewards." },
 					{ name: "Ecu keys", img: "https://oldschool.runescape.wiki/images/thumb/Ecumenical_key_detail.png/150px-Ecumenical_key_detail.png?0e275", required: 5, faq: "Get 5 Ecu keys from Wilderness. Picture of each key should be made. Should you have keys already drop them prior so you can receive the keys." },
 				],
 				[
 					{ name: "Any Zombie Helm/axe", img: "https://oldschool.runescape.wiki/images/thumb/Broken_zombie_axe_detail.png/120px-Broken_zombie_axe_detail.png?9768e", required: 2, faq: "Any combination of 2 x Zombie Axe or Helm" },
-					{ name: "Tempoross Rewards", img: "https://oldschool.runescape.wiki/images/thumb/Tempoross.png/300px-Tempoross.png?12042", required: 45, faq: "Pre-pick of available permits. KC can be done in any team size.\n\nIf your starting available rewards are above 0, your progression submission must also include a final screenshot showing your remaining available rewards.\nThere is no requirement to do the pulls, just to get the rewards." },
+					{ name: "Tempoross Rewards", img: "https://oldschool.runescape.wiki/images/thumb/Tempoross.png/300px-Tempoross.png?12042", required: 45, prePic: { postRequired: true }, faq: "<strong class='prepic'>Pre-pic of available permits is required.</strong> KC can be done in any team size.\n\nIf your starting available rewards are above 0, <strong class='prepic'>your progression submission must also include a final screenshot showing your remaining available rewards.</strong>\nThere is no requirement to do the pulls, just to get the rewards." },
 					{ name: "Temotli", img: "https://oldschool.runescape.wiki/images/thumb/Glacial_temotli_detail.png/130px-Glacial_temotli_detail.png?37b7e", required: 1, faq: "Get a Glacial temotli drop." },
 				],
 				[
 					{ name: "Sulphur Blades", img: "https://oldschool.runescape.wiki/images/thumb/Sulphur_blades_detail.png/130px-Sulphur_blades_detail.png?f6d50", required: 1, faq: "Get a Sulphur Blades drop." },
-					{ name: "Gotr Rewards", img: "https://oldschool.runescape.wiki/images/thumb/Abyssal_pearls_detail.png/120px-Abyssal_pearls_detail.png?1a047", required: 25, faq: "Pre-pic of available rewards. KC can be done in any team size\n\nIf your starting available rewards are above 0, your progression submission must also include a final screenshot showing your remaining available rewards.\nThere is no requirement to do the pulls, just to get the rewards." },
+					{ name: "Gotr Rewards", img: "https://oldschool.runescape.wiki/images/thumb/Abyssal_pearls_detail.png/120px-Abyssal_pearls_detail.png?1a047", required: 25, prePic: { postRequired: true }, faq: "<strong class='prepic'>Pre-pic of available rewards is required.</strong> KC can be done in any team size\n\nIf your starting available rewards are above 0, <strong class='prepic'>your progression submission must also include a final screenshot showing your remaining available rewards.</strong>\nThere is no requirement to do the pulls, just to get the rewards." },
 					{ name: "Any 2 Tzhaar Drops", img: "https://oldschool.runescape.wiki/images/thumb/TzHaar-Ket_%28level_149%29.png/100px-TzHaar-Ket_%28level_149%29.png?ee1fa", required: 1, faq: "Any two Tzhaar Drops." },
 				],
 			],
@@ -61,18 +73,18 @@ const FLOORS_CONTENT: DuoFloorContent[] = [
 			[
 				[
 					{ name: "Cudgel", img: "https://oldschool.runescape.wiki/images/thumb/Sarachnis_cudgel_detail.png/150px-Sarachnis_cudgel_detail.png?f9ce8", required: 1, faq: "Get a Cudgel drop." },
-					{ name: "Mole", img: "https://oldschool.runescape.wiki/images/thumb/Giant_Mole.png/280px-Giant_Mole.png?3f58a", required: 250, faq: "Get 250KC of Mole. Pre-pic of total KC and a Pic after KC is done." },
+					{ name: "Mole", img: "https://oldschool.runescape.wiki/images/thumb/Giant_Mole.png/280px-Giant_Mole.png?3f58a", required: 250, prePic: { postRequired: true }, faq: "Get 250KC of Mole. <strong class='prepic'>Pre-pic of total KC and a Pic after KC is done.</strong>" },
 					{ name: "Brimstone Keys", img: "https://oldschool.runescape.wiki/images/thumb/Brimstone_chest.png/280px-Brimstone_chest.png?23463", required: 2, faq: "Get 2 Brimstone keys." },
 				],
 				[
 					{ name: "Any 2 Moons drops", img: "https://oldschool.runescape.wiki/images/thumb/Lunar_Chest_%28closed%29.png/280px-Lunar_Chest_%28closed%29.png?19bbc", required: 1, faq: "Get any 2 Moons drops (Atlatl Darts does not count)" },
-					{ name: "Agility Laps", img: "https://oldschool.runescape.wiki/images/thumb/Mark_of_grace_detail.png/150px-Mark_of_grace_detail.png?f58ed", required: 125, faq: "Pre-pic of KC & Post pic of KC.\nAny agility course that yields Mark of Grace." },
+					{ name: "Agility Laps", img: "https://oldschool.runescape.wiki/images/thumb/Mark_of_grace_detail.png/150px-Mark_of_grace_detail.png?f58ed", required: 125, prePic: { postRequired: true }, faq: "<strong class='prepic'>Pre-pic of KC & Post pic of KC.</strong>\nAny agility course that yields Mark of Grace." },
 					{ name: "Aranea Boots", img: "https://oldschool.runescape.wiki/images/thumb/Aranea_boots_detail.png/150px-Aranea_boots_detail.png?43deb", required: 1, faq: "An Aranea Boots drop." },
 				],
 				[
 					{ name: "Cow Slippers", img: "https://oldschool.runescape.wiki/images/thumb/Brutus.png/280px-Brutus.png?eda9e", required: 2, faq: "2 Cow Slipper drops." },
-					{ name: "Herbiboar KC", img: "https://oldschool.runescape.wiki/images/thumb/Herbiboar.png/245px-Herbiboar.png?306ac", required: 115, faq: "Pre-pic of Herbiboar KC & Post pic of KC." },
-					{ name: "Dragon Pickaxe", img: "https://oldschool.runescape.wiki/images/thumb/Dragon_pickaxe_detail.png/140px-Dragon_pickaxe_detail.png?4f4ee", required: 1, faq: "Dragon pickaxe from any PVM source. If going for broken pickaxe from VM - Prepic of rewards must be done." },
+					{ name: "Herbiboar KC", img: "https://oldschool.runescape.wiki/images/thumb/Herbiboar.png/245px-Herbiboar.png?306ac", required: 115, prePic: { postRequired: true }, faq: "<strong class='prepic'>Pre-pic of Herbiboar KC & Post pic of KC.</strong>" },
+					{ name: "Dragon Pickaxe", img: "https://oldschool.runescape.wiki/images/thumb/Dragon_pickaxe_detail.png/140px-Dragon_pickaxe_detail.png?4f4ee", required: 1, faq: "Dragon pickaxe from any PVM source. <strong class='prepic'>If going for broken pickaxe from VM - Pre-pic of rewards must be done.</strong>" },
 				],
 			],
 			// Section C (3 paths)
@@ -97,7 +109,7 @@ const FLOORS_CONTENT: DuoFloorContent[] = [
 		boss: { name: "Zulrah", img: "https://oldschool.runescape.wiki/images/thumb/Zulrah_%28tanzanite%29.png/249px-Zulrah_%28tanzanite%29.png?fd984", required: 3, autoClear: "Mutagen or Pet", faq: "Any 3 Uniques of the following:\nJar, Magic Fang, Serp Fang, Tanzanite Fang & Uncut Onyx.\n\nMutagen or Pet is insta clear of tile." }
 	},
 	{
-		start: { name: "Mahogany Homes Contracts", img: "https://oldschool.runescape.wiki/images/thumb/Mahogany_Homes_logo.png/280px-Mahogany_Homes_logo.png?79681", required: 25, faq: "25 Mahogany Homes contracts. Pre-pic and post-pic of number done required" },
+		start: { name: "Mahogany Homes Contracts", img: "https://oldschool.runescape.wiki/images/thumb/Mahogany_Homes_logo.png/280px-Mahogany_Homes_logo.png?79681", required: 25, prePic: { postRequired: true }, faq: "25 Mahogany Homes contracts. <strong class='prepic'>Pre-pic and post-pic of number done required.</strong>" },
 		mids: [
 			{ name: "Any Raids Purple", img: "https://oldschool.runescape.wiki/images/thumb/Monumental_chest_%28teammate%27s%2C_closed%29.png/280px-Monumental_chest_%28teammate%27s%2C_closed%29.png?86e6f", required: 1, faq: "Any Raids Purple. Pic must be taken inside raid.\nAlt-scaling Cox is not allowed (2+13s etc)." },  // intermission after Section A
 			{ name: "Any PVM drop above 1500K", img: "https://oldschool.runescape.wiki/images/thumb/Coins_detail.png/120px-Coins_detail.png?404bc", required: 1, faq: "Any PVM gotten drop with a GE value of above 1500K." }   // intermission after Section B
@@ -112,12 +124,12 @@ const FLOORS_CONTENT: DuoFloorContent[] = [
 				],
 				[
 					{ name: "Mossy Keys", img: "https://oldschool.runescape.wiki/images/thumb/Mossy_key_detail.png/150px-Mossy_key_detail.png?cd4e3", required: 10, faq: "10 Mossy key drops. Pre-pic of collection log is recommended, if not 10 separate pictures required." },
-					{ name: "Hunter Contracts", img: "https://oldschool.runescape.wiki/images/thumb/Hunters%27_loot_sack_%28master%29_detail.png/130px-Hunters%27_loot_sack_%28master%29_detail.png?8f887", required: 30, faq: "30 Hunter Contracts. Pre-pic of number done and post pic." },
+					{ name: "Hunter Contracts", img: "https://oldschool.runescape.wiki/images/thumb/Hunters%27_loot_sack_%28master%29_detail.png/130px-Hunters%27_loot_sack_%28master%29_detail.png?8f887", required: 30, prePic: { postRequired: true }, faq: "30 Hunter Contracts. <strong class='prepic'>Pre-pic of number done and post pic.</strong>" },
 					{ name: "Dragon Spear", img: "https://oldschool.runescape.wiki/images/thumb/Dragon_spear_detail.png/100px-Dragon_spear_detail.png?cdef4", required: 1, faq: "1 Dragon spear from anywhere." },
 				],
 				[
 					{ name: "Giant Keys", img: "https://oldschool.runescape.wiki/images/thumb/Giant_key_detail.png/130px-Giant_key_detail.png?ca5dd", required: 10, faq: "10 Giant key drops. Pre-pic of collection log is recommended, if not 10 separate pictures required." },
-					{ name: "Zombie Keys", img: "https://oldschool.runescape.wiki/images/thumb/Zombie_pirate_key_5_detail.png/150px-Zombie_pirate_key_5_detail.png?d61fc", required: 25, faq: "25 Zombie key drops. Take a picture of lootlogger after first kill with codeword shown and a pic when done" },
+					{ name: "Zombie Keys", img: "https://oldschool.runescape.wiki/images/thumb/Zombie_pirate_key_5_detail.png/150px-Zombie_pirate_key_5_detail.png?d61fc", required: 25, prePic: { postRequired: true }, faq: "25 Zombie key drops. <strong class='prepic'>Take a picture of lootlogger after first kill with codeword shown (pre-pic) and a pic when done (post-pic).</strong>" },
 					{ name: "Dragon Sheets", img: "https://oldschool.runescape.wiki/images/thumb/Dragon_metal_sheet_detail.png/130px-Dragon_metal_sheet_detail.png?e2090", required: 3, faq: "3 Dragon Metal Sheets." },
 				],
 			],
@@ -129,7 +141,7 @@ const FLOORS_CONTENT: DuoFloorContent[] = [
 					{ name: "Chewed Bones", img: "https://oldschool.runescape.wiki/images/thumb/Chewed_bones_detail.png/150px-Chewed_bones_detail.png?26141", required: 2, faq: "2 Chewed Bones drop. Pre-pic of collection log is recommended, but not required." },
 				],
 				[
-					{ name: "Clue Uniques Medium+ NO DUPES", img: "https://oldschool.runescape.wiki/images/thumb/Gilded_armour_set_%28lg%29_equipped.png/130px-Gilded_armour_set_%28lg%29_equipped.png?0b23d", required: 15, faq: "15 Clue Uniques from Medium Tier of Clues or higher.\nPre-pic of banked Casket is required. If you got stacked clue caskets you wish to keep, make a post-pic of bank with same amount of caskets in it.\nAll 15 Uniques has to be none-dupe with eachother." },
+					{ name: "Clue Uniques Medium+ NO DUPES", img: "https://oldschool.runescape.wiki/images/thumb/Gilded_armour_set_%28lg%29_equipped.png/130px-Gilded_armour_set_%28lg%29_equipped.png?0b23d", required: 15, prePic: { postRequired: true }, faq: "15 Clue Uniques from Medium Tier of Clues or higher.\n<strong class='prepic'>Pre-pic of banked Casket is required.</strong> If you got stacked clue caskets you wish to keep, make a post-pic of bank with same amount of caskets in it.\nAll 15 Uniques has to be none-dupe with eachother." },
 					{ name: "Blood Shard", img: "https://oldschool.runescape.wiki/images/thumb/Blood_shard_detail.png/100px-Blood_shard_detail.png?2fbc7", required: 1, faq: "1 Blood shard drop from killing or pickpocketing." },
 					{ name: "Spirit Seed", img: "https://oldschool.runescape.wiki/images/thumb/Spirit_seed_detail.png/150px-Spirit_seed_detail.png?5e2ce", required: 1, faq: "1 Spirit Seed drop." },
 				],
@@ -185,7 +197,7 @@ const FLOORS_CONTENT: DuoFloorContent[] = [
 				[
 					{ name: "Godsword from Scratch", img: "https://oldschool.runescape.wiki/images/thumb/Commander_Zilyana.png/250px-Commander_Zilyana.png?c5eaa", required: 1, faq: "All 3 God sword shards & Any Hilt" },
 					{ name: "Any Voidwaker Piece", img: "https://oldschool.runescape.wiki/images/thumb/Voidwaker_detail.png/150px-Voidwaker_detail.png?01835", required: 1, faq: "Any voidwaker piece" },
-					{ name: "Any Jar", img: "https://oldschool.runescape.wiki/images/thumb/Jar_of_chemicals_detail.png/90px-Jar_of_chemicals_detail.png?7bdc6", required: 1, faq: "Any Jar.\nShould you want to do Skotizo you are not allowed to use pre-banked Skotizo Totem. Pre-pic and post-pic must be done for Skotizo." },
+					{ name: "Any Jar", img: "https://oldschool.runescape.wiki/images/thumb/Jar_of_chemicals_detail.png/90px-Jar_of_chemicals_detail.png?7bdc6", required: 1, faq: "Any Jar.\nShould you want to do Skotizo you are not allowed to use pre-banked Skotizo Totem. <strong class='prepic'>Pre-pic and post-pic must be done for Skotizo.</strong>" },
 				],
 				[
 					{ name: "Any rev weapon", img: "https://oldschool.runescape.wiki/images/thumb/Craw%27s_bow_%28u%29_detail.png/180px-Craw%27s_bow_%28u%29_detail.png?bf1fd", required: 1, faq: "Any rev weapon.\nCraw's Bow, Viggora's Chainmace & Thammaron's Sceptre" },
@@ -215,7 +227,9 @@ function sectionIndex(section: DuoSection): number {
 	return DUO_SECTIONS.indexOf(section);
 }
 
-const DUO_TILES: Map<string, DuoTileContent> = (() => {
+// The hardcoded DEFAULTS, built once from FLOORS_CONTENT. These are the fallback whenever a
+// tile has no admin override row (see vs_duo_tiles / duoTileStore.ts).
+const DEFAULT_DUO_TILES: Map<string, DuoTileContent> = (() => {
 	const map = new Map<string, DuoTileContent>();
 	for (const ref of duoNodeRefs()) {
 		const floor = FLOORS_CONTENT[ref.floor - 1];
@@ -241,26 +255,80 @@ const DUO_TILES: Map<string, DuoTileContent> = (() => {
 	return map;
 })();
 
-export const DUO_TILE_IDS: ReadonlySet<string> = new Set(DUO_TILES.keys());
+// The LIVE tile map the getters read. Starts as the defaults and is atomically swapped by
+// applyDuoTileOverrides() whenever duoTileStore.ts refreshes from the DB. Callers in async
+// contexts should `await ensureDuoTilesFresh()` (duoTileStore.ts) before reading so the
+// sync getters below return the admin-edited content.
+let activeTiles: Map<string, DuoTileContent> = DEFAULT_DUO_TILES;
+
+// Set of every valid board node id — STRUCTURAL (from the board config), so it's stable
+// regardless of content overrides.
+export const DUO_TILE_IDS: ReadonlySet<string> = new Set(DEFAULT_DUO_TILES.keys());
+
+// A row from vs_duo_tiles (admin tile override). Mirrors the table columns.
+export interface DuoTileOverrideRow {
+	node_id: string;
+	name: string;
+	img: string;
+	required: number;
+	faq: string;
+	pre_pic: boolean;
+	pre_pic_post_required: boolean;
+	auto_clear: string | null;
+}
+
+// Rebuild the live tile map = defaults with each override row fully replacing its tile.
+// Atomic reference swap so concurrent sync readers never see a half-built map.
+export function applyDuoTileOverrides(rows: DuoTileOverrideRow[]): void {
+	if (!rows.length) {
+		activeTiles = DEFAULT_DUO_TILES;
+		return;
+	}
+	const next = new Map<string, DuoTileContent>(DEFAULT_DUO_TILES);
+	for (const row of rows) {
+		if (!DUO_TILE_IDS.has(row.node_id)) continue;
+		next.set(row.node_id, {
+			name: row.name,
+			img: row.img,
+			required: Math.max(1, Math.floor(Number(row.required) || 1)),
+			faq: row.faq ?? '',
+			prePic: row.pre_pic ? { postRequired: !!row.pre_pic_post_required } : undefined,
+			autoClear: row.auto_clear || undefined
+		});
+	}
+	activeTiles = next;
+}
+
+// The hardcoded default for a tile (ignores overrides) — used by the admin editor's
+// "reset to default" path so it can show what reverting would restore.
+export function getDefaultDuoTile(id: string): DuoTileContent | null {
+	return DEFAULT_DUO_TILES.get(id) ?? null;
+}
 
 export function getDuoTileName(id: string): string | null {
-	return DUO_TILES.get(id)?.name ?? null;
+	return activeTiles.get(id)?.name ?? null;
 }
 
 export function getDuoTileFaq(id: string): string | null {
-	return DUO_TILES.get(id)?.faq ?? null;
+	return activeTiles.get(id)?.faq ?? null;
 }
 
 export function getDuoTileImg(id: string): string | null {
-	return DUO_TILES.get(id)?.img || null;
+	return activeTiles.get(id)?.img || null;
 }
 
 export function getDuoTileRequired(id: string): number {
-	return DUO_TILES.get(id)?.required ?? 1;
+	return activeTiles.get(id)?.required ?? 1;
 }
 
 // Boss-only auto-clear label (a full-HP instant clear, e.g. "Mutagen or Pet"); null if
 // the tile has none (all non-bosses + floor-3 boss).
 export function getDuoTileAutoClear(id: string): string | null {
-	return DUO_TILES.get(id)?.autoClear ?? null;
+	return activeTiles.get(id)?.autoClear ?? null;
+}
+
+// Pre-pic config for a tile (null if it doesn't require a before/after proof). When set,
+// the board submit modal renders two labelled drop boxes (Pre-pic + Post-pic).
+export function getDuoTilePrePic(id: string): DuoPrePic | null {
+	return activeTiles.get(id)?.prePic ?? null;
 }

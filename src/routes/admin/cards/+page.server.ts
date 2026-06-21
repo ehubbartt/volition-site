@@ -1,6 +1,6 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
-import { db } from '$lib/server/db';
+import { db, fetchAllFiltered } from '$lib/server/db';
 import { isCardTester, isCardAdmin } from '$lib/server/auth';
 import {
 	uploadCardFaces,
@@ -41,14 +41,19 @@ export const load: PageServerLoad = async ({ locals }) => {
 			.order('created_at', { ascending: false }),
 		// Grant tab: every member with a site profile (the only grantable targets —
 		// vs_user_packs.user_id FKs vs_users, so bot-roster-only members can't receive).
-		db().from('vs_users').select('id, rsn, discord_username').order('rsn', { ascending: true })
+		// Paginate: site members exceed the 1000-row cap. (vs_cards/vs_card_packs are an
+		// admin catalog of hundreds — well under the raised max_rows backstop — left as-is.)
+		fetchAllFiltered((f, t) =>
+			db().from('vs_users').select('id, rsn, discord_username').order('rsn', { ascending: true }).range(f, t)
+		)
 	]);
 
 	if (cardsRes.error) throw error(500, cardsRes.error.message);
 	if (packsRes.error) throw error(500, packsRes.error.message);
 	if (membersRes.error) throw error(500, membersRes.error.message);
 
-	return { cards: cardsRes.data ?? [], packs: packsRes.data ?? [], members: membersRes.data ?? [], canEdit };
+	const members = (membersRes.data ?? []) as { id: string; rsn: string | null; discord_username: string | null }[];
+	return { cards: cardsRes.data ?? [], packs: packsRes.data ?? [], members, canEdit };
 };
 
 /* ------------------------------- Cards ------------------------------- */
@@ -787,20 +792,23 @@ export const actions: Actions = {
 		}
 
 		// ── Award to EVERYONE (all site members) ─────────────────────────────
-		const { data: users, error: uErr } = await db().from('vs_users').select('id');
+		// Paginate: both vs_users and (per-pack) vs_user_packs can exceed the 1000-row cap.
+		const { data: users, error: uErr } = await fetchAllFiltered((f, t) =>
+			db().from('vs_users').select('id').range(f, t)
+		);
 		if (uErr) return fail(500, { error: uErr.message });
-		const ids = (users ?? []).map((u) => u.id);
+		const ids = (users ?? []).map((u) => (u as { id: string }).id);
 		if (ids.length === 0) return fail(400, { error: 'There are no site members to award to.' });
 
 		// Read existing quantities for this pack so the upsert (which SETS quantity)
 		// adds to what each member already has instead of overwriting it.
-		const { data: existing, error: eErr } = await db()
-			.from('vs_user_packs')
-			.select('user_id, quantity')
-			.eq('pack_id', packId);
+		const { data: existing, error: eErr } = await fetchAllFiltered((f, t) =>
+			db().from('vs_user_packs').select('user_id, quantity').eq('pack_id', packId).range(f, t)
+		);
 		if (eErr) return fail(500, { error: eErr.message });
 		const have = new Map<string, number>();
-		for (const r of existing ?? []) have.set(r.user_id as string, (r.quantity as number) ?? 0);
+		for (const r of (existing ?? []) as { user_id: string; quantity: number }[])
+			have.set(r.user_id, r.quantity ?? 0);
 
 		const now = new Date().toISOString();
 		const rows = ids.map((id) => ({

@@ -5,12 +5,32 @@
 	import BoardSubmitModal from '$lib/board/BoardSubmitModal.svelte';
 	import BoardBossModal from '$lib/board/BoardBossModal.svelte';
 	import BoardChoosePathModal from '$lib/board/BoardChoosePathModal.svelte';
+	import BoardAckModal from '$lib/board/BoardAckModal.svelte';
+	import BoardFireworks from '$lib/board/BoardFireworks.svelte';
+	import BoardCompleteModal from '$lib/board/BoardCompleteModal.svelte';
+	import BoardPetModal from '$lib/board/BoardPetModal.svelte';
 	import Lightbox from '$lib/Lightbox.svelte';
 	import { getBoardTopology } from '$lib/board/topology';
-	import { parseDuoNodeId, duoPathId, DUO_SECTION_ROWS, type DuoSection } from '$lib/board/config';
+	import { parseDuoNodeId, duoPathId, DUO_SECTION_ROWS, DUO_FLOORS, type DuoSection } from '$lib/board/config';
 	import { laneCountForFloor } from '$lib/board/progress';
 
 	let { data }: { data: PageData } = $props();
+
+	// The event codeword players must have in their WOM plug-in / mobile chat box.
+	const EVENT_CODEWORD = 'VOLI';
+
+	// First-visit acknowledgement gate: shown on the LIVE board until the player confirms
+	// they've read the rules (remembered via the per-event cookie). Skipped in the admin
+	// whole-board view (adminView); admins in the default live view see it like anyone else.
+	let ackConfirmed = $state(false);
+	const ackOpen = $derived(
+		!ackConfirmed && data.status === 'open' && !data.adminView && !data.boardAck
+	);
+
+	function confirmAck() {
+		document.cookie = `${data.ackCookieName}=1; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+		ackConfirmed = true;
+	}
 
 	const topology = getBoardTopology();
 	const contentVisible = $derived(Object.keys(data.content).length > 0);
@@ -33,24 +53,51 @@
 		return { floor, x, y };
 	});
 
-	// Admin-only view toggle (server-side preview): flips ?view=player so the load returns
-	// the real player payload — the full board SKELETON with names/images blocked to "?"
-	// for tiles the team hasn't revealed yet — and back to the full admin board.
+	// Admin-only "view whole board" toggle: ?view=all asks the server for the full board
+	// (every tile, all floors, no fog of war). Default (no param) is the real live player
+	// view, so admins see exactly what players do until they opt in.
 	const toggleHref = $derived(
-		data.previewAsPlayer
+		data.adminView
 			? `/events/${data.event.slug}/board`
-			: `/events/${data.event.slug}/board?view=player`
+			: `/events/${data.event.slug}/board?view=all`
 	);
+
+	// "Submit a pet for a bonus swap" modal (board hero button).
+	let petModalOpen = $state(false);
 
 	let openNodeId = $state<string | null>(null);
 	// Boss tiles open the dedicated "boss room" (HP bar + deal-damage) instead of the
 	// standard submit modal.
 	const openIsBoss = $derived(openNodeId ? parseDuoNodeId(openNodeId)?.kind === 'boss' : false);
+
+	// Boss-kill celebration. `celebrating` = fireworks for a non-final boss (then pan to the
+	// next floor); `completed` = the final boss → fireworks + the "completed Duo Wolf" screen.
+	// `recenterNonce` is bumped to make BoardMap re-focus the freshly-unlocked next floor.
+	let celebrating = $state(false);
+	let completed = $state(false);
+	let recenterNonce = $state(0);
+
+	function handleBossDefeat() {
+		const ref = openNodeId ? parseDuoNodeId(openNodeId) : null;
+		const isFinalBoss = !!ref && ref.kind === 'boss' && ref.floor >= DUO_FLOORS;
+		openNodeId = null; // close the boss room so the celebration is front-and-centre
+		if (isFinalBoss) {
+			completed = true;
+		} else {
+			celebrating = true;
+		}
+	}
+
+	// Non-final boss: once the fireworks finish, pan/zoom the board onto the next floor.
+	function onCelebrationDone() {
+		celebrating = false;
+		recenterNonce += 1;
+	}
 	const openTile = $derived.by(() => {
 		if (!openNodeId) return null;
 		const c = data.content[openNodeId];
 		if (!c) return null;
-		return { id: openNodeId, name: c.name, img: c.img, faq_html: c.faq_html, autoClear: c.autoClear ?? null };
+		return { id: openNodeId, name: c.name, img: c.img, faq_html: c.faq_html, autoClear: c.autoClear ?? null, prePic: c.prePic ?? null };
 	});
 
 	// Swap options for the open tile: the same-step tiles on adjacent paths. Only offered
@@ -113,10 +160,16 @@
 
 <svelte:head>
 	<title>{data.event.name} · Board · Volition</title>
+	<!-- Tile item art is often hotlinked from external wikis (OSRS wiki, Fandom) that block
+	     requests carrying a referrer. The board renders node art as SVG <image>, where the
+	     per-img referrerpolicy attr isn't honored — so set it document-wide here instead.
+	     Safe: SvelteKit's CSRF check uses the Origin header, not Referer. -->
+	<meta name="referrer" content="no-referrer" />
 </svelte:head>
 
 <nav class="crumbs">
 	<a href="/events/{data.event.slug}?view=teams">👥 View teams &amp; standings</a>
+	<a href="/evidence-guide" target="_blank" rel="noopener">📋 Evidence guide</a>
 </nav>
 
 <section class="hero">
@@ -126,28 +179,40 @@
 		{#if !data.adminView && data.hasTeam}
 			<span
 				class="swaps-badge"
-				title={`${data.swapsBase}/${data.swapsPerFloor} base swaps this floor${data.swapsBonus ? ` · ${data.swapsBonus} bonus` : ''} · resets after each floor boss`}
+				title={`${data.swapsBase} of ${data.swapsPerFloor} base swaps left this floor — base swaps reset after each floor's boss`}
 			>
-				🔀 {data.swapsAvailable} swap{data.swapsAvailable === 1 ? '' : 's'}
+				🔀 {data.swapsBase} swap{data.swapsBase === 1 ? '' : 's'} this floor
 			</span>
+			{#if data.swapsBonus > 0}
+				<span
+					class="pet-swaps-badge"
+					title={`${data.swapsBonus} pet/bonus swap${data.swapsBonus === 1 ? '' : 's'} — these CARRY OVER between floors and are only used once your base swaps are spent`}
+				>
+					🐾 {data.swapsBonus} pet swap{data.swapsBonus === 1 ? '' : 's'} <span class="carry">· carries over</span>
+				</span>
+			{/if}
+			<button type="button" class="pet-btn" onclick={() => (petModalOpen = true)} title="Submit a pet drop to earn a bonus swap that carries across floors">
+				🐾 Submit a pet
+			</button>
 		{/if}
 		{#if data.canToggleView}
-			<a class="view-toggle" class:previewing={data.previewAsPlayer} href={toggleHref} data-sveltekit-noscroll>
-				{data.previewAsPlayer ? '👁 Previewing as player — back to admin view' : '🧪 Preview as player'}
+			<a class="view-toggle" class:previewing={data.adminView} href={toggleHref} data-sveltekit-noscroll>
+				{data.adminView ? '👁 Viewing whole board — back to live view' : '🗺 View whole board'}
 			</a>
 		{/if}
 	</div>
 	{#if contentVisible}
 		<p class="muted teaser">
-			{#if data.status === 'open'}
+			{#if data.adminView}
+				Whole-board view (admin) — every tile across all {topology.floors.length} floors is shown,
+				no fog of war. Players get a per-team reveal instead. Click any tile to review its rules and
+				proofs; switch floors with the tabs, top-left.
+			{:else}
 				The climb has <strong>{topology.floors.length} floors</strong> — you're viewing one at a time
 				(switch with the floor tabs, top-left). Each floor has <strong>3 sections (A → B → C)</strong>
 				split by intermission tiles and ends in a <strong>boss</strong>; beat it to climb to the next.
 				Pick a path, complete its tiles, then tackle the intermission before choosing the next. Click
 				any tile for the rules and to submit your team's proof.
-			{:else}
-				Admin preview — the board is still sealed for players. Each of the {topology.floors.length}
-				floors has 3 sections (A → B → C) + a boss. Click any tile to review its rules and proofs.
 			{/if}
 		</p>
 	{:else}
@@ -168,6 +233,7 @@
 			nodeProgress={data.nodeProgress}
 			teamMarkers={data.teamMarkers}
 			focus={focusTarget}
+			focusNonce={recenterNonce}
 			{onNodeClick}
 		/>
 	</div>
@@ -188,12 +254,13 @@
 		teamSubmissions={data.teamSubmissionsByTile[openTile.id] ?? []}
 		community={data.completionsByTile[openTile.id] ?? []}
 		communityCount={data.completionCountByTile[openTile.id] ?? 0}
-		canSubmit={data.isClanMember && data.hasTeam && data.nodeState[openTile.id] === 'active'}
+		canSubmit={data.hasTeam && data.nodeState[openTile.id] === 'active'}
+		hasTeam={data.hasTeam}
 		isAdmin={data.adminView}
-		testMode={data.previewAsPlayer}
 		progress={data.nodeProgress[openTile.id] ?? null}
 		onZoom={(url) => (lightboxSrc = url)}
 		onclose={closeModal}
+		onDefeat={handleBossDefeat}
 	/>
 {:else if openTile}
 	<BoardSubmitModal
@@ -202,12 +269,13 @@
 		teamSubmissions={data.teamSubmissionsByTile[openTile.id] ?? []}
 		community={data.completionsByTile[openTile.id] ?? []}
 		communityCount={data.completionCountByTile[openTile.id] ?? 0}
-		canSubmit={data.isClanMember && data.hasTeam && data.nodeState[openTile.id] === 'active'}
+		canSubmit={data.hasTeam && data.nodeState[openTile.id] === 'active'}
+		hasTeam={data.hasTeam}
 		isAdmin={data.adminView}
-		testMode={data.previewAsPlayer}
 		progress={data.nodeProgress[openTile.id] ?? null}
 		swapsAvailable={data.swapsAvailable}
 		swapOptions={swapOptions}
+		draftScope={`${data.event.id}:${data.myTeamId ?? ''}`}
 		onZoom={(url) => (lightboxSrc = url)}
 		onclose={closeModal}
 	/>
@@ -222,12 +290,41 @@
 	/>
 {/if}
 
+{#if petModalOpen}
+	<BoardPetModal
+		petSubmissions={data.petSubmissions}
+		canSubmit={data.hasTeam}
+		onclose={() => (petModalOpen = false)}
+	/>
+{/if}
+
 {#if lightboxSrc}
 	<Lightbox src={lightboxSrc} alt="DuoWolf proof" onclose={() => (lightboxSrc = null)} />
 {/if}
 
+{#if ackOpen}
+	<BoardAckModal
+		eventName={data.event.name}
+		codeword={EVENT_CODEWORD}
+		guideHref="/evidence-guide"
+		onConfirm={confirmAck}
+	/>
+{/if}
+
+{#if celebrating}
+	<BoardFireworks oncomplete={onCelebrationDone} />
+{/if}
+
+{#if completed}
+	<BoardFireworks loop />
+	<BoardCompleteModal eventName={data.event.name} onclose={() => (completed = false)} />
+{/if}
+
 <style>
 	.crumbs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem 1.25rem;
 		margin-bottom: 0.75rem;
 	}
 
@@ -317,6 +414,42 @@
 		border: 1px solid var(--yellow);
 		color: var(--yellow);
 		cursor: help;
+	}
+
+	.pet-swaps-badge {
+		display: inline-block;
+		padding: 0.1rem 0.55rem;
+		font-size: 0.8rem;
+		font-family: var(--font-heading);
+		letter-spacing: 0.5px;
+		border-radius: 3px;
+		background: rgba(255, 152, 31, 0.14);
+		border: 1px solid var(--accent);
+		color: var(--accent);
+		cursor: help;
+	}
+
+	.pet-swaps-badge .carry {
+		font-family: var(--font-body);
+		font-size: 0.72rem;
+		opacity: 0.85;
+	}
+
+	.pet-btn {
+		display: inline-block;
+		padding: 0.1rem 0.55rem;
+		font-size: 0.8rem;
+		font-family: var(--font-heading);
+		letter-spacing: 0.5px;
+		border-radius: 3px;
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		color: var(--accent);
+		cursor: pointer;
+		min-height: 0;
+	}
+	.pet-btn:hover {
+		background: rgba(255, 152, 31, 0.28);
 	}
 
 	.view-toggle {
