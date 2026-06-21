@@ -17,11 +17,15 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	// live queue. Default (live) hides them; ?test=1 shows ONLY them.
 	const test = url.searchParams.get('test') === '1';
 
+	// Reviewed-history search (server-side, so it reaches submissions older than the
+	// recent window the list loads by default).
+	const search = url.searchParams.get('q')?.trim() ?? '';
+
 	const { items, events, stats } = await loadPendingReview({ test });
 	// Only fetch the (heavier) reviewed history when that tab is active.
-	const reviewed = view === 'reviewed' ? await loadReviewedSubmissions({ test }) : null;
+	const reviewed = view === 'reviewed' ? await loadReviewedSubmissions({ test, search }) : null;
 
-	return { view, test, items, events, stats, reviewed };
+	return { view, test, items, events, stats, reviewed, search };
 };
 
 // Grant the event's vp_reward to the submitter the FIRST time one of their generic

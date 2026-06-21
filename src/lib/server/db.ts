@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient, type PostgrestError } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
 
 let _client: SupabaseClient | null = null;
@@ -45,4 +45,23 @@ export async function selectAll<T = Record<string, unknown>>(
 		if (rows.length < PAGE_SIZE) break;
 	}
 	return out;
+}
+
+// Like selectAll but for a FILTERED/ORDERED query: pass a factory that applies .range(from,to)
+// to your built query (with its own .eq()/.order()/embeds). Pages past the 1000-row cap and
+// returns every matching row. Use for event-scoped reads that can exceed 1000 rows — e.g. ALL
+// of a duo event's submissions, where truncation silently broke board progress once the event
+// passed 1000 submissions (oldest 1000 returned, newest dropped).
+export async function fetchAllFiltered(
+	make: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: PostgrestError | null }>
+): Promise<{ data: unknown[]; error: PostgrestError | null }> {
+	const out: unknown[] = [];
+	for (let from = 0; ; from += PAGE_SIZE) {
+		const { data, error } = await make(from, from + PAGE_SIZE - 1);
+		if (error) return { data: out, error };
+		const rows = data ?? [];
+		out.push(...rows);
+		if (rows.length < PAGE_SIZE) break;
+	}
+	return { data: out, error: null };
 }

@@ -272,7 +272,7 @@
 			<div class="card team-card">
 				<div class="team-card-head">
 					<h2>Your team</h2>
-					{#if !editingTeamName}
+					{#if !editingTeamName && !data.eventLive}
 						<button
 							type="button"
 							class="link-btn"

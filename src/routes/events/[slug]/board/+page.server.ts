@@ -1,5 +1,5 @@
 import { redirect, fail, error } from '@sveltejs/kit';
-import { db } from '$lib/server/db';
+import { db, fetchAllFiltered } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { renderMarkdown } from '$lib/markdown';
 import {
@@ -314,13 +314,19 @@ export const load: PageServerLoad = async ({ params, locals, url, cookies }) => 
 	if (contentVisible) {
 		myTeamId = await getMyTeamId(event.id, locals.user.id);
 
-		const { data: completionsRaw, error: cErr } = await db()
-			.from('vs_submissions')
-			.select(
-				'id, team_id, user_id, target_id, quantity, proof_urls, proof_paths, submitted_at, status, review_note, vs_users!user_id(rsn, discord_username, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username), team:vs_teams!team_id(id, name)'
-			)
-			.eq('event_id', event.id)
-			.order('submitted_at', { ascending: true });
+		// Paginate past the 1000-row cap: once the event passes 1000 submissions an
+		// un-paged query silently drops the NEWEST rows (oldest-first order), which makes
+		// teams' recent progress vanish — tiles stuck at "0/3", "tile not open" on submit.
+		const { data: completionsRaw, error: cErr } = await fetchAllFiltered((f, t) =>
+			db()
+				.from('vs_submissions')
+				.select(
+					'id, team_id, user_id, target_id, quantity, proof_urls, proof_paths, submitted_at, status, review_note, vs_users!user_id(rsn, discord_username, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username), team:vs_teams!team_id(id, name)'
+				)
+				.eq('event_id', event.id)
+				.order('submitted_at', { ascending: true })
+				.range(f, t)
+		);
 		// Degrade gracefully if the tables aren't there yet (migrations applied by
 		// hand): admins can still preview tile content; submissions show empty.
 		if (cErr) console.warn('[duo board] could not load completions:', cErr.message);

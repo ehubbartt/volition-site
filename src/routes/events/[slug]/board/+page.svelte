@@ -179,11 +179,19 @@
 		{#if !data.adminView && data.hasTeam}
 			<span
 				class="swaps-badge"
-				title={`${data.swapsBase}/${data.swapsPerFloor} base swaps this floor${data.swapsBonus ? ` · ${data.swapsBonus} bonus` : ''} · resets after each floor boss`}
+				title={`${data.swapsBase} of ${data.swapsPerFloor} base swaps left this floor — base swaps reset after each floor's boss`}
 			>
-				🔀 {data.swapsAvailable} swap{data.swapsAvailable === 1 ? '' : 's'}
+				🔀 {data.swapsBase} swap{data.swapsBase === 1 ? '' : 's'} this floor
 			</span>
-			<button type="button" class="pet-btn" onclick={() => (petModalOpen = true)} title="Submit a pet drop to earn a bonus swap">
+			{#if data.swapsBonus > 0}
+				<span
+					class="pet-swaps-badge"
+					title={`${data.swapsBonus} pet/bonus swap${data.swapsBonus === 1 ? '' : 's'} — these CARRY OVER between floors and are only used once your base swaps are spent`}
+				>
+					🐾 {data.swapsBonus} pet swap{data.swapsBonus === 1 ? '' : 's'} <span class="carry">· carries over</span>
+				</span>
+			{/if}
+			<button type="button" class="pet-btn" onclick={() => (petModalOpen = true)} title="Submit a pet drop to earn a bonus swap that carries across floors">
 				🐾 Submit a pet
 			</button>
 		{/if}
@@ -406,6 +414,25 @@
 		border: 1px solid var(--yellow);
 		color: var(--yellow);
 		cursor: help;
+	}
+
+	.pet-swaps-badge {
+		display: inline-block;
+		padding: 0.1rem 0.55rem;
+		font-size: 0.8rem;
+		font-family: var(--font-heading);
+		letter-spacing: 0.5px;
+		border-radius: 3px;
+		background: rgba(255, 152, 31, 0.14);
+		border: 1px solid var(--accent);
+		color: var(--accent);
+		cursor: help;
+	}
+
+	.pet-swaps-badge .carry {
+		font-family: var(--font-body);
+		font-size: 0.72rem;
+		opacity: 0.85;
 	}
 
 	.pet-btn {

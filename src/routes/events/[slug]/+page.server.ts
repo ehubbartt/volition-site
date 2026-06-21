@@ -630,11 +630,19 @@ export const actions: Actions = {
 
 		const { data: event } = await supabase
 			.from('vs_events')
-			.select('id')
+			.select('id, status, starts_at')
 			.eq('slug', params.slug)
 			.maybeSingle();
 
 		if (!event) return fail(404, { error: 'Event not found' });
+
+		// Team names lock once the climb has started (open + past starts_at) — mirrors the
+		// load's `eventLive`, so the button is hidden AND the action is refused after go-live.
+		const startsAt = event.starts_at ? new Date(event.starts_at).getTime() : null;
+		const started = event.status === 'open' && startsAt != null && Date.now() >= startsAt;
+		if (started) {
+			return fail(400, { error: 'Team names are locked once the event has started.' });
+		}
 
 		const { data: mySignup } = await supabase
 			.from('vs_event_signups')

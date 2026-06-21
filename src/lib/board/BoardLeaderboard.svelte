@@ -14,6 +14,9 @@
 		isMine: boolean;
 		clan: string;
 		clanLabel: string;
+		members: string[];
+		sectionDone: number;
+		sectionTotal: number;
 	}
 	interface ClanGroup {
 		clan: string;
@@ -83,8 +86,11 @@
 							<span class="lb-name" title={e.name}>{e.name}</span>
 							{#if e.isMine}<span class="lb-you">you</span>{/if}
 						</div>
+						{#if e.members.length}
+							<span class="lb-members" title={e.members.join(', ')}>{e.members.join(' · ')}</span>
+						{/if}
 						<span class="lb-stage">
-							{e.finished ? '🏁 Finished' : e.stageLabel}
+							{#if e.finished}🏁 Finished{:else}{e.stageLabel}{#if e.sectionTotal > 0}{' '}({e.sectionDone}/{e.sectionTotal}){/if}{/if}
 							{#if activeTab === 'all'}<span class="lb-clan">· {e.clanLabel}</span>{/if}
 						</span>
 						<div class="lb-bar" title={`${e.pct}% of the climb`}>
@@ -231,6 +237,15 @@
 		color: #1a1209;
 		padding: 0.02rem 0.3rem;
 		border-radius: 999px;
+	}
+
+	.lb-members {
+		font-size: 0.72rem;
+		color: var(--text);
+		opacity: 0.85;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.lb-stage {
