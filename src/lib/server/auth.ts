@@ -1,6 +1,7 @@
 import type { Cookies } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { db } from './db';
+import { dbAdminIds, dbCardTesterIds } from './adminRoles';
 
 const SESSION_COOKIE = 'vs_session';
 const SESSION_TTL_DAYS = 30;
@@ -77,25 +78,34 @@ export async function destroySession(cookies: Cookies): Promise<void> {
 	cookies.delete(SESSION_COOKIE, { path: '/' });
 }
 
-export function isAdmin(user: SessionUser | null): boolean {
-	if (!user) return false;
-	const adminIds = (env.ADMIN_DISCORD_IDS ?? '')
+function envIds(raw: string | undefined): string[] {
+	return (raw ?? '')
 		.split(',')
 		.map((s) => s.trim())
 		.filter(Boolean);
-	return adminIds.includes(user.discord_id);
+}
+
+// Admin access is the union of three sources:
+//   1. ADMIN_DISCORD_IDS env var (the original, deploy-time allow-list)
+//   2. owners (super admins always count as admins)
+//   3. DB grants from vs_admin_roles, managed by owners at /admin/admins
+// The DB set is read synchronously from a per-request cache (see adminRoles.ts);
+// hooks.server.ts refreshes it before any permission check runs.
+export function isAdmin(user: SessionUser | null): boolean {
+	if (!user) return false;
+	if (envIds(env.ADMIN_DISCORD_IDS).includes(user.discord_id)) return true;
+	if (isSuperAdmin(user)) return true;
+	return dbAdminIds().has(user.discord_id);
 }
 
 // Separate allow-list (env var CARD_TESTER_DISCORD_IDS) for the card game. A card
 // tester has FULL access (create/edit/delete cards & packs). Intentionally
-// INDEPENDENT of ADMIN_DISCORD_IDS for that full access.
+// INDEPENDENT of ADMIN_DISCORD_IDS for that full access. Owners may also grant the
+// card_tester role from /admin/admins (merged via the DB cache).
 export function isCardTester(user: SessionUser | null): boolean {
 	if (!user) return false;
-	const ids = (env.CARD_TESTER_DISCORD_IDS ?? '')
-		.split(',')
-		.map((s) => s.trim())
-		.filter(Boolean);
-	return ids.includes(user.discord_id);
+	if (envIds(env.CARD_TESTER_DISCORD_IDS).includes(user.discord_id)) return true;
+	return dbCardTesterIds().has(user.discord_id);
 }
 
 // VIEW-level access to the Cards & Packs admin area: general admins may open it
@@ -111,9 +121,18 @@ export function isCardAdmin(user: SessionUser | null): boolean {
 // gated to a small set of people, SEPARATE from ADMIN_DISCORD_IDS. Independent list.
 export function isSuperAdmin(user: SessionUser | null): boolean {
 	if (!user) return false;
-	const ids = (env.SUPER_ADMIN_DISCORD_IDS ?? '')
-		.split(',')
-		.map((s) => s.trim())
-		.filter(Boolean);
-	return ids.includes(user.discord_id);
+	return envIds(env.SUPER_ADMIN_DISCORD_IDS).includes(user.discord_id);
+}
+
+// Env-rooted allow-lists, exposed for the owner UI at /admin/admins so it can show
+// them as read-only ("root — not removable"). These can only be changed by editing
+// env vars + redeploying; the UI manages the DB grants instead.
+export function envAdminIds(): string[] {
+	return envIds(env.ADMIN_DISCORD_IDS);
+}
+export function envSuperAdminIds(): string[] {
+	return envIds(env.SUPER_ADMIN_DISCORD_IDS);
+}
+export function envCardTesterIds(): string[] {
+	return envIds(env.CARD_TESTER_DISCORD_IDS);
 }
