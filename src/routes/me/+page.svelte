@@ -9,6 +9,7 @@
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
 	import { rsnToSlug } from '$lib/rsn';
+	import { rankLabel, rankColor, rankImg } from '$lib/ranks';
 	import { formatGP } from '$lib/gp';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import { enhance } from '$app/forms';
@@ -44,6 +45,11 @@
 	);
 	let walletTotal = $derived(data.wallet.reduce((sum, w) => sum + w.quantity, 0));
 	let packTotal = $derived(data.packs.reduce((sum, p) => sum + p.quantity, 0));
+
+	// "Check my rank" — recomputes the composite rank from live data and writes it.
+	let checkingRank = $state(false);
+	// The freshly-checked rank (form result) takes precedence over the loaded one.
+	let displayRank = $derived(form?.rankOk ? form.rank : data.currentRank);
 </script>
 
 <svelte:head>
@@ -93,6 +99,68 @@
 
 	{#if tab === 'profile'}
 		<div class="panel">
+			<section class="rank-card">
+				<div class="rank-head">
+					<div class="rank-id">
+						{#if rankImg(displayRank)}
+							<img src={rankImg(displayRank)} alt={rankLabel(displayRank)} class="rank-badge" />
+						{:else}
+							<span class="rank-dot" style="background:{rankColor(displayRank)}"></span>
+						{/if}
+						<div>
+							<span class="rank-label">Clan rank</span>
+							<strong class="rank-name" style="color:{rankColor(displayRank)}">{rankLabel(displayRank)}</strong>
+						</div>
+					</div>
+					<form
+						method="POST"
+						action="?/checkRank"
+						use:enhance={() => {
+							checkingRank = true;
+							return async ({ update }) => {
+								await update({ reset: false });
+								checkingRank = false;
+							};
+						}}
+					>
+						<button type="submit" class="check-btn" disabled={checkingRank || !data.user.rsn}>
+							{checkingRank ? 'Checking…' : 'Check my rank'}
+						</button>
+					</form>
+				</div>
+
+				{#if !data.user.rsn}
+					<p class="muted small">Set your RSN below, then check your rank.</p>
+				{:else if form?.rankError}
+					<p class="rank-error">{form.rankError}</p>
+				{:else if form?.rankOk}
+					<p class="rank-result">
+						You're <strong style="color:{rankColor(form.rank)}">{form.rankName}</strong> — composite score
+						<strong>{form.composite.toFixed(4)}</strong>.
+						{#if !form.inputs.templeAvailable || !form.inputs.wikisyncAvailable}
+							<span class="muted">
+								(Some data was unavailable: {[
+									!form.inputs.templeAvailable ? 'TempleOSRS' : null,
+									!form.inputs.wikisyncAvailable ? 'WikiSync' : null
+								]
+									.filter(Boolean)
+									.join(', ')} — sync those to improve accuracy.)
+							</span>
+						{/if}
+					</p>
+					<div class="rank-breakdown">
+						<span title="EHB {form.inputs.ehb}">Gear {(form.breakdown.gear * 100).toFixed(0)}%</span>
+						<span>EHB {(form.breakdown.ehb * 100).toFixed(0)}%</span>
+						<span>CA {(form.breakdown.ca * 100).toFixed(0)}%</span>
+						<span>Time {(form.breakdown.time * 100).toFixed(0)}%</span>
+						<span>Clog {(form.breakdown.clog * 100).toFixed(0)}%</span>
+						<span>Level {(form.breakdown.level * 100).toFixed(0)}%</span>
+					</div>
+				{:else}
+					<p class="muted small">Pull your live stats to compute and save your clan rank.</p>
+				{/if}
+			</section>
+
 			{#if form?.success}
 				<div class="success">Saved.</div>
 			{:else if form?.error}
@@ -752,6 +820,91 @@
 	.wallet-total {
 		margin-top: 0.75rem;
 		text-align: right;
+	}
+
+	.rank-card {
+		padding: 1rem 1.1rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		margin-bottom: 1.5rem;
+		max-width: 32rem;
+	}
+	.rank-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+	.rank-id {
+		display: flex;
+		align-items: center;
+		gap: 0.7rem;
+	}
+	.rank-badge {
+		width: 40px;
+		height: 40px;
+		object-fit: contain;
+		image-rendering: pixelated;
+	}
+	.rank-dot {
+		display: inline-block;
+		width: 22px;
+		height: 22px;
+		border-radius: 999px;
+	}
+	.rank-label {
+		display: block;
+		font-size: 0.78rem;
+		color: var(--muted);
+	}
+	.rank-name {
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-size: 1.25rem;
+		text-shadow: var(--ts);
+	}
+	.check-btn {
+		border: 1px solid var(--accent);
+		background: var(--accent-soft);
+		color: var(--accent);
+		padding: 0.5rem 0.9rem;
+		border-radius: var(--radius);
+		cursor: pointer;
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+	}
+	.check-btn:hover:not(:disabled) {
+		background: rgba(255, 152, 31, 0.2);
+	}
+	.check-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+	.rank-result {
+		margin: 0.85rem 0 0.5rem;
+		font-size: 0.92rem;
+		line-height: 1.45;
+	}
+	.rank-error {
+		margin: 0.85rem 0 0;
+		color: var(--danger);
+		font-size: 0.9rem;
+	}
+	.rank-breakdown {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+	}
+	.rank-breakdown span {
+		padding: 0.2rem 0.5rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		font-size: 0.78rem;
+		color: var(--muted);
+	}
+	.small {
+		font-size: 0.85rem;
 	}
 
 	@media (max-width: 480px) {

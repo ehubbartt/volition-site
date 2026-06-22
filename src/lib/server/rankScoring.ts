@@ -1,0 +1,215 @@
+// SERVER-ONLY composite rank scoring — ported VERBATIM (logic-wise) from the bot's
+// voli-disc-bot/scripts/simulateRanks.js so the site's projected ranks match the
+// simulation that tuned them. PURE functions only (no I/O): both the on-profile
+// "Check my rank" action and the admin rank-sim recalc feed raw player inputs +
+// the tunable RankScoringConfig (from bot_config, see rankConfig.ts) through here.
+//
+// composite = gear*0.35 + ehb*0.25 + ca*0.10 + time*0.10 + clog*0.10 + level*0.10
+// (weights/thresholds/caps are config-driven; the gear point table + CA point map
+// are bundled reference data that rarely changes — gearScoring.json /
+// combatAchievements.json, copied from the bot's config/.)
+
+import gearScoring from './rankScoring/gearScoring.json';
+import combatAchievements from './rankScoring/combatAchievements.json';
+import type { RankScoringConfig } from './rankConfig';
+import type { RankValue } from '$lib/ranks';
+
+// --- Reference data shapes (the bundled JSON) ------------------------------
+interface GearCheck {
+	name: string | string[]; // a single item, or OR-alternatives
+	quantity?: number;
+}
+interface GearEntry {
+	name: string;
+	tier: string;
+	points: number;
+	items: GearCheck[];
+}
+interface GearScoring {
+	GEAR_SCORE_CAP: number;
+	gear: GearEntry[];
+}
+interface CombatAchievements {
+	tierCompletionRewards: Record<string, number>;
+	maxPoints: number;
+	tiers: Record<string, { cumulativeForReward: number }>;
+	tasks: Record<string, number>;
+}
+
+const GEAR: GearScoring = gearScoring as GearScoring;
+const CA: CombatAchievements = combatAchievements as CombatAchievements;
+
+export const GEAR_SCORE_CAP = GEAR.GEAR_SCORE_CAP;
+export const CA_MAX_POINTS = CA.maxPoints;
+
+// --- Raw inputs a player is scored from -------------------------------------
+export interface RankInputs {
+	ehb: number;
+	totalLevel: number | null;
+	gearPoints: number;
+	clogFinished: number;
+	clogAvailable: number;
+	monthsInClan: number;
+	caPoints: number;
+}
+
+export interface ScoreBreakdown {
+	composite: number;
+	gear: number;
+	ehb: number;
+	ca: number;
+	time: number;
+	clog: number;
+	level: number;
+}
+
+// --- Gear: match a Temple collection-log payload against the gear table ------
+// `templeItems` is Temple's `data.items` (categories → arrays of { name, count }).
+// Mirrors simulateRanks.calculateGearPoints: OR-alternatives take the best count,
+// quantity>1 gives proportional credit, otherwise binary has-it, scaled by points.
+export interface TempleItem {
+	name: string;
+	count?: number;
+}
+export type TempleItems = Record<string, TempleItem[] | unknown>;
+
+export function calculateGearPoints(templeItems: TempleItems | null | undefined): {
+	gearPoints: number;
+	matchedItems: { name: string; earned: number; max: number }[];
+	missedItems: string[];
+} {
+	if (!templeItems) return { gearPoints: 0, matchedItems: [], missedItems: [] };
+
+	// Flat lookup: itemName (lowercase) -> max count across all categories.
+	const playerItems: Record<string, number> = {};
+	for (const category of Object.values(templeItems)) {
+		if (!Array.isArray(category)) continue;
+		for (const item of category as TempleItem[]) {
+			if (!item?.name) continue;
+			const key = item.name.toLowerCase();
+			playerItems[key] = Math.max(playerItems[key] || 0, item.count || 1);
+		}
+	}
+
+	let totalPoints = 0;
+	const matchedItems: { name: string; earned: number; max: number }[] = [];
+	const missedItems: string[] = [];
+
+	for (const gear of GEAR.gear) {
+		const itemChecks = gear.items;
+		const totalChecks = itemChecks.length;
+		let checksPassed = 0;
+
+		for (const check of itemChecks) {
+			const names = Array.isArray(check.name) ? check.name : [check.name];
+			const requiredQty = check.quantity || 1;
+
+			let bestCount = 0;
+			for (const name of names) {
+				const count = playerItems[name.toLowerCase()] || 0;
+				bestCount = Math.max(bestCount, count);
+			}
+
+			if (requiredQty > 1) {
+				checksPassed += Math.min(bestCount, requiredQty) / requiredQty;
+			} else {
+				checksPassed += bestCount >= 1 ? 1 : 0;
+			}
+		}
+
+		const completion = totalChecks > 0 ? checksPassed / totalChecks : 0;
+		const earnedPoints = Math.round(completion * gear.points);
+
+		if (earnedPoints > 0) matchedItems.push({ name: gear.name, earned: earnedPoints, max: gear.points });
+		else missedItems.push(gear.name);
+
+		totalPoints += earnedPoints;
+	}
+
+	return { gearPoints: totalPoints, matchedItems, missedItems };
+}
+
+// --- Combat achievements: tier-completion points from WikiSync task ids ------
+// Mirrors simulateRanks.calculateCAPoints: sum wiki points from completed tasks,
+// then award each FULLY-completed tier's reward (cumulative thresholds).
+const CA_TIER_ORDER = ['easy', 'medium', 'hard', 'elite', 'master', 'grandmaster'];
+
+export function calculateCAPoints(completedTaskIds: number[] | null | undefined): {
+	caPoints: number;
+	tasksCompleted: number;
+	wikiPoints: number;
+	highestTier: string;
+} {
+	if (!completedTaskIds || !completedTaskIds.length) {
+		return { caPoints: 0, tasksCompleted: 0, wikiPoints: 0, highestTier: 'none' };
+	}
+
+	let wikiPoints = 0;
+	let tasksCompleted = 0;
+	for (const taskId of completedTaskIds) {
+		const pts = CA.tasks[String(taskId)];
+		if (pts) {
+			wikiPoints += pts;
+			tasksCompleted++;
+		}
+	}
+
+	let caPoints = 0;
+	let highestTier = 'none';
+	for (const tier of CA_TIER_ORDER) {
+		const threshold = CA.tiers[tier]?.cumulativeForReward;
+		if (threshold != null && wikiPoints >= threshold) {
+			caPoints += CA.tierCompletionRewards[tier] ?? 0;
+			highestTier = tier;
+		} else {
+			break;
+		}
+	}
+
+	return { caPoints, tasksCompleted, wikiPoints, highestTier };
+}
+
+// --- Normalizations (all clamped 0..1), caps from RankScoringConfig ----------
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+export function computeScores(inputs: RankInputs, config: RankScoringConfig): ScoreBreakdown {
+	const caps = config.caps;
+	const w = config.weights;
+
+	const gear = GEAR_SCORE_CAP > 0 ? clamp01(inputs.gearPoints / GEAR_SCORE_CAP) : 0;
+	const ehb = inputs.ehb > 0 && caps.ehb > 0 ? clamp01(inputs.ehb / caps.ehb) : 0;
+	const ca = inputs.caPoints > 0 && CA_MAX_POINTS > 0 ? clamp01(inputs.caPoints / CA_MAX_POINTS) : 0;
+	const time = caps.months > 0 ? clamp01(inputs.monthsInClan / caps.months) : 0;
+	const clog =
+		inputs.clogFinished > 0 && inputs.clogAvailable > 0 && caps.clog > 0
+			? clamp01(inputs.clogFinished / caps.clog)
+			: 0;
+	const level =
+		inputs.totalLevel && inputs.totalLevel >= caps.levelMin && caps.levelRange > 0
+			? clamp01((inputs.totalLevel - caps.levelMin) / caps.levelRange)
+			: 0;
+
+	const composite =
+		gear * w.gear + ehb * w.ehb + ca * w.ca + time * w.time + clog * w.clog + level * w.level;
+
+	return { composite, gear, ehb, ca, time, clog, level };
+}
+
+// Map a composite score (0..1) to a rank womRole using the configured thresholds
+// (highest-threshold-first, mirroring simulateRanks.determineProjectedRank).
+export function determineProjectedRank(composite: number, config: RankScoringConfig): RankValue {
+	const thresholds = config.thresholds;
+	for (let i = thresholds.length - 1; i >= 0; i--) {
+		if (composite >= thresholds[i].scoreMin) return thresholds[i].womRole;
+	}
+	return 'bronze';
+}
+
+// Convenience: full pipeline from raw inputs → { scores, rank }.
+export function scorePlayer(
+	inputs: RankInputs,
+	config: RankScoringConfig
+): { scores: ScoreBreakdown; rank: RankValue } {
+	const scores = computeScores(inputs, config);
+	return { scores, rank: determineProjectedRank(scores.composite, config) };
+}
