@@ -55,6 +55,12 @@
 			title: 'Admin Access',
 			desc: 'Grant or revoke who has admin access to the website. Super-admins only.',
 			show: data.superAdmin
+		},
+		{
+			href: '/admin/overview',
+			title: 'Bot Overview',
+			desc: 'Read-only snapshot of current bot config and who has admin access.',
+			show: data.admin
 		}
 	]);
 
