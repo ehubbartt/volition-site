@@ -113,6 +113,52 @@ export async function grantPlayerVp(
 		.eq('id', p.id);
 }
 
+// --- Rank write (players.rank) --------------------------------------------
+// The site is the source of truth for clan rank: the on-profile "Check my rank"
+// action and the admin rank-sim "apply" write the computed womRole here, and the
+// bot mirrors it onto the Discord role (it no longer computes rank from EHB).
+// Locate the row by discord_id then rsn (same precedence as locatePlayer) and write
+// by id so a case-insensitive rsn match can't touch the wrong row.
+export type RankWriteResult = { ok: true; rank: string } | { ok: false; reason: 'no_player' | 'error' };
+
+export async function getPlayerRank(
+	discordId: string | null,
+	rsn: string | null
+): Promise<string | null> {
+	const sb = db();
+	if (discordId) {
+		const { data } = await sb.from('players').select('rank').eq('discord_id', discordId).maybeSingle();
+		if (data) return (data.rank as string | null) ?? null;
+	}
+	if (rsn) {
+		const { data } = await sb.from('players').select('rank').ilike('rsn', rsn).maybeSingle();
+		if (data) return (data.rank as string | null) ?? null;
+	}
+	return null;
+}
+
+export async function setPlayerRank(
+	discordId: string | null,
+	rsn: string | null,
+	womRole: string
+): Promise<RankWriteResult> {
+	const sb = db();
+	let id: number | null = null;
+	if (discordId) {
+		const { data } = await sb.from('players').select('id').eq('discord_id', discordId).maybeSingle();
+		if (data) id = data.id as number;
+	}
+	if (id == null && rsn) {
+		const { data } = await sb.from('players').select('id').ilike('rsn', rsn).maybeSingle();
+		if (data) id = data.id as number;
+	}
+	if (id == null) return { ok: false, reason: 'no_player' };
+
+	const { error } = await sb.from('players').update({ rank: womRole }).eq('id', id);
+	if (error) return { ok: false, reason: 'error' };
+	return { ok: true, rank: womRole };
+}
+
 // --- GP balance (players.gold_balance) ------------------------------------
 // A cashable GP balance shared with the bot (sibling of points/VP). Players convert
 // their unpaid wallet_items into it (convertWalletToGold) and spend it on packs
