@@ -2,14 +2,14 @@ import { redirect, fail, error } from '@sveltejs/kit';
 import { db, fetchAllFiltered } from '$lib/server/db';
 import {
 	BINGO_BUCKET,
-	BINGO_EVENT_SLUG,
 	MAX_UPLOAD_BYTES,
 	MAX_IMAGES_PER_SUBMISSION,
 	ALLOWED_MIME
 } from '$lib/bingo/config';
-import { BINGO_TILE_BY_ID, BINGO_TILES, getTileDetails } from '$lib/server/bingoTiles';
 import type { BingoTile } from '$lib/bingo/tiles';
 import { getBingoState, getTileStatus } from '$lib/bingo/state';
+import { loadEventBoard, type EventBoard } from '$lib/server/eventStructure';
+import { maybeProcessDinkDrops } from '$lib/server/dinkDrops';
 import { renderMarkdown } from '$lib/markdown';
 import { isAdmin } from '$lib/server/auth';
 import { isClanMember } from '$lib/server/clan';
@@ -49,14 +49,10 @@ function extForMime(mime: string): string | null {
 	return EXT_BY_MIME[mime] ?? null;
 }
 
-function requireBingoSlug(slug: string): void {
-	if (slug !== BINGO_EVENT_SLUG) throw error(404, 'Not found');
-}
-
 async function fetchBingoEvent(slug: string) {
 	const { data, error: qErr } = await db()
 		.from('vs_events')
-		.select('id, slug, name, description, status, signup_opens_at, signup_closes_at, starts_at, ends_at')
+		.select('id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, starts_at, ends_at, structure')
 		.eq('slug', slug)
 		.maybeSingle();
 	if (qErr) throw new Error(qErr.message);
@@ -68,31 +64,36 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	if (!locals.user.rsn || !locals.user.clan_allegiance || !locals.user.account_type) {
 		throw redirect(303, '/onboarding');
 	}
-	requireBingoSlug(params.slug);
+	// Poll-on-read backstop: credit any pending Dink auto-tracked drops (throttled,
+	// best-effort) so the board is current even if the cron processor lags.
+	maybeProcessDinkDrops();
 
 	const event = await fetchBingoEvent(params.slug);
+	if (!event) throw error(404, 'Not found');
 
 	const memberOfClan = await isClanMember(locals.user.discord_id, locals.user.rsn);
 	const admin = isAdmin(locals.user);
 
-	if (event && event.status === 'preview' && !admin) {
+	if (event.status === 'preview' && !admin) {
 		throw error(404, 'Not found');
 	}
 
-	if (!event || event.status === 'draft' || (event.status === 'preview' && !admin)) {
-		const redactedTiles: BingoTile[] = BINGO_TILES.map((t) => ({
+	const board: EventBoard = await loadEventBoard(event);
+	if (board.tiles.length === 0) throw error(404, 'Not found');
+	const tileById = new Map(board.tiles.map((t) => [t.id, t]));
+
+	if (event.status === 'draft' || (event.status === 'preview' && !admin)) {
+		const redactedTiles: BingoTile[] = board.tiles.map((t) => ({
 			...t,
 			name: 'nice try',
 			details_html: null
 		}));
 		return {
-			event: event
-				? {
-						name: event.name,
-						description_html: renderMarkdown(event.description),
-						status: event.status
-					}
-				: null,
+			event: {
+				name: event.name,
+				description_html: renderMarkdown(event.description),
+				status: event.status
+			},
 			running: false as const,
 			archived: false as const,
 			state: null,
@@ -110,7 +111,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	// are shown but no submissions are accepted), with the final leaderboard and
 	// each player's own submissions kept visible to look back on.
 	const archived = event.status === 'closed';
-	const baseState = getBingoState((event.starts_at ?? event.signup_opens_at), new Date());
+	const baseState = getBingoState((event.starts_at ?? event.signup_opens_at), new Date(), board.structure);
 	const state = archived ? { ...baseState, status: 'ended' as const } : baseState;
 
 	// Paginate: once an event passes 1000 tile submissions an un-paged read drops the
@@ -172,7 +173,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	>();
 
 	for (const c of completions) {
-		const tile = BINGO_TILE_BY_ID[c.tile_id];
+		const tile = tileById.get(c.tile_id);
 		if (!tile) continue;
 
 		const proofUrls = c.proof_urls ?? [];
@@ -232,11 +233,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		return b.count - a.count;
 	});
 
-	const tiles: BingoTile[] = BINGO_TILES.map((t) => {
+	const tiles: BingoTile[] = board.tiles.map((t) => {
 		if (getTileStatus(t, state) === 'blurred') {
 			return { ...t, name: 'nice try', details_html: null };
 		}
-		const md = getTileDetails(t.id);
+		const md = board.getDetails(t.id);
 		return { ...t, details_html: md ? renderMarkdown(md) : null };
 	});
 
@@ -266,10 +267,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	};
 };
 
-function tileIsSubmittable(tileId: string, eventStartIso: string | null): boolean {
-	const tile = BINGO_TILE_BY_ID[tileId];
+async function tileIsSubmittable(
+	event: { id: string; slug: string; structure?: unknown; starts_at: string | null; signup_opens_at: string | null },
+	tileId: string
+): Promise<boolean> {
+	const board = await loadEventBoard(event);
+	const tile = board.tiles.find((t) => t.id === tileId);
 	if (!tile) return false;
-	const state = getBingoState(eventStartIso, new Date());
+	const state = getBingoState(event.starts_at ?? event.signup_opens_at, new Date(), board.structure);
 	return getTileStatus(tile, state) === 'open';
 }
 
@@ -306,7 +311,6 @@ async function uploadProof(
 export const actions: Actions = {
 	submit: async ({ params, locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
-		requireBingoSlug(params.slug);
 
 		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
 			return fail(403, { error: 'Only Volition clan members can submit tiles for this event.' });
@@ -322,12 +326,13 @@ export const actions: Actions = {
 		const tileId = form.get('tile_id')?.toString() ?? '';
 		const files = form.getAll('proof').filter((f): f is File => f instanceof File && f.size > 0);
 
-		if (!BINGO_TILE_BY_ID[tileId]) return fail(400, { error: 'Unknown tile' });
+		const board = await loadEventBoard(event);
+		if (!board.tiles.some((t) => t.id === tileId)) return fail(400, { error: 'Unknown tile' });
 		if (files.length === 0) return fail(400, { error: 'Add at least one proof image' });
 		if (files.length > MAX_IMAGES_PER_SUBMISSION) {
 			return fail(400, { error: `Max ${MAX_IMAGES_PER_SUBMISSION} images per submission` });
 		}
-		if (!tileIsSubmittable(tileId, (event.starts_at ?? event.signup_opens_at))) {
+		if (!(await tileIsSubmittable(event, tileId))) {
 			return fail(400, { error: 'That tile is not open for submissions' });
 		}
 
@@ -362,7 +367,6 @@ export const actions: Actions = {
 
 	remove: async ({ params, locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
-		requireBingoSlug(params.slug);
 
 		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
 			return fail(403, { error: 'Only Volition clan members can manage submissions.' });
@@ -387,7 +391,7 @@ export const actions: Actions = {
 			.maybeSingle();
 		if (!existing) return fail(404, { error: 'Submission not found' });
 
-		if (!tileIsSubmittable(existing.tile_id, (event.starts_at ?? event.signup_opens_at))) {
+		if (!(await tileIsSubmittable(event, existing.tile_id))) {
 			return fail(400, { error: 'You can only remove submissions while the tile is open' });
 		}
 
@@ -408,7 +412,6 @@ export const actions: Actions = {
 	adminReject: async ({ params, locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
 		if (!isAdmin(locals.user)) return fail(403, { error: 'Not allowed' });
-		requireBingoSlug(params.slug);
 
 		const event = await fetchBingoEvent(params.slug);
 		if (!event) return fail(404, { error: 'Event not found' });
@@ -434,5 +437,3 @@ export const actions: Actions = {
 		return { ok: true, action: 'adminReject' as const, submission_id: submissionId };
 	}
 };
-
-export const _allTiles = BINGO_TILES;

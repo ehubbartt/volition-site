@@ -75,6 +75,24 @@
 		<div class="error">{form.error}</div>
 	{/if}
 
+	<details class="card">
+		<summary><strong>Create from template</strong> <span class="muted small">(data-driven bingo — fully editable in the builder)</span></summary>
+		<form method="POST" action="?/createFromTemplate" use:enhance>
+			<label>
+				<span>Event name</span>
+				<input name="name" type="text" required placeholder="Winter Rumors 2026" />
+			</label>
+			<label>
+				<span>Template</span>
+				<select name="template">
+					{#each data.templates as t}<option value={t.slug}>{t.name}</option>{/each}
+				</select>
+			</label>
+			<p class="muted small">Creates a draft, clones the template's rows/tiles, and opens the builder.</p>
+			<button type="submit" class="primary">Create &amp; open builder</button>
+		</form>
+	</details>
+
 	<details class="card" open>
 		<summary><strong>Create event</strong></summary>
 		<form method="POST" action="?/createEvent" use:enhance={dateFormEnhance}>
@@ -215,6 +233,9 @@
 						<div class="head-actions">
 							{#if isTaskEvent(ev.kind)}
 								<a class="review-link" href="/admin/events/{ev.slug}">Manage tasks →</a>
+							{/if}
+							{#if ev.kind === 'bingo'}
+								<a class="review-link" href="/admin/events/{ev.slug}/builder">Builder →</a>
 							{/if}
 							{#if ev.slug === BINGO_EVENT_SLUG}
 								<a class="review-link" href="/admin/bingo/{ev.slug}/review">

@@ -4,7 +4,7 @@
 	import type { PageData } from './$types';
 	import { TIERS } from '$lib/bingo/tiles';
 	import type { BingoTier, BingoTile } from '$lib/bingo/tiles';
-	import { BINGO_ROW_COUNT, BINGO_EVENT_SLUG } from '$lib/bingo/config';
+	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 	import { getTileStatus, formatCountdown } from '$lib/bingo/state';
 	import TileCell from '$lib/bingo/TileCell.svelte';
 	import SubmitModal from '$lib/bingo/SubmitModal.svelte';
@@ -15,7 +15,12 @@
 	const mainTierHeaders = TIERS.filter((t) => t.key !== 'bonus');
 	const TIER_ORDER: BingoTier[] = ['skilling', 'easy', 'medium', 'hard'];
 
-	const rowNumbers = Array.from({ length: BINGO_ROW_COUNT }, (_, i) => i + 1);
+	// Row count is data-driven: the number of grid rows comes from the loaded tiles
+	// (built/cloned events can have any row count), not a hardcoded constant.
+	const rowCount = $derived(
+		data.tiles.reduce((max, t) => (t.tier !== 'bonus' && t.row > max ? t.row : max), 0)
+	);
+	const rowNumbers = $derived(Array.from({ length: rowCount }, (_, i) => i + 1));
 
 	const tileById = $derived(new Map(data.tiles.map((t) => [t.id, t])));
 	const bonusTiles = $derived(data.tiles.filter((t) => t.tier === 'bonus'));
@@ -148,11 +153,11 @@
 			{:else if liveState.status === 'active'}
 				{#if liveState.nextRowAt}
 					<span class="status-label">
-						Row {(liveState.activeRow ?? 0) + 1} of {BINGO_ROW_COUNT} · next in
+						Row {(liveState.activeRow ?? 0) + 1} of {rowCount} · next in
 					</span>
 					<strong class="countdown">{formatCountdown(liveState.msUntilNextRow)}</strong>
 				{:else}
-					<span class="status-label">All {BINGO_ROW_COUNT} rows open</span>
+					<span class="status-label">All {rowCount} rows open</span>
 				{/if}
 			{:else}
 				<span class="status-label">Event ended</span>
