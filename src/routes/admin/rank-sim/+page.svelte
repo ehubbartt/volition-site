@@ -435,7 +435,7 @@
 		padding: 0.25rem 0.55rem;
 		background: var(--surface);
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: 3px;
 		font-size: 0.82rem;
 	}
 	.avgs .strong {
