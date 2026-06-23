@@ -129,6 +129,29 @@ export function calculateGearPoints(templeItems: TempleItems | null | undefined)
 	return { gearPoints: totalPoints, matchedItems, missedItems };
 }
 
+// --- Gear catalog (for the on-profile collection-log-style grid) -------------
+// The full gear table flattened to display rows: each entry's name, tier, max
+// points, and a REPRESENTATIVE item to show an icon for. The entry `name` is a set
+// label (e.g. "Ahrim/Bluemoon Robe Set"), often not an item — so the icon item is
+// taken from the first required item check (its first OR-alternative). Built once.
+export interface GearCatalogEntry {
+	name: string;
+	tier: string;
+	points: number;
+	iconItem: string | null;
+}
+
+let gearCatalog: GearCatalogEntry[] | null = null;
+export function getGearCatalog(): GearCatalogEntry[] {
+	if (gearCatalog) return gearCatalog;
+	gearCatalog = GEAR.gear.map((g) => {
+		const first = g.items[0]?.name;
+		const iconItem = Array.isArray(first) ? (first[0] ?? null) : (first ?? null);
+		return { name: g.name, tier: g.tier, points: g.points, iconItem };
+	});
+	return gearCatalog;
+}
+
 // --- Combat achievements: tier-completion points from WikiSync task ids ------
 // Mirrors simulateRanks.calculateCAPoints: sum wiki points from completed tasks,
 // then award each FULLY-completed tier's reward (cumulative thresholds).
