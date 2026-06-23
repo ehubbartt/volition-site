@@ -2,9 +2,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import type { PageData } from './$types';
-	import { TIERS } from '$lib/bingo/tiles';
-	import type { BingoTier, BingoTile } from '$lib/bingo/tiles';
-	import { BINGO_ROW_COUNT, BINGO_EVENT_SLUG } from '$lib/bingo/config';
+	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 	import { getTileStatus, formatCountdown } from '$lib/bingo/state';
 	import TileCell from '$lib/bingo/TileCell.svelte';
 	import SubmitModal from '$lib/bingo/SubmitModal.svelte';
@@ -12,17 +10,21 @@
 
 	let { data }: { data: PageData } = $props();
 
-	const mainTierHeaders = TIERS.filter((t) => t.key !== 'bonus');
-	const TIER_ORDER: BingoTier[] = ['skilling', 'easy', 'medium', 'hard'];
+	// Columns are data-driven: name, points, colour and count come from the event.
+	const columns = $derived(data.columns);
 
-	const rowNumbers = Array.from({ length: BINGO_ROW_COUNT }, (_, i) => i + 1);
+	// Row count is data-driven too — taken from the loaded tiles (any count).
+	const rowCount = $derived(
+		data.tiles.reduce((max, t) => (t.tier !== 'bonus' && t.row > max ? t.row : max), 0)
+	);
+	const rowNumbers = $derived(Array.from({ length: rowCount }, (_, i) => i + 1));
 
 	const tileById = $derived(new Map(data.tiles.map((t) => [t.id, t])));
-	const bonusTiles = $derived(data.tiles.filter((t) => t.tier === 'bonus'));
 
-	function tilesForRow(r: number): BingoTile[] {
-		return TIER_ORDER.map((tier) => tileById.get(`r${r}-${tier}`)!).filter(Boolean);
-	}
+	// Inline grid track list: row-number col + N data columns + optional bonus tracks.
+	const gridStyle = $derived(
+		`--cols: ${columns.length}; --after: ${data.bonusEnabled ? '0.6rem var(--colw)' : ''}`
+	);
 
 	let openTileId = $state<string | null>(null);
 	const openTile = $derived(openTileId ? tileById.get(openTileId) ?? null : null);
@@ -148,11 +150,11 @@
 			{:else if liveState.status === 'active'}
 				{#if liveState.nextRowAt}
 					<span class="status-label">
-						Row {(liveState.activeRow ?? 0) + 1} of {BINGO_ROW_COUNT} · next in
+						Row {(liveState.activeRow ?? 0) + 1} of {rowCount} · next in
 					</span>
 					<strong class="countdown">{formatCountdown(liveState.msUntilNextRow)}</strong>
 				{:else}
-					<span class="status-label">All {BINGO_ROW_COUNT} rows open</span>
+					<span class="status-label">All {rowCount} rows open</span>
 				{/if}
 			{:else}
 				<span class="status-label">Event ended</span>
@@ -163,39 +165,50 @@
 
 <section class="layout">
 	<div class="board-wrap">
-		<div class="board" role="grid" aria-label="Bingo board">
+		<div class="board" style={gridStyle} role="grid" aria-label="Bingo board">
 			<div class="cell-header"></div>
-			{#each mainTierHeaders as t (t.key)}
-				<div class="cell-header tier-header" style="--tier-color: {t.color}">
-					<div class="pts">{t.points} pt{t.points === 1 ? '' : 's'}</div>
-					<div class="tier-name" style="background: {t.color}">{t.label}</div>
+			{#each columns as c (c.key)}
+				<div class="cell-header tier-header" style="--tier-color: {c.color}">
+					<div class="pts">{c.points} pt{c.points === 1 ? '' : 's'}</div>
+					<div class="tier-name" style="background: {c.color}">{c.label}</div>
 				</div>
 			{/each}
-			<div class="cell-gap"></div>
-			<div class="cell-header tier-header" style="--tier-color: #ff981f">
-				<div class="pts">{TIERS[4].points} pts</div>
-				<div class="tier-name bonus" style="background: #ff981f">Bonus</div>
-			</div>
+			{#if data.bonusEnabled}
+				<div class="cell-gap"></div>
+				<div class="cell-header tier-header" style="--tier-color: {data.bonus.color}">
+					<div class="pts">{data.bonus.points} pts</div>
+					<div class="tier-name bonus" style="background: {data.bonus.color}">{data.bonus.label}</div>
+				</div>
+			{/if}
 
 			{#each rowNumbers as r (r)}
 				<div class="row-number">{r}</div>
-				{#each tilesForRow(r) as tile (tile.id)}
-					<TileCell
-						{tile}
-						status={getStatus(tile.id)}
-						myStatus={myStatusFor(tile.id)}
-						onclick={() => openModal(tile.id)}
-					/>
+				{#each columns as c (c.key)}
+					{@const tile = tileById.get(`r${r}-${c.key}`)}
+					{#if tile}
+						<TileCell
+							{tile}
+							status={getStatus(tile.id)}
+							myStatus={myStatusFor(tile.id)}
+							onclick={() => openModal(tile.id)}
+						/>
+					{:else}
+						<div class="cell-empty"></div>
+					{/if}
 				{/each}
-				<div class="cell-gap"></div>
-				{@const bonus = bonusTiles[r - 1]}
-				{#if bonus}
-					<TileCell
-						tile={bonus}
-						status={getStatus(bonus.id)}
-						myStatus={myStatusFor(bonus.id)}
-						onclick={() => openModal(bonus.id)}
-					/>
+				{#if data.bonusEnabled}
+					<div class="cell-gap"></div>
+					{@const bonus = tileById.get(`b${r}`)}
+					{#if bonus}
+						<TileCell
+							tile={bonus}
+							status={getStatus(bonus.id)}
+							myStatus={myStatusFor(bonus.id)}
+							onclick={() => openModal(bonus.id)}
+						/>
+					{:else}
+						<div class="cell-empty"></div>
+					{/if}
 				{/if}
 			{/each}
 		</div>
@@ -372,9 +385,14 @@
 
 	.board {
 		display: grid;
-		grid-template-columns: 1.6rem repeat(4, minmax(7.5rem, 1fr)) 0.6rem minmax(7.5rem, 1fr);
+		/* --cols (column count) and --after (optional bonus tracks) are set inline.
+		   --rownum / --colw are themed per breakpoint below. */
+		--rownum: 1.6rem;
+		--colw: minmax(7.5rem, 1fr);
+		grid-template-columns: var(--rownum) repeat(var(--cols, 4), var(--colw)) var(--after, );
 		gap: 0.45rem;
-		min-width: 36rem;
+		width: max-content;
+		min-width: 100%;
 		padding: 0.5rem;
 		background: linear-gradient(180deg, rgba(58, 48, 36, 0.5), rgba(40, 32, 24, 0.5));
 		border: 1px solid var(--border);
@@ -383,19 +401,25 @@
 
 	@media (max-width: 720px) {
 		.board {
-			grid-template-columns: 1.2rem repeat(4, 1fr) 0.3rem 1fr;
+			--rownum: 1.2rem;
+			--colw: 1fr;
 			gap: 0.3rem;
-			min-width: 0;
+			width: 100%;
 			padding: 0.3rem;
 		}
 	}
 
 	@media (max-width: 480px) {
 		.board {
-			grid-template-columns: 0.9rem repeat(4, 1fr) 0.2rem 1fr;
+			--rownum: 0.9rem;
+			--colw: 1fr;
 			gap: 0.22rem;
 			padding: 0.22rem;
 		}
+	}
+
+	.cell-empty {
+		min-height: 0;
 	}
 
 	.cell-header,
