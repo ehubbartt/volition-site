@@ -1,4 +1,3 @@
-import type { BingoTier } from '$lib/bingo/tiles';
 import { TIERS } from '$lib/bingo/tiles';
 
 export const BINGO_EVENT_SLUG = 'echo-rumors';
@@ -10,10 +9,25 @@ export const BINGO_ROW_INTERVAL_HOURS = 14;
 // vs_events.structure; the legacy echo-rumors event (and anything with no
 // structure stored) falls back to DEFAULT_BINGO_STRUCTURE below.
 export interface BingoTierConfig {
-	key: BingoTier;
+	// 'skilling' | 'easy' | … for the built-in columns, or an arbitrary slug for
+	// admin-added columns. The special key 'bonus' is the bonus column.
+	key: string;
 	label: string;
 	points: number;
+	color?: string;
 }
+
+// Colours cycled for admin-added columns that don't carry an explicit colour.
+export const COLUMN_PALETTE = [
+	'#3aa6ff',
+	'#5fc35f',
+	'#f0d23c',
+	'#e25656',
+	'#b07cff',
+	'#48c9b0',
+	'#ff8a5c',
+	'#e879b8'
+];
 
 export interface BingoStructure {
 	rowCount: number;
@@ -40,10 +54,12 @@ export function normalizeBingoStructure(raw: unknown): BingoStructure {
 		? (r.tiers as unknown[])
 				.map((t) => {
 					const o = (t ?? {}) as Record<string, unknown>;
+					const color = typeof o.color === 'string' ? o.color : undefined;
 					return {
-						key: String(o.key) as BingoTier,
+						key: String(o.key ?? ''),
 						label: String(o.label ?? o.key ?? ''),
-						points: Number(o.points) || 0
+						points: Number(o.points) || 0,
+						...(color ? { color } : {})
 					};
 				})
 				.filter((t) => t.key)

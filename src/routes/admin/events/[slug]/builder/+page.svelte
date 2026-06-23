@@ -2,13 +2,32 @@
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { PageData, ActionData } from './$types';
-	import { TIERS } from '$lib/bingo/tiles';
+	import ItemAutocomplete from '$lib/admin/ItemAutocomplete.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	const keepValues: SubmitFunction = () => async ({ update }) => update({ reset: false });
 
-	const tierKeys = TIERS.map((t) => t.key);
+	// Column editor working copy (main columns, excluding bonus).
+	type Col = { key: string; label: string; points: number };
+	let cols = $state<Col[]>(
+		data.structure.tiers
+			.filter((t) => t.key !== 'bonus')
+			.map((t) => ({ key: t.key, label: t.label, points: t.points }))
+	);
+	const bonusTier0 = data.structure.tiers.find((t) => t.key === 'bonus');
+	let bonusEnabled = $state(data.structure.bonusEnabled);
+	let bonusLabel = $state(bonusTier0?.label ?? 'Bonus');
+	let bonusPoints = $state(bonusTier0?.points ?? 5);
+	function addCol() {
+		cols = [...cols, { key: '', label: '', points: 1 }];
+	}
+	function removeCol(i: number) {
+		cols = cols.filter((_, idx) => idx !== i);
+	}
+
+	// Tier options for the per-tile editor's column dropdown.
+	const columnOptions = $derived(data.structure.tiers.map((t) => ({ key: t.key, label: t.label })));
 
 	// Group tiles by row for display (main grid + bonus column).
 	const tilesByRow = $derived.by(() => {
@@ -66,24 +85,39 @@
 	<div class="card">
 		<h2>Structure</h2>
 		<form method="POST" action="?/updateStructure" use:enhance={keepValues} class="struct">
-			<label><span>Rows</span><input name="rowCount" type="number" min="1" value={data.structure.rowCount} /></label>
-			<label>
-				<span>Hours between row releases</span>
-				<input name="rowIntervalHours" type="number" min="0.1" step="0.1" value={data.structure.rowIntervalHours} />
-			</label>
+			<div class="two">
+				<label><span>Rows</span><input name="rowCount" type="number" min="1" value={data.structure.rowCount} /></label>
+				<label>
+					<span>Hours between row releases</span>
+					<input name="rowIntervalHours" type="number" min="0.1" step="0.1" value={data.structure.rowIntervalHours} />
+				</label>
+			</div>
+
+			<h3>Columns</h3>
+			<div class="cols-editor">
+				{#each cols as col, i (i)}
+					<div class="col-row">
+						<input type="hidden" name="col_key" value={col.key} />
+						<input name="col_label" placeholder="Column name" bind:value={col.label} required />
+						<input class="pts-in" name="col_points" type="number" min="0" bind:value={col.points} title="Points" />
+						<button type="button" class="danger sm" title="Remove column" onclick={() => removeCol(i)}>✕</button>
+					</div>
+				{/each}
+				<button type="button" class="sm add" onclick={addCol}>+ Add column</button>
+			</div>
+
 			<label class="check">
-				<input name="bonusEnabled" type="checkbox" checked={data.structure.bonusEnabled} />
+				<input name="bonusEnabled" type="checkbox" bind:checked={bonusEnabled} />
 				<span>Bonus column enabled</span>
 			</label>
-			<div class="tier-points">
-				{#each data.structure.tiers as tier}
-					<label>
-						<span>{tier.label} pts</span>
-						<input name="point_{tier.key}" type="number" min="0" value={tier.points} />
-					</label>
-				{/each}
-			</div>
-			<p class="muted note">Saving rebuilds the tile grid to match — adds blank tiles for new rows/bonus and removes tiles that no longer fit. Existing tile content is kept.</p>
+			{#if bonusEnabled}
+				<div class="two">
+					<label><span>Bonus column name</span><input name="bonus_label" bind:value={bonusLabel} /></label>
+					<label><span>Bonus points</span><input name="bonus_points" type="number" min="0" bind:value={bonusPoints} /></label>
+				</div>
+			{/if}
+
+			<p class="muted note">Saving rebuilds the tile grid to match — adds blank tiles for new columns/rows/bonus and removes tiles that no longer fit. Existing tile content is kept.</p>
 			<button type="submit" class="primary">Save structure</button>
 		</form>
 	</div>
@@ -112,8 +146,8 @@
 							<div class="two">
 								<label><span>Row</span><input name="row" type="number" min="1" value={t.row} /></label>
 								<label>
-									<span>Tier</span>
-									<select name="tier">{#each tierKeys as k}<option value={k} selected={k === t.tier}>{k}</option>{/each}</select>
+									<span>Column</span>
+									<select name="tier">{#each columnOptions as c}<option value={c.key} selected={c.key === t.tier}>{c.label}</option>{/each}</select>
 								</label>
 								<label><span>Points</span><input name="points" type="number" min="0" value={t.points} /></label>
 							</div>
@@ -138,8 +172,7 @@
 							{/each}
 							<form method="POST" action="?/addTrackedItem" use:enhance={keepValues} class="track-add">
 								<input type="hidden" name="tile_id" value={t.id} />
-								<input name="item_name" type="text" placeholder="Item name" required />
-								<input name="item_id" type="number" placeholder="Item id" />
+								<ItemAutocomplete />
 								<input name="required_qty" type="number" min="1" value="1" title="Required quantity" />
 								<input name="source_name" type="text" placeholder="Source (optional)" />
 								<button type="submit">Add item</button>
@@ -174,8 +207,11 @@
 	   control resize on toggle, jiggling the adjacent label). */
 	input[type='checkbox'] { width: 1rem; height: 1rem; flex: 0 0 auto; padding: 0; border-radius: 3px; accent-color: var(--accent); }
 	.note { margin: 0.2rem 0 0; font-size: 0.78rem; }
-	.struct .tier-points { display: flex; flex-wrap: wrap; gap: 0.6rem; }
-	.struct .tier-points label { width: 120px; }
+	.cols-editor { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.3rem 0 0.6rem; }
+	.col-row { display: flex; align-items: center; gap: 0.4rem; }
+	.col-row input[name='col_label'] { flex: 1; }
+	.col-row .pts-in { width: 5rem; }
+	.cols-editor .add { align-self: flex-start; border-color: var(--accent); color: var(--accent); }
 	.two { display: flex; gap: 0.6rem; }
 	.two label { flex: 1; }
 	button { background: #2a241c; color: #eee; border: 1px solid #3a3128; border-radius: 6px; padding: 0.4rem 0.8rem; cursor: pointer; font: inherit; }

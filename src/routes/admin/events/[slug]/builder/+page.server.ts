@@ -1,7 +1,7 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
-import { normalizeBingoStructure, type BingoStructure } from '$lib/bingo/config';
+import { normalizeBingoStructure, type BingoStructure, type BingoTierConfig } from '$lib/bingo/config';
 import {
 	loadEventBoard,
 	listTrackedItems,
@@ -67,6 +67,15 @@ function num(form: FormData, key: string, fallback = 0): number {
 	return Number.isFinite(n) ? n : fallback;
 }
 
+// Stable, id-safe key for a new column derived from its label.
+function slugifyKey(label: string): string {
+	return label
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '')
+		.slice(0, 24);
+}
+
 export const actions: Actions = {
 	pickTemplate: async ({ locals, request, params }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
@@ -88,17 +97,40 @@ export const actions: Actions = {
 		if (guard.error) return guard.error;
 
 		const form = await request.formData();
-		// Tier points arrive as point_<key>; merge over the current normalized tiers.
 		const current = normalizeBingoStructure(guard.event.structure);
-		const tiers = current.tiers.map((t) => {
-			const raw = form.get(`point_${t.key}`);
-			return raw != null ? { ...t, points: Math.max(0, Math.floor(Number(raw)) || 0) } : t;
+
+		// Columns arrive as parallel arrays col_key[]/col_label[]/col_points[]. A blank
+		// key means a newly-added column → mint a stable slug; existing columns keep
+		// their key so their tiles stay mapped on rename.
+		const keys = form.getAll('col_key').map((v) => v.toString().trim());
+		const labels = form.getAll('col_label').map((v) => v.toString().trim());
+		const points = form.getAll('col_points').map((v) => Number(v.toString()));
+		const used = new Set<string>();
+		const mainTiers: BingoTierConfig[] = [];
+		labels.forEach((label, i) => {
+			if (!label) return; // drop blank columns
+			let key = keys[i] || slugifyKey(label);
+			if (!key) key = `col${i}`;
+			while (used.has(key)) key = `${key}_`;
+			used.add(key);
+			mainTiers.push({ key, label, points: Math.max(0, Math.floor(points[i]) || 0) });
 		});
+		if (mainTiers.length === 0) return fail(400, { error: 'Add at least one column' });
+
+		// Keep the bonus column config (label/points) even when disabled.
+		const prevBonus = current.tiers.find((t) => t.key === 'bonus');
+		const bonusTier: BingoTierConfig = {
+			key: 'bonus',
+			label: form.get('bonus_label')?.toString().trim() || prevBonus?.label || 'Bonus',
+			points: Math.max(0, Math.floor(num(form, 'bonus_points', prevBonus?.points ?? 5))),
+			color: '#ff981f'
+		};
+
 		const structure: BingoStructure = {
 			rowCount: Math.max(1, Math.floor(num(form, 'rowCount', current.rowCount))),
 			rowIntervalHours: Math.max(0.1, num(form, 'rowIntervalHours', current.rowIntervalHours)),
 			bonusEnabled: form.get('bonusEnabled') != null,
-			tiers
+			tiers: [...mainTiers, bonusTier]
 		};
 		const res = await updateEventStructure(guard.event.id, structure);
 		if (!res.ok) return fail(500, { error: res.error });

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { BingoTile } from './tiles';
+	import type { BingoTile, BingoTier } from './tiles';
 	import { TIER_BY_KEY } from './tiles';
 	import type { TileStatus } from './state';
 
@@ -14,7 +14,9 @@
 
 	let { tile, status, myStatus, onclick }: Props = $props();
 
-	const tier = $derived(TIER_BY_KEY[tile.tier]);
+	// Colour comes from the tile (set per column by the board loader); fall back to
+	// the built-in tier palette, then a neutral accent for fully custom columns.
+	const dotColor = $derived(tile.color ?? TIER_BY_KEY[tile.tier as BingoTier]?.color ?? 'var(--accent)');
 </script>
 
 <button
@@ -29,7 +31,7 @@
 		if (status !== 'blurred') onclick?.();
 	}}
 >
-	<div class="dot" style="background: {tier.color}"></div>
+	<div class="dot" style="background: {dotColor}"></div>
 	<span class="name">{tile.name}</span>
 	<div class="meta">
 		<span class="points">{tile.points} pt{tile.points === 1 ? '' : 's'}</span>
