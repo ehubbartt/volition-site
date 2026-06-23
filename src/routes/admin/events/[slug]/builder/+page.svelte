@@ -191,46 +191,53 @@
 </section>
 
 <style>
+	/* Reuses the site's global form-control + button styling (src/app.css) and
+	   design tokens; only layout + a couple of variants are defined here. */
 	.builder { max-width: 880px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
 	header h1 { margin: 0.3rem 0 0; }
 	.back { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
-	.sub { color: #9a9a9a; font-size: 0.85rem; }
-	.card { background: #161310; border: 1px solid #2a241c; border-radius: 10px; padding: 1rem 1.1rem; margin-top: 1.1rem; }
+	.sub { color: var(--muted); font-size: 0.85rem; }
+	.card {
+		background: linear-gradient(180deg, rgba(58, 48, 36, 0.85), rgba(40, 32, 24, 0.85));
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		box-shadow: var(--shadow-card);
+		padding: 1.1rem 1.2rem;
+		margin-top: 1.1rem;
+	}
 	.card.warn { border-color: var(--accent); }
-	h2 { margin: 0 0 0.6rem; font-size: 1.05rem; }
-	h3 { margin: 1rem 0 0.4rem; font-size: 0.95rem; color: #cdb78f; }
-	h4 { margin: 0.6rem 0 0.3rem; font-size: 0.82rem; color: #9a9a9a; }
-	label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.82rem; margin: 0.4rem 0; }
+	h2 { margin: 0 0 0.6rem; font-size: 1.1rem; color: var(--accent); text-shadow: var(--ts); }
+	h3 { margin: 1rem 0 0.4rem; font-size: 0.95rem; color: var(--text); }
+	h4 { margin: 0.6rem 0 0.3rem; font-size: 0.82rem; color: var(--muted); }
+	label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; margin: 0.5rem 0; }
+	label span { color: var(--muted); }
 	label.check { flex-direction: row; align-items: center; gap: 0.5rem; }
-	input, select, textarea { background: #0f0d0a; border: 1px solid #342c20; color: #eee; border-radius: 6px; padding: 0.4rem 0.5rem; font: inherit; }
-	/* Checkboxes must not inherit the text-input box sizing (padding/border made the
-	   control resize on toggle, jiggling the adjacent label). */
-	input[type='checkbox'] { width: 1rem; height: 1rem; flex: 0 0 auto; padding: 0; border-radius: 3px; accent-color: var(--accent); }
-	.note { margin: 0.2rem 0 0; font-size: 0.78rem; }
-	.cols-editor { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.3rem 0 0.6rem; }
+	.note { margin: 0.3rem 0 0; font-size: 0.8rem; }
+	.cols-editor { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.3rem 0 0.6rem; }
 	.col-row { display: flex; align-items: center; gap: 0.4rem; }
 	.col-row input[name='col_label'] { flex: 1; }
 	.col-row .pts-in { width: 5rem; }
-	.cols-editor .add { align-self: flex-start; border-color: var(--accent); color: var(--accent); }
+	.cols-editor .add { align-self: flex-start; }
 	.two { display: flex; gap: 0.6rem; }
 	.two label { flex: 1; }
-	button { background: #2a241c; color: #eee; border: 1px solid #3a3128; border-radius: 6px; padding: 0.4rem 0.8rem; cursor: pointer; font: inherit; }
-	button.primary { background: var(--accent); color: #1a1207; border-color: var(--accent); font-weight: 600; }
-	button.danger { background: #3a1c1c; border-color: #5a2a2a; color: #f3b0b0; }
-	button.sm { padding: 0.25rem 0.55rem; font-size: 0.78rem; }
+	button.primary { border-color: var(--accent); font-family: var(--font-heading); }
+	button.primary:hover { background: var(--accent-soft); }
+	button.danger { border-color: var(--danger); color: var(--danger); }
+	button.danger:hover { background: var(--danger-bg); border-color: var(--danger); }
+	button.sm { min-height: 0; padding: 0.3rem 0.6rem; font-size: 0.8rem; }
 	.inline { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.6rem; }
-	.tile { border: 1px solid #2a241c; border-radius: 8px; margin: 0.4rem 0; padding: 0.2rem 0.6rem; }
-	.tile summary { cursor: pointer; display: flex; gap: 0.5rem; align-items: center; padding: 0.4rem 0; }
-	.tile summary code { color: #8a7a5c; font-size: 0.75rem; }
-	.tier-chip { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: #2a241c; text-transform: uppercase; }
+	.tile { border: 1px solid var(--border); border-radius: var(--radius); margin: 0.4rem 0; padding: 0.2rem 0.7rem; background: var(--surface-alt); }
+	.tile summary { cursor: pointer; display: flex; gap: 0.5rem; align-items: center; padding: 0.45rem 0; }
+	.tile summary code { color: var(--muted); font-size: 0.75rem; }
+	.tier-chip { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: var(--radius); background: var(--surface); color: var(--accent); text-transform: uppercase; }
 	.track-badge { margin-left: auto; color: var(--accent); font-size: 0.78rem; }
-	.tracked { border-top: 1px dashed #2a241c; margin-top: 0.5rem; padding-top: 0.4rem; }
-	.track-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; padding: 0.15rem 0; }
+	.tracked { border-top: 1px dashed var(--border); margin-top: 0.5rem; padding-top: 0.4rem; }
+	.track-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; padding: 0.15rem 0; }
 	.track-add { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
 	.track-add input { flex: 1; min-width: 90px; }
 	.delete-tile { margin-top: 0.6rem; }
-	.err { color: #f3b0b0; background: #2a1414; padding: 0.5rem 0.8rem; border-radius: 6px; }
-	.ok { color: #b0f3b8; background: #14250f; padding: 0.5rem 0.8rem; border-radius: 6px; }
-	.muted { color: #777; }
-	code { background: #0f0d0a; padding: 0.05rem 0.3rem; border-radius: 4px; }
+	.err { color: var(--danger); background: var(--danger-bg); border: 1px solid var(--danger); padding: 0.5rem 0.8rem; border-radius: var(--radius); }
+	.ok { color: var(--success); background: var(--success-bg); padding: 0.5rem 0.8rem; border-radius: var(--radius); }
+	.muted { color: var(--muted); }
+	code { background: var(--surface-alt); padding: 0.05rem 0.3rem; border-radius: 3px; }
 </style>

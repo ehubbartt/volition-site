@@ -102,23 +102,30 @@
 </section>
 
 <style>
+	/* Reuses the site's global form-control styling (src/app.css) + design tokens. */
 	.ehb { max-width: 1000px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
 	.back { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
 	h1 { margin: 0.3rem 0 0.4rem; }
-	.exp { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: #1a1208; background: var(--accent); padding: 0.1rem 0.4rem; border-radius: 4px; vertical-align: middle; }
+	.exp { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--bg); background: var(--accent); padding: 0.1rem 0.4rem; border-radius: var(--radius); vertical-align: middle; text-shadow: none; }
 	.muted { color: var(--muted); }
 	.small { font-size: 0.85rem; }
 	.grid { display: grid; gap: 1.1rem; margin-top: 1rem; grid-template-columns: 1fr; }
 	@media (min-width: 60rem) { .grid { grid-template-columns: 1fr 1fr; align-items: start; } }
-	.card { background: #161310; border: 1px solid #2a241c; border-radius: 10px; padding: 1rem 1.1rem; }
-	h2 { margin: 0 0 0.6rem; font-size: 1.05rem; }
-	input { background: #0f0d0a; border: 1px solid #342c20; color: #eee; border-radius: 6px; padding: 0.4rem 0.5rem; font: inherit; width: 100%; }
+	.card {
+		background: linear-gradient(180deg, rgba(58, 48, 36, 0.85), rgba(40, 32, 24, 0.85));
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		box-shadow: var(--shadow-card);
+		padding: 1.1rem 1.2rem;
+	}
+	h2 { margin: 0 0 0.6rem; font-size: 1.1rem; color: var(--accent); text-shadow: var(--ts); }
+	.card > input[type='text'] { width: 100%; }
 	.controls { display: flex; gap: 0.6rem; }
 	.controls label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; color: var(--muted); flex: 1; }
 	table { width: 100%; border-collapse: collapse; margin-top: 0.6rem; font-size: 0.82rem; }
-	th { text-align: left; color: #cdb78f; font-weight: 600; border-bottom: 1px solid #2a241c; padding: 0.3rem 0.4rem; }
-	td { padding: 0.3rem 0.4rem; border-bottom: 1px solid #1c1813; vertical-align: top; }
+	th { text-align: left; color: var(--accent); font-weight: normal; font-family: var(--font-heading); border-bottom: 1px solid var(--border); padding: 0.3rem 0.4rem; }
+	td { padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--surface-alt); vertical-align: top; }
 	td.ehb { color: var(--accent); font-family: var(--font-heading); white-space: nowrap; }
-	code { color: #8a7a5c; font-size: 0.75rem; }
+	code { color: var(--muted); font-size: 0.75rem; }
 	a { color: var(--accent); }
 </style>
