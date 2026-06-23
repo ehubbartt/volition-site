@@ -272,7 +272,7 @@ strong,
    tiled brown-stone interior. `round` tiles the edge art to any panel size. */
 .osrs-panel {
 	position: relative;
-	background-color: #423829;
+	background-color: #4d4030;
 	background-image: var(--stone-tile);
 	background-repeat: repeat;
 	border: 4px solid transparent;
@@ -409,4 +409,29 @@ strong,
 	border: 1px solid var(--gold-line);
 	border-radius: 999px;
 	text-shadow: var(--ts);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Site-wide rollout
+   Project the OSRS panel look onto the container classes existing pages
+   already use (.card / .panel / .stat) so the whole site picks up the
+   framed-stone treatment without per-page rewrites. Scoped to in-page content;
+   the framing properties use !important to win over Svelte's component-scoped
+   rules. Page-specific accents (e.g. a "done"/highlight tint) can still layer
+   on top via their own modifier classes where needed.
+   ────────────────────────────────────────────────────────────────────────── */
+.page :is(.card, .panel, .stat) {
+	background-color: #4d4030 !important;
+	background-image: var(--stone-tile) !important;
+	background-repeat: repeat !important;
+	border: 4px solid transparent !important;
+	border-image: url('/osrs/border-tiny.png') 4 / 4px round !important;
+	border-radius: 4px !important;
+	box-shadow: none !important;
+}
+
+/* Avoid doubled gold frames when a themed card sits inside an .osrs-panel. */
+.osrs-panel .osrs-panel,
+.osrs-panel :is(.card, .panel, .stat) {
+	box-shadow: none !important;
 }
