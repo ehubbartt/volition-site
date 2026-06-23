@@ -1302,7 +1302,7 @@
 		padding: 0.05rem 0.45rem;
 		background: var(--surface-alt);
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: 3px;
 		font-size: 0.75rem;
 		color: var(--text);
 	}
@@ -1391,7 +1391,7 @@
 		font-size: 0.62rem;
 		letter-spacing: 0.03em;
 		padding: 0.02rem 0.35rem;
-		border-radius: 999px;
+		border-radius: 3px;
 		border: 1px solid var(--border);
 		background: var(--surface-alt);
 		color: var(--muted);
@@ -1452,7 +1452,7 @@
 
 	.badge {
 		padding: 0.05rem 0.5rem;
-		border-radius: 999px;
+		border-radius: 3px;
 		border: 1px solid var(--border);
 		background: var(--surface-alt);
 		color: var(--muted);

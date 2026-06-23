@@ -808,7 +808,7 @@
     padding: 0.25rem 0.7rem;
     font-size: 0.78rem;
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: 4px;
     background: var(--surface-alt);
     color: var(--muted);
     text-decoration: none;
@@ -892,7 +892,7 @@
     min-height: 0;
     background: var(--surface-alt);
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: 3px;
     color: var(--muted);
   }
 
@@ -1470,7 +1470,7 @@
     letter-spacing: 1px;
     text-transform: uppercase;
     padding: 0.2rem 0.55rem;
-    border-radius: 999px;
+    border-radius: 3px;
     white-space: nowrap;
     border: 1px solid transparent;
   }

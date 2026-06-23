@@ -23,3 +23,12 @@ export function formatGP(gp: number): string {
 	if (gp >= 1_000) return `${(gp / 1_000).toFixed(0)}K`;
 	return String(gp);
 }
+
+// OSRS quantity colour tier: the game tints stacked values yellow under 100k,
+// white under 10M, and green at 10M+. Returns the class to apply to the number.
+export function osrsTier(value: number): 't-k' | 't-m' | 't-b' {
+	const v = Math.abs(Number(value) || 0);
+	if (v >= 10_000_000) return 't-b';
+	if (v >= 100_000) return 't-m';
+	return 't-k';
+}
