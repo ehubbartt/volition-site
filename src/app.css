@@ -73,26 +73,18 @@ body {
 }
 
 body {
-	background-color: #0a0805;
+	background-color: #0d0a06;
 	background-image:
-		radial-gradient(ellipse 70% 45% at 50% -10%, rgba(255, 152, 31, 0.08) 0%, transparent 65%),
-		radial-gradient(ellipse 55% 40% at 50% 110%, rgba(77, 67, 54, 0.35) 0%, transparent 65%),
-		repeating-linear-gradient(
-			45deg,
-			rgba(255, 152, 31, 0.018) 0,
-			rgba(255, 152, 31, 0.018) 1px,
-			transparent 1px,
-			transparent 4px
-		),
-		repeating-linear-gradient(
-			-45deg,
-			rgba(0, 0, 0, 0.25) 0,
-			rgba(0, 0, 0, 0.25) 1px,
-			transparent 1px,
-			transparent 4px
-		);
-	background-attachment: fixed;
-	background-size: cover;
+		/* warm light bloom top, stone pool bottom */
+		radial-gradient(ellipse 70% 45% at 50% -10%, rgba(255, 152, 31, 0.1) 0%, transparent 65%),
+		radial-gradient(ellipse 60% 45% at 50% 110%, rgba(77, 67, 54, 0.4) 0%, transparent 65%),
+		/* tiled OSRS stone floor */
+		url('/osrs/tile-dark.png'),
+		/* dark stone base */
+		linear-gradient(180deg, #15110b, #0b0805);
+	background-repeat: no-repeat, no-repeat, repeat, no-repeat;
+	background-attachment: fixed, fixed, fixed, fixed;
+	background-size: cover, cover, auto, cover;
 }
 
 body::before {
@@ -198,25 +190,30 @@ textarea:focus {
 }
 
 button {
-	background: var(--surface);
-	border: 1px solid var(--border-strong);
+	/* OSRS-style button: a bronze beveled frame (border-image) over a tan fill. */
+	background: #4d4336;
+	border: 10px solid transparent;
+	border-image: url('/osrs/button.png') 10 / 10px stretch;
+	border-radius: 5px;
 	color: var(--accent);
 	font-weight: normal;
 	cursor: pointer;
+	padding: 2px 14px;
+	min-height: 38px;
 }
 
 button:hover {
-	background: var(--border);
-	border-color: var(--accent);
+	background: #423726;
 }
 
 button:focus-visible {
 	outline: none;
-	box-shadow: 0 0 0 3px rgba(255, 152, 31, 0.3);
+	box-shadow: 0 0 0 3px rgba(255, 152, 31, 0.45);
 }
 
 button:active {
 	transform: translateY(1px);
+	background: #2f281c;
 }
 
 button:disabled {
@@ -246,5 +243,170 @@ strong,
 .value {
 	color: var(--yellow);
 	font-family: var(--font-heading);
+	text-shadow: var(--ts);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   OSRS interface layer
+   In-game-style framing: the gold border + bronze button + brown stone tiles
+   in static/osrs/ are original textures generated for this repo (not game
+   assets), applied with CSS `border-image` the way the RuneScape client frames
+   its interfaces. The .osrs-* classes are the building blocks; base button/input
+   pick the look up automatically so the whole site reads OSRS without per-page
+   rewrites.
+   ────────────────────────────────────────────────────────────────────────── */
+
+:root {
+	--frame: #0c0904;
+	--gold-line: rgba(150, 124, 80, 0.5);
+	--gold-bright: #d9b65e;
+	--gold-mid: #9c7e3c;
+	--gold-deep: #5f4a22;
+
+	/* Classic warm stone interior fill that lives inside the bordered panels. */
+	--stone-tile: url('/osrs/tile.png');
+}
+
+/* Raised chiseled panel — the core OSRS interface box: the in-game gold
+   double-line border (rendered at native size so it stays crisp) framing a
+   tiled brown-stone interior. `round` tiles the edge art to any panel size. */
+.osrs-panel {
+	position: relative;
+	background-color: #423829;
+	background-image: var(--stone-tile);
+	background-repeat: repeat;
+	border: 4px solid transparent;
+	border-image: url('/osrs/border-tiny.png') 4 / 4px round;
+	border-radius: 4px;
+	padding: 0.9rem 1.05rem;
+}
+
+/* Inset/recessed well — thin in-game border for sub-cards and list bodies. */
+.osrs-inset {
+	background-color: #2c2418;
+	background-image: var(--stone-tile);
+	background-repeat: repeat;
+	background-blend-mode: multiply;
+	border: 4px solid transparent;
+	border-image: url('/osrs/border-tiny.png') 4 / 4px round;
+}
+
+/* Title bar — centered orange heading with an in-game gold divider beneath. */
+.osrs-titlebar {
+	margin: 0 0 0.7rem;
+	font-family: var(--font-heading);
+	font-size: 1.25rem;
+	font-weight: normal;
+	letter-spacing: 1px;
+	color: var(--accent);
+	text-align: center;
+	text-shadow: var(--ts-strong);
+	padding: 0 0 0.5rem;
+	border-bottom: 2px solid rgba(0, 0, 0, 0.55);
+	box-shadow: 0 2px 0 rgba(217, 182, 94, 0.22);
+}
+
+/* Decorative chiseled groove — drop in as an in-game divider line. */
+.osrs-groove {
+	height: 4px;
+	border-radius: 2px;
+	background: linear-gradient(180deg, #1a140d, #4a3d2b);
+	box-shadow:
+		inset 0 1px 0 rgba(0, 0, 0, 0.6),
+		inset 0 -1px 0 rgba(255, 224, 168, 0.12);
+}
+
+/* Tab strip — brown tabs with a raised active state. */
+.osrs-tabs {
+	display: flex;
+	gap: 4px;
+}
+
+.osrs-tabs > * {
+	flex: 1;
+	font-family: var(--font-body);
+	color: var(--accent);
+	text-shadow: var(--ts);
+	text-align: center;
+	padding: 0.45rem 0.75rem;
+	background: linear-gradient(180deg, #34291c, #251d12);
+	border: 1px solid var(--frame);
+	border-bottom: none;
+	border-radius: 5px 5px 0 0;
+	cursor: pointer;
+}
+
+.osrs-tabs > .active,
+.osrs-tabs > [aria-selected='true'] {
+	background: linear-gradient(180deg, #4a3d2b, #332817);
+	box-shadow: inset 0 1px 0 rgba(255, 224, 168, 0.16);
+	color: var(--yellow);
+}
+
+/* Stat tile — number-forward card for dashboards. */
+.osrs-stat {
+	text-align: center;
+	padding: 0.25rem 0;
+}
+
+.osrs-stat .osrs-stat-value {
+	display: block;
+	font-family: var(--font-heading);
+	font-size: 1.9rem;
+	line-height: 1;
+	color: var(--yellow);
+	text-shadow: var(--ts-strong);
+}
+
+.osrs-stat .osrs-stat-label {
+	display: block;
+	margin-top: 0.35rem;
+	font-size: 0.8rem;
+	letter-spacing: 0.5px;
+	color: rgba(255, 255, 255, 0.6);
+	text-transform: uppercase;
+}
+
+/* Tables styled like the in-game lists (zebra rows, gold header). */
+.osrs-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.95rem;
+}
+
+.osrs-table thead th {
+	font-family: var(--font-heading);
+	font-weight: normal;
+	color: var(--accent);
+	text-align: left;
+	text-shadow: var(--ts);
+	padding: 0.5rem 0.75rem;
+	border-bottom: 2px solid var(--frame);
+}
+
+.osrs-table tbody td {
+	padding: 0.5rem 0.75rem;
+	border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+}
+
+.osrs-table tbody tr:nth-child(odd) {
+	background: rgba(255, 255, 255, 0.035);
+}
+
+.osrs-table tbody tr:hover {
+	background: rgba(255, 152, 31, 0.1);
+}
+
+/* Pill badge in the OSRS palette. */
+.osrs-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.3rem;
+	padding: 0.15rem 0.55rem;
+	font-size: 0.8rem;
+	color: var(--yellow);
+	background: rgba(0, 0, 0, 0.3);
+	border: 1px solid var(--gold-line);
+	border-radius: 999px;
 	text-shadow: var(--ts);
 }
