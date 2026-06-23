@@ -246,7 +246,7 @@
 								<p class="tier-head muted">{group.label}</p>
 								<div class="gear-grid">
 									{#each group.pieces as p (p.name)}
-										<div class="gtile" class:owned={p.owned} title={p.name}>
+										<div class="gtile" class:owned={p.owned} title="{p.name} · {p.owned ? `${p.earned}/${p.max}` : `0/${p.max}`} pts">
 											<div class="gtile-img">
 												{#if p.iconItem}
 													<img
@@ -258,7 +258,6 @@
 													/>
 												{/if}
 											</div>
-											<span class="gtile-name">{p.name}</span>
 											<span class="gtile-pts">{p.owned ? `${p.earned}/${p.max}` : p.max}</span>
 										</div>
 									{/each}
@@ -1062,16 +1061,16 @@
 	}
 	.gear-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
-		gap: 0.5rem;
+		grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
+		gap: 0.35rem;
 	}
 	.gtile {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		text-align: center;
-		gap: 0.2rem;
-		padding: 0.5rem 0.25rem;
+		gap: 0.1rem;
+		padding: 0.3rem 0.15rem;
 		background: var(--surface);
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
@@ -1084,33 +1083,18 @@
 		border-color: var(--border-strong);
 	}
 	.gtile-img {
-		height: 34px;
+		height: 30px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 	}
 	.gtile-img img {
-		max-width: 42px;
-		max-height: 34px;
+		max-width: 34px;
+		max-height: 30px;
 		object-fit: contain;
 	}
-	.gtile-name {
-		font-size: 0.66rem;
-		line-height: 1.15;
-		color: var(--muted);
-		max-width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		display: -webkit-box;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
-		-webkit-box-orient: vertical;
-	}
-	.gtile.owned .gtile-name {
-		color: var(--text);
-	}
 	.gtile-pts {
-		font-size: 0.66rem;
+		font-size: 0.6rem;
 		color: var(--muted);
 	}
 	.gtile.owned .gtile-pts {
