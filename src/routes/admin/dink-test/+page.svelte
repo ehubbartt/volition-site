@@ -56,6 +56,31 @@
 		{/if}
 	</div>
 
+	<div class="card tokens">
+		<h2>Active Dink config tokens</h2>
+		<p class="muted small">
+			Personal config links handed out by the site or the Discord <code>/dink</code> command.
+			Revoking takes a link away — it stops working within the proxy's token-cache TTL.
+		</p>
+		{#if data.tokens.length === 0}
+			<p class="muted small">No active tokens.</p>
+		{:else}
+			<ul class="tok-list">
+				{#each data.tokens as t (t.discord_id)}
+					<li>
+						<span class="who">{t.rsn ?? '(no RSN)'}</span>
+						<span class="muted small">{t.discord_id}</span>
+						<form method="POST" action="?/revokeToken" use:enhance>
+							<input type="hidden" name="discord_id" value={t.discord_id} />
+							<button type="submit" class="danger sm">Revoke</button>
+						</form>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+		{#if form?.mode === 'revoke' && form.ok}<p class="ok">✓ Token revoked.</p>{/if}
+	</div>
+
 	<form method="POST" use:enhance class="card">
 		<label>
 			<span>Event</span>
@@ -158,6 +183,13 @@
 	.selftest h2 { margin: 0 0 0.4rem; font-size: 1.05rem; color: var(--accent); }
 	.selftest form { margin: 0.6rem 0 0; }
 	.ok { color: var(--success); margin: 0.7rem 0 0; }
+	.tokens h2 { margin: 0 0 0.4rem; font-size: 1.05rem; color: var(--accent); }
+	.tok-list { list-style: none; margin: 0.6rem 0 0; padding: 0; }
+	.tok-list li { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+	.tok-list li:last-child { border-bottom: none; }
+	.tok-list .who { font-family: var(--font-heading); color: var(--accent); }
+	.tok-list form { margin: 0 0 0 auto; }
+	button.sm { min-height: 0; padding: 0.2rem 0.55rem; font-size: 0.78rem; }
 	code { background: var(--surface-alt); padding: 0.05rem 0.3rem; border-radius: 3px; }
 	a { color: var(--accent); }
 </style>

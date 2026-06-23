@@ -2,15 +2,17 @@ import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { evaluateDinkDrop, simulateDinkDrop, type DropVerdict } from '$lib/server/dinkDrops';
+import { listActiveTokens, revokeTokensFor } from '$lib/server/dinkTokens';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
 	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
 
-	const [eventsRes, trackedRes] = await Promise.all([
+	const [eventsRes, trackedRes, tokens] = await Promise.all([
 		db().from('vs_events').select('id, slug, name, status, starts_at').order('created_at', { ascending: false }),
-		db().from('vs_event_tracked_items').select('event_id, tile_id, item_id, item_name, source_name')
+		db().from('vs_event_tracked_items').select('event_id, tile_id, item_id, item_name, source_name'),
+		listActiveTokens()
 	]);
 
 	const trackedByEvent: Record<string, { tile_id: string; item_id: number | null; item_name: string; source_name: string | null }[]> = {};
@@ -21,6 +23,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	return {
 		events: (eventsRes.data ?? []) as { id: string; slug: string; name: string; status: string; starts_at: string | null }[],
 		trackedByEvent,
+		tokens,
 		myRsn: locals.user.rsn ?? ''
 	};
 };
@@ -82,6 +85,20 @@ export const actions: Actions = {
 		const { error: tie } = await db().from('vs_event_tracked_items').insert(tracked);
 		if (tie) return fail(500, { error: tie.message });
 		return { mode: 'selftest' as const, ok: true, slug: SELF_TEST_SLUG, items: SELF_TEST_ITEMS.map((i) => i.name) };
+	},
+
+	// Admin "take it away": revoke every active Dink token for a user (by Discord id).
+	// The proxy stops honouring the link within its token-cache TTL.
+	revokeToken: async ({ locals, request }) => {
+		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+		const discordId = (await request.formData()).get('discord_id')?.toString().trim();
+		if (!discordId) return fail(400, { error: 'Missing discord_id' });
+		try {
+			await revokeTokensFor(discordId);
+			return { mode: 'revoke' as const, ok: true };
+		} catch (e) {
+			return fail(500, { error: e instanceof Error ? e.message : 'Revoke failed' });
+		}
 	},
 
 	dryRun: async ({ locals, request }) => {
