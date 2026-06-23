@@ -24,9 +24,9 @@
 	let convertOpen = $state(false);
 	let convertForm = $state<HTMLFormElement>();
 
-	type Tab = 'profile' | 'collection' | 'stats' | 'wallet';
+	type Tab = 'profile' | 'rank' | 'collection' | 'stats' | 'wallet';
 	// Initial tab can be deep-linked via ?tab= (e.g. /me?tab=collection from the gamba page).
-	const TABS: Tab[] = ['profile', 'collection', 'stats', 'wallet'];
+	const TABS: Tab[] = ['profile', 'rank', 'collection', 'stats', 'wallet'];
 	const requestedTab = $page.url.searchParams.get('tab') as Tab | null;
 	let tab = $state<Tab>(requestedTab && TABS.includes(requestedTab) ? requestedTab : 'profile');
 
@@ -35,6 +35,7 @@
 
 	let tabs = $derived<{ id: Tab; label: string }[]>([
 		{ id: 'profile', label: 'Profile' },
+		{ id: 'rank', label: 'Rank' },
 		{ id: 'collection', label: 'Collection' },
 		{ id: 'stats', label: 'Stats' },
 		{ id: 'wallet', label: 'Wallet' }
@@ -46,10 +47,31 @@
 	let walletTotal = $derived(data.wallet.reduce((sum, w) => sum + w.quantity, 0));
 	let packTotal = $derived(data.packs.reduce((sum, p) => sum + p.quantity, 0));
 
-	// "Check my rank" — recomputes the composite rank from live data and writes it.
+	// "Check my rank" — refreshes the cached breakdown from live data and writes the rank.
+	// After the action, the page load re-runs and data.rankBreakdown re-renders below.
 	let checkingRank = $state(false);
-	// The freshly-checked rank (form result) takes precedence over the loaded one.
-	let displayRank = $derived(form?.rankOk ? form.rank : data.currentRank);
+	let rank = $derived(data.rankBreakdown);
+	const pct = (n: number) => `${Math.round(n * 100)}%`;
+	const num = (n: number) => Math.round(n).toLocaleString();
+	const TIER_LABEL: Record<string, string> = {
+		none: 'None',
+		easy: 'Easy',
+		medium: 'Medium',
+		hard: 'Hard',
+		elite: 'Elite',
+		master: 'Master',
+		grandmaster: 'Grandmaster'
+	};
+	const tierLabel = (t: string | undefined | null) => (t ? (TIER_LABEL[t] ?? t) : 'None');
+	const fmtWhen = (iso: string | null) =>
+		iso
+			? new Date(iso).toLocaleString(undefined, {
+					month: 'short',
+					day: 'numeric',
+					hour: 'numeric',
+					minute: '2-digit'
+				})
+			: null;
 </script>
 
 <svelte:head>
@@ -99,68 +121,6 @@
 
 	{#if tab === 'profile'}
 		<div class="panel">
-			<section class="rank-card">
-				<div class="rank-head">
-					<div class="rank-id">
-						{#if rankImg(displayRank)}
-							<img src={rankImg(displayRank)} alt={rankLabel(displayRank)} class="rank-badge" />
-						{:else}
-							<span class="rank-dot" style="background:{rankColor(displayRank)}"></span>
-						{/if}
-						<div>
-							<span class="rank-label">Clan rank</span>
-							<strong class="rank-name" style="color:{rankColor(displayRank)}">{rankLabel(displayRank)}</strong>
-						</div>
-					</div>
-					<form
-						method="POST"
-						action="?/checkRank"
-						use:enhance={() => {
-							checkingRank = true;
-							return async ({ update }) => {
-								await update({ reset: false });
-								checkingRank = false;
-							};
-						}}
-					>
-						<button type="submit" class="check-btn" disabled={checkingRank || !data.user.rsn}>
-							{checkingRank ? 'Checking…' : 'Check my rank'}
-						</button>
-					</form>
-				</div>
-
-				{#if !data.user.rsn}
-					<p class="muted small">Set your RSN below, then check your rank.</p>
-				{:else if form?.rankError}
-					<p class="rank-error">{form.rankError}</p>
-				{:else if form?.rankOk}
-					<p class="rank-result">
-						You're <strong style="color:{rankColor(form.rank)}">{form.rankName}</strong> — composite score
-						<strong>{form.composite.toFixed(4)}</strong>.
-						{#if !form.inputs.templeAvailable || !form.inputs.wikisyncAvailable}
-							<span class="muted">
-								(Some data was unavailable: {[
-									!form.inputs.templeAvailable ? 'TempleOSRS' : null,
-									!form.inputs.wikisyncAvailable ? 'WikiSync' : null
-								]
-									.filter(Boolean)
-									.join(', ')} — sync those to improve accuracy.)
-							</span>
-						{/if}
-					</p>
-					<div class="rank-breakdown">
-						<span title="EHB {form.inputs.ehb}">Gear {(form.breakdown.gear * 100).toFixed(0)}%</span>
-						<span>EHB {(form.breakdown.ehb * 100).toFixed(0)}%</span>
-						<span>CA {(form.breakdown.ca * 100).toFixed(0)}%</span>
-						<span>Time {(form.breakdown.time * 100).toFixed(0)}%</span>
-						<span>Clog {(form.breakdown.clog * 100).toFixed(0)}%</span>
-						<span>Level {(form.breakdown.level * 100).toFixed(0)}%</span>
-					</div>
-				{:else}
-					<p class="muted small">Pull your live stats to compute and save your clan rank.</p>
-				{/if}
-			</section>
-
 			{#if form?.success}
 				<div class="success">Saved.</div>
 			{:else if form?.error}
@@ -211,6 +171,138 @@
 			<form method="POST" action="/auth/logout" class="logout">
 				<button type="submit">Sign out</button>
 			</form>
+		</div>
+	{:else if tab === 'rank'}
+		<div class="panel">
+			<section class="rank-panel">
+				<div class="rank-head">
+					<div class="rank-id">
+						{#if rankImg(rank?.rank ?? data.currentRank)}
+							<img
+								src={rankImg(rank?.rank ?? data.currentRank)}
+								alt={rankLabel(rank?.rank ?? data.currentRank)}
+								class="rank-badge"
+							/>
+						{:else}
+							<span class="rank-dot" style="background:{rankColor(rank?.rank ?? data.currentRank)}"></span>
+						{/if}
+						<div>
+							<span class="rank-label">Clan rank</span>
+							<strong class="rank-name" style="color:{rankColor(rank?.rank ?? data.currentRank)}">
+								{rank ? rankLabel(rank.rank) : 'Not calculated yet'}
+							</strong>
+							{#if rank}
+								<span class="composite">Composite score {pct(rank.composite)}</span>
+							{/if}
+						</div>
+					</div>
+					<form
+						method="POST"
+						action="?/checkRank"
+						use:enhance={() => {
+							checkingRank = true;
+							return async ({ update }) => {
+								await update({ reset: false });
+								checkingRank = false;
+							};
+						}}
+					>
+						<button type="submit" class="check-btn" disabled={checkingRank || !data.user.rsn}>
+							{checkingRank ? 'Checking…' : rank ? 'Re-check rank' : 'Check my rank'}
+						</button>
+					</form>
+				</div>
+
+				{#if !data.user.rsn}
+					<p class="muted small">Set your RSN on the Profile tab, then check your rank.</p>
+				{:else if form?.rankError}
+					<p class="rank-error">{form.rankError}</p>
+				{:else if form?.rankOk && form?.rankNote}
+					<p class="rank-note muted small">{form.rankNote}</p>
+				{/if}
+
+				{#if rank}
+					<div class="comps">
+						{#each rank.components as c (c.key)}
+							<div class="comp">
+								<div class="comp-top">
+									<span class="comp-label">{c.label}</span>
+									<span class="comp-weight">{pct(c.weight)} of score</span>
+								</div>
+								<div class="comp-bar"><span style="width:{pct(c.normalized)}"></span></div>
+								<div class="comp-foot">
+									<span class="comp-raw">{num(c.raw)} / {num(c.cap)}</span>
+									<span class="comp-norm">{pct(c.normalized)}</span>
+								</div>
+							</div>
+						{/each}
+					</div>
+
+					{#if rank.gearDetail}
+						<details class="gear-detail">
+							<summary>
+								Gear pieces · {rank.gearDetail.matchedItems.length} earned, {rank.gearDetail.missedItems
+									.length} missing
+							</summary>
+							{#if rank.gearDetail.matchedItems.length}
+								<ul class="gear-list">
+									{#each [...rank.gearDetail.matchedItems].sort((a, b) => b.earned - a.earned) as g (g.name)}
+										<li>
+											<span class="g-name">{g.name}</span>
+											<span class="g-pts">{g.earned}/{g.max}</span>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+							{#if rank.gearDetail.missedItems.length}
+								<p class="missed-head muted small">Not yet earned</p>
+								<ul class="missed-list">
+									{#each rank.gearDetail.missedItems as m (m)}
+										<li>{m}</li>
+									{/each}
+								</ul>
+							{/if}
+						</details>
+					{/if}
+
+					{#if rank.caDetail}
+						<div class="ca-detail">
+							<h4>Combat achievements</h4>
+							<div class="ca-stats">
+								<div class="ca-stat">
+									<span class="ca-num">{tierLabel(rank.caDetail.highestTier)}</span>
+									<span class="ca-lbl">Highest tier</span>
+								</div>
+								<div class="ca-stat">
+									<span class="ca-num">{num(rank.caDetail.tasksCompleted)}</span>
+									<span class="ca-lbl">Tasks done</span>
+								</div>
+								<div class="ca-stat">
+									<span class="ca-num">{num(rank.caDetail.wikiPoints)}</span>
+									<span class="ca-lbl">Wiki points</span>
+								</div>
+							</div>
+						</div>
+					{/if}
+
+					<p class="rank-foot muted small">
+						Data as of {fmtWhen(rank.fetchedAt) ?? 'unknown'}.
+						{#if !rank.templeAvailable || !rank.wikisyncAvailable}
+							Some sources were unavailable ({[
+								!rank.templeAvailable ? 'TempleOSRS' : null,
+								!rank.wikisyncAvailable ? 'WikiSync' : null
+							]
+								.filter(Boolean)
+								.join(', ')}) — re-check after syncing to improve accuracy.
+						{/if}
+					</p>
+				{:else if data.user.rsn}
+					<p class="muted small">
+						Pull your live stats from WiseOldMan, TempleOSRS and WikiSync to compute your clan rank
+						and see exactly how each section contributes.
+					</p>
+				{/if}
+			</section>
 		</div>
 	{:else if tab === 'collection'}
 		<div class="panel">
@@ -822,13 +914,12 @@
 		text-align: right;
 	}
 
-	.rank-card {
-		padding: 1rem 1.1rem;
+	.rank-panel {
+		padding: 1.1rem 1.2rem;
 		background: var(--surface-alt);
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
-		margin-bottom: 1.5rem;
-		max-width: 32rem;
+		max-width: 40rem;
 	}
 	.rank-head {
 		display: flex;
@@ -836,6 +927,15 @@
 		justify-content: space-between;
 		gap: 1rem;
 		flex-wrap: wrap;
+		padding-bottom: 1rem;
+		margin-bottom: 1rem;
+		border-bottom: 1px solid var(--border);
+	}
+	.composite {
+		display: block;
+		font-size: 0.82rem;
+		color: var(--muted);
+		margin-top: 0.15rem;
 	}
 	.rank-id {
 		display: flex;
@@ -880,28 +980,165 @@
 		opacity: 0.5;
 		cursor: not-allowed;
 	}
-	.rank-result {
-		margin: 0.85rem 0 0.5rem;
-		font-size: 0.92rem;
-		line-height: 1.45;
-	}
 	.rank-error {
-		margin: 0.85rem 0 0;
+		margin: 0 0 0.85rem;
 		color: var(--danger);
 		font-size: 0.9rem;
 	}
-	.rank-breakdown {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.4rem;
+	.rank-note {
+		margin: 0 0 0.85rem;
 	}
-	.rank-breakdown span {
-		padding: 0.2rem 0.5rem;
+
+	/* Weighted component breakdown */
+	.comps {
+		display: flex;
+		flex-direction: column;
+		gap: 0.85rem;
+	}
+	.comp-top {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin-bottom: 0.3rem;
+	}
+	.comp-label {
+		font-size: 0.92rem;
+		color: var(--text);
+	}
+	.comp-weight {
+		font-size: 0.74rem;
+		color: var(--muted);
+	}
+	.comp-bar {
+		height: 8px;
 		background: var(--surface);
 		border: 1px solid var(--border);
 		border-radius: 999px;
+		overflow: hidden;
+	}
+	.comp-bar span {
+		display: block;
+		height: 100%;
+		background: linear-gradient(90deg, var(--accent), #ffc46b);
+		border-radius: 999px;
+		transition: width 0.3s ease-out;
+	}
+	.comp-foot {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin-top: 0.25rem;
+	}
+	.comp-raw {
 		font-size: 0.78rem;
 		color: var(--muted);
+	}
+	.comp-norm {
+		font-size: 0.78rem;
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		color: var(--accent);
+	}
+
+	/* Gear pieces (collapsible) */
+	.gear-detail {
+		margin-top: 1.1rem;
+		border-top: 1px solid var(--border);
+		padding-top: 1rem;
+	}
+	.gear-detail summary {
+		cursor: pointer;
+		font-size: 0.9rem;
+		color: var(--text);
+	}
+	.gear-list {
+		list-style: none;
+		padding: 0;
+		margin: 0.75rem 0 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+		gap: 0.3rem 1rem;
+	}
+	.gear-list li {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem;
+		font-size: 0.82rem;
+		padding: 0.2rem 0;
+		border-bottom: 1px dotted var(--border);
+	}
+	.g-name {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.g-pts {
+		color: var(--accent);
+		font-size: 0.78rem;
+		flex-shrink: 0;
+	}
+	.missed-head {
+		margin: 0.9rem 0 0.35rem;
+	}
+	.missed-list {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.3rem;
+	}
+	.missed-list li {
+		padding: 0.15rem 0.5rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		font-size: 0.74rem;
+		color: var(--muted);
+	}
+
+	/* Combat achievements summary */
+	.ca-detail {
+		margin-top: 1.1rem;
+		border-top: 1px solid var(--border);
+		padding-top: 1rem;
+	}
+	.ca-detail h4 {
+		margin: 0 0 0.6rem;
+		font-size: 0.92rem;
+		color: var(--text);
+	}
+	.ca-stats {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+		gap: 0.75rem;
+	}
+	.ca-stat {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		padding: 0.6rem 0.8rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+	}
+	.ca-num {
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-size: 1.05rem;
+		color: var(--accent);
+		text-shadow: var(--ts);
+	}
+	.ca-lbl {
+		font-size: 0.74rem;
+		color: var(--muted);
+	}
+
+	.rank-foot {
+		margin: 1.1rem 0 0;
+		line-height: 1.45;
 	}
 	.small {
 		font-size: 0.85rem;

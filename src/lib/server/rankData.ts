@@ -91,6 +91,18 @@ export async function fetchWikiSyncCA(rsn: string): Promise<number[] | null> {
 	return data.combat_achievements || [];
 }
 
+// Piece-level detail surfaced for the on-profile rank breakdown (and cached in
+// vs_rank_sim.gear_detail / .ca_detail so the /me Rank tab can render it on load).
+export interface GearDetail {
+	matchedItems: { name: string; earned: number; max: number }[];
+	missedItems: string[];
+}
+export interface CADetail {
+	tasksCompleted: number;
+	wikiPoints: number;
+	highestTier: string;
+}
+
 export interface PlayerRankData extends RankInputs {
 	rsn: string;
 	womId: number | null;
@@ -98,6 +110,8 @@ export interface PlayerRankData extends RankInputs {
 	templeAvailable: boolean;
 	wikisyncAvailable: boolean;
 	caTier: string;
+	gearDetail: GearDetail;
+	caDetail: CADetail;
 }
 
 export function monthsBetween(joinedAt: string | null): number {
@@ -138,6 +152,12 @@ export async function fetchPlayerRankInputs(
 		caPoints: caResult.caPoints,
 		templeAvailable: temple != null,
 		wikisyncAvailable: ca != null,
-		caTier: caResult.highestTier
+		caTier: caResult.highestTier,
+		gearDetail: { matchedItems: gear.matchedItems, missedItems: gear.missedItems },
+		caDetail: {
+			tasksCompleted: caResult.tasksCompleted,
+			wikiPoints: caResult.wikiPoints,
+			highestTier: caResult.highestTier
+		}
 	};
 }

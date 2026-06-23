@@ -6,11 +6,82 @@ import { isValidAccountType, ACCOUNT_TYPES } from '$lib/accountTypes';
 import { loadCardProfile } from '$lib/server/cardProfile';
 import { isRsnTaken } from '$lib/server/users';
 import { getPlayerRank, setPlayerRank } from '$lib/server/playerStats';
-import { getRankConfig } from '$lib/server/rankConfig';
-import { fetchPlayerRankInputs } from '$lib/server/rankData';
-import { scorePlayer } from '$lib/server/rankScoring';
-import { rankLabel } from '$lib/ranks';
+import { getRankConfig, type RankScoringConfig } from '$lib/server/rankConfig';
+import { fetchPlayerRankInputs, type GearDetail, type CADetail } from '$lib/server/rankData';
+import {
+	scorePlayer,
+	computeScores,
+	determineProjectedRank,
+	describeComposite,
+	GEAR_SCORE_CAP,
+	CA_MAX_POINTS
+} from '$lib/server/rankScoring';
+import type { RankValue } from '$lib/ranks';
 import type { Actions, PageServerLoad } from './$types';
+
+// The subset of the vs_rank_sim cache row the Rank tab renders from. Populated by
+// the member's own "Check my rank" and by the admin rank-sim refresh.
+interface RankSimRow {
+	rsn: string;
+	ehb: number;
+	total_level: number | null;
+	gear_points: number;
+	clog_finished: number;
+	clog_available: number;
+	months_in_clan: number;
+	ca_points: number;
+	temple_available: boolean;
+	wikisync_available: boolean;
+	ca_tier: string;
+	gear_detail: GearDetail | null;
+	ca_detail: CADetail | null;
+	fetched_at: string | null;
+}
+
+const SIM_ROW_COLUMNS =
+	'rsn, ehb, total_level, gear_points, clog_finished, clog_available, months_in_clan, ca_points, temple_available, wikisync_available, ca_tier, gear_detail, ca_detail, fetched_at';
+
+// Build the full per-section breakdown the /me Rank tab shows, recomputing scores
+// from the cached row with the CURRENT config so it stays in sync as the formula is
+// tuned. Pairs each weighted component with its raw input + cap for "x / cap" display.
+function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
+	const scores = computeScores(
+		{
+			ehb: row.ehb,
+			totalLevel: row.total_level,
+			gearPoints: row.gear_points,
+			clogFinished: row.clog_finished,
+			clogAvailable: row.clog_available,
+			monthsInClan: row.months_in_clan,
+			caPoints: row.ca_points
+		},
+		config
+	);
+	const rawByKey: Record<string, { raw: number; cap: number }> = {
+		gear: { raw: row.gear_points, cap: GEAR_SCORE_CAP },
+		ehb: { raw: Math.round(row.ehb), cap: config.caps.ehb },
+		ca: { raw: row.ca_points, cap: CA_MAX_POINTS },
+		time: { raw: Math.round(row.months_in_clan * 10) / 10, cap: config.caps.months },
+		clog: { raw: row.clog_finished, cap: config.caps.clog },
+		level: { raw: row.total_level ?? 0, cap: config.caps.levelMin + config.caps.levelRange }
+	};
+	const components = describeComposite(scores, config).map((c) => ({
+		...c,
+		raw: rawByKey[c.key].raw,
+		cap: rawByKey[c.key].cap
+	}));
+
+	return {
+		rank: determineProjectedRank(scores.composite, config) as RankValue,
+		composite: scores.composite,
+		components,
+		gearDetail: row.gear_detail,
+		caDetail: row.ca_detail,
+		templeAvailable: row.temple_available,
+		wikisyncAvailable: row.wikisync_available,
+		fetchedAt: row.fetched_at
+	};
+}
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
@@ -18,11 +89,23 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const profile = await loadCardProfile(locals.user);
 	const currentRank = await getPlayerRank(locals.user.discord_id, locals.user.rsn);
 
+	// Rank tab: render from the member's cached vs_rank_sim row (recomputed with the
+	// live config). Null until they "Check my rank" or an admin refresh fetches them.
+	let rankBreakdown: ReturnType<typeof buildRankBreakdown> | null = null;
+	if (locals.user.rsn) {
+		const [config, { data: simRow }] = await Promise.all([
+			getRankConfig(),
+			db().from('vs_rank_sim').select(SIM_ROW_COLUMNS).ilike('rsn', locals.user.rsn).maybeSingle()
+		]);
+		if (simRow) rankBreakdown = buildRankBreakdown(simRow as RankSimRow, config);
+	}
+
 	return {
 		user: locals.user,
 		clanOptions: CLAN_OPTIONS,
 		accountTypes: ACCOUNT_TYPES,
 		currentRank,
+		rankBreakdown,
 		vp_balance: profile.vp_balance,
 		gold_balance: profile.gold_balance,
 		wallet: profile.wallet,
@@ -70,42 +153,49 @@ export const actions: Actions = {
 
 		try {
 			const [config, inputs] = await Promise.all([getRankConfig(), fetchPlayerRankInputs(rsn)]);
-			const { scores, rank } = scorePlayer(inputs, config);
+			const { rank } = scorePlayer(inputs, config);
 
-			const write = await setPlayerRank(locals.user.discord_id, rsn, rank);
-			if (!write.ok) {
-				return fail(write.reason === 'no_player' ? 404 : 500, {
-					rankError:
-						write.reason === 'no_player'
-							? 'No clan player record found for your RSN yet.'
-							: 'Could not save your rank — try again later.'
-				});
+			// Cache the freshly-fetched inputs + piece-level detail in vs_rank_sim (same
+			// shape the admin rank-sim writes). The page load re-runs after this action and
+			// rebuilds the Rank tab breakdown from this row — one rendering path.
+			const { error: cacheErr } = await db()
+				.from('vs_rank_sim')
+				.upsert(
+					{
+						rsn: inputs.rsn,
+						wom_id: inputs.womId,
+						ehb: inputs.ehb,
+						total_level: inputs.totalLevel,
+						gear_points: inputs.gearPoints,
+						clog_finished: inputs.clogFinished,
+						clog_available: inputs.clogAvailable,
+						months_in_clan: Math.round(inputs.monthsInClan * 100) / 100,
+						ca_points: inputs.caPoints,
+						temple_available: inputs.templeAvailable,
+						wikisync_available: inputs.wikisyncAvailable,
+						ca_tier: inputs.caTier,
+						gear_detail: inputs.gearDetail,
+						ca_detail: inputs.caDetail,
+						fetched_at: new Date().toISOString()
+					},
+					{ onConflict: 'rsn' }
+				);
+			if (cacheErr) {
+				lastRankCheck.delete(locals.user.id);
+				return fail(500, { rankError: 'Could not save your rank breakdown — try again later.' });
 			}
 
+			// Mirror the computed rank to the clan player record (the bot syncs it to
+			// Discord). A missing player record isn't fatal — the breakdown still renders.
+			const write = await setPlayerRank(locals.user.discord_id, rsn, rank);
 			return {
 				rankOk: true,
-				rank,
-				rankName: rankLabel(rank),
-				composite: Math.round(scores.composite * 10000) / 10000,
-				breakdown: {
-					gear: Math.round(scores.gear * 1000) / 1000,
-					ehb: Math.round(scores.ehb * 1000) / 1000,
-					ca: Math.round(scores.ca * 1000) / 1000,
-					time: Math.round(scores.time * 1000) / 1000,
-					clog: Math.round(scores.clog * 1000) / 1000,
-					level: Math.round(scores.level * 1000) / 1000
-				},
-				inputs: {
-					ehb: inputs.ehb,
-					totalLevel: inputs.totalLevel,
-					gearPoints: inputs.gearPoints,
-					clogFinished: inputs.clogFinished,
-					clogAvailable: inputs.clogAvailable,
-					monthsInClan: Math.round(inputs.monthsInClan * 10) / 10,
-					caPoints: inputs.caPoints,
-					templeAvailable: inputs.templeAvailable,
-					wikisyncAvailable: inputs.wikisyncAvailable
-				}
+				rankSaved: write.ok,
+				rankNote: write.ok
+					? null
+					: write.reason === 'no_player'
+						? 'Computed from your latest data, but no clan player record was found to save your rank to yet.'
+						: 'Your breakdown was updated, but saving your clan rank failed — try again later.'
 			};
 		} catch (e) {
 			lastRankCheck.delete(locals.user.id); // let them retry a transient failure now

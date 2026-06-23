@@ -17,8 +17,17 @@ CREATE TABLE IF NOT EXISTS vs_rank_sim (
   temple_available   boolean DEFAULT false,
   wikisync_available boolean DEFAULT false,
   ca_tier            text DEFAULT 'none',
+  gear_detail        jsonb,
+  ca_detail          jsonb,
   fetched_at         timestamptz DEFAULT now()
 );
+
+-- gear_detail / ca_detail were added after the table shipped; add them to existing
+-- installs. gear_detail = { matchedItems:[{name,earned,max}], missedItems:[name] };
+-- ca_detail = { tasksCompleted, wikiPoints, highestTier }. They power the per-section
+-- rank breakdown on the member's /me Rank tab.
+ALTER TABLE vs_rank_sim ADD COLUMN IF NOT EXISTS gear_detail jsonb;
+ALTER TABLE vs_rank_sim ADD COLUMN IF NOT EXISTS ca_detail   jsonb;
 
 -- 2) rank_scoring bot_config row — the TUNABLE composite weights, score→rank
 --    thresholds, and normalization caps. Editable from /admin/rank-sim AND the generic
