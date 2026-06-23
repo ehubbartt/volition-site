@@ -55,6 +55,12 @@
 			title: 'EHB Drop Tool 🧪',
 			desc: 'Experimental: look up an item’s drop rate & EHB cost, or find drops matching an EHB target. (Temporary.)',
 			show: data.admin
+		},
+		{
+			href: '/admin/dink-test',
+			title: 'Dink Drop Simulator 🧪',
+			desc: 'Test event auto-tracking: dry-run or simulate a drop end-to-end without opening a real event.',
+			show: data.admin
 		}
 	]);
 

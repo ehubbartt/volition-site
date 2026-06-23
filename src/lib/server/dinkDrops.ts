@@ -49,6 +49,120 @@ function matchTile(drop: DropRow, tracked: TrackedRow[]): string | null {
 	return byName?.tile_id ?? null;
 }
 
+// ── Admin testing helpers ───────────────────────────────────────────────────
+
+export interface DropVerdict {
+	wouldCredit: boolean;
+	reasons: string[];
+	tileId: string | null;
+	userResolved: boolean;
+	tileOpenAtDropTime: boolean | null;
+	alreadyCredited: boolean;
+}
+
+// Dry-run: run the exact match → identity → timing → idempotency logic for a
+// hypothetical drop WITHOUT writing anything. Used by the admin drop simulator so
+// auto-tracking can be validated against any event (even draft/preview) safely.
+export async function evaluateDinkDrop(input: {
+	event_id: string;
+	rsn: string;
+	item_id: number | null;
+	item_name: string | null;
+	source: string | null;
+	received_at: string;
+}): Promise<DropVerdict> {
+	const sb = db();
+	const reasons: string[] = [];
+
+	const { data: ev } = await sb
+		.from('vs_events')
+		.select('id, slug, structure, starts_at, signup_opens_at, status')
+		.eq('id', input.event_id)
+		.maybeSingle();
+	if (!ev) return { wouldCredit: false, reasons: ['Event not found'], tileId: null, userResolved: false, tileOpenAtDropTime: null, alreadyCredited: false };
+
+	const { data: trackedRaw } = await sb
+		.from('vs_event_tracked_items')
+		.select('event_id, tile_id, item_id, item_name')
+		.eq('event_id', input.event_id);
+	const tracked = (trackedRaw ?? []) as TrackedRow[];
+
+	const drop: DropRow = {
+		id: 0,
+		event_id: input.event_id,
+		rsn: input.rsn,
+		item_id: input.item_id,
+		item_name: input.item_name,
+		quantity: 1,
+		received_at: input.received_at
+	};
+	const tileId = matchTile(drop, tracked);
+	if (!tileId) reasons.push('No tracked item matches this item id/name for the event.');
+
+	const userId = await resolveUserId(input.rsn);
+	if (!userId) reasons.push(`RSN "${input.rsn}" doesn't resolve to a site user (vs_users).`);
+
+	let tileOpen: boolean | null = null;
+	let already = false;
+	if (tileId) {
+		const board = await loadEventBoard(ev);
+		const tile = board.tiles.find((t) => t.id === tileId);
+		if (!tile) {
+			reasons.push(`Tile ${tileId} not found on the event board.`);
+		} else {
+			const state = getBingoState(ev.starts_at ?? ev.signup_opens_at, new Date(input.received_at), board.structure);
+			tileOpen = getTileStatus(tile, state) === 'open';
+			if (!tileOpen) reasons.push(`Tile ${tileId} was not open at the drop time (event not started / row not released).`);
+		}
+		if (userId) {
+			const { data: ex } = await sb
+				.from('vs_bingo_completions')
+				.select('id')
+				.eq('event_id', input.event_id)
+				.eq('user_id', userId)
+				.eq('tile_id', tileId)
+				.eq('status', 'approved')
+				.limit(1);
+			already = !!(ex && ex.length);
+			if (already) reasons.push('This player already has an approved completion for the tile.');
+		}
+	}
+
+	const wouldCredit = !!tileId && !!userId && tileOpen === true && !already;
+	if (wouldCredit) reasons.unshift(`✓ Would credit tile ${tileId}.`);
+	return { wouldCredit, reasons, tileId, userResolved: !!userId, tileOpenAtDropTime: tileOpen, alreadyCredited: already };
+}
+
+// Full-pipeline test: insert a synthetic vs_dink_drops row exactly as the proxy
+// would, then run the real consumer. Returns the consumer result. (Use against a
+// PREVIEW event so it isn't publicly visible.)
+export async function simulateDinkDrop(input: {
+	event_id: string;
+	rsn: string;
+	item_id: number | null;
+	item_name: string | null;
+	source: string | null;
+	received_at: string;
+}): Promise<{ ok: boolean; error?: string; processed: number; credited: number }> {
+	const sb = db();
+	const dropKey = `test-${input.event_id}-${input.item_id ?? input.item_name}-${input.rsn}-${Date.now()}`;
+	const { error } = await sb.from('vs_dink_drops').insert({
+		event_id: input.event_id,
+		rsn: input.rsn,
+		item_id: input.item_id,
+		item_name: input.item_name,
+		quantity: 1,
+		source: input.source,
+		dink_ts: input.received_at,
+		received_at: input.received_at,
+		drop_key: dropKey,
+		processed: false
+	});
+	if (error) return { ok: false, error: error.message, processed: 0, credited: 0 };
+	const res = await processDinkDrops();
+	return { ok: !res.error, error: res.error, processed: res.processed, credited: res.credited };
+}
+
 export async function processDinkDrops(): Promise<{ processed: number; credited: number; error?: string }> {
 	const sb = db();
 
