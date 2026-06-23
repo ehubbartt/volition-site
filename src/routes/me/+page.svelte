@@ -330,10 +330,12 @@
 		gap: 1rem;
 		flex-wrap: wrap;
 		padding: 1.5rem;
-		background: linear-gradient(180deg, rgba(58, 48, 36, 0.9), rgba(40, 32, 24, 0.9));
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-card);
+		background-color: #4d4030;
+		background-image: var(--stone-tile);
+		background-repeat: repeat;
+		border: 4px solid transparent;
+		border-image: url('/osrs/border-tiny.png') 4 / 4px round;
+		border-radius: 4px;
 	}
 
 	.identity {
@@ -364,17 +366,18 @@
 		display: flex;
 		align-items: baseline;
 		gap: 0.4rem;
-		padding: 0.5rem 1rem;
-		background: var(--accent-soft);
-		border: 1px solid var(--accent);
-		border-radius: 999px;
+		padding: 0.45rem 1.1rem;
+		background: #4d4336;
+		border: 9px solid transparent;
+		border-image: url('/osrs/button.png') 9 / 9px stretch;
+		border-radius: 5px;
 		text-shadow: var(--ts);
 	}
 
 	.vp-amount {
 		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
 		font-size: 1.4rem;
-		color: var(--accent);
+		color: var(--yellow);
 	}
 
 	.vp-label {
