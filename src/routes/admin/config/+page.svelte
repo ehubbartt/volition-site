@@ -36,7 +36,8 @@
 		features: 'Features',
 		economy: 'Economy',
 		lootcrates: 'Loot Crates',
-		events: 'Events'
+		events: 'Events',
+		dink: 'Dink'
 	};
 
 	function label(key: string): string {
