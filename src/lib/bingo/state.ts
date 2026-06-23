@@ -1,4 +1,4 @@
-import { BINGO_ROW_COUNT, BINGO_ROW_INTERVAL_HOURS } from './config';
+import { DEFAULT_BINGO_STRUCTURE, type BingoStructure } from './config';
 import type { BingoTile } from './tiles';
 
 export type BingoStatus = 'pre' | 'active' | 'ended';
@@ -15,13 +15,17 @@ export interface BingoState {
 }
 
 const HOUR_MS = 3_600_000;
-const ROW_MS = BINGO_ROW_INTERVAL_HOURS * HOUR_MS;
-const TOTAL_MS = BINGO_ROW_COUNT * ROW_MS;
 
+// `structure` defaults to the hardcoded Echo Rumors config, so existing callers
+// that don't pass it keep their original behaviour; builder events pass their own.
 export function getBingoState(
 	startIso: string | null | undefined,
-	now: Date = new Date()
+	now: Date = new Date(),
+	structure: BingoStructure = DEFAULT_BINGO_STRUCTURE
 ): BingoState {
+	const rowCount = structure.rowCount;
+	const ROW_MS = structure.rowIntervalHours * HOUR_MS;
+	const TOTAL_MS = rowCount * ROW_MS;
 	if (!startIso) {
 		return {
 			status: 'pre',
@@ -55,8 +59,8 @@ export function getBingoState(
 	// submissions remain open. The admin closes it manually by switching the
 	// vs_events.status field to 'closed' or 'locked'.
 	const rawActiveRow = Math.floor(elapsed / ROW_MS);
-	const allRowsReleased = rawActiveRow >= BINGO_ROW_COUNT - 1;
-	const activeRow = Math.min(rawActiveRow, BINGO_ROW_COUNT - 1);
+	const allRowsReleased = rawActiveRow >= rowCount - 1;
+	const activeRow = Math.min(rawActiveRow, rowCount - 1);
 	const nextRowAt = allRowsReleased
 		? null
 		: new Date(startAt.getTime() + (activeRow + 1) * ROW_MS);

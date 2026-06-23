@@ -92,7 +92,10 @@
 {/snippet}
 
 <section>
-	<h1>Active events</h1>
+	<div class="head">
+		<h1>Active events</h1>
+		<a class="dink-link" href="/dink-check">🎮 Test your Dink setup</a>
+	</div>
 
 	{#if data.activeEvents.length === 0}
 		<p class="muted">No events need your attention right now.</p>
@@ -130,6 +133,34 @@
 <style>
 	h1 {
 		margin-bottom: 1.25rem;
+	}
+
+	.head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.head h1 {
+		margin-bottom: 1.25rem;
+	}
+
+	.dink-link {
+		font-size: 0.85rem;
+		padding: 0.4rem 0.75rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		color: var(--accent);
+		text-decoration: none;
+		white-space: nowrap;
+		transition: border-color 0.15s;
+	}
+
+	.dink-link:hover {
+		border-color: var(--accent);
+		text-decoration: none;
 	}
 
 	.upcoming-section {

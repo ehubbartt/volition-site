@@ -51,6 +51,10 @@
 <section>
 	<EventsTasksTabs />
 
+	<p class="tool-link">
+		🧪 <a href="/admin/ehb">EHB Drop Tool</a> — experimental: look up an item's drop rate &amp; EHB cost, or find drops matching an EHB target.
+	</p>
+
 	<details class="card status-help">
 		<summary><strong>What do the event statuses mean?</strong></summary>
 		<dl>
@@ -74,6 +78,24 @@
 	{#if form?.error}
 		<div class="error">{form.error}</div>
 	{/if}
+
+	<details class="card">
+		<summary><strong>Create from template</strong> <span class="muted small">(data-driven bingo — fully editable in the builder)</span></summary>
+		<form method="POST" action="?/createFromTemplate" use:enhance>
+			<label>
+				<span>Event name</span>
+				<input name="name" type="text" required placeholder="Winter Rumors 2026" />
+			</label>
+			<label>
+				<span>Template</span>
+				<select name="template">
+					{#each data.templates as t}<option value={t.slug}>{t.name}</option>{/each}
+				</select>
+			</label>
+			<p class="muted small">Creates a draft, clones the template's rows/tiles, and opens the builder.</p>
+			<button type="submit" class="primary">Create &amp; open builder</button>
+		</form>
+	</details>
 
 	<details class="card" open>
 		<summary><strong>Create event</strong></summary>
@@ -216,6 +238,9 @@
 							{#if isTaskEvent(ev.kind)}
 								<a class="review-link" href="/admin/events/{ev.slug}">Manage tasks →</a>
 							{/if}
+							{#if ev.kind === 'bingo'}
+								<a class="review-link" href="/admin/events/{ev.slug}/builder">Builder →</a>
+							{/if}
 							{#if ev.slug === BINGO_EVENT_SLUG}
 								<a class="review-link" href="/admin/bingo/{ev.slug}/review">
 									Review submissions →
@@ -357,6 +382,27 @@
 							</div>
 							<button type="submit" class="primary">Save changes</button>
 						</form>
+
+						<div class="danger-zone">
+							<strong>Delete event</strong>
+							<p class="muted small">
+								Permanently removes the event and all its tiles, tracked items, and submissions.
+								Type <code>{ev.slug}</code> to confirm.
+							</p>
+							<form
+								method="POST"
+								action="?/deleteEvent"
+								use:enhance
+								onsubmit={(e) => {
+									if (!confirm(`Delete "${ev.name}" and all its data? This cannot be undone.`))
+										e.preventDefault();
+								}}
+							>
+								<input type="hidden" name="id" value={ev.id} />
+								<input name="confirm_slug" placeholder={ev.slug} autocomplete="off" />
+								<button type="submit" class="delete-btn">Delete</button>
+							</form>
+						</div>
 					</details>
 			</li>
 	{/snippet}
@@ -669,5 +715,34 @@
 
 	button.primary:hover {
 		background: var(--accent-soft);
+	}
+
+	.danger-zone {
+		margin-top: 1rem;
+		padding: 0.75rem;
+		border: 1px solid var(--danger);
+		border-radius: var(--radius);
+		background: var(--danger-bg);
+	}
+
+	.danger-zone strong {
+		color: var(--danger);
+	}
+
+	.danger-zone form {
+		flex-direction: row;
+		align-items: center;
+		gap: 0.5rem;
+		margin-top: 0.5rem;
+	}
+
+	.delete-btn {
+		border-color: var(--danger);
+		color: var(--danger);
+	}
+
+	.delete-btn:hover {
+		background: var(--danger);
+		color: #fff;
 	}
 </style>

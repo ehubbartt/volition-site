@@ -4,6 +4,7 @@ import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { markdownPreview } from '$lib/markdown';
 import { isTaskEvent, EVENT_TASK_KIND, slugify } from '$lib/events/simple';
+import { cloneTemplateToEvent, listTemplates } from '$lib/server/eventStructure';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -28,7 +29,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			...ev,
 			description_preview: markdownPreview(ev.description, 200)
 		})),
-		packNames: (packsRes.data ?? []).map((p) => p.name as string)
+		packNames: (packsRes.data ?? []).map((p) => p.name as string),
+		templates: listTemplates()
 	};
 };
 
@@ -188,6 +190,37 @@ export const actions: Actions = {
 		throw redirect(303, `/admin/events/${slug}`);
 	},
 
+	// Create a data-driven event from a template (bingo first) and clone its
+	// structure + tiles, then jump straight into the builder.
+	createFromTemplate: async ({ locals, request }) => {
+		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+
+		const form = await request.formData();
+		const name = form.get('name')?.toString().trim() ?? '';
+		const templateSlug = form.get('template')?.toString().trim() ?? '';
+		if (!name) return fail(400, { error: 'Event name is required' });
+		if (!templateSlug) return fail(400, { error: 'Pick a template' });
+
+		const template = listTemplates().find((t) => t.slug === templateSlug);
+		if (!template) return fail(400, { error: 'Unknown template' });
+
+		const slug = await uniqueEventSlug(name);
+		const { data: ev, error: insErr } = await db()
+			.from('vs_events')
+			.insert({ slug, name, kind: template.kind, status: 'draft', team_size: 1 })
+			.select('id')
+			.single();
+		if (insErr || !ev) return fail(500, { error: insErr?.message ?? 'Could not create event' });
+
+		const clone = await cloneTemplateToEvent(ev.id, templateSlug);
+		if (!clone.ok) {
+			await db().from('vs_events').delete().eq('id', ev.id); // roll back the orphan
+			return fail(500, { error: clone.error });
+		}
+
+		throw redirect(303, `/admin/events/${slug}/builder`);
+	},
+
 	update: async ({ locals, request }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
 
@@ -234,6 +267,47 @@ export const actions: Actions = {
 		}
 
 		return { ok: true };
+	},
+
+	// Permanently delete an event and all its data. Children are removed in
+	// FK-safe order first (signups reference teams, etc.), then the event row.
+	// vs_event_tiles / vs_event_tracked_items also cascade; vs_dink_drops nulls out.
+	deleteEvent: async ({ locals, request }) => {
+		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+
+		const form = await request.formData();
+		const id = form.get('id')?.toString();
+		const confirmSlug = form.get('confirm_slug')?.toString().trim();
+		if (!id) return fail(400, { error: 'Missing id' });
+
+		const { data: ev } = await db().from('vs_events').select('slug').eq('id', id).maybeSingle();
+		if (!ev) return fail(404, { error: 'Event not found' });
+		// Typed-slug confirmation guards against deleting the wrong event.
+		if (confirmSlug !== ev.slug) {
+			return fail(400, { error: `Type the slug "${ev.slug}" to confirm deletion.` });
+		}
+
+		// Child rows scoped to this event, deleted before the parent. Best-effort per
+		// table (some may be empty / not apply); the final event delete surfaces any
+		// remaining FK blocker.
+		const childTables = [
+			'vs_submissions',
+			'vs_bingo_completions',
+			'vs_team_completions',
+			'vs_team_invites',
+			'vs_event_signups',
+			'vs_teams',
+			'vs_tasks',
+			'vs_event_tracked_items',
+			'vs_event_tiles'
+		];
+		for (const table of childTables) {
+			await db().from(table).delete().eq('event_id', id);
+		}
+
+		const { error: delErr } = await db().from('vs_events').delete().eq('id', id);
+		if (delErr) return fail(500, { error: delErr.message });
+		return { ok: true, deleted: ev.slug };
 	},
 
 	updateStatus: async ({ locals, request }) => {
