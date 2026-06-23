@@ -163,7 +163,10 @@
 							<h4>Auto-tracked items</h4>
 							{#each trackedByTile.get(t.id) ?? [] as it}
 								<div class="track-row">
-									<span>{it.item_name}{#if it.item_id} <code>#{it.item_id}</code>{/if} ×{it.required_qty}{#if it.source_name} · {it.source_name}{/if}</span>
+									<span>
+										{#if it.match_type === 'collection'}<span class="mt-tag">clog</span>{/if}
+										{it.item_name}{#if it.item_id} <code>#{it.item_id}</code>{/if} ×{it.required_qty}{#if it.source_name} · {it.source_name}{/if}
+									</span>
 									<form method="POST" action="?/deleteTrackedItem" use:enhance={keepValues}>
 										<input type="hidden" name="id" value={it.id} />
 										<button type="submit" class="danger sm">Remove</button>
@@ -175,6 +178,10 @@
 								<ItemAutocomplete />
 								<input name="required_qty" type="number" min="1" value="1" title="Required quantity" />
 								<input name="source_name" type="text" placeholder="Source (optional)" />
+								<select name="match_type" title="How this item completes the tile">
+									<option value="loot">Loot drop</option>
+									<option value="collection">Collection log / pet</option>
+								</select>
 								<button type="submit">Add item</button>
 							</form>
 						</div>
@@ -231,6 +238,7 @@
 	.tile summary code { color: var(--muted); font-size: 0.75rem; }
 	.tier-chip { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: var(--radius); background: var(--surface); color: var(--accent); text-transform: uppercase; }
 	.track-badge { margin-left: auto; color: var(--accent); font-size: 0.78rem; }
+	.mt-tag { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.02rem 0.3rem; border: 1px solid var(--border); border-radius: 3px; color: var(--muted); margin-right: 0.25rem; }
 	.tracked { border-top: 1px dashed var(--border); margin-top: 0.5rem; padding-top: 0.4rem; }
 	.track-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; padding: 0.15rem 0; }
 	.track-add { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }

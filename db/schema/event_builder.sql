@@ -74,6 +74,13 @@ create table if not exists vs_event_tracked_items (
 );
 create index if not exists vs_event_tracked_items_event on vs_event_tracked_items (event_id);
 
+-- How a drop satisfies this tile:
+--   'loot'       — a LOOT notification for the item (default; today's behaviour)
+--   'collection' — a COLLECTION-log unlock for the item (also covers pets, which are
+--                  clog slots). Collection notifications aren't value-gated, so these
+--                  don't need the loot allowlist.
+alter table vs_event_tracked_items add column if not exists match_type text not null default 'loot';
+
 -- ----------------------------------------------------------------------------
 -- vs_dink_drops — raw, append-only ingestion sink written by the proxy.
 -- drop_key gives idempotency against Dink's retries; processed flips once the
@@ -94,6 +101,15 @@ create table if not exists vs_dink_drops (
 );
 create index if not exists vs_dink_drops_unprocessed on vs_dink_drops (processed) where processed = false;
 
+-- What kind of Dink notification produced this row ('loot' | 'collection'), the total
+-- gp value (informational / for the Discord feed), and the consumer's verdict once it
+-- runs: 'credited' | 'no_tile' | 'no_user' | 'timing' | 'duplicate' | 'partial'
+-- (NULL = not yet processed). `outcome` powers the admin "why didn't I get credit?" view.
+alter table vs_dink_drops add column if not exists notif_type text not null default 'loot';
+alter table vs_dink_drops add column if not exists value bigint;
+alter table vs_dink_drops add column if not exists outcome text;
+create index if not exists vs_dink_drops_outcome on vs_dink_drops (outcome);
+
 -- ----------------------------------------------------------------------------
 -- Manifest the proxy reads (cheap, cacheable). The Worker matches a LOOT drop
 -- when playerName ∈ vs_active_participants AND the item ∈ vs_active_tracked_items.
@@ -107,7 +123,8 @@ select ti.event_id,
        ti.item_id,
        ti.item_name,
        ti.required_qty,
-       ti.source_name
+       ti.source_name,
+       ti.match_type
 from vs_event_tracked_items ti
 join vs_events e on e.id = ti.event_id
 where e.status = 'open';

@@ -38,6 +38,7 @@ export interface TrackedItemRow {
 	item_name: string;
 	required_qty: number;
 	source_name: string | null;
+	match_type: string; // 'loot' | 'collection'
 }
 
 export interface EventBoard {
@@ -277,7 +278,7 @@ export async function deleteEventTile(eventId: string, tileId: string): Promise<
 export async function listTrackedItems(eventId: string): Promise<TrackedItemRow[]> {
 	const { data, error } = await db()
 		.from('vs_event_tracked_items')
-		.select('id, event_id, tile_id, item_id, item_name, required_qty, source_name')
+		.select('id, event_id, tile_id, item_id, item_name, required_qty, source_name, match_type')
 		.eq('event_id', eventId)
 		.order('tile_id', { ascending: true });
 	if (error) {
@@ -294,16 +295,19 @@ export async function saveTrackedItem(input: {
 	item_name: string;
 	required_qty: number;
 	source_name: string | null;
+	match_type?: string;
 }): Promise<{ ok: boolean; error?: string }> {
 	if (!input.tile_id.trim()) return { ok: false, error: 'Tile id required' };
 	if (!input.item_name.trim()) return { ok: false, error: 'Item name required' };
+	const matchType = input.match_type === 'collection' ? 'collection' : 'loot';
 	const { error } = await db().from('vs_event_tracked_items').insert({
 		event_id: input.event_id,
 		tile_id: input.tile_id.trim(),
 		item_id: input.item_id,
 		item_name: input.item_name.trim(),
 		required_qty: Math.max(1, Math.floor(input.required_qty) || 1),
-		source_name: input.source_name?.trim() || null
+		source_name: input.source_name?.trim() || null,
+		match_type: matchType
 	});
 	return error ? { ok: false, error: error.message } : { ok: true };
 }
