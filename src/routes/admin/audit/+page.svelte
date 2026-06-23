@@ -329,7 +329,7 @@
 		padding: 0.1rem 0.45rem;
 		background: var(--accent-soft);
 		border: 1px solid var(--accent);
-		border-radius: 999px;
+		border-radius: 3px;
 		color: var(--text);
 	}
 

@@ -305,7 +305,7 @@
 		font-size: 0.8rem;
 		background: var(--surface-alt);
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: 3px;
 		color: var(--muted);
 		cursor: pointer;
 	}
@@ -542,7 +542,7 @@
 	.tag {
 		padding: 0.02rem 0.35rem;
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: 3px;
 		font-size: 0.65rem;
 		color: var(--muted);
 	}

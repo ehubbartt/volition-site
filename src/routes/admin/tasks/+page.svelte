@@ -236,7 +236,7 @@
 		color: var(--accent);
 		background: var(--accent-soft);
 		border: 1px solid var(--accent);
-		border-radius: 999px;
+		border-radius: 3px;
 		padding: 0.05rem 0.5rem;
 	}
 	.error {
@@ -346,7 +346,7 @@
 		font-size: 0.68rem;
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
-		border-radius: 999px;
+		border-radius: 3px;
 		padding: 0.05rem 0.45rem;
 		border: 1px solid transparent;
 	}

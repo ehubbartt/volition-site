@@ -248,7 +248,7 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		padding: 0.05rem 0.4rem;
-		border-radius: 999px;
+		border-radius: 3px;
 		border: 1px solid transparent;
 	}
 	.pill.on {

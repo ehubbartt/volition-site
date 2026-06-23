@@ -9,7 +9,7 @@
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
 	import { rsnToSlug } from '$lib/rsn';
-	import { formatGP } from '$lib/gp';
+	import { formatGP, osrsTier } from '$lib/gp';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
@@ -61,9 +61,9 @@
 				</span>
 			</div>
 		</div>
-		<div class="vp" title="Volition Points">
-			<span class="vp-amount">{data.vp_balance.toLocaleString()}</span>
-			<span class="vp-label">VP</span>
+		<div class="osrs-counter" title="Volition Points">
+			<span class="amount {osrsTier(data.vp_balance)}">{data.vp_balance.toLocaleString()}</span>
+			<span class="label">VP</span>
 		</div>
 	</header>
 
@@ -238,9 +238,9 @@
 	{:else if tab === 'wallet'}
 		<div class="panel">
 			<div class="wallet-head">
-				<div class="gp-bal" title="Your spendable wallet balance">
-					<span class="gp-amount">{formatGP(data.gold_balance)}</span>
-					<span class="gp-label">Wallet balance</span>
+				<div class="osrs-counter" title="Your spendable wallet balance">
+					<span class="amount {osrsTier(data.gold_balance)}">{formatGP(data.gold_balance)}</span>
+					<span class="label">Wallet balance</span>
 				</div>
 				{#if data.walletGpValue > 0}
 					<button
@@ -362,29 +362,6 @@
 		font-size: 0.9rem;
 	}
 
-	.vp {
-		display: flex;
-		align-items: baseline;
-		gap: 0.4rem;
-		padding: 0.45rem 1.1rem;
-		background: #4d4336;
-		border: 9px solid transparent;
-		border-image: url('/osrs/button.png') 9 / 9px stretch;
-		border-radius: 5px;
-		text-shadow: var(--ts);
-	}
-
-	.vp-amount {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
-		font-size: 1.4rem;
-		color: var(--yellow);
-	}
-
-	.vp-label {
-		color: var(--accent);
-		font-size: 0.85rem;
-	}
-
 	.profile-link {
 		margin: 0.75rem 0 0;
 		font-size: 0.85rem;
@@ -427,7 +404,7 @@
 		padding: 0.05rem 0.45rem;
 		background: var(--surface-alt);
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: 3px;
 		font-size: 0.75rem;
 		color: var(--text);
 	}
@@ -714,24 +691,6 @@
 		gap: 1rem;
 		flex-wrap: wrap;
 		margin-bottom: 0.9rem;
-	}
-	.gp-bal {
-		display: flex;
-		align-items: baseline;
-		gap: 0.4rem;
-		padding: 0.45rem 0.9rem;
-		background: rgba(255, 215, 0, 0.1);
-		border: 1px solid #e9c349;
-		border-radius: 999px;
-	}
-	.gp-amount {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
-		font-size: 1.4rem;
-		color: #e9c349;
-	}
-	.gp-label {
-		color: #e9c349;
-		font-size: 0.8rem;
 	}
 	.convert-btn {
 		border: 1px solid #e9c349;

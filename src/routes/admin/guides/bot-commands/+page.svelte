@@ -825,7 +825,7 @@
 		padding: 0.125rem 0.5rem;
 		background: var(--surface);
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: 3px;
 	}
 
 	.permission-legend {

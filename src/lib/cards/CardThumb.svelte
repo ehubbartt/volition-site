@@ -188,7 +188,7 @@
 		padding: 0.08rem 0.4rem;
 		background: rgba(20, 8, 30, 0.85);
 		border: 1px solid #b06bff;
-		border-radius: 999px;
+		border-radius: 3px;
 		font-size: 0.65rem;
 		color: #e7d3ff;
 		text-shadow: var(--ts);
