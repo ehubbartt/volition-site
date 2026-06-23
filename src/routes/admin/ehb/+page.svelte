@@ -35,8 +35,12 @@
 	let doomFloor = $state(8);
 	let doomKph = $state(18); // floor-8 clears/hr (WOM ironman EHB)
 
-	// EHB (hours) for one source under the current assumptions. null = N/A.
-	function ehbOf(src: EhbSource): number | null {
+	// EHB rates are max-efficiency. This scales the resulting hours: 1 = max
+	// efficiency, >1 = more chill (slower play → more hours), <1 = sweatier.
+	let effMult = $state(1);
+
+	// Max-efficiency EHB (hours) for one source under the current assumptions. null = N/A.
+	function rawEhb(src: EhbSource): number | null {
 		switch (src.t) {
 			case 'kill':
 				return src.k! / src.r!;
@@ -55,6 +59,12 @@
 			default:
 				return null;
 		}
+	}
+
+	// Apply the efficiency multiplier to the max-efficiency baseline.
+	function ehbOf(src: EhbSource): number | null {
+		const base = rawEhb(src);
+		return base == null ? null : base * effMult;
 	}
 
 	function sourceLabel(src: EhbSource): string {
@@ -121,6 +131,9 @@
 	<details class="card" open>
 		<summary><strong>Assumptions</strong> <span class="muted small">— raid uniques are a share of the purple table, so these gate the EHB. Tune freely.</span></summary>
 		<div class="assumptions">
+			<label title="Scales all EHB: 1 = max efficiency, >1 = chill/slower (more hours), <1 = sweatier">
+				<span>Efficiency ×</span><input type="number" min="0.1" step="0.1" bind:value={effMult} />
+			</label>
 			<label><span>CoX purple 1/</span><input type="number" min="1" step="0.1" bind:value={coxN} /></label>
 			<label><span>ToB (normal) purple 1/</span><input type="number" min="1" step="0.1" bind:value={tobnN} /></label>
 			<label><span>ToB (hard) purple 1/</span><input type="number" min="1" step="0.1" bind:value={tobhN} /></label>
