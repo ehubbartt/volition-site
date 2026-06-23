@@ -36,6 +36,26 @@
 
 	{#if form?.error}<p class="err">{form.error}</p>{/if}
 
+	<div class="card selftest">
+		<h2>Player Dink self-test</h2>
+		<p class="muted small">
+			Creates (or refreshes) an always-open <strong>Dink Self-Test</strong> event whose tiles track
+			trivially-easy items (Bones, Cowhide, Feather, Raw chicken, Big bones). Members can then visit
+			<a href="/dink-check">/dink-check</a> and kill a chicken/cow to confirm their Dink → proxy pipeline
+			works before a real event. Reuse it any time.
+		</p>
+		<form method="POST" action="?/createSelfTest" use:enhance>
+			<button type="submit" class="primary">Create / refresh self-test event</button>
+		</form>
+		{#if form?.mode === 'selftest' && form.ok}
+			<p class="ok">
+				✓ Self-test event ready ({form.items.join(', ')}).
+				<a href="/bingo/{form.slug}" target="_blank" rel="noreferrer">View board ↗</a> ·
+				<a href="/dink-check" target="_blank" rel="noreferrer">Player view ↗</a>
+			</p>
+		{/if}
+	</div>
+
 	<form method="POST" use:enhance class="card">
 		<label>
 			<span>Event</span>
@@ -135,6 +155,9 @@
 	.facts { border-top: 1px solid var(--border); padding-top: 0.5rem; }
 	.sim-result { margin: 0.6rem 0 0; }
 	.err { color: var(--danger); background: var(--danger-bg); border: 1px solid var(--danger); padding: 0.5rem 0.8rem; border-radius: var(--radius); }
+	.selftest h2 { margin: 0 0 0.4rem; font-size: 1.05rem; color: var(--accent); }
+	.selftest form { margin: 0.6rem 0 0; }
+	.ok { color: var(--success); margin: 0.7rem 0 0; }
 	code { background: var(--surface-alt); padding: 0.05rem 0.3rem; border-radius: 3px; }
 	a { color: var(--accent); }
 </style>
