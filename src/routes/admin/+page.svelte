@@ -39,6 +39,12 @@
 			show: data.admin
 		},
 		{
+			href: '/admin/rank-sim',
+			title: 'Rank Simulator',
+			desc: 'Tune the composite rank formula and preview the clan-wide rank spread before applying.',
+			show: data.admin
+		},
+		{
 			href: '/admin/guides',
 			title: 'Guides',
 			desc: 'Admin documentation: tile event, join process, bot commands.',
