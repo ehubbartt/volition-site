@@ -141,8 +141,8 @@
 	.primary-nav a.active {
 		color: #ff981f;
 		background: #4d4336;
-		border: 10px solid transparent;
-		border-image: url('/osrs/button.png') 10 / 10px stretch;
+		border: 9px solid transparent;
+		border-image: url('/osrs/button.png') 9 / 9px stretch;
 		padding: 0 0.55rem;
 	}
 
@@ -152,8 +152,8 @@
 		gap: 0.5rem;
 		padding: 0.2rem 0.85rem;
 		background: #4d4336;
-		border: 10px solid transparent;
-		border-image: url('/osrs/button.png') 10 / 10px stretch;
+		border: 9px solid transparent;
+		border-image: url('/osrs/button.png') 9 / 9px stretch;
 		color: #ff981f;
 		text-decoration: none;
 		text-shadow: 1px 1px #000;
@@ -178,8 +178,8 @@
 
 	.cta {
 		background: #4d4336;
-		border: 10px solid transparent;
-		border-image: url('/osrs/button.png') 10 / 10px stretch;
+		border: 9px solid transparent;
+		border-image: url('/osrs/button.png') 9 / 9px stretch;
 		color: #ff981f;
 		padding: 0.3rem 1rem;
 		text-decoration: none;
