@@ -4,7 +4,8 @@ import {
 	BINGO_BUCKET,
 	MAX_UPLOAD_BYTES,
 	MAX_IMAGES_PER_SUBMISSION,
-	ALLOWED_MIME
+	ALLOWED_MIME,
+	COLUMN_PALETTE
 } from '$lib/bingo/config';
 import type { BingoTile } from '$lib/bingo/tiles';
 import { getBingoState, getTileStatus } from '$lib/bingo/state';
@@ -82,11 +83,31 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	if (board.tiles.length === 0) throw error(404, 'Not found');
 	const tileById = new Map(board.tiles.map((t) => [t.id, t]));
 
+	// Derive the column model the board renders from (data-driven, any count/names).
+	const BONUS_COLOR = '#ff981f';
+	const mainTiers = board.structure.tiers.filter((t) => t.key !== 'bonus');
+	const columns = mainTiers.map((t, i) => ({
+		key: t.key,
+		label: t.label,
+		points: t.points,
+		color: t.color ?? COLUMN_PALETTE[i % COLUMN_PALETTE.length]
+	}));
+	const bonusTier = board.structure.tiers.find((t) => t.key === 'bonus');
+	const bonus = {
+		label: bonusTier?.label || 'Bonus',
+		points: bonusTier?.points ?? 5,
+		color: bonusTier?.color ?? BONUS_COLOR
+	};
+	const colorByKey = new Map(columns.map((c) => [c.key, c.color]));
+	const tileColor = (t: BingoTile): string =>
+		t.tier === 'bonus' ? bonus.color : colorByKey.get(t.tier) ?? BONUS_COLOR;
+
 	if (event.status === 'draft' || (event.status === 'preview' && !admin)) {
 		const redactedTiles: BingoTile[] = board.tiles.map((t) => ({
 			...t,
 			name: 'nice try',
-			details_html: null
+			details_html: null,
+			color: tileColor(t)
 		}));
 		return {
 			event: {
@@ -98,6 +119,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			archived: false as const,
 			state: null,
 			tiles: redactedTiles,
+			columns,
+			bonus,
 			bonusEnabled: board.structure.bonusEnabled,
 			isClanMember: memberOfClan,
 			completionsByTile: {} as Record<string, never>,
@@ -235,11 +258,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	});
 
 	const tiles: BingoTile[] = board.tiles.map((t) => {
+		const color = tileColor(t);
 		if (getTileStatus(t, state) === 'blurred') {
-			return { ...t, name: 'nice try', details_html: null };
+			return { ...t, name: 'nice try', details_html: null, color };
 		}
 		const md = board.getDetails(t.id);
-		return { ...t, details_html: md ? renderMarkdown(md) : null };
+		return { ...t, details_html: md ? renderMarkdown(md) : null, color };
 	});
 
 	// Detailed community list (proofs + names) is admin-only while the event runs.
@@ -260,6 +284,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		archived,
 		state,
 		tiles,
+		columns,
+		bonus,
 		bonusEnabled: board.structure.bonusEnabled,
 		isClanMember: memberOfClan,
 		completionsByTile: communityForClient,

@@ -8,6 +8,7 @@ export interface BingoTile {
 	points: number;
 	details_html?: string | null;
 	img?: string | null;
+	color?: string | null;
 }
 
 export interface TierMeta {

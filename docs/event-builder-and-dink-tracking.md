@@ -52,17 +52,22 @@ to the rest of the bingo code.
    row, clones the template's structure + tiles into `vs_events.structure` and
    `vs_event_tiles`, and drops you into the builder.
 2. In **`/admin/events/<slug>/builder`**:
-   - **Structure** — rows, hours between row releases, bonus column on/off, and the
-     point value per tier. (Legacy `echo-rumors` and any event with no stored
-     structure fall back to the hardcoded defaults, so nothing breaks.)
-   - **Tiles** — per tile edit name, row, tier, points, image URL, and the
-     how-to/FAQ markdown. Add or delete tiles freely; tile ids follow `r<row>-<tier>`
-     for the grid and `b<row>` for the bonus column.
-   - **Auto-tracked items** (per tile) — add rows of `{item name, item id (optional),
-     required qty, source (optional)}`. These are what Dink will match drops against.
-     Prefer filling the **item id** (robust against noted/charged name variants); the
-     name is used as a fallback. `source` optionally requires the drop's NPC/container
-     to match.
+   - **Structure** — rows, hours between row releases, the bonus column (on/off +
+     its name/points), and the **columns**: add, remove, rename, and set the point
+     value of each scoring column. Saving rebuilds the tile grid to match (adds blank
+     tiles for new columns/rows, removes ones that no longer fit) while keeping the
+     content of tiles that remain. A cloned template starts as a **blank** grid of the
+     right shape — not the tiles of a past bingo. (Legacy `echo-rumors`, and any event
+     with no stored structure, fall back to the hardcoded defaults so nothing breaks.)
+   - **Tiles** — per tile edit name, row, column, points, image URL, and the
+     how-to/FAQ markdown. Tile ids follow `r<row>-<columnKey>` for the grid and
+     `b<row>` for the bonus column.
+   - **Auto-tracked items** (per tile) — add rows of `{item name, item id, required
+     qty, source (optional)}`. Start typing an item name and pick from the
+     **autocomplete** to fill the id automatically (backed by a bundled OSRS item
+     dataset, including untradeables). The id is preferred for matching (robust against
+     noted/charged name variants); name is the fallback. `source` optionally requires
+     the drop's NPC/container to match.
 3. **Go live:** on `/admin/events`, set the event **status → `open`** and set a
    **start time** (`starts_at`). Rows release on the schedule from the structure
    config. `preview` keeps it admin-only for testing; `closed` archives it.
