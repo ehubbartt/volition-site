@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Dink → Bingo Auto-Tracking — Flow, Setup & Testing</title>
+		<style>
+			:root {
+				--bg: #14110d; --panel: #1c1813; --panel2: #221d16; --border: #3a3128;
+				--text: #ece6da; --muted: #9a9183; --accent: #ff981f; --green: #5fc35f;
+				--blue: #3aa6ff; --red: #e25656; --purple: #b07cff;
+			}
+			* { box-sizing: border-box; }
+			body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; padding: 2rem 1rem 4rem; }
+			.wrap { max-width: 1080px; margin: 0 auto; }
+			h1 { font-size: 1.6rem; margin: 0 0 0.2rem; }
+			h2 { font-size: 1.15rem; margin: 2.2rem 0 0.8rem; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+			.sub { color: var(--muted); margin-top: 0; }
+			code { background: #000; padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.85em; color: #ffd9a6; }
+			.lane { display: flex; align-items: stretch; gap: 0.6rem; flex-wrap: wrap; margin: 0.5rem 0; }
+			.box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.9rem; flex: 1; min-width: 200px; }
+			.box .t { font-weight: 700; display: flex; align-items: center; gap: 0.4rem; }
+			.box .d { color: var(--muted); font-size: 0.85rem; margin-top: 0.25rem; }
+			.box.runelite { border-color: var(--green); }
+			.box.proxy { border-color: var(--accent); }
+			.box.db { border-color: var(--blue); }
+			.box.site { border-color: var(--purple); }
+			.tag { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.05rem 0.4rem; border-radius: 4px; background: #000; color: var(--muted); }
+			.arrow { text-align: center; color: var(--accent); font-size: 1.4rem; line-height: 1; margin: 0.15rem 0; }
+			.arrow small { display: block; color: var(--muted); font-size: 0.72rem; letter-spacing: 0.02em; }
+			.split { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+			.split > .box { flex: 1; }
+			.decision { border-style: dashed; }
+			.legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }
+			.legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+			.dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+			ul.check { list-style: none; padding: 0; margin: 0; }
+			ul.check li { background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; }
+			ul.check li.done { border-left-color: var(--green); opacity: 0.75; }
+			ul.check b { color: var(--text); }
+			ul.check .where { font-size: 0.78rem; color: var(--muted); }
+			.box-note { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 0.7rem 0.9rem; color: var(--muted); font-size: 0.9rem; }
+			.pill { font-size: 0.7rem; padding: 0.1rem 0.45rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+		</style>
+	</head>
+	<body>
+		<div class="wrap">
+			<h1>Dink → Bingo Auto-Tracking</h1>
+			<p class="sub">How an in-game drop auto-credits a bingo tile, what's left to do, and how to test it safely.</p>
+
+			<div class="legend">
+				<span><span class="dot" style="background: var(--green)"></span> RuneLite / Dink</span>
+				<span><span class="dot" style="background: var(--accent)"></span> dink-proxy (Cloudflare Worker)</span>
+				<span><span class="dot" style="background: var(--blue)"></span> Supabase (DB)</span>
+				<span><span class="dot" style="background: var(--purple)"></span> volition-site (SvelteKit)</span>
+			</div>
+
+			<h2>End-to-end flow</h2>
+
+			<div class="lane">
+				<div class="box site"><div class="t">🛠️ Admin builds the event <span class="tag">setup</span></div>
+					<div class="d"><code>/admin/events/[slug]/builder</code> — tiles + per-tile <b>tracked items</b> (item id/name → tile). Stored in <code>vs_event_tracked_items</code>. Set status <b>open</b>.</div></div>
+			</div>
+
+			<div class="lane">
+				<div class="box runelite"><div class="t">🎮 RuneLite + Dink</div>
+					<div class="d">Player gets a drop. Dink fires a <b>LOOT</b> notification to its configured webhook (the proxy).</div></div>
+				<div class="box proxy"><div class="t">⚙️ Proxy serves config <span class="tag">/config/&lt;token&gt;</span></div>
+					<div class="d">Injects the active events' tracked-item names into Dink's <b>loot allowlist</b>, so those items are sent regardless of value (<code>minLootValue</code> stays 3M — no firehose).</div></div>
+			</div>
+
+			<div class="arrow">⬇<small>POST /hook/&lt;token&gt;/achievements</small></div>
+
+			<div class="box proxy"><div class="t">⚙️ dink-proxy Worker — <code>handleHook</code></div>
+				<div class="d">Validates token, parses the LOOT payload, then makes two independent decisions:</div>
+				<div class="split" style="margin-top: 0.6rem">
+					<div class="box decision"><div class="t" style="color: var(--accent)">Decision A — Discord feed</div>
+						<div class="d">Forward to the achievements webhook only if total value ≥ <code>FEED_MIN_VALUE</code>. Cheap tracked items are recorded but not posted.</div></div>
+					<div class="box decision"><div class="t" style="color: var(--green)">Decision B — match</div>
+						<div class="d">If <code>playerName</code> ∈ participants (clan ∪ signups) <b>and</b> item ∈ tracked items → write a row to <code>vs_dink_drops</code> (deduped by <code>drop_key</code>, via <code>ctx.waitUntil</code>).</div></div>
+				</div>
+			</div>
+
+			<div class="arrow">⬇<small>reads manifest (cached ~30s)</small></div>
+			<div class="lane">
+				<div class="box db"><div class="t">🗄️ vs_active_participants</div><div class="d">clan RSNs ∪ open-event signups</div></div>
+				<div class="box db"><div class="t">🗄️ vs_active_tracked_items</div><div class="d">tracked items for <b>open</b> events</div></div>
+				<div class="box db"><div class="t">🗄️ vs_dink_drops</div><div class="d">raw matched drops, <code>processed=false</code></div></div>
+			</div>
+
+			<div class="arrow">⬇<small>POST /api/dink/process (cron) &nbsp;+&nbsp; throttled backstop on board load</small></div>
+
+			<div class="box site"><div class="t">🧮 Site consumer — <code>processDinkDrops()</code></div>
+				<div class="d">Drains unprocessed drops → resolves <code>rsn → vs_users</code> → matches tile →
+					<b>timing gate</b>: only credits if the tile was <b>open at the drop's <code>received_at</code></b>
+					(event started + that row released). Else discarded. Idempotent (no double-credit).</div></div>
+
+			<div class="arrow">⬇</div>
+			<div class="lane">
+				<div class="box db"><div class="t">🗄️ vs_bingo_completions <span class="tag">approved</span></div><div class="d">one row per credited player+tile</div></div>
+				<div class="box site"><div class="t">🏁 <code>/bingo/[slug]</code></div><div class="d">tile shows complete + leaderboard updates, live</div></div>
+			</div>
+
+			<div class="box-note" style="margin-top: 1rem">
+				<b>Key idea:</b> the proxy stays "dumb" (filter + record); all crediting logic lives on the site.
+				Auto-tracking is a <b>no-op</b> until the proxy has Supabase credentials, so it's safe to deploy partway.
+			</div>
+
+			<h2>Still to do before it can be tested</h2>
+			<ul class="check">
+				<li class="done"><b>✓ Code complete</b> — builder, tracked items, proxy match + allowlist, consumer with timing gate, simulator. <span class="where">(in the open PRs)</span></li>
+				<li><b>Merge the PRs</b> — dink-proxy #3 (loot) → then #2 (config-from-Supabase + allowlist); volition-site #15 (builder/tracking/tools) + #13 (config seed). <span class="where">GitHub</span></li>
+				<li><b>Apply the schema</b> — run <code>db/schema/event_builder.sql</code> in Supabase (tables + the two manifest views). <span class="where">Supabase SQL editor</span></li>
+				<li><b>Re-run the tracked-items view</b> — the latest <code>CREATE OR REPLACE VIEW vs_active_tracked_items</code> (now original-case names for the allowlist). <span class="where">Supabase SQL editor</span></li>
+				<li><b>Seed the Dink config</b> — run <code>db/scripts/seed_dink_config.sql</code> (the <code>dink_config</code> row for <code>/admin/config</code>). <span class="where">Supabase SQL editor</span></li>
+				<li><b>Site env:</b> set <code>DINK_PROCESS_SECRET</code> (guards <code>/api/dink/process</code>). <span class="where">site environment</span></li>
+				<li><b>Proxy secrets:</b> <code>wrangler secret put SUPABASE_KEY</code> + set <code>SUPABASE_URL</code> var. <span class="where">Cloudflare</span></li>
+				<li><b>Deploy the proxy</b> — <code>npx wrangler deploy</code> (this is what makes <code>/admin/config</code> edits + allowlist injection actually take effect). <span class="where">Cloudflare</span></li>
+				<li><b>Rotate the leaked Discord webhook</b> and update <code>WEBHOOK_ACHIEVEMENTS</code>; clean each member's Dink "Primary webhook URLs" to the single proxy URL. <span class="where">Discord + RuneLite</span></li>
+				<li><b>Schedule the consumer</b> (optional) — a cron hitting <code>POST /api/dink/process</code>; otherwise the board-load backstop covers it. <span class="where">cron / scheduler</span></li>
+			</ul>
+
+			<h2>How to test (without opening a real event)</h2>
+			<div class="box-note">
+				<p style="margin-top: 0"><span class="pill">Admin → Dink Drop Simulator</span> &nbsp; <code>/admin/dink-test</code></p>
+				<ol style="margin: 0.4rem 0 0; padding-left: 1.1rem">
+					<li>Build an event, add <b>tracked items</b>, set its <b>start time in the past</b>, and set status to <b>preview</b> (admin-only, not public).</li>
+					<li><b>Dry run</b> — pick the event, an RSN, and a tracked item; it reports whether it <i>would</i> credit and why (match / identity / timing), writing nothing.</li>
+					<li><b>Simulate</b> — inserts a real <code>vs_dink_drops</code> row and runs the consumer end-to-end; then open <code>/bingo/&lt;slug&gt;</code> (visible to you as admin) to see the tile credited.</li>
+				</ol>
+				<p style="margin-bottom: 0">This exercises the whole <b>site</b> pipeline (match → timing → credit) with no need for the proxy or a live in-game drop. To also test the proxy leg, <code>curl</code> a synthetic LOOT payload at <code>/hook/&lt;token&gt;/achievements</code> and confirm a <code>vs_dink_drops</code> row appears.</p>
+			</div>
+		</div>
+	</body>
+</html>
