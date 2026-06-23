@@ -187,7 +187,7 @@
 	}
 	.drops li:last-child { border-bottom: none; }
 	.item { font-family: var(--font-heading); color: var(--accent); }
-	.ev { font-size: 0.78rem; padding: 0.05rem 0.4rem; border-radius: 999px; border: 1px solid var(--border); }
+	.ev { font-size: 0.78rem; padding: 0.05rem 0.4rem; border-radius: 3px; border: 1px solid var(--border); }
 	.time { margin-left: auto; font-size: 0.85rem; }
 	.url-card .url-row { display: flex; gap: 0.5rem; align-items: stretch; margin: 0.6rem 0 0; flex-wrap: wrap; }
 	.url { flex: 1; min-width: 14rem; padding: 0.5rem 0.7rem; background: var(--surface-alt); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; white-space: nowrap; font-size: 0.85rem; color: var(--text); }

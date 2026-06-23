@@ -303,7 +303,7 @@
 	.signed {
 		padding: 0.1rem 0.5rem;
 		font-size: 0.72rem;
-		border-radius: 999px;
+		border-radius: 3px;
 		background: var(--accent-soft);
 		border: 1px solid var(--accent);
 		color: var(--accent);

@@ -87,7 +87,7 @@
 	.muted { color: var(--muted); }
 	.small { font-size: 0.82rem; }
 	.filters { display: flex; gap: 0.5rem; margin: 0.8rem 0; }
-	.pill { padding: 0.25rem 0.7rem; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); text-decoration: none; font-size: 0.85rem; }
+	.pill { padding: 0.25rem 0.7rem; border: 1px solid var(--border); border-radius: 3px; color: var(--muted); text-decoration: none; font-size: 0.85rem; }
 	.pill.active { border-color: var(--accent); color: var(--accent); }
 	.rows { display: flex; flex-direction: column; gap: 0.4rem; }
 	.drop {
