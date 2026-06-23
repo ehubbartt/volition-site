@@ -195,6 +195,41 @@ export function computeScores(inputs: RankInputs, config: RankScoringConfig): Sc
 	return { composite, gear, ehb, ca, time, clog, level };
 }
 
+// --- Per-component description (for the on-profile rank breakdown) -----------
+// Turn a ScoreBreakdown + config into the six weighted components, in display
+// order, each with its weight, normalized 0..1 score, and weighted contribution
+// to the composite (normalized × weight). Pure — the /me Rank tab pairs this with
+// the raw inputs (gearPoints, ehb, …) and caps for the "x / cap" displays.
+export type ComponentKey = 'gear' | 'ehb' | 'ca' | 'time' | 'clog' | 'level';
+
+export interface ComponentDetail {
+	key: ComponentKey;
+	label: string;
+	weight: number;
+	normalized: number;
+	contribution: number;
+}
+
+const COMPONENT_LABELS: { key: ComponentKey; label: string }[] = [
+	{ key: 'gear', label: 'Gear' },
+	{ key: 'ehb', label: 'Efficient hours bossed' },
+	{ key: 'ca', label: 'Combat achievements' },
+	{ key: 'time', label: 'Time in clan' },
+	{ key: 'clog', label: 'Collection log' },
+	{ key: 'level', label: 'Total level' }
+];
+
+export function describeComposite(scores: ScoreBreakdown, config: RankScoringConfig): ComponentDetail[] {
+	const w = config.weights;
+	return COMPONENT_LABELS.map(({ key, label }) => ({
+		key,
+		label,
+		weight: w[key],
+		normalized: scores[key],
+		contribution: scores[key] * w[key]
+	}));
+}
+
 // Map a composite score (0..1) to a rank womRole using the configured thresholds
 // (highest-threshold-first, mirroring simulateRanks.determineProjectedRank).
 export function determineProjectedRank(composite: number, config: RankScoringConfig): RankValue {

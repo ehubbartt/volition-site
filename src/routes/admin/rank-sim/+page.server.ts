@@ -286,6 +286,12 @@ export const actions: Actions = {
 					temple_available: temple != null,
 					wikisync_available: ca != null,
 					ca_tier: caResult.highestTier,
+					gear_detail: { matchedItems: gear.matchedItems, missedItems: gear.missedItems },
+					ca_detail: {
+						tasksCompleted: caResult.tasksCompleted,
+						wikiPoints: caResult.wikiPoints,
+						highestTier: caResult.highestTier
+					},
 					fetched_at: new Date().toISOString()
 				},
 				{ onConflict: 'rsn' }
