@@ -8,8 +8,8 @@
 //   • Drop rates: pairofcrocs/drop-rates-clog  src/main/resources/com/dropratesclog/drop_rates.json
 //   • EHB rates (kills/hr): WiseOldMan  server/src/api/modules/efficiency/configs/ehb/ironman.ehb.ts
 //     (IRONMAN rates — inlined in RATES below; refresh by hand if WOM updates them).
-//   • Item id→name: 0xNeffarion/osrsreboxed-db items-summary (full map, so no item is
-//     dropped for a missing name).
+//   • Item id→name: RuneLite cache names.json (current every game update, so even
+//     brand-new items like Oathplate/Avernic resolve).
 //
 // Run from the repo root:  node db/scripts/build_item_ehb.mjs
 // Requires network access to raw.githubusercontent.com.
@@ -18,8 +18,8 @@ import fs from 'node:fs';
 
 const DROP_RATES_URL =
 	'https://raw.githubusercontent.com/pairofcrocs/drop-rates-clog/master/src/main/resources/com/dropratesclog/drop_rates.json';
-const ITEMS_SUMMARY_URL =
-	'https://raw.githubusercontent.com/0xNeffarion/osrsreboxed-db/master/docs/items-summary.json';
+const ITEM_NAMES_URL =
+	'https://raw.githubusercontent.com/runelite/static.runelite.net/master/cache/item/names.json';
 const OUT_PATH = 'src/lib/server/data/itemEhb.json';
 
 // WiseOldMan IRONMAN EHB rates (kills/hr), keyed by the drop-rates-clog source
@@ -50,7 +50,23 @@ const RATES = {
 	'monumental chest (hard mode)': 3 // Theatre of Blood: Hard Mode
 };
 
+// CoX & ToB list raid uniques as a share of the PURPLE/unique table (e.g. tbow
+// "2/69"), NOT a per-raid chance — you don't get a purple every raid. Multiply
+// expected items by 1/(per-raid purple chance) to get expected raids. These purple
+// rates are points/invocation-dependent; representative averages used here.
+// (ToA & Gauntlet roll each unique per-completion, so they need no gate.)
+const PURPLE_RATE = {
+	'ancient chest': 1 / 28.7, // Chambers of Xeric (~typical points)
+	'monumental chest (normal mode)': 1 / 9.1, // Theatre of Blood
+	'monumental chest (hard mode)': 1 / 8.6 // Theatre of Blood: Hard Mode
+};
+
 const norm = (s) => s.toLowerCase().trim();
+
+function purpleFactor(src) {
+	const r = PURPLE_RATE[norm(src)];
+	return r ? 1 / r : 1;
+}
 
 function rateForSource(src) {
 	const n = norm(src);
@@ -76,9 +92,8 @@ function expectedKills(rate) {
 }
 
 const dropRates = await (await fetch(DROP_RATES_URL)).json();
-const summary = await (await fetch(ITEMS_SUMMARY_URL)).json();
-// items-summary is keyed by id → { id, name, ... }; build a full id→name map.
-const nameById = new Map(Object.values(summary).map((i) => [i.id, i.name]));
+const namesObj = await (await fetch(ITEM_NAMES_URL)).json(); // { "<id>": "Name", ... }
+const nameById = new Map(Object.entries(namesObj).map(([id, name]) => [Number(id), name]));
 
 const out = [];
 for (const [id, entries] of Object.entries(dropRates)) {
@@ -93,11 +108,12 @@ for (const [id, entries] of Object.entries(dropRates)) {
 		for (const src of e.sources || []) {
 			const ehbRate = rateForSource(src);
 			if (ehbRate == null) continue;
-			const ehb = kills / ehbRate;
+			const effKills = kills * purpleFactor(src); // expected kills/raids incl. purple gate
+			const ehb = effKills / ehbRate;
 			if (!best || ehb < best.ehbPerItem) {
 				best = {
 					id: itemId, name, source: src, dropRate: e.rate,
-					expectedKills: Math.round(kills * 100) / 100,
+					expectedKills: Math.round(effKills * 100) / 100,
 					ehbRate, ehbPerItem: Math.round(ehb * 1000) / 1000, approx: !!e.approx
 				};
 			}

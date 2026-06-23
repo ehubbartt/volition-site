@@ -38,11 +38,16 @@
 	<h1>EHB Drop Tool <span class="exp">experimental</span></h1>
 	<p class="muted">
 		<strong>EHB per item</strong> = expected kills to get the drop ÷ the boss's
-		<a href="https://wiseoldman.net/ehb/main" target="_blank" rel="noreferrer">WiseOldMan EHB rate</a>
-		(kills/hr) — i.e. the expected efficient bossing hours to obtain it. Drop rates from
-		<a href="https://github.com/pairofcrocs/drop-rates-clog" target="_blank" rel="noreferrer">drop-rates-clog</a>.
-		Currently covers {data.items.length} boss-droppable items (the cheapest source per item).
-		Clue/skilling/raid-uniques without a clean boss mapping are not included yet.
+		<a href="https://wiseoldman.net/ehb/iron" target="_blank" rel="noreferrer">WiseOldMan <strong>ironman</strong> EHB rate</a>
+		(kills/hr) — i.e. expected efficient bossing hours to obtain it. Drop rates from
+		<a href="https://github.com/pairofcrocs/drop-rates-clog" target="_blank" rel="noreferrer">drop-rates-clog</a>,
+		item names from the RuneLite cache. Covers {data.items.length} boss/raid-droppable items
+		(cheapest source per item). Clue/skilling-only drops are excluded (no EHB rate).
+	</p>
+	<p class="muted small">
+		⚠ Raid uniques (CoX/ToB) list a share of the <em>purple</em> table, so EHB also factors an
+		assumed per-raid purple rate (CoX ≈ 1/28.7, ToB ≈ 1/9.1) — points/invocation-dependent, so
+		treat raid numbers as approximate.
 	</p>
 
 	<div class="grid">
