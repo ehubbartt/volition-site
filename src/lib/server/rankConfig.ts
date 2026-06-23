@@ -1,0 +1,122 @@
+import { db } from './db';
+import { RANK_ORDER, type RankValue } from '$lib/ranks';
+
+// SERVER-ONLY tunable rank-scoring config. Stored in the SHARED Supabase `bot_config`
+// table (config_name='rank_scoring', config_group='ranks') — the SAME mechanism the
+// loot tables use (see lootcrate.ts getLootConfig) and the SAME table the generic
+// admin config editor edits, so no new editor code is needed. Holds the composite
+// weights, the score→rank thresholds, and the normalization caps the admin rank-sim
+// tunes; the gear point table + CA point map stay in rankScoring/*.json.
+//
+// NOTE: we only READ/UPSERT this one row. We do NOT touch src/routes/admin/config/*.
+
+export interface RankWeights {
+	gear: number;
+	ehb: number;
+	ca: number;
+	time: number;
+	clog: number;
+	level: number;
+}
+
+export interface RankCaps {
+	ehb: number; // EHB at which the ehb component maxes (default 3000)
+	months: number; // months-in-clan cap (default 24)
+	clog: number; // collection-log slots cap (default 1200)
+	levelMin: number; // total level floor before any credit (default 2000)
+	levelRange: number; // level span above the floor for full credit (default 376 → 2376)
+}
+
+export interface RankThreshold {
+	scoreMin: number; // inclusive composite-score floor for this rank
+	womRole: RankValue;
+}
+
+export interface RankScoringConfig {
+	weights: RankWeights;
+	caps: RankCaps;
+	thresholds: RankThreshold[];
+}
+
+// Defaults copied VERBATIM from voli-disc-bot/scripts/simulateRanks.js (the weights
+// in calculateCompositeScore + RANK_THRESHOLDS + the normalize* caps). Used when the
+// bot_config row is missing, and as the seed payload (db/scripts/seedRankConfig.mjs).
+export const DEFAULT_RANK_CONFIG: RankScoringConfig = {
+	weights: { gear: 0.35, ehb: 0.25, ca: 0.1, time: 0.1, clog: 0.1, level: 0.1 },
+	caps: { ehb: 3000, months: 24, clog: 1200, levelMin: 2000, levelRange: 376 },
+	thresholds: [
+		{ scoreMin: 0.0, womRole: 'bronze' },
+		{ scoreMin: 0.08, womRole: 'iron' },
+		{ scoreMin: 0.14, womRole: 'steel' },
+		{ scoreMin: 0.2, womRole: 'gold' },
+		{ scoreMin: 0.27, womRole: 'mithril' },
+		{ scoreMin: 0.35, womRole: 'adamant' },
+		{ scoreMin: 0.43, womRole: 'rune' },
+		{ scoreMin: 0.52, womRole: 'dragon' },
+		{ scoreMin: 0.62, womRole: 'sage' },
+		{ scoreMin: 0.72, womRole: 'legend' },
+		{ scoreMin: 0.82, womRole: 'myth' },
+		{ scoreMin: 0.9, womRole: 'tztok' },
+		{ scoreMin: 0.95, womRole: 'tzkal' }
+	]
+};
+
+export const RANK_CONFIG_NAME = 'rank_scoring';
+export const RANK_CONFIG_GROUP = 'ranks';
+
+let cache: { value: RankScoringConfig; at: number } | null = null;
+const CACHE_TTL_MS = 60_000;
+
+// Coerce/repair a stored config so a partial or hand-edited row can't break scoring:
+// fall back field-by-field to the defaults, and keep thresholds in valid rank order.
+function sanitize(raw: unknown): RankScoringConfig {
+	const r = (raw ?? {}) as Partial<RankScoringConfig>;
+	const weights = { ...DEFAULT_RANK_CONFIG.weights, ...(r.weights ?? {}) };
+	const caps = { ...DEFAULT_RANK_CONFIG.caps, ...(r.caps ?? {}) };
+	let thresholds = Array.isArray(r.thresholds) ? r.thresholds : DEFAULT_RANK_CONFIG.thresholds;
+	thresholds = thresholds
+		.filter((t) => t && (RANK_ORDER as readonly string[]).includes(t.womRole) && typeof t.scoreMin === 'number')
+		.sort((a, b) => a.scoreMin - b.scoreMin);
+	if (thresholds.length === 0) thresholds = DEFAULT_RANK_CONFIG.thresholds;
+	return { weights, caps, thresholds };
+}
+
+// Read the rank-scoring config from bot_config, cached for a minute. Pass force=true
+// to bypass the cache (the rank-sim uses this so an admin's edits apply immediately,
+// mirroring getLootConfig(true)). Falls back to DEFAULT_RANK_CONFIG if unavailable.
+export async function getRankConfig(force = false): Promise<RankScoringConfig> {
+	if (!force && cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.value;
+	try {
+		const { data } = await db()
+			.from('bot_config')
+			.select('config_value')
+			.eq('config_name', RANK_CONFIG_NAME)
+			.maybeSingle();
+		const value = data?.config_value ? sanitize(data.config_value) : DEFAULT_RANK_CONFIG;
+		cache = { value, at: Date.now() };
+		return value;
+	} catch {
+		return DEFAULT_RANK_CONFIG;
+	}
+}
+
+// Upsert the rank-scoring config row (used by the rank-sim "save weights" action).
+// Same shape the bot's botConfig.setConfig writes; refreshes the local cache.
+export async function saveRankConfig(config: RankScoringConfig): Promise<{ error: string | null }> {
+	const clean = sanitize(config);
+	const { error } = await db()
+		.from('bot_config')
+		.upsert(
+			{
+				config_name: RANK_CONFIG_NAME,
+				config_group: RANK_CONFIG_GROUP,
+				config_value: clean,
+				description: 'Composite rank scoring: weights, score→rank thresholds, normalization caps.',
+				updated_at: new Date().toISOString()
+			},
+			{ onConflict: 'config_name' }
+		);
+	if (error) return { error: error.message };
+	cache = { value: clean, at: Date.now() };
+	return { error: null };
+}
