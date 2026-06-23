@@ -98,12 +98,12 @@ body::before {
 	background-attachment: fixed;
 	opacity: 0.1;
 	pointer-events: none;
-	z-index: 0;
-}
-
-body > * {
-	position: relative;
-	z-index: 1;
+	/* Sit behind page content. app.html wraps the app in a `display: contents`
+	   div, which generates no box — so a positive z-index on `body > *` is
+	   ignored and the content can't be lifted above this overlay. A negative
+	   z-index here is what reliably keeps the crest a background watermark
+	   instead of a translucent film painted over every element. */
+	z-index: -1;
 }
 
 a {
