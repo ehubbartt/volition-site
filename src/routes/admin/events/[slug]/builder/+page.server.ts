@@ -183,7 +183,8 @@ export const actions: Actions = {
 			item_id: itemIdRaw ? Math.floor(Number(itemIdRaw)) || null : null,
 			item_name: form.get('item_name')?.toString() ?? '',
 			required_qty: num(form, 'required_qty', 1),
-			source_name: form.get('source_name')?.toString() ?? null
+			source_name: form.get('source_name')?.toString() ?? null,
+			match_type: form.get('match_type')?.toString() ?? 'loot'
 		});
 		if (!res.ok) return fail(400, { error: res.error });
 		return { ok: true };

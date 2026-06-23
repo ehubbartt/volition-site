@@ -54,6 +54,39 @@ to the rest of the bingo code.
 
 ---
 
+## Tile completion types (loot vs collection/pet)
+
+Each tracked item has a **match type** (set in the builder):
+
+- **`loot`** (default) — completed by a LOOT drop of the item. Reaches the proxy via the
+  loot allowlist regardless of value.
+- **`collection`** — completed by a **collection-log unlock** of the item. This also
+  covers **pets** (a pet is a clog slot), so a "get any/this pet" tile uses `collection`
+  with the pet's item id. Collection notifications aren't value-gated, so the player just
+  needs Dink's collection-log notifier enabled.
+
+Combat-achievement / level / KC tiles aren't wired yet (no captured payload); the
+framework extends to them once we have one.
+
+## Collect-N tiles
+
+A tracked item's **required quantity** is honored: a tile that needs N of an item only
+credits once the player's accumulated quantity (summed across drops of that item) reaches
+N. In-progress drops are recorded as `partial` and visible in the drops debug view.
+
+## Debugging: the Dink Drops view
+
+`/admin/dink-drops` lists every matched drop with the consumer's **verdict**
+(`credited` / `no_tile` / `no_user` / `timing` / `duplicate` / `partial`). Filter to
+"Didn't credit" to answer "why didn't I get credit?". Per drop you can **Reprocess**
+(re-run after adding the tile / fixing an RSN) or **Un-credit** (reverse a wrong credit).
+
+## Discord announcements
+
+When a tile auto-completes on an **open** event, an embed is posted to
+`DISCORD_BINGO_WEBHOOK_URL` (falls back to `DISCORD_DROPS_WEBHOOK_URL`). The self-test
+event is suppressed so member testing doesn't spam the channel.
+
 ## Per-user config URLs (Dink tokens)
 
 Each member uses a **personal** Dink config URL — `${PROXY_BASE_URL}/config/<token>` —

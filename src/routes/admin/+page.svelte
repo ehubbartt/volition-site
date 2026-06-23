@@ -61,6 +61,12 @@
 			title: 'Dink Drop Simulator 🧪',
 			desc: 'Test event auto-tracking: dry-run or simulate a drop end-to-end without opening a real event.',
 			show: data.admin
+		},
+		{
+			href: '/admin/dink-drops',
+			title: 'Dink Drops 🔎',
+			desc: 'Incoming matched drops with the consumer’s verdict — debug “why didn’t I get credit?”, reprocess, or un-credit.',
+			show: data.admin
 		}
 	]);
 

@@ -14,6 +14,10 @@
 import { db } from '$lib/server/db';
 import { loadEventBoard } from '$lib/server/eventStructure';
 import { getBingoState, getTileStatus } from '$lib/bingo/state';
+import { postBingoCredit } from '$lib/server/dropsFeed';
+
+// The self-test event shouldn't spam the public bingo feed when members test Dink.
+const FEED_SUPPRESS_SLUGS = new Set(['dink-self-test']);
 
 interface DropRow {
 	id: number;
@@ -23,6 +27,7 @@ interface DropRow {
 	item_name: string | null;
 	quantity: number;
 	received_at: string;
+	notif_type: string;
 }
 
 interface TrackedRow {
@@ -30,9 +35,15 @@ interface TrackedRow {
 	tile_id: string;
 	item_id: number | null;
 	item_name: string;
+	match_type: string;
+	required_qty: number;
 }
 
 const BATCH = 500;
+
+// Consumer verdict recorded on each drop (vs_dink_drops.outcome) so admins can see
+// why a drop did or didn't credit a tile.
+type Outcome = 'credited' | 'no_tile' | 'no_user' | 'timing' | 'duplicate' | 'partial' | 'reverted';
 
 // Resolve an RSN to a site user id (case-insensitive, mirrors clan.ts/users.ts).
 async function resolveUserId(rsn: string): Promise<string | null> {
@@ -41,12 +52,17 @@ async function resolveUserId(rsn: string): Promise<string | null> {
 }
 
 // Find the tracked item for a drop within its event (id match preferred, name fallback).
-function matchTile(drop: DropRow, tracked: TrackedRow[]): string | null {
+// Only considers tracked items whose match_type matches the drop's notif_type, so a
+// LOOT drop credits 'loot' tiles and a COLLECTION unlock credits 'collection' tiles.
+// Returns the matched tracked row (carries tile_id + required_qty for collect-N).
+function matchTracked(drop: DropRow, tracked: TrackedRow[]): TrackedRow | null {
+	const notif = drop.notif_type || 'loot';
+	const candidates = tracked.filter((t) => (t.match_type || 'loot') === notif);
 	const name = (drop.item_name ?? '').toLowerCase();
-	const byId = drop.item_id != null ? tracked.find((t) => t.item_id === drop.item_id) : undefined;
-	if (byId) return byId.tile_id;
-	const byName = name ? tracked.find((t) => t.item_name.toLowerCase() === name) : undefined;
-	return byName?.tile_id ?? null;
+	const byId = drop.item_id != null ? candidates.find((t) => t.item_id === drop.item_id) : undefined;
+	if (byId) return byId;
+	const byName = name ? candidates.find((t) => t.item_name.toLowerCase() === name) : undefined;
+	return byName ?? null;
 }
 
 // ── Admin testing helpers ───────────────────────────────────────────────────
@@ -70,6 +86,7 @@ export async function evaluateDinkDrop(input: {
 	item_name: string | null;
 	source: string | null;
 	received_at: string;
+	notif_type?: string;
 }): Promise<DropVerdict> {
 	const sb = db();
 	const reasons: string[] = [];
@@ -83,7 +100,7 @@ export async function evaluateDinkDrop(input: {
 
 	const { data: trackedRaw } = await sb
 		.from('vs_event_tracked_items')
-		.select('event_id, tile_id, item_id, item_name')
+		.select('event_id, tile_id, item_id, item_name, match_type, required_qty')
 		.eq('event_id', input.event_id);
 	const tracked = (trackedRaw ?? []) as TrackedRow[];
 
@@ -94,9 +111,11 @@ export async function evaluateDinkDrop(input: {
 		item_id: input.item_id,
 		item_name: input.item_name,
 		quantity: 1,
-		received_at: input.received_at
+		received_at: input.received_at,
+		notif_type: input.notif_type || 'loot'
 	};
-	const tileId = matchTile(drop, tracked);
+	const matched = matchTracked(drop, tracked);
+	const tileId = matched?.tile_id ?? null;
 	if (!tileId) reasons.push('No tracked item matches this item id/name for the event.');
 
 	const userId = await resolveUserId(input.rsn);
@@ -143,6 +162,7 @@ export async function simulateDinkDrop(input: {
 	item_name: string | null;
 	source: string | null;
 	received_at: string;
+	notif_type?: string;
 }): Promise<{ ok: boolean; error?: string; processed: number; credited: number }> {
 	const sb = db();
 	const dropKey = `test-${input.event_id}-${input.item_id ?? input.item_name}-${input.rsn}-${Date.now()}`;
@@ -156,6 +176,7 @@ export async function simulateDinkDrop(input: {
 		dink_ts: input.received_at,
 		received_at: input.received_at,
 		drop_key: dropKey,
+		notif_type: input.notif_type || 'loot',
 		processed: false
 	});
 	if (error) return { ok: false, error: error.message, processed: 0, credited: 0 };
@@ -163,12 +184,58 @@ export async function simulateDinkDrop(input: {
 	return { ok: !res.error, error: res.error, processed: res.processed, credited: res.credited };
 }
 
+// Admin: reverse a wrong auto-credit. Re-derives the user + tile from the drop and
+// deletes the auto-tracked approved completion, then marks the drop 'reverted' (so the
+// consumer won't re-credit it — it stays processed). Idempotent.
+export async function revertDinkCredit(dropId: number): Promise<{ ok: boolean; error?: string }> {
+	const sb = db();
+	const { data: d } = await sb
+		.from('vs_dink_drops')
+		.select('id, event_id, rsn, item_id, item_name, notif_type')
+		.eq('id', dropId)
+		.maybeSingle();
+	const row = d as Pick<DropRow, 'id' | 'event_id' | 'rsn' | 'item_id' | 'item_name' | 'notif_type'> | null;
+	if (!row) return { ok: false, error: 'Drop not found' };
+	if (!row.event_id) return { ok: false, error: 'Drop has no event' };
+	const userId = await resolveUserId(row.rsn);
+	if (!userId) return { ok: false, error: 'RSN does not resolve to a site user' };
+
+	const { data: trackedRaw } = await sb
+		.from('vs_event_tracked_items')
+		.select('event_id, tile_id, item_id, item_name, match_type, required_qty')
+		.eq('event_id', row.event_id);
+	const matched = matchTracked(
+		{ id: 0, event_id: row.event_id, rsn: row.rsn, item_id: row.item_id, item_name: row.item_name, quantity: 1, received_at: '', notif_type: row.notif_type },
+		(trackedRaw ?? []) as TrackedRow[]
+	);
+	if (!matched) return { ok: false, error: 'No matching tile for this drop' };
+
+	const { error: delErr } = await sb
+		.from('vs_bingo_completions')
+		.delete()
+		.eq('event_id', row.event_id)
+		.eq('user_id', userId)
+		.eq('tile_id', matched.tile_id)
+		.eq('status', 'approved')
+		.like('review_note', 'Auto-tracked via Dink%');
+	if (delErr) return { ok: false, error: delErr.message };
+	await sb.from('vs_dink_drops').update({ outcome: 'reverted' }).eq('id', dropId);
+	return { ok: true };
+}
+
+// Admin: re-run a single drop through the consumer (e.g. after adding the tile or
+// fixing the player's RSN). Clears its processed/outcome then drains the queue.
+export async function reprocessDinkDrop(dropId: number): Promise<{ processed: number; credited: number; error?: string }> {
+	await db().from('vs_dink_drops').update({ processed: false, outcome: null }).eq('id', dropId);
+	return processDinkDrops();
+}
+
 export async function processDinkDrops(): Promise<{ processed: number; credited: number; error?: string }> {
 	const sb = db();
 
 	const { data: drops, error } = await sb
 		.from('vs_dink_drops')
-		.select('id, event_id, rsn, item_id, item_name, quantity, received_at')
+		.select('id, event_id, rsn, item_id, item_name, quantity, received_at, notif_type')
 		.eq('processed', false)
 		.order('received_at', { ascending: true })
 		.limit(BATCH);
@@ -184,12 +251,12 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 	// timing), and the board (tiles + structure for row-release timing).
 	const eventIds = [...new Set(rows.map((r) => r.event_id).filter((e): e is string => !!e))];
 	const trackedByEvent = new Map<string, TrackedRow[]>();
-	const eventById = new Map<string, { id: string; slug: string; structure: unknown; start: string | null }>();
+	const eventById = new Map<string, { id: string; slug: string; name: string; status: string; structure: unknown; start: string | null }>();
 	const boardByEvent = new Map<string, Awaited<ReturnType<typeof loadEventBoard>>>();
 	if (eventIds.length) {
 		const { data: tracked } = await sb
 			.from('vs_event_tracked_items')
-			.select('event_id, tile_id, item_id, item_name')
+			.select('event_id, tile_id, item_id, item_name, match_type, required_qty')
 			.in('event_id', eventIds);
 		for (const t of (tracked ?? []) as TrackedRow[]) {
 			const arr = trackedByEvent.get(t.event_id) ?? [];
@@ -199,28 +266,39 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 
 		const { data: events } = await sb
 			.from('vs_events')
-			.select('id, slug, structure, starts_at, signup_opens_at')
+			.select('id, slug, name, status, structure, starts_at, signup_opens_at')
 			.in('id', eventIds);
 		for (const e of (events ?? []) as Array<{
-			id: string; slug: string; structure: unknown; starts_at: string | null; signup_opens_at: string | null;
+			id: string; slug: string; name: string; status: string; structure: unknown; starts_at: string | null; signup_opens_at: string | null;
 		}>) {
-			eventById.set(e.id, { id: e.id, slug: e.slug, structure: e.structure, start: e.starts_at ?? e.signup_opens_at });
+			eventById.set(e.id, { id: e.id, slug: e.slug, name: e.name, status: e.status, structure: e.structure, start: e.starts_at ?? e.signup_opens_at });
 			boardByEvent.set(e.id, await loadEventBoard(e));
 		}
 	}
 
 	const userIdByRsn = new Map<string, string | null>();
-	const processedIds: number[] = [];
+	// Record a verdict per drop so the admin "why no credit?" view can explain it.
+	const outcomeById = new Map<number, Outcome>();
+	const feedPosts: { by: string; tileName: string; eventName: string; eventSlug: string; via: string | null }[] = [];
 	let credited = 0;
 
 	for (const drop of rows) {
-		processedIds.push(drop.id);
-		if (!drop.event_id) continue;
+		if (!drop.event_id) {
+			outcomeById.set(drop.id, 'no_tile');
+			continue;
+		}
 		const tracked = trackedByEvent.get(drop.event_id);
-		if (!tracked || tracked.length === 0) continue;
+		if (!tracked || tracked.length === 0) {
+			outcomeById.set(drop.id, 'no_tile');
+			continue;
+		}
 
-		const tileId = matchTile(drop, tracked);
-		if (!tileId) continue;
+		const matched = matchTracked(drop, tracked);
+		if (!matched) {
+			outcomeById.set(drop.id, 'no_tile');
+			continue;
+		}
+		const tileId = matched.tile_id;
 
 		// Timing gate: only credit if the tile was actually OPEN when the drop happened
 		// (received_at) — i.e. the event had started and that tile's row had released.
@@ -228,16 +306,28 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 		// same rule a manual board submission is held to.
 		const ev = eventById.get(drop.event_id);
 		const board = boardByEvent.get(drop.event_id);
-		if (!ev || !board) continue;
+		if (!ev || !board) {
+			outcomeById.set(drop.id, 'no_tile');
+			continue;
+		}
 		const tile = board.tiles.find((t) => t.id === tileId);
-		if (!tile) continue;
+		if (!tile) {
+			outcomeById.set(drop.id, 'no_tile');
+			continue;
+		}
 		const stateAtDrop = getBingoState(ev.start, new Date(drop.received_at), board.structure);
-		if (getTileStatus(tile, stateAtDrop) !== 'open') continue; // tile wasn't active at drop time
+		if (getTileStatus(tile, stateAtDrop) !== 'open') {
+			outcomeById.set(drop.id, 'timing'); // tile wasn't active at drop time
+			continue;
+		}
 
 		const rsnKey = drop.rsn.toLowerCase();
 		if (!userIdByRsn.has(rsnKey)) userIdByRsn.set(rsnKey, await resolveUserId(drop.rsn));
 		const userId = userIdByRsn.get(rsnKey) ?? null;
-		if (!userId) continue; // dropper isn't a site user → can't attribute; drop still marked processed
+		if (!userId) {
+			outcomeById.set(drop.id, 'no_user'); // dropper isn't a site user → can't attribute
+			continue;
+		}
 
 		// Idempotent: skip if this player already has an approved completion for the tile.
 		const { data: existing } = await sb
@@ -248,7 +338,40 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 			.eq('tile_id', tileId)
 			.eq('status', 'approved')
 			.limit(1);
-		if (existing && existing.length > 0) continue;
+		if (existing && existing.length > 0) {
+			outcomeById.set(drop.id, 'duplicate');
+			continue;
+		}
+
+		// Collect-N: a tile that needs more than one of an item only credits once the
+		// player's accumulated quantity reaches required_qty. Prior drops counted toward
+		// this same tile are marked 'partial'; we sum them plus this drop. Each drop is
+		// processed exactly once, so there's no double-counting.
+		const need = Math.max(1, matched.required_qty || 1);
+		if (need > 1) {
+			const { data: priorPartials } = await sb
+				.from('vs_dink_drops')
+				.select('item_id, item_name, quantity')
+				.eq('event_id', drop.event_id)
+				.ilike('rsn', drop.rsn)
+				.eq('outcome', 'partial');
+			// Count only prior partials of the SAME item (id match, else name) so two
+			// different collect-N tiles for one player don't pool their progress.
+			const matchedNameLc = matched.item_name.toLowerCase();
+			let priorQty = 0;
+			for (const p of (priorPartials ?? []) as { item_id: number | null; item_name: string | null; quantity: number }[]) {
+				const sameItem =
+					matched.item_id != null
+						? p.item_id === matched.item_id
+						: (p.item_name ?? '').toLowerCase() === matchedNameLc;
+				if (sameItem) priorQty += Number(p.quantity) || 0;
+			}
+			const total = priorQty + (Number(drop.quantity) || 1);
+			if (total < need) {
+				outcomeById.set(drop.id, 'partial');
+				continue;
+			}
+		}
 
 		const now = new Date().toISOString();
 		const { error: insErr } = await sb.from('vs_bingo_completions').insert({
@@ -263,14 +386,42 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 			reviewed_by: null,
 			review_note: `Auto-tracked via Dink (${drop.item_name ?? drop.item_id ?? 'item'})`
 		});
-		if (!insErr) credited += 1;
+		if (insErr) {
+			// Leave unprocessed (no outcome) so a transient insert failure is retried next run.
+			continue;
+		}
+		outcomeById.set(drop.id, 'credited');
+		credited += 1;
+
+		// Queue a Discord announcement (public, open events only; never the self-test).
+		if (ev.status === 'open' && !FEED_SUPPRESS_SLUGS.has(ev.slug)) {
+			feedPosts.push({
+				by: drop.rsn,
+				tileName: tile.name || tileId,
+				eventName: ev.name,
+				eventSlug: ev.slug,
+				via: drop.item_name ?? (drop.item_id != null ? `#${drop.item_id}` : null)
+			});
+		}
 	}
 
-	if (processedIds.length) {
-		await sb.from('vs_dink_drops').update({ processed: true }).in('id', processedIds);
+	// Mark processed + stamp the verdict, grouped by outcome to minimise requests.
+	const idsByOutcome = new Map<Outcome, number[]>();
+	for (const [id, outcome] of outcomeById) {
+		const arr = idsByOutcome.get(outcome) ?? [];
+		arr.push(id);
+		idsByOutcome.set(outcome, arr);
+	}
+	for (const [outcome, ids] of idsByOutcome) {
+		await sb.from('vs_dink_drops').update({ processed: true, outcome }).in('id', ids);
 	}
 
-	return { processed: processedIds.length, credited };
+	// Announce credited tiles (best-effort; never blocks or throws the consumer).
+	if (feedPosts.length) {
+		await Promise.allSettled(feedPosts.map((p) => postBingoCredit({ ...p, rsn: p.by })));
+	}
+
+	return { processed: outcomeById.size, credited };
 }
 
 // Throttled backstop for the poll-on-read path (bingo board load): runs at most
