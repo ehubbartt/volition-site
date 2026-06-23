@@ -93,12 +93,12 @@ body::before {
 	inset: 0;
 	background-image: url('/logo.png');
 	background-repeat: no-repeat;
-	background-position: center 60%;
-	background-size: min(80vmin, 720px);
-	opacity: 0.04;
+	background-position: center 42%;
+	background-size: min(92vmin, 900px);
+	background-attachment: fixed;
+	opacity: 0.1;
 	pointer-events: none;
 	z-index: 0;
-	filter: grayscale(0.3);
 }
 
 body > * {
