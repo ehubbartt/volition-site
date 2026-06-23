@@ -38,7 +38,52 @@ function parseInput(form: FormData) {
 	};
 }
 
+// Cheap, easy-to-get items members can farm to verify their Dink pipeline.
+const SELF_TEST_ITEMS = [
+	{ name: 'Bones', id: 526 },
+	{ name: 'Cowhide', id: 1739 },
+	{ name: 'Feather', id: 314 },
+	{ name: 'Raw chicken', id: 2138 },
+	{ name: 'Big bones', id: 532 }
+];
+const SELF_TEST_SLUG = 'dink-self-test';
+
 export const actions: Actions = {
+	// One-click: (re)create the always-on "Dink Self-Test" event — an open bingo event
+	// (start in the past so every tile is released) whose tiles track trivially-easy
+	// items. Members get one, Dink routes it through the proxy, and /dink-check shows it.
+	createSelfTest: async ({ locals }) => {
+		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+		const structure = {
+			rowCount: SELF_TEST_ITEMS.length,
+			rowIntervalHours: 0.0001, // all rows released immediately
+			bonusEnabled: false,
+			tiers: [{ key: 'test', label: 'Dink check', points: 1, color: '#3aa6ff' }]
+		};
+		// Upsert the event by slug.
+		const { data: existing } = await db().from('vs_events').select('id').eq('slug', SELF_TEST_SLUG).maybeSingle();
+		let eventId = (existing as { id: string } | null)?.id ?? null;
+		if (eventId) {
+			await db().from('vs_events').update({ status: 'open', starts_at: new Date(Date.now() - 3600_000).toISOString(), structure }).eq('id', eventId);
+			await db().from('vs_event_tiles').delete().eq('event_id', eventId);
+			await db().from('vs_event_tracked_items').delete().eq('event_id', eventId);
+		} else {
+			const { data: ev, error: e } = await db().from('vs_events').insert({
+				slug: SELF_TEST_SLUG, name: 'Dink Self-Test', kind: 'bingo', status: 'open', team_size: 1,
+				starts_at: new Date(Date.now() - 3600_000).toISOString(), structure
+			}).select('id').single();
+			if (e || !ev) return fail(500, { error: e?.message ?? 'Could not create event' });
+			eventId = ev.id;
+		}
+		const tiles = SELF_TEST_ITEMS.map((it, i) => ({ event_id: eventId, tile_id: `r${i + 1}-test`, row: i + 1, tier: 'test', name: it.name, points: 1 }));
+		const tracked = SELF_TEST_ITEMS.map((it, i) => ({ event_id: eventId, tile_id: `r${i + 1}-test`, item_id: it.id, item_name: it.name, required_qty: 1 }));
+		const { error: te } = await db().from('vs_event_tiles').insert(tiles);
+		if (te) return fail(500, { error: te.message });
+		const { error: tie } = await db().from('vs_event_tracked_items').insert(tracked);
+		if (tie) return fail(500, { error: tie.message });
+		return { mode: 'selftest' as const, ok: true, slug: SELF_TEST_SLUG, items: SELF_TEST_ITEMS.map((i) => i.name) };
+	},
+
 	dryRun: async ({ locals, request }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
 		const input = parseInput(await request.formData());
