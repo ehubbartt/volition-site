@@ -64,72 +64,105 @@
 
 			<div class="lane">
 				<div class="box runelite"><div class="t">🎮 RuneLite + Dink</div>
-					<div class="d">Player gets a drop. Dink fires a <b>LOOT</b> notification to its configured webhook (the proxy).</div></div>
+					<div class="d">Player gets a drop / unlocks a clog slot / gets a pet. Dink fires a <b>LOOT</b> or <b>COLLECTION</b> notification to the proxy.</div></div>
 				<div class="box proxy"><div class="t">⚙️ Proxy serves config <span class="tag">/config/&lt;token&gt;</span></div>
-					<div class="d">Each member pastes their <b>personal</b> config URL (from the Discord <code>/dink</code> command or the site's <code>/dink-check</code>) into Dink's <b>Dynamic Config URL</b>. The token is validated against <code>dink_tokens</code> (∪ <code>VALID_TOKENS</code>) and is <b>revocable/rotatable</b>. The served config also injects the active events' tracked-item names into Dink's <b>loot allowlist</b>, so those items are sent regardless of value (<code>minLootValue</code> stays 3M — no firehose).</div></div>
+					<div class="d">Each member pastes their <b>personal</b> config URL (from the Discord <code>/dink</code> command or the site's <code>/dink-check</code>) into Dink's <b>Dynamic Config URL</b>. The token is validated against <code>dink_tokens</code> (∪ <code>VALID_TOKENS</code>) and is <b>revocable/rotatable</b>. The served config also injects the active events' loot tracked-item names into Dink's <b>loot allowlist</b>, so those items are sent regardless of value (<code>minLootValue</code> stays 3M — no firehose). Collection unlocks aren't value-gated, so they always arrive.</div></div>
 			</div>
 
-			<div class="arrow">⬇<small>POST /hook/&lt;token&gt;/achievements</small></div>
+			<div class="arrow">⬇<small>POST /hook/&lt;token&gt;/{achievements,collection}</small></div>
 
 			<div class="box proxy"><div class="t">⚙️ dink-proxy Worker — <code>handleHook</code></div>
-				<div class="d">Validates token, parses the LOOT payload, then makes two independent decisions:</div>
+				<div class="d">Validates token, parses the payload, then makes two independent decisions:</div>
 				<div class="split" style="margin-top: 0.6rem">
 					<div class="box decision"><div class="t" style="color: var(--accent)">Decision A — Discord feed</div>
-						<div class="d">Forward to the achievements webhook only if total value ≥ <code>FEED_MIN_VALUE</code>. Cheap tracked items are recorded but not posted.</div></div>
+						<div class="d">Forward to the channel webhook as before (LOOT only forwards above <code>FEED_MIN_VALUE</code>). <b>Forwarding is unchanged</b> from the original proxy.</div></div>
 					<div class="box decision"><div class="t" style="color: var(--green)">Decision B — match</div>
-						<div class="d">If <code>playerName</code> ∈ participants (clan ∪ signups) <b>and</b> item ∈ tracked items → write a row to <code>vs_dink_drops</code> (deduped by <code>drop_key</code>, via <code>ctx.waitUntil</code>).</div></div>
+						<div class="d">If <code>playerName</code> ∈ participants (clan ∪ signups) <b>and</b> item ∈ tracked items <i>of the matching type</i> (LOOT→loot tiles, COLLECTION→collection/pet tiles) → write a row to <code>vs_dink_drops</code> with its <code>notif_type</code> &amp; value (deduped by <code>drop_key</code>, via <code>ctx.waitUntil</code>).</div></div>
 				</div>
 			</div>
 
 			<div class="arrow">⬇<small>reads manifest (cached ~30s)</small></div>
 			<div class="lane">
 				<div class="box db"><div class="t">🗄️ vs_active_participants</div><div class="d">clan RSNs ∪ open-event signups</div></div>
-				<div class="box db"><div class="t">🗄️ vs_active_tracked_items</div><div class="d">tracked items for <b>open</b> events</div></div>
-				<div class="box db"><div class="t">🗄️ vs_dink_drops</div><div class="d">raw matched drops, <code>processed=false</code></div></div>
+				<div class="box db"><div class="t">🗄️ vs_active_tracked_items</div><div class="d">tracked items (+ <code>match_type</code>) for <b>open</b> events</div></div>
+				<div class="box db"><div class="t">🗄️ vs_dink_drops</div><div class="d">raw matched drops, <code>outcome</code> null until processed</div></div>
 			</div>
 
 			<div class="arrow">⬇<small>POST /api/dink/process (cron) &nbsp;+&nbsp; throttled backstop on board load</small></div>
 
 			<div class="box site"><div class="t">🧮 Site consumer — <code>processDinkDrops()</code></div>
-				<div class="d">Drains unprocessed drops → resolves <code>rsn → vs_users</code> → matches tile →
-					<b>timing gate</b>: only credits if the tile was <b>open at the drop's <code>received_at</code></b>
-					(event started + that row released). Else discarded. Idempotent (no double-credit).</div></div>
+				<div class="d">Drains unprocessed drops → matches tile by type → <b>timing gate</b> (tile open at the drop's <code>received_at</code>?) → resolves <code>rsn → vs_users</code> → <b>collect-N</b> (accumulate quantity until <code>required_qty</code>) → credits. Every drop is stamped with an <b>outcome</b> (<code>credited</code> / <code>no_tile</code> / <code>no_user</code> / <code>timing</code> / <code>duplicate</code> / <code>partial</code>). Idempotent (no double-credit).</div></div>
 
 			<div class="arrow">⬇</div>
 			<div class="lane">
 				<div class="box db"><div class="t">🗄️ vs_bingo_completions <span class="tag">approved</span></div><div class="d">one row per credited player+tile</div></div>
 				<div class="box site"><div class="t">🏁 <code>/bingo/[slug]</code></div><div class="d">tile shows complete + leaderboard updates, live</div></div>
+				<div class="box site"><div class="t">📣 Discord feed</div><div class="d">"X auto-completed a tile" → <code>DISCORD_BINGO_WEBHOOK_URL</code> (open events only)</div></div>
+			</div>
+
+			<div class="lane">
+				<div class="box site"><div class="t">🔎 <code>/admin/dink-drops</code></div><div class="d">every matched drop + its outcome — debug "why no credit?", <b>reprocess</b> or <b>un-credit</b>.</div></div>
+				<div class="box site"><div class="t">🧪 <code>/admin/dink-test</code></div><div class="d">dry-run / simulate a drop end-to-end; mint the self-test event; revoke tokens.</div></div>
 			</div>
 
 			<div class="box-note" style="margin-top: 1rem">
 				<b>Key idea:</b> the proxy stays "dumb" (filter + record); all crediting logic lives on the site.
-				Auto-tracking is a <b>no-op</b> until the proxy has Supabase credentials, so it's safe to deploy partway.
+				Auto-tracking is a <b>no-op</b> until the proxy has Supabase credentials, so it's safe to deploy partway —
+				and with Supabase unset the proxy behaves <b>exactly</b> as the original (serve config, validate
+				<code>VALID_TOKENS</code>, forward hooks, strip @mentions).
 			</div>
 
-			<h2>Still to do before it can be tested</h2>
+			<h2>What you can build on a tile</h2>
+			<div class="lane">
+				<div class="box site"><div class="t">💰 Loot tile <span class="tag">match_type=loot</span></div>
+					<div class="d">Completed by a LOOT drop of the item. Add the item (id/name) to the tile in the builder. Default.</div></div>
+				<div class="box site"><div class="t">📖 Collection / 🐾 Pet tile <span class="tag">match_type=collection</span></div>
+					<div class="d">Completed by a <b>collection-log unlock</b> of the item. Pets are clog slots, so a "get the pet" tile uses this with the pet's item id. Needs Dink's collection-log notifier on.</div></div>
+				<div class="box site"><div class="t">🔢 Collect-N <span class="tag">required_qty</span></div>
+					<div class="d">Set a quantity &gt; 1 and the tile credits only once the player accumulates that many (e.g. 100 dragon bones). Progress shows as <code>partial</code> in the drops view.</div></div>
+			</div>
+			<div class="box-note" style="margin-top: 0.6rem">
+				Combat-achievement / level / KC tiles aren't wired yet — we need a captured Dink payload for those
+				notifier types first (do a Dink "Send Test" for each and we can slot them into the same framework).
+			</div>
+
+			<h2>When you get back — setup steps (in order)</h2>
 			<ul class="check">
-				<li class="done"><b>✓ Code complete</b> — builder, tracked items, proxy match + allowlist, consumer with timing gate, simulator. <span class="where">(in the open PRs)</span></li>
-				<li><b>Merge the PRs</b> — dink-proxy #3 (loot) → then #2 (config-from-Supabase + allowlist); volition-site #15 (builder/tracking/tools) + #13 (config seed). <span class="where">GitHub</span></li>
-				<li><b>Apply the schema</b> — run <code>db/schema/event_builder.sql</code> in Supabase (tables + the two manifest views). <span class="where">Supabase SQL editor</span></li>
-				<li><b>Re-run the tracked-items view</b> — the latest <code>CREATE OR REPLACE VIEW vs_active_tracked_items</code> (now original-case names for the allowlist). <span class="where">Supabase SQL editor</span></li>
-				<li><b>Seed the Dink config</b> — run <code>db/scripts/seed_dink_config.sql</code> (the <code>dink_config</code> row for <code>/admin/config</code>). <span class="where">Supabase SQL editor</span></li>
-				<li><b>Site env:</b> set <code>DINK_PROCESS_SECRET</code> (guards <code>/api/dink/process</code>). <span class="where">site environment</span></li>
-				<li><b>Proxy secrets:</b> <code>wrangler secret put SUPABASE_KEY</code> + set <code>SUPABASE_URL</code> var. <span class="where">Cloudflare</span></li>
-				<li><b>Deploy the proxy</b> — <code>npx wrangler deploy</code> (this is what makes <code>/admin/config</code> edits + allowlist injection actually take effect). <span class="where">Cloudflare</span></li>
-				<li><b>Rotate the leaked Discord webhook</b> and update <code>WEBHOOK_ACHIEVEMENTS</code>. Members should clear any manual Discord webhook from Dink and use only their <b>personal Dynamic Config URL</b> — the channel webhooks come from the served config, not from the member. <span class="where">Discord + RuneLite</span></li>
-				<li><b>Set <code>PROXY_BASE_URL</code> on the site</b> so <code>/dink-check</code> can show each member their personal config URL (mint/rotate). Tokens are validated against <code>dink_tokens</code> ∪ <code>VALID_TOKENS</code>, so site-minted links work with no Cloudflare API call. <span class="where">site environment</span></li>
-				<li><b>Schedule the consumer</b> (optional) — a cron hitting <code>POST /api/dink/process</code>; otherwise the board-load backstop covers it. <span class="where">cron / scheduler</span></li>
+				<li class="done"><b>✓ Code complete &amp; pushed</b> — builder (loot + collection/pet tiles, collect-N), per-user tokens, proxy match + token validation, consumer with timing gate + outcomes, drops debug view, simulator, self-test, Discord feed.</li>
+				<li><b>Merge the PRs</b> — dink-proxy <code>claude/festive-ptolemy-ir6j4m</code> (#3) and volition-site <code>claude/festive-ptolemy-ir6j4m</code> (#15); then the stacked config PRs (#2 / #13) if you still want them. <span class="where">GitHub</span></li>
+				<li><b>Apply the schema</b> — run the latest <code>db/schema/event_builder.sql</code> in Supabase. It's idempotent and now adds <code>match_type</code> (tracked items), <code>notif_type</code>/<code>value</code>/<code>outcome</code> (drops), and refreshes the <code>vs_active_tracked_items</code> view. Also confirm <code>dink_tokens</code> exists (<code>db/schema/dink_tokens.sql</code> — the bot already created it). <span class="where">Supabase SQL editor</span></li>
+				<li><b>Proxy secrets/vars + deploy</b> — <code>wrangler secret put SUPABASE_KEY</code>, set <code>SUPABASE_URL</code>, then <code>npx wrangler deploy</code>. This turns on auto-tracking + token validation against <code>dink_tokens</code>. <span class="where">Cloudflare</span></li>
+				<li><b>Site env</b> — set <code>SUPABASE_URL</code> + <code>SUPABASE_ANON_KEY</code> (already there), <code>PROXY_BASE_URL</code> = <code>https://dink-proxy.voltionosrs.workers.dev</code> (so <code>/dink-check</code> shows links), <code>DINK_PROCESS_SECRET</code> (guards the cron endpoint), and optionally <code>DISCORD_BINGO_WEBHOOK_URL</code> (tile-complete announcements; falls back to <code>DISCORD_DROPS_WEBHOOK_URL</code>). <span class="where">fly.toml [env] / fly secrets</span></li>
+				<li><b>Rotate the leaked Discord webhook</b> + update <code>WEBHOOK_ACHIEVEMENTS</code>. Members clear any manual Discord webhook from Dink and use only their personal Dynamic Config URL. <span class="where">Discord + RuneLite</span></li>
+				<li><b>Rotate your own token</b> — the one you pasted in chat (<code>5211a19d…</code>) is exposed; rotate it on <code>/dink-check</code>. <span class="where">site</span></li>
+				<li><b>Schedule the consumer</b> (optional) — cron <code>POST /api/dink/process</code> with the secret; otherwise the throttled board-load backstop covers it. <span class="where">cron</span></li>
 			</ul>
 
-			<h2>How to test (without opening a real event)</h2>
+			<h2>Recommended test run</h2>
 			<div class="box-note">
-				<p style="margin-top: 0"><span class="pill">Admin → Dink Drop Simulator</span> &nbsp; <code>/admin/dink-test</code></p>
-				<ol style="margin: 0.4rem 0 0; padding-left: 1.1rem">
-					<li>Build an event, add <b>tracked items</b>, set its <b>start time in the past</b>, and set status to <b>preview</b> (admin-only, not public).</li>
-					<li><b>Dry run</b> — pick the event, an RSN, and a tracked item; it reports whether it <i>would</i> credit and why (match / identity / timing), writing nothing.</li>
-					<li><b>Simulate</b> — inserts a real <code>vs_dink_drops</code> row and runs the consumer end-to-end; then open <code>/bingo/&lt;slug&gt;</code> (visible to you as admin) to see the tile credited.</li>
+				<b>A) Real end-to-end (proves the whole chain):</b>
+				<ol style="margin: 0.4rem 0 0.8rem; padding-left: 1.1rem">
+					<li>In <code>/admin/dink-test</code>, click <b>Create / refresh self-test event</b> (an always-open board tracking Bones, Cowhide, Feather, Raw chicken, Big bones).</li>
+					<li>Open <code>/dink-check</code>, copy your personal config URL into Dink's <b>Dynamic Config URL</b>.</li>
+					<li>Log in and kill a few cows/chickens. Within ~30s the drop appears on <code>/dink-check</code> and the tile completes on <code>/bingo/dink-self-test</code>.</li>
+					<li>If nothing shows, open <code>/admin/dink-drops</code> → filter <b>Didn't credit</b> to see the reason (identity / timing / no tile), fix it, and <b>Reprocess</b>.</li>
 				</ol>
-				<p style="margin-bottom: 0">This exercises the whole <b>site</b> pipeline (match → timing → credit) with no need for the proxy or a live in-game drop. To also test the proxy leg, <code>curl</code> a synthetic LOOT payload at <code>/hook/&lt;token&gt;/achievements</code> and confirm a <code>vs_dink_drops</code> row appears.</p>
+				<b>B) No game needed (proves the site pipeline):</b>
+				<ol style="margin: 0.4rem 0 0; padding-left: 1.1rem">
+					<li>Build a <b>preview</b> event with tracked items and a start time in the past.</li>
+					<li><code>/admin/dink-test</code> → <b>Dry run</b> (verdict only, writes nothing) → <b>Simulate</b> (inserts a real drop + runs the consumer), then view the board.</li>
+				</ol>
+			</div>
+
+			<h2>Does this break the existing proxy? No.</h2>
+			<div class="box-note">
+				The proxy's original job — serve <code>/config/&lt;token&gt;</code> and forward <code>/hook/&lt;token&gt;/&lt;channel&gt;</code> to the
+				Discord webhooks (with <code>@mentions</code> stripped) — is unchanged:
+				<ul style="margin: 0.4rem 0 0; padding-left: 1.1rem">
+					<li><b>Token validation</b> is now the <i>union</i> of <code>VALID_TOKENS</code> and active <code>dink_tokens</code>. Existing <code>VALID_TOKENS</code> still validate; if Supabase is unset it falls back to <code>VALID_TOKENS</code> only — identical to before.</li>
+					<li><b>Forwarding</b> is untouched: LOOT still only forwards above <code>FEED_MIN_VALUE</code>; COLLECTION and every other type still forward exactly as before (the new code only does a background DB write, then falls through to the same forward).</li>
+					<li>All new DB work is <b>best-effort</b> (<code>ctx.waitUntil</code>, errors swallowed) and gated on Supabase being configured, so it can never block or fail a hook/config request.</li>
+				</ul>
 			</div>
 		</div>
 	</body>
