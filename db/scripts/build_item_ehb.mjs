@@ -40,9 +40,14 @@ const RATES = {
 	'sol heredit': 2.7, 'rewards chest (fortis colosseum)': 2.7, 'spindel': 50,
 	'the hueycoatl': 20, 'the leviathan': 27, 'the royal titans': 55, 'the whisperer': 21,
 	'theatre of blood': 3.2, 'thermonuclear smoke devil': 100, 'tombs of amascut': 3.7,
-	'chest (tombs of amascut)': 3.7, 'tzkal-zuk': 1, 'tztok-jad': 2.2, 'vardorvis': 37,
+	'chest (tombs of amascut)': 3.7, 'chest (tombs of amascut) (expert mode)': 3,
+	'tzkal-zuk': 1, 'tztok-jad': 2.2, 'vardorvis': 37,
 	'venenatis': 80, "vet'ion": 39, 'vorkath': 34, 'yama': 18, 'zulrah': 42,
-	'reward chest (the gauntlet) (regular)': 10, 'reward chest (the gauntlet) (corrupted)': 7.2
+	'reward chest (the gauntlet) (regular)': 10, 'reward chest (the gauntlet) (corrupted)': 7.2,
+	// Raid reward chests (the clog data attributes raid uniques to these):
+	'ancient chest': 3.5, // Chambers of Xeric
+	'monumental chest (normal mode)': 3.2, // Theatre of Blood
+	'monumental chest (hard mode)': 3 // Theatre of Blood: Hard Mode
 };
 
 const norm = (s) => s.toLowerCase().trim();
