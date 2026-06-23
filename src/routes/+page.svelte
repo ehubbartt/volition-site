@@ -640,7 +640,7 @@
 		margin: 2rem auto 1.5rem;
 		text-align: center;
 		padding: 2rem 1.5rem;
-		background: rgba(58, 48, 36, 0.5);
+		background: #3a3024;
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
 		box-shadow: inset 0 0 0 1px rgba(255, 152, 31, 0.05), 0 4px 24px rgba(0, 0, 0, 0.6);
