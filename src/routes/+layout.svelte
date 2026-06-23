@@ -76,8 +76,7 @@
 		box-shadow:
 			inset 0 1px 0 rgba(255, 232, 180, 0.16),
 			inset 0 -3px 0 #0c0904,
-			inset 0 -5px 0 rgba(217, 182, 94, 0.28),
-			0 5px 16px rgba(0, 0, 0, 0.5);
+			inset 0 -5px 0 rgba(217, 182, 94, 0.28);
 		backdrop-filter: blur(8px);
 		-webkit-backdrop-filter: blur(8px);
 	}
