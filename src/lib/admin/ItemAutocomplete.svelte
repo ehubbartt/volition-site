@@ -9,7 +9,7 @@
 	}
 
 	let query = $state('');
-	let itemId = $state<number | ''>('');
+	let itemId = $state<number | null>(null);
 	let results = $state<Item[]>([]);
 	let open = $state(false);
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -33,7 +33,7 @@
 
 	function onInput(e: Event) {
 		query = (e.currentTarget as HTMLInputElement).value;
-		itemId = ''; // typing invalidates a previously-picked id
+		itemId = null; // typing invalidates a previously-picked id
 		clearTimeout(timer);
 		timer = setTimeout(() => search(query), 200);
 	}
@@ -58,7 +58,6 @@
 		onfocus={() => (open = results.length > 0)}
 		onblur={() => setTimeout(() => (open = false), 150)}
 	/>
-	<input type="hidden" name="item_id" value={itemId} />
 	{#if open}
 		<ul class="ac-list">
 			{#each results as it (it.id)}
@@ -71,6 +70,16 @@
 		</ul>
 	{/if}
 </div>
+<!-- Visible read-only id so the admin can see the pick was captured. Editable id is
+	 still allowed (type a name without picking and enter the id manually). -->
+<input
+	class="id-out"
+	name="item_id"
+	type="number"
+	placeholder="id"
+	title="Item id (auto-filled when you pick a suggestion)"
+	bind:value={itemId}
+/>
 
 <style>
 	.ac {
@@ -116,5 +125,9 @@
 	.ac-list .id {
 		color: #8a7a5c;
 		font-size: 0.78rem;
+	}
+	.id-out {
+		width: 5rem;
+		flex: 0 0 auto;
 	}
 </style>

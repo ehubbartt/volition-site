@@ -269,6 +269,47 @@ export const actions: Actions = {
 		return { ok: true };
 	},
 
+	// Permanently delete an event and all its data. Children are removed in
+	// FK-safe order first (signups reference teams, etc.), then the event row.
+	// vs_event_tiles / vs_event_tracked_items also cascade; vs_dink_drops nulls out.
+	deleteEvent: async ({ locals, request }) => {
+		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+
+		const form = await request.formData();
+		const id = form.get('id')?.toString();
+		const confirmSlug = form.get('confirm_slug')?.toString().trim();
+		if (!id) return fail(400, { error: 'Missing id' });
+
+		const { data: ev } = await db().from('vs_events').select('slug').eq('id', id).maybeSingle();
+		if (!ev) return fail(404, { error: 'Event not found' });
+		// Typed-slug confirmation guards against deleting the wrong event.
+		if (confirmSlug !== ev.slug) {
+			return fail(400, { error: `Type the slug "${ev.slug}" to confirm deletion.` });
+		}
+
+		// Child rows scoped to this event, deleted before the parent. Best-effort per
+		// table (some may be empty / not apply); the final event delete surfaces any
+		// remaining FK blocker.
+		const childTables = [
+			'vs_submissions',
+			'vs_bingo_completions',
+			'vs_team_completions',
+			'vs_team_invites',
+			'vs_event_signups',
+			'vs_teams',
+			'vs_tasks',
+			'vs_event_tracked_items',
+			'vs_event_tiles'
+		];
+		for (const table of childTables) {
+			await db().from(table).delete().eq('event_id', id);
+		}
+
+		const { error: delErr } = await db().from('vs_events').delete().eq('id', id);
+		if (delErr) return fail(500, { error: delErr.message });
+		return { ok: true, deleted: ev.slug };
+	},
+
 	updateStatus: async ({ locals, request }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
 
