@@ -94,18 +94,20 @@
 		flex-direction: column;
 		gap: 0.4rem;
 		padding: 1.25rem;
-		background: linear-gradient(180deg, rgba(58, 48, 36, 0.85), rgba(40, 32, 24, 0.85));
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		box-shadow: var(--shadow-card);
+		background-color: #4d4030;
+		background-image: var(--stone-tile);
+		background-repeat: repeat;
+		border: 4px solid transparent;
+		border-image: url('/osrs/border-tiny.png') 4 / 4px round;
+		border-radius: 4px;
 		text-decoration: none;
 		color: var(--text);
-		transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+		transition: transform 0.15s, box-shadow 0.15s;
 	}
 
 	.tool:hover {
-		border-color: var(--accent);
 		transform: translateY(-2px);
+		box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(255, 152, 31, 0.4);
 		text-decoration: none;
 	}
 
