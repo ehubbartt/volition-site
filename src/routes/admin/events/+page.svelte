@@ -378,6 +378,27 @@
 							</div>
 							<button type="submit" class="primary">Save changes</button>
 						</form>
+
+						<div class="danger-zone">
+							<strong>Delete event</strong>
+							<p class="muted small">
+								Permanently removes the event and all its tiles, tracked items, and submissions.
+								Type <code>{ev.slug}</code> to confirm.
+							</p>
+							<form
+								method="POST"
+								action="?/deleteEvent"
+								use:enhance
+								onsubmit={(e) => {
+									if (!confirm(`Delete "${ev.name}" and all its data? This cannot be undone.`))
+										e.preventDefault();
+								}}
+							>
+								<input type="hidden" name="id" value={ev.id} />
+								<input name="confirm_slug" placeholder={ev.slug} autocomplete="off" />
+								<button type="submit" class="delete-btn">Delete</button>
+							</form>
+						</div>
 					</details>
 			</li>
 	{/snippet}
@@ -690,5 +711,34 @@
 
 	button.primary:hover {
 		background: var(--accent-soft);
+	}
+
+	.danger-zone {
+		margin-top: 1rem;
+		padding: 0.75rem;
+		border: 1px solid var(--danger);
+		border-radius: var(--radius);
+		background: var(--danger-bg);
+	}
+
+	.danger-zone strong {
+		color: var(--danger);
+	}
+
+	.danger-zone form {
+		flex-direction: row;
+		align-items: center;
+		gap: 0.5rem;
+		margin-top: 0.5rem;
+	}
+
+	.delete-btn {
+		border-color: var(--danger);
+		color: var(--danger);
+	}
+
+	.delete-btn:hover {
+		background: var(--danger);
+		color: #fff;
 	}
 </style>
