@@ -51,6 +51,10 @@
 <section>
 	<EventsTasksTabs />
 
+	<p class="tool-link">
+		🧪 <a href="/admin/ehb">EHB Drop Tool</a> — experimental: look up an item's drop rate &amp; EHB cost, or find drops matching an EHB target.
+	</p>
+
 	<details class="card status-help">
 		<summary><strong>What do the event statuses mean?</strong></summary>
 		<dl>
