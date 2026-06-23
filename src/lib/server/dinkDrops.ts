@@ -12,6 +12,8 @@
 //   2. opportunistically at the top of the bingo board load (poll-on-read backstop)
 
 import { db } from '$lib/server/db';
+import { loadEventBoard } from '$lib/server/eventStructure';
+import { getBingoState, getTileStatus } from '$lib/bingo/state';
 
 interface DropRow {
 	id: number;
@@ -20,6 +22,7 @@ interface DropRow {
 	item_id: number | null;
 	item_name: string | null;
 	quantity: number;
+	received_at: string;
 }
 
 interface TrackedRow {
@@ -51,7 +54,7 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 
 	const { data: drops, error } = await sb
 		.from('vs_dink_drops')
-		.select('id, event_id, rsn, item_id, item_name, quantity')
+		.select('id, event_id, rsn, item_id, item_name, quantity, received_at')
 		.eq('processed', false)
 		.order('received_at', { ascending: true })
 		.limit(BATCH);
@@ -63,9 +66,12 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 	const rows = (drops ?? []) as DropRow[];
 	if (rows.length === 0) return { processed: 0, credited: 0 };
 
-	// Load the tracked-item sets for the events present in this batch, once.
+	// Load, once per event in this batch: the tracked-item set, the event row (for
+	// timing), and the board (tiles + structure for row-release timing).
 	const eventIds = [...new Set(rows.map((r) => r.event_id).filter((e): e is string => !!e))];
 	const trackedByEvent = new Map<string, TrackedRow[]>();
+	const eventById = new Map<string, { id: string; slug: string; structure: unknown; start: string | null }>();
+	const boardByEvent = new Map<string, Awaited<ReturnType<typeof loadEventBoard>>>();
 	if (eventIds.length) {
 		const { data: tracked } = await sb
 			.from('vs_event_tracked_items')
@@ -75,6 +81,17 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 			const arr = trackedByEvent.get(t.event_id) ?? [];
 			arr.push(t);
 			trackedByEvent.set(t.event_id, arr);
+		}
+
+		const { data: events } = await sb
+			.from('vs_events')
+			.select('id, slug, structure, starts_at, signup_opens_at')
+			.in('id', eventIds);
+		for (const e of (events ?? []) as Array<{
+			id: string; slug: string; structure: unknown; starts_at: string | null; signup_opens_at: string | null;
+		}>) {
+			eventById.set(e.id, { id: e.id, slug: e.slug, structure: e.structure, start: e.starts_at ?? e.signup_opens_at });
+			boardByEvent.set(e.id, await loadEventBoard(e));
 		}
 	}
 
@@ -90,6 +107,18 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 
 		const tileId = matchTile(drop, tracked);
 		if (!tileId) continue;
+
+		// Timing gate: only credit if the tile was actually OPEN when the drop happened
+		// (received_at) — i.e. the event had started and that tile's row had released.
+		// Drops obtained before a row unlocks (or before the event) are discarded, the
+		// same rule a manual board submission is held to.
+		const ev = eventById.get(drop.event_id);
+		const board = boardByEvent.get(drop.event_id);
+		if (!ev || !board) continue;
+		const tile = board.tiles.find((t) => t.id === tileId);
+		if (!tile) continue;
+		const stateAtDrop = getBingoState(ev.start, new Date(drop.received_at), board.structure);
+		if (getTileStatus(tile, stateAtDrop) !== 'open') continue; // tile wasn't active at drop time
 
 		const rsnKey = drop.rsn.toLowerCase();
 		if (!userIdByRsn.has(rsnKey)) userIdByRsn.set(rsnKey, await resolveUserId(drop.rsn));

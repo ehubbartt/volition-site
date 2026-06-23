@@ -38,10 +38,19 @@ to the rest of the bingo code.
    `vs_active_participants` views the proxy reads).
 2. **Site env:** set `DINK_PROCESS_SECRET` (guards `POST /api/dink/process`).
 3. **Proxy:** set `SUPABASE_URL` (var) + `SUPABASE_KEY` (`wrangler secret put`), then
-   `npx wrangler deploy`. The proxy's `minLootValue` is already lowered to `1` so it
-   sees every drop; `FEED_MIN_VALUE` (default 3,000,000) keeps the Discord feed quiet.
+   `npx wrangler deploy`. The proxy injects each open event's tracked-item names into
+   Dink's **loot allowlist** when it serves `/config/<token>`, so those items reach the
+   proxy regardless of value while `minLootValue` stays at 3,000,000 (no firehose).
+   `FEED_MIN_VALUE` still gates what's forwarded to the Discord feed.
    - Auto-tracking is a **no-op until `SUPABASE_URL`/`SUPABASE_KEY` are set**, so the
      proxy is safe to run without it.
+   - Allowlist propagation isn't instant: Dink re-fetches the dynamic config
+     periodically and the proxy caches it (`CONFIG_TTL_MS`), so allow a few minutes
+     after an event opens before its tracked items start arriving.
+
+> **Timing:** a drop only credits a tile if it was received while that tile was
+> actually open — i.e. after the event started and after the tile's row released.
+> Drops obtained earlier are discarded (same rule as a manual board submission).
 
 ---
 

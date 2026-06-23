@@ -98,12 +98,14 @@ create index if not exists vs_dink_drops_unprocessed on vs_dink_drops (processed
 -- Manifest the proxy reads (cheap, cacheable). The Worker matches a LOOT drop
 -- when playerName ∈ vs_active_participants AND the item ∈ vs_active_tracked_items.
 -- ----------------------------------------------------------------------------
+-- item_name kept in its original casing so the proxy can both case-insensitively
+-- match drops AND inject the names into Dink's loot allowlist (which displays them).
 create or replace view vs_active_tracked_items as
 select ti.event_id,
        e.slug as event_slug,
        ti.tile_id,
        ti.item_id,
-       lower(ti.item_name) as item_name,
+       ti.item_name,
        ti.required_qty,
        ti.source_name
 from vs_event_tracked_items ti
