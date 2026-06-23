@@ -69,8 +69,11 @@
 		position: sticky;
 		top: 0;
 		z-index: 50;
-		border-bottom: 1px solid #4d4336;
-		background: rgba(0, 0, 0, 0.7);
+		border-bottom: 2px solid var(--gold-mid);
+		background-color: rgba(20, 16, 10, 0.98);
+		background-image: url('/osrs/tile-dark.png');
+		background-repeat: repeat;
+		box-shadow: inset 0 1px 0 rgba(255, 232, 180, 0.16);
 		backdrop-filter: blur(8px);
 		-webkit-backdrop-filter: blur(8px);
 	}
@@ -133,29 +136,30 @@
 
 	.primary-nav a.active {
 		color: #ff981f;
-		background: rgba(255, 152, 31, 0.12);
-		border-color: rgba(255, 152, 31, 0.4);
+		background: #4d4336;
+		border: 9px solid transparent;
+		border-image: url('/osrs/button.png') 9 / 9px stretch;
+		padding: 0 0.55rem;
 	}
 
 	.user-pill {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		padding: 0.4rem 0.85rem;
-		background: rgba(58, 48, 36, 0.7);
-		border: 1px solid #5d5346;
-		border-radius: 999px;
+		padding: 0.2rem 0.85rem;
+		background: #4d4336;
+		border: 9px solid transparent;
+		border-image: url('/osrs/button.png') 9 / 9px stretch;
 		color: #ff981f;
 		text-decoration: none;
 		text-shadow: 1px 1px #000;
 		font-size: 0.95rem;
-		transition: background 0.15s, border-color 0.15s;
+		transition: background 0.15s;
 	}
 
 	.user-pill:hover,
 	.user-pill.active {
-		background: rgba(77, 67, 54, 0.9);
-		border-color: #ff981f;
+		background: #423726;
 		text-decoration: none;
 	}
 
@@ -169,17 +173,16 @@
 	}
 
 	.cta {
-		background: #3a3024;
-		border: 1px solid #5d5346;
+		background: #4d4336;
+		border: 9px solid transparent;
+		border-image: url('/osrs/button.png') 9 / 9px stretch;
 		color: #ff981f;
-		padding: 0.5rem 1rem;
-		border-radius: 4px;
+		padding: 0.3rem 1rem;
 		text-decoration: none;
 	}
 
 	.cta:hover {
-		background: #4d4336;
-		border-color: #ff981f;
+		background: #423726;
 		text-decoration: none;
 	}
 
@@ -204,8 +207,13 @@
 	}
 
 	footer {
-		border-top: 1px solid #4d4336;
+		border-top: 2px solid #0c0904;
+		background-color: rgba(20, 16, 10, 0.98);
+		background-image: url('/osrs/tile-dark.png');
+		background-repeat: repeat;
+		box-shadow: inset 0 2px 0 rgba(217, 182, 94, 0.22);
 		padding: 1rem 0;
+		margin-top: 2rem;
 	}
 
 	.footer-row {
