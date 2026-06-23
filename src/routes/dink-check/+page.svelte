@@ -1,11 +1,27 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
+	import { enhance } from '$app/forms';
 	import { onMount } from 'svelte';
-	import type { PageData } from './$types';
+	import type { PageData, ActionData } from './$types';
 
-	let { data }: { data: PageData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	const working = $derived(data.drops.length > 0);
+
+	// After a rotate the action returns the fresh URL; otherwise use the loaded one.
+	const configUrl = $derived(form?.configUrl ?? data.configUrl);
+
+	let copied = $state(false);
+	async function copy() {
+		if (!configUrl) return;
+		try {
+			await navigator.clipboard.writeText(configUrl);
+			copied = true;
+			setTimeout(() => (copied = false), 1500);
+		} catch {
+			copied = false;
+		}
+	}
 
 	// Poll the server every 10s so a drop shows up shortly after it happens — no manual
 	// refresh needed while the player is killing something to test their setup.
@@ -42,6 +58,33 @@
 		credit you — no screenshots needed.
 	</p>
 
+	<div class="card url-card">
+		<h3>Your personal Dink config URL</h3>
+		<p class="muted small">
+			Paste this into RuneLite → <strong>Dink</strong> plugin → <strong>Advanced Settings</strong> →
+			<strong>Dynamic Config URL</strong>. It's tied to your account — <strong>don't share it</strong>.
+			If it ever leaks, rotate it below and the old link stops working.
+		</p>
+		{#if configUrl}
+			<div class="url-row">
+				<code class="url">{configUrl}</code>
+				<button type="button" class="copy" onclick={copy}>{copied ? '✓ Copied' : 'Copy'}</button>
+			</div>
+			<div class="url-actions">
+				<form method="POST" action="?/rotate" use:enhance>
+					<button type="submit" class="rotate">Rotate link</button>
+				</form>
+				<span class="muted small">Rotating revokes the current link and issues a new one.</span>
+			</div>
+		{:else}
+			<p class="warn">
+				⚠ The proxy URL isn't configured on the site yet (<code>PROXY_BASE_URL</code>), so your link can't
+				be shown here. Use the Discord <strong>/dink</strong> command for now.
+			</p>
+		{/if}
+		{#if form?.error}<p class="warn">{form.error}</p>{/if}
+	</div>
+
 	<div class="status" class:good={working} class:wait={!working}>
 		{#if working}
 			<div class="status-icon">✓</div>
@@ -63,8 +106,9 @@
 		<ol>
 			<li>Install <strong>RuneLite</strong> and enable the <strong>Dink</strong> plugin.</li>
 			<li>
-				Make sure your Dink <em>Primary webhook URL</em> is set to the clan proxy URL an admin gave you
-				(it should be the only URL in that box).
+				Paste your personal config URL (above) into Dink → Advanced Settings →
+				<strong>Dynamic Config URL</strong>. That's all the wiring it needs — the webhooks come from
+				the config itself.
 			</li>
 			<li>
 				Log in to OSRS on <strong>{data.rsn}</strong> and get any easy drop —
@@ -145,4 +189,11 @@
 	.item { font-family: var(--font-heading); color: var(--accent); }
 	.ev { font-size: 0.78rem; padding: 0.05rem 0.4rem; border-radius: 999px; border: 1px solid var(--border); }
 	.time { margin-left: auto; font-size: 0.85rem; }
+	.url-card .url-row { display: flex; gap: 0.5rem; align-items: stretch; margin: 0.6rem 0 0; flex-wrap: wrap; }
+	.url { flex: 1; min-width: 14rem; padding: 0.5rem 0.7rem; background: var(--surface-alt); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; white-space: nowrap; font-size: 0.85rem; color: var(--text); }
+	.copy { white-space: nowrap; }
+	.url-actions { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.6rem; flex-wrap: wrap; }
+	.rotate { border-color: var(--yellow); color: var(--yellow); }
+	.rotate:hover { background: var(--surface-alt); }
+	.warn { color: var(--yellow); margin: 0.6rem 0 0; }
 </style>

@@ -54,6 +54,32 @@ to the rest of the bingo code.
 
 ---
 
+## Per-user config URLs (Dink tokens)
+
+Each member uses a **personal** Dink config URL — `${PROXY_BASE_URL}/config/<token>` —
+pasted into RuneLite → Dink → Advanced Settings → **Dynamic Config URL**. The token
+identifies the link and can be **revoked or rotated** at any time.
+
+Tokens live in the `dink_tokens` table (`token`, `discord_id`, `created_at`,
+`revoked_at`) and are minted in two equivalent places:
+
+- **Discord bot** (`volition-discord-bot`) — the `/dink` command (mint / fetch) and
+  `/dink-revoke` (admin), with auto-revoke when a member leaves the clan.
+- **Site** (`src/lib/server/dinkTokens.ts`) — every member can get/copy/**rotate**
+  their link at **`/dink-check`**; admins can revoke any member's token from the
+  **Dink Drop Simulator** admin page (`/admin/dink-test`).
+
+Both write the same table (keyed by Discord id, so a member has one active token
+whichever way they got it). The **proxy validates an incoming token against the union
+of** the active `dink_tokens` rows **and** its legacy `VALID_TOKENS` secret, cached for
+`TOKENS_TTL_MS`. So a token minted on the site works without any Cloudflare API call,
+and a revoke/rotate takes effect within the cache TTL.
+
+> Site env: set `PROXY_BASE_URL` (e.g. `https://dink-proxy.<account>.workers.dev`) so
+> the site can show the full config URL. Without it, members fall back to `/dink`.
+
+---
+
 ## Creating an event (admin)
 
 1. Go to **`/admin/events`** → **"Create from template"**. Enter a name, pick a

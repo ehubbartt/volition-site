@@ -66,7 +66,7 @@
 				<div class="box runelite"><div class="t">🎮 RuneLite + Dink</div>
 					<div class="d">Player gets a drop. Dink fires a <b>LOOT</b> notification to its configured webhook (the proxy).</div></div>
 				<div class="box proxy"><div class="t">⚙️ Proxy serves config <span class="tag">/config/&lt;token&gt;</span></div>
-					<div class="d">Injects the active events' tracked-item names into Dink's <b>loot allowlist</b>, so those items are sent regardless of value (<code>minLootValue</code> stays 3M — no firehose).</div></div>
+					<div class="d">Each member pastes their <b>personal</b> config URL (from the Discord <code>/dink</code> command or the site's <code>/dink-check</code>) into Dink's <b>Dynamic Config URL</b>. The token is validated against <code>dink_tokens</code> (∪ <code>VALID_TOKENS</code>) and is <b>revocable/rotatable</b>. The served config also injects the active events' tracked-item names into Dink's <b>loot allowlist</b>, so those items are sent regardless of value (<code>minLootValue</code> stays 3M — no firehose).</div></div>
 			</div>
 
 			<div class="arrow">⬇<small>POST /hook/&lt;token&gt;/achievements</small></div>
@@ -116,7 +116,8 @@
 				<li><b>Site env:</b> set <code>DINK_PROCESS_SECRET</code> (guards <code>/api/dink/process</code>). <span class="where">site environment</span></li>
 				<li><b>Proxy secrets:</b> <code>wrangler secret put SUPABASE_KEY</code> + set <code>SUPABASE_URL</code> var. <span class="where">Cloudflare</span></li>
 				<li><b>Deploy the proxy</b> — <code>npx wrangler deploy</code> (this is what makes <code>/admin/config</code> edits + allowlist injection actually take effect). <span class="where">Cloudflare</span></li>
-				<li><b>Rotate the leaked Discord webhook</b> and update <code>WEBHOOK_ACHIEVEMENTS</code>; clean each member's Dink "Primary webhook URLs" to the single proxy URL. <span class="where">Discord + RuneLite</span></li>
+				<li><b>Rotate the leaked Discord webhook</b> and update <code>WEBHOOK_ACHIEVEMENTS</code>. Members should clear any manual Discord webhook from Dink and use only their <b>personal Dynamic Config URL</b> — the channel webhooks come from the served config, not from the member. <span class="where">Discord + RuneLite</span></li>
+				<li><b>Set <code>PROXY_BASE_URL</code> on the site</b> so <code>/dink-check</code> can show each member their personal config URL (mint/rotate). Tokens are validated against <code>dink_tokens</code> ∪ <code>VALID_TOKENS</code>, so site-minted links work with no Cloudflare API call. <span class="where">site environment</span></li>
 				<li><b>Schedule the consumer</b> (optional) — a cron hitting <code>POST /api/dink/process</code>; otherwise the board-load backstop covers it. <span class="where">cron / scheduler</span></li>
 			</ul>
 

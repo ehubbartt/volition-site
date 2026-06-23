@@ -1,6 +1,7 @@
-import { redirect } from '@sveltejs/kit';
+import { redirect, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import type { PageServerLoad } from './$types';
+import { getOrCreateToken, rotateToken, configUrlFor } from '$lib/server/dinkTokens';
+import type { Actions, PageServerLoad } from './$types';
 
 // Player-facing Dink self-test. Confirms a member's RuneLite → Dink → proxy → Supabase
 // pipeline is working WITHOUT needing a real event open: they check this page, go get any
@@ -53,8 +54,23 @@ export const load: PageServerLoad = async ({ locals }) => {
 		.eq('slug', SELF_TEST_SLUG)
 		.maybeSingle();
 
+	// The player's personal Dink config URL (mint one on first visit). Same token the
+	// Discord /dink command would hand out — keyed by Discord id.
+	let configUrl: string | null = null;
+	let proxyConfigured = true;
+	try {
+		const { token } = await getOrCreateToken(locals.user.discord_id);
+		configUrl = configUrlFor(token);
+		proxyConfigured = configUrl !== null;
+	} catch (e) {
+		console.warn('[dink-check] token mint failed:', e instanceof Error ? e.message : e);
+		proxyConfigured = false;
+	}
+
 	return {
 		rsn,
+		configUrl,
+		proxyConfigured,
 		windowMinutes: WINDOW_MS / 60000,
 		selfTestReady: !!selfTest && (selfTest as { status: string }).status === 'open',
 		selfTestSlug: SELF_TEST_SLUG,
@@ -68,4 +84,18 @@ export const load: PageServerLoad = async ({ locals }) => {
 			event_name: d.event_id ? eventNameById.get(d.event_id) ?? null : null
 		}))
 	};
+};
+
+export const actions: Actions = {
+	// Rotate the player's config link — the old URL stops working within the proxy's
+	// token-cache TTL. Use after a leak or just to invalidate a shared link.
+	rotate: async ({ locals }) => {
+		if (!locals.user) throw redirect(303, '/');
+		try {
+			const token = await rotateToken(locals.user.discord_id);
+			return { rotated: true, configUrl: configUrlFor(token) };
+		} catch (e) {
+			return fail(500, { error: e instanceof Error ? e.message : 'Could not rotate token' });
+		}
+	}
 };
