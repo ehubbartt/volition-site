@@ -6,8 +6,10 @@
 //
 // Sources:
 //   • Drop rates: pairofcrocs/drop-rates-clog  src/main/resources/com/dropratesclog/drop_rates.json
-//   • EHB rates (kills/hr): WiseOldMan  server/src/api/modules/efficiency/configs/ehb/main.ehb.ts
-//     (inlined in RATES below — refresh by hand if WOM updates them).
+//   • EHB rates (kills/hr): WiseOldMan  server/src/api/modules/efficiency/configs/ehb/ironman.ehb.ts
+//     (IRONMAN rates — inlined in RATES below; refresh by hand if WOM updates them).
+//   • Item id→name: 0xNeffarion/osrsreboxed-db items-summary (full map, so no item is
+//     dropped for a missing name).
 //
 // Run from the repo root:  node db/scripts/build_item_ehb.mjs
 // Requires network access to raw.githubusercontent.com.
@@ -16,28 +18,30 @@ import fs from 'node:fs';
 
 const DROP_RATES_URL =
 	'https://raw.githubusercontent.com/pairofcrocs/drop-rates-clog/master/src/main/resources/com/dropratesclog/drop_rates.json';
-const ITEMS_PATH = 'src/lib/server/data/osrsItems.json';
+const ITEMS_SUMMARY_URL =
+	'https://raw.githubusercontent.com/0xNeffarion/osrsreboxed-db/master/docs/items-summary.json';
 const OUT_PATH = 'src/lib/server/data/itemEhb.json';
 
-// WiseOldMan main-account EHB rates (kills/hr), keyed by the drop-rates-clog source
-// display name (lowercased). Chest/variant aliases included where they differ.
+// WiseOldMan IRONMAN EHB rates (kills/hr), keyed by the drop-rates-clog source
+// display name (lowercased). Chest/variant aliases included where they differ
+// (the matcher also strips one trailing "(...)", e.g. "Yama (Contract)" → "yama").
 const RATES = {
-	'abyssal sire': 50, 'alchemical hydra': 30, 'amoxliatl': 85, 'araxxor': 40, 'artio': 60,
-	'barrows': 22, 'chest (barrows)': 22, 'bryophyta': 9, 'callisto': 142, "calvar'ion": 55,
-	'cerberus': 65, 'chambers of xeric': 3.5, 'chaos elemental': 120, 'chaos fanatic': 100,
-	'commander zilyana': 60, 'corporeal beast': 60, 'crazy archaeologist': 75,
-	'dagannoth prime': 105, 'dagannoth rex': 105, 'dagannoth supreme': 105,
-	'deranged archaeologist': 80, 'doom of mokhaiotl': 20, 'duke sucellus': 39,
-	'general graardor': 58, 'giant mole': 125, 'grotesque guardians': 37, 'hespori': 60,
-	'kalphite queen': 55, 'king black dragon': 130, 'kraken': 100, "kree'arra": 40,
-	"k'ril tsutsaroth": 65, 'lunar chest': 18, 'lunar chests': 18, 'mimic': 60, 'nex': 23.5,
-	'the nightmare': 14, 'obor': 12, 'phantom muspah': 30, "phosani's nightmare": 9.6,
-	'sarachnis': 110, 'scorpia': 130, 'scurrius': 70, 'shellbane gryphon': 95, 'skotizo': 45,
-	'sol heredit': 2.7, 'spindel': 55, 'the hueycoatl': 20, 'the leviathan': 31,
-	'the royal titans': 55, 'the whisperer': 22, 'theatre of blood': 3.2,
-	'thermonuclear smoke devil': 150, 'tombs of amascut': 3.7, 'chest (tombs of amascut)': 3.7,
-	'tzkal-zuk': 1, 'tztok-jad': 2.5, 'vardorvis': 39, 'venenatis': 80, "vet'ion": 50,
-	'vorkath': 34, 'yama': 18, 'zulrah': 46,
+	'abyssal sire': 44, 'alchemical hydra': 29, 'amoxliatl': 71, 'araxxor': 38, 'artio': 50,
+	'barrows': 22, 'chest (barrows)': 22, 'bryophyta': 9, 'callisto': 142, "calvar'ion": 45,
+	'cerberus': 54, 'chambers of xeric': 3.5, 'chaos elemental': 48, 'chaos fanatic': 80,
+	'commander zilyana': 30, 'corporeal beast': 10, 'crazy archaeologist': 95,
+	'dagannoth prime': 100, 'dagannoth rex': 100, 'dagannoth supreme': 100,
+	'deranged archaeologist': 95, 'doom of mokhaiotl': 18, 'duke sucellus': 37,
+	'general graardor': 31, 'giant mole': 97, 'grotesque guardians': 34, 'hespori': 50,
+	'kalphite queen': 37, 'king black dragon': 75, 'kraken': 90, "kree'arra": 30,
+	"k'ril tsutsaroth": 32, 'lunar chest': 18, 'lunar chests': 18, 'mimic': 50, 'nex': 20,
+	'the nightmare': 11, 'obor': 12, 'phantom muspah': 27, "phosani's nightmare": 9.3,
+	'sarachnis': 67, 'scorpia': 80, 'scurrius': 60, 'shellbane gryphon': 95, 'skotizo': 38,
+	'sol heredit': 2.7, 'rewards chest (fortis colosseum)': 2.7, 'spindel': 50,
+	'the hueycoatl': 20, 'the leviathan': 27, 'the royal titans': 55, 'the whisperer': 21,
+	'theatre of blood': 3.2, 'thermonuclear smoke devil': 100, 'tombs of amascut': 3.7,
+	'chest (tombs of amascut)': 3.7, 'tzkal-zuk': 1, 'tztok-jad': 2.2, 'vardorvis': 37,
+	'venenatis': 80, "vet'ion": 39, 'vorkath': 34, 'yama': 18, 'zulrah': 42,
 	'reward chest (the gauntlet) (regular)': 10, 'reward chest (the gauntlet) (corrupted)': 7.2
 };
 
@@ -67,8 +71,9 @@ function expectedKills(rate) {
 }
 
 const dropRates = await (await fetch(DROP_RATES_URL)).json();
-const items = JSON.parse(fs.readFileSync(ITEMS_PATH, 'utf8'));
-const nameById = new Map(items.map((i) => [i.id, i.name]));
+const summary = await (await fetch(ITEMS_SUMMARY_URL)).json();
+// items-summary is keyed by id → { id, name, ... }; build a full id→name map.
+const nameById = new Map(Object.values(summary).map((i) => [i.id, i.name]));
 
 const out = [];
 for (const [id, entries] of Object.entries(dropRates)) {

@@ -101,29 +101,30 @@
 		list-style: none;
 		max-height: 220px;
 		overflow-y: auto;
-		background: #0f0d0a;
-		border: 1px solid #342c20;
-		border-radius: 6px;
-		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		box-shadow: var(--shadow-card);
 	}
 	.ac-list button {
 		display: flex;
 		justify-content: space-between;
 		gap: 0.5rem;
 		width: 100%;
+		min-height: 0;
 		text-align: left;
 		background: none;
 		border: none;
-		color: #eee;
-		padding: 0.35rem 0.55rem;
-		cursor: pointer;
-		font: inherit;
+		border-radius: 0;
+		color: var(--text);
+		padding: 0.4rem 0.6rem;
 	}
 	.ac-list button:hover {
-		background: #2a241c;
+		background: var(--accent-soft);
+		border-color: transparent;
 	}
 	.ac-list .id {
-		color: #8a7a5c;
+		color: var(--muted);
 		font-size: 0.78rem;
 	}
 	.id-out {
