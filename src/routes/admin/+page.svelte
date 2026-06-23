@@ -49,6 +49,12 @@
 			title: 'Database',
 			desc: 'Bot config, any database table, and player card inventories. Super-admins only.',
 			show: data.superAdmin
+		},
+		{
+			href: '/admin/ehb',
+			title: 'EHB Drop Tool 🧪',
+			desc: 'Experimental: look up an item’s drop rate & EHB cost, or find drops matching an EHB target. (Temporary.)',
+			show: data.admin
 		}
 	]);
 
