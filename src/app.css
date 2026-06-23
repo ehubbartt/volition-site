@@ -192,8 +192,8 @@ textarea:focus {
 button {
 	/* OSRS-style button: a bronze beveled frame (border-image) over a tan fill. */
 	background: #4d4336;
-	border: 10px solid transparent;
-	border-image: url('/osrs/button.png') 10 / 10px stretch;
+	border: 9px solid transparent;
+	border-image: url('/osrs/button.png') 9 / 9px stretch;
 	border-radius: 5px;
 	color: var(--accent);
 	font-weight: normal;
@@ -248,12 +248,11 @@ strong,
 
 /* ──────────────────────────────────────────────────────────────────────────
    OSRS interface layer
-   In-game-style framing: the gold border + bronze button + brown stone tiles
-   in static/osrs/ are original textures generated for this repo (not game
-   assets), applied with CSS `border-image` the way the RuneScape client frames
-   its interfaces. The .osrs-* classes are the building blocks; base button/input
-   pick the look up automatically so the whole site reads OSRS without per-page
-   rewrites.
+   In-game framing: the gold border + bronze button + brown stone tiles in
+   static/osrs/ are the Old School RuneScape interface sprites, applied with CSS
+   `border-image` the way the game client / RuneLite frame their interfaces. The
+   .osrs-* classes are the building blocks; base button/input pick the look up
+   automatically so the whole site reads OSRS without per-page rewrites.
    ────────────────────────────────────────────────────────────────────────── */
 
 :root {
