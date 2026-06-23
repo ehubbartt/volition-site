@@ -465,7 +465,7 @@
 		font-size: 0.8rem;
 		background: var(--surface-alt);
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: 3px;
 		color: var(--muted);
 		cursor: pointer;
 	}

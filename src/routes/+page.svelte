@@ -988,7 +988,7 @@
 		text-align: center;
 		color: #1a1208;
 		background: var(--accent);
-		border-radius: 999px;
+		border-radius: 3px;
 		text-shadow: none;
 	}
 

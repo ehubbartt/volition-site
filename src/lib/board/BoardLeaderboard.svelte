@@ -147,7 +147,7 @@
 		font-size: 0.72rem;
 		background: transparent;
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: 4px;
 		color: var(--muted);
 		cursor: pointer;
 	}

@@ -745,7 +745,7 @@
 		letter-spacing: 0.06em;
 		color: var(--accent);
 		border: 1px solid rgba(255, 152, 31, 0.5);
-		border-radius: 999px;
+		border-radius: 3px;
 		padding: 0.05rem 0.4rem;
 		vertical-align: middle;
 	}
