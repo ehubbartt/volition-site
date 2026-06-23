@@ -45,9 +45,10 @@
 		(cheapest source per item). Clue/skilling-only drops are excluded (no EHB rate).
 	</p>
 	<p class="muted small">
-		⚠ Raid uniques (CoX/ToB) list a share of the <em>purple</em> table, so EHB also factors an
-		assumed per-raid purple rate (CoX ≈ 1/28.7, ToB ≈ 1/9.1) — points/invocation-dependent, so
-		treat raid numbers as approximate.
+		⚠ Approximate where mechanics aren't a flat per-kill rate: raid uniques (CoX/ToB) factor an
+		assumed per-raid purple rate (CoX ≈ 1/28.7, ToB ≈ 1/9.1, points/invocation-dependent), and
+		<strong>Doom of Mokhaiotl</strong> rates vary by floor while EHB counts only floor-8 clears —
+		so Doom numbers are rough pending proper per-floor modelling.
 	</p>
 
 	<div class="grid">

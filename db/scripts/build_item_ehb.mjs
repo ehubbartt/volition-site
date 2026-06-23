@@ -63,12 +63,18 @@ const PURPLE_RATE = {
 
 const norm = (s) => s.toLowerCase().trim();
 
+// Sources that are NOT the boss kill (alternate acquisition / sub-rolls): contracts,
+// lockboxes, dossiers, Nightmare Zone versions, etc. Excluded so an item is costed by
+// its real boss drop (e.g. Oathplate helm = 1/600 @ Yama, not "Always @ Yama (Contract)").
+const EXCLUDE_SOURCE = /contract|lockbox|dossier|reward pool|infected root|nightmare zone/i;
+
 function purpleFactor(src) {
 	const r = PURPLE_RATE[norm(src)];
 	return r ? 1 / r : 1;
 }
 
 function rateForSource(src) {
+	if (EXCLUDE_SOURCE.test(src)) return null;
 	const n = norm(src);
 	if (RATES[n] != null) return RATES[n];
 	const stripped = n.replace(/\s*\([^()]*\)\s*$/, '').trim(); // "Yama (Contract)" → "yama"
