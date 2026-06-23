@@ -70,7 +70,7 @@
 		top: 0;
 		z-index: 50;
 		border-bottom: 2px solid #0c0904;
-		background-color: rgba(20, 16, 10, 0.92);
+		background-color: rgba(20, 16, 10, 0.98);
 		background-image: url('/osrs/tile-dark.png');
 		background-repeat: repeat;
 		box-shadow:
@@ -212,7 +212,7 @@
 
 	footer {
 		border-top: 2px solid #0c0904;
-		background-color: rgba(20, 16, 10, 0.7);
+		background-color: rgba(20, 16, 10, 0.98);
 		background-image: url('/osrs/tile-dark.png');
 		background-repeat: repeat;
 		box-shadow: inset 0 2px 0 rgba(217, 182, 94, 0.22);
