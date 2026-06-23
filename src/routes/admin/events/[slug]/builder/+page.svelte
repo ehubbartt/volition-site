@@ -83,6 +83,7 @@
 					</label>
 				{/each}
 			</div>
+			<p class="muted note">Saving rebuilds the tile grid to match — adds blank tiles for new rows/bonus and removes tiles that no longer fit. Existing tile content is kept.</p>
 			<button type="submit" class="primary">Save structure</button>
 		</form>
 	</div>
@@ -167,8 +168,12 @@
 	h3 { margin: 1rem 0 0.4rem; font-size: 0.95rem; color: #cdb78f; }
 	h4 { margin: 0.6rem 0 0.3rem; font-size: 0.82rem; color: #9a9a9a; }
 	label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.82rem; margin: 0.4rem 0; }
-	label.check { flex-direction: row; align-items: center; gap: 0.4rem; }
+	label.check { flex-direction: row; align-items: center; gap: 0.5rem; }
 	input, select, textarea { background: #0f0d0a; border: 1px solid #342c20; color: #eee; border-radius: 6px; padding: 0.4rem 0.5rem; font: inherit; }
+	/* Checkboxes must not inherit the text-input box sizing (padding/border made the
+	   control resize on toggle, jiggling the adjacent label). */
+	input[type='checkbox'] { width: 1rem; height: 1rem; flex: 0 0 auto; padding: 0; border-radius: 3px; accent-color: var(--accent); }
+	.note { margin: 0.2rem 0 0; font-size: 0.78rem; }
 	.struct .tier-points { display: flex; flex-wrap: wrap; gap: 0.6rem; }
 	.struct .tier-points label { width: 120px; }
 	.two { display: flex; gap: 0.6rem; }
