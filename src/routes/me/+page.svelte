@@ -9,6 +9,7 @@
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
 	import { rsnToSlug } from '$lib/rsn';
+	import { itemIconUrl } from '$lib/osrsItems';
 	import { rankLabel, rankColor, rankImg } from '$lib/ranks';
 	import { formatGP } from '$lib/gp';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
@@ -238,30 +239,31 @@
 						{/each}
 					</div>
 
-					{#if rank.gearDetail}
-						<details class="gear-detail">
-							<summary>
-								Gear pieces · {rank.gearDetail.matchedItems.length} earned, {rank.gearDetail.missedItems
-									.length} missing
-							</summary>
-							{#if rank.gearDetail.matchedItems.length}
-								<ul class="gear-list">
-									{#each [...rank.gearDetail.matchedItems].sort((a, b) => b.earned - a.earned) as g (g.name)}
-										<li>
-											<span class="g-name">{g.name}</span>
-											<span class="g-pts">{g.earned}/{g.max}</span>
-										</li>
+					{#if rank.gearGrid.length}
+						<details class="gear-detail" open>
+							<summary>Gear pieces · {rank.gearOwned} / {rank.gearTotal} earned</summary>
+							{#each rank.gearGrid as group (group.tier)}
+								<p class="tier-head muted">{group.label}</p>
+								<div class="gear-grid">
+									{#each group.pieces as p (p.name)}
+										<div class="gtile" class:owned={p.owned} title={p.name}>
+											<div class="gtile-img">
+												{#if p.iconItem}
+													<img
+														src={itemIconUrl(p.iconItem)}
+														alt={p.name}
+														loading="lazy"
+														referrerpolicy="no-referrer"
+														onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
+													/>
+												{/if}
+											</div>
+											<span class="gtile-name">{p.name}</span>
+											<span class="gtile-pts">{p.owned ? `${p.earned}/${p.max}` : p.max}</span>
+										</div>
 									{/each}
-								</ul>
-							{/if}
-							{#if rank.gearDetail.missedItems.length}
-								<p class="missed-head muted small">Not yet earned</p>
-								<ul class="missed-list">
-									{#each rank.gearDetail.missedItems as m (m)}
-										<li>{m}</li>
-									{/each}
-								</ul>
-							{/if}
+								</div>
+							{/each}
 						</details>
 					{/if}
 
@@ -1052,52 +1054,68 @@
 		font-size: 0.9rem;
 		color: var(--text);
 	}
-	.gear-list {
-		list-style: none;
-		padding: 0;
-		margin: 0.75rem 0 0;
+	.tier-head {
+		margin: 1rem 0 0.5rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		font-size: 0.72rem;
+	}
+	.gear-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
-		gap: 0.3rem 1rem;
-	}
-	.gear-list li {
-		display: flex;
-		align-items: baseline;
-		justify-content: space-between;
+		grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
 		gap: 0.5rem;
-		font-size: 0.82rem;
-		padding: 0.2rem 0;
-		border-bottom: 1px dotted var(--border);
 	}
-	.g-name {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.g-pts {
-		color: var(--accent);
-		font-size: 0.78rem;
-		flex-shrink: 0;
-	}
-	.missed-head {
-		margin: 0.9rem 0 0.35rem;
-	}
-	.missed-list {
-		list-style: none;
-		padding: 0;
-		margin: 0;
+	.gtile {
 		display: flex;
-		flex-wrap: wrap;
-		gap: 0.3rem;
-	}
-	.missed-list li {
-		padding: 0.15rem 0.5rem;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		gap: 0.2rem;
+		padding: 0.5rem 0.25rem;
 		background: var(--surface);
 		border: 1px solid var(--border);
-		border-radius: 999px;
-		font-size: 0.74rem;
+		border-radius: var(--radius);
+		opacity: 0.32;
+		filter: grayscale(1);
+	}
+	.gtile.owned {
+		opacity: 1;
+		filter: none;
+		border-color: var(--border-strong);
+	}
+	.gtile-img {
+		height: 34px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.gtile-img img {
+		max-width: 42px;
+		max-height: 34px;
+		object-fit: contain;
+	}
+	.gtile-name {
+		font-size: 0.66rem;
+		line-height: 1.15;
 		color: var(--muted);
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+	}
+	.gtile.owned .gtile-name {
+		color: var(--text);
+	}
+	.gtile-pts {
+		font-size: 0.66rem;
+		color: var(--muted);
+	}
+	.gtile.owned .gtile-pts {
+		color: var(--accent);
+		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
 	}
 
 	/* Combat achievements summary */

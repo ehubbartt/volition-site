@@ -13,11 +13,71 @@ import {
 	computeScores,
 	determineProjectedRank,
 	describeComposite,
+	getGearCatalog,
 	GEAR_SCORE_CAP,
 	CA_MAX_POINTS
 } from '$lib/server/rankScoring';
 import type { RankValue } from '$lib/ranks';
 import type { Actions, PageServerLoad } from './$types';
+
+// Gear tiers ordered for the collection-log grid (top gear leads); labels for headers.
+const GEAR_TIER_ORDER = ['end', 'middle', 'low', 'side'];
+const GEAR_TIER_LABEL: Record<string, string> = {
+	end: 'End-game',
+	middle: 'Mid tier',
+	low: 'Low tier',
+	side: 'Side grades'
+};
+
+interface GearPiece {
+	name: string;
+	iconItem: string | null;
+	earned: number;
+	max: number;
+	owned: boolean;
+}
+interface GearTierGroup {
+	tier: string;
+	label: string;
+	pieces: GearPiece[];
+}
+
+// Merge the static gear catalog (every piece + tier + representative icon item) with the
+// cached row's earned points, so the grid shows ALL pieces — owned in colour, missing
+// dimmed — grouped by tier. Works off whatever gear_detail is cached (empty → all missing).
+function buildGearGrid(detail: GearDetail | null): { grid: GearTierGroup[]; owned: number; total: number } {
+	const earned = new Map<string, number>();
+	if (detail) for (const m of detail.matchedItems) earned.set(m.name, m.earned);
+
+	const groups = new Map<string, GearTierGroup>();
+	let owned = 0;
+	const catalog = getGearCatalog();
+	for (const entry of catalog) {
+		const got = earned.get(entry.name) ?? 0;
+		if (got > 0) owned++;
+		let group = groups.get(entry.tier);
+		if (!group) {
+			group = { tier: entry.tier, label: GEAR_TIER_LABEL[entry.tier] ?? entry.tier, pieces: [] };
+			groups.set(entry.tier, group);
+		}
+		group.pieces.push({
+			name: entry.name,
+			iconItem: entry.iconItem,
+			earned: got,
+			max: entry.points,
+			owned: got > 0
+		});
+	}
+
+	const ordered = [
+		...GEAR_TIER_ORDER.filter((t) => groups.has(t)).map((t) => groups.get(t)!),
+		...[...groups.values()].filter((g) => !GEAR_TIER_ORDER.includes(g.tier))
+	];
+	for (const g of ordered) {
+		g.pieces.sort((a, b) => Number(b.owned) - Number(a.owned) || b.max - a.max);
+	}
+	return { grid: ordered, owned, total: catalog.length };
+}
 
 // The subset of the vs_rank_sim cache row the Rank tab renders from. Populated by
 // the member's own "Check my rank" and by the admin rank-sim refresh.
@@ -71,11 +131,15 @@ function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
 		cap: rawByKey[c.key].cap
 	}));
 
+	const gear = buildGearGrid(row.gear_detail);
+
 	return {
 		rank: determineProjectedRank(scores.composite, config) as RankValue,
 		composite: scores.composite,
 		components,
-		gearDetail: row.gear_detail,
+		gearGrid: gear.grid,
+		gearOwned: gear.owned,
+		gearTotal: gear.total,
 		caDetail: row.ca_detail,
 		templeAvailable: row.temple_available,
 		wikisyncAvailable: row.wikisync_available,
