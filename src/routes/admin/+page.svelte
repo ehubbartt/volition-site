@@ -49,6 +49,12 @@
 			title: 'Database',
 			desc: 'Bot config, any database table, and player card inventories. Super-admins only.',
 			show: data.superAdmin
+		},
+		{
+			href: '/admin/admins',
+			title: 'Admin Access',
+			desc: 'Grant or revoke who has admin access to the website. Super-admins only.',
+			show: data.superAdmin
 		}
 	]);
 

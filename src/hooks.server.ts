@@ -2,6 +2,7 @@ import type { Handle } from '@sveltejs/kit';
 import { env } from '$env/dynamic/public';
 import { env as serverEnv } from '$env/dynamic/private';
 import { readSession } from '$lib/server/auth';
+import { ensureFreshAdminRoles } from '$lib/server/adminRoles';
 import { getBan } from '$lib/server/bans';
 import { shouldAudit, capturePayload, captureBeforeState, logAudit } from '$lib/server/audit';
 
@@ -48,6 +49,18 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const session = await readSession(event.cookies);
 	event.locals.user = session?.user ?? null;
 	event.locals.sessionId = session?.sessionId ?? null;
+
+	// Refresh the DB-granted admin role cache (vs_admin_roles) before any permission
+	// check. TTL-guarded so this is a cheap no-op on most requests. Only needed when a
+	// user is logged in — anonymous requests never hit an isAdmin() gate. Best-effort:
+	// a failure keeps the last good cache (env admins/owners still work).
+	if (session?.user) {
+		try {
+			await ensureFreshAdminRoles();
+		} catch {
+			/* fail-open for env roles; DB grants simply won't apply this request */
+		}
+	}
 
 	// Banned users (the bot's `bans` table, keyed by Discord id) can't use the site.
 	// Send every authenticated request to /banned — except the /banned page itself,
