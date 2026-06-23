@@ -66,6 +66,24 @@
 			href: '/admin/overview',
 			title: 'Bot Overview',
 			desc: 'Read-only snapshot of current bot config and who has admin access.',
+			show: data.superAdmin
+		},
+		{
+			href: '/admin/ehb',
+			title: 'EHB Drop Tool 🧪',
+			desc: 'Experimental: look up an item’s drop rate & EHB cost, or find drops matching an EHB target. (Temporary.)',
+			show: data.admin
+		},
+		{
+			href: '/admin/dink-test',
+			title: 'Dink Drop Simulator 🧪',
+			desc: 'Test event auto-tracking: dry-run or simulate a drop end-to-end without opening a real event.',
+			show: data.admin
+		},
+		{
+			href: '/admin/dink-drops',
+			title: 'Dink Drops 🔎',
+			desc: 'Incoming matched drops with the consumer’s verdict — debug “why didn’t I get credit?”, reprocess, or un-credit.',
 			show: data.admin
 		}
 	]);
