@@ -168,7 +168,7 @@
 
 <section class="layout">
 	<div class="board-wrap">
-		<div class="board" role="grid" aria-label="Bingo board">
+		<div class="board" class:no-bonus={!data.bonusEnabled} role="grid" aria-label="Bingo board">
 			<div class="cell-header"></div>
 			{#each mainTierHeaders as t (t.key)}
 				<div class="cell-header tier-header" style="--tier-color: {t.color}">
@@ -176,11 +176,13 @@
 					<div class="tier-name" style="background: {t.color}">{t.label}</div>
 				</div>
 			{/each}
-			<div class="cell-gap"></div>
-			<div class="cell-header tier-header" style="--tier-color: #ff981f">
-				<div class="pts">{TIERS[4].points} pts</div>
-				<div class="tier-name bonus" style="background: #ff981f">Bonus</div>
-			</div>
+			{#if data.bonusEnabled}
+				<div class="cell-gap"></div>
+				<div class="cell-header tier-header" style="--tier-color: #ff981f">
+					<div class="pts">{TIERS[4].points} pts</div>
+					<div class="tier-name bonus" style="background: #ff981f">Bonus</div>
+				</div>
+			{/if}
 
 			{#each rowNumbers as r (r)}
 				<div class="row-number">{r}</div>
@@ -192,15 +194,17 @@
 						onclick={() => openModal(tile.id)}
 					/>
 				{/each}
-				<div class="cell-gap"></div>
-				{@const bonus = bonusTiles[r - 1]}
-				{#if bonus}
-					<TileCell
-						tile={bonus}
-						status={getStatus(bonus.id)}
-						myStatus={myStatusFor(bonus.id)}
-						onclick={() => openModal(bonus.id)}
-					/>
+				{#if data.bonusEnabled}
+					<div class="cell-gap"></div>
+					{@const bonus = bonusTiles[r - 1]}
+					{#if bonus}
+						<TileCell
+							tile={bonus}
+							status={getStatus(bonus.id)}
+							myStatus={myStatusFor(bonus.id)}
+							onclick={() => openModal(bonus.id)}
+						/>
+					{/if}
 				{/if}
 			{/each}
 		</div>
@@ -386,12 +390,21 @@
 		border-radius: var(--radius);
 	}
 
+	/* Bonus column disabled → drop the gap + bonus tracks. */
+	.board.no-bonus {
+		grid-template-columns: 1.6rem repeat(4, minmax(7.5rem, 1fr));
+		min-width: 30rem;
+	}
+
 	@media (max-width: 720px) {
 		.board {
 			grid-template-columns: 1.2rem repeat(4, 1fr) 0.3rem 1fr;
 			gap: 0.3rem;
 			min-width: 0;
 			padding: 0.3rem;
+		}
+		.board.no-bonus {
+			grid-template-columns: 1.2rem repeat(4, 1fr);
 		}
 	}
 
@@ -400,6 +413,9 @@
 			grid-template-columns: 0.9rem repeat(4, 1fr) 0.2rem 1fr;
 			gap: 0.22rem;
 			padding: 0.22rem;
+		}
+		.board.no-bonus {
+			grid-template-columns: 0.9rem repeat(4, 1fr);
 		}
 	}
 

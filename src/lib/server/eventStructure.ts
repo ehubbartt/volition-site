@@ -49,18 +49,23 @@ export interface EventBoard {
 	getDetails: (tileId: string) => string | null;
 }
 
-// Build the BingoTile[] + details lookup for the built-in Echo Rumors template
-// straight from the hardcoded code (the source of truth until an admin edits it).
-function builtinEchoRumorsTiles(): EventTileRow[] {
-	return BINGO_TILES.map((t) => ({
-		tile_id: t.id,
-		row: t.row,
-		tier: t.tier,
-		name: t.name,
-		points: t.points,
-		details_md: getTileDetails(t.id),
-		img: null
-	}));
+// Generate a BLANK grid of tiles for a structure: one empty tile per
+// (row × main column) plus a bonus tile per row when the bonus column is on.
+// Names/details are empty — a cloned template gives admins an empty board of the
+// right shape to fill in, NOT the content of a past bingo.
+export function generateBlankTiles(structure: BingoStructure): EventTileRow[] {
+	const out: EventTileRow[] = [];
+	const mainTiers = structure.tiers.filter((t) => t.key !== 'bonus');
+	const bonusTier = structure.tiers.find((t) => t.key === 'bonus');
+	for (let r = 1; r <= structure.rowCount; r++) {
+		for (const t of mainTiers) {
+			out.push({ tile_id: `r${r}-${t.key}`, row: r, tier: t.key, name: '', points: t.points, details_md: null, img: null });
+		}
+		if (structure.bonusEnabled && bonusTier) {
+			out.push({ tile_id: `b${r}`, row: r, tier: 'bonus', name: '', points: bonusTier.points, details_md: null, img: null });
+		}
+	}
+	return out;
 }
 
 // Registry of built-in, clonable templates. Tile content for built-ins is
@@ -70,10 +75,11 @@ const BUILTIN_TEMPLATES: Record<
 	{ name: string; kind: string; structure: BingoStructure; tiles: () => EventTileRow[] }
 > = {
 	[BINGO_EVENT_SLUG]: {
-		name: 'Echo Rumors (bingo)',
+		name: 'Blank bingo (Echo Rumors shape)',
 		kind: 'bingo',
 		structure: DEFAULT_BINGO_STRUCTURE,
-		tiles: builtinEchoRumorsTiles
+		// Blank grid of the default shape — admins fill in the tiles themselves.
+		tiles: () => generateBlankTiles(DEFAULT_BINGO_STRUCTURE)
 	}
 };
 
@@ -195,11 +201,39 @@ export async function updateEventStructure(
 	eventId: string,
 	structure: BingoStructure
 ): Promise<{ ok: boolean; error?: string }> {
-	const { error } = await db()
-		.from('vs_events')
-		.update({ structure: normalizeBingoStructure(structure) })
-		.eq('id', eventId);
-	return error ? { ok: false, error: error.message } : { ok: true };
+	const normalized = normalizeBingoStructure(structure);
+	const { error } = await db().from('vs_events').update({ structure: normalized }).eq('id', eventId);
+	if (error) return { ok: false, error: error.message };
+	// Reconcile the tile grid to the new shape: add blank tiles for any new
+	// (row × column) or bonus cell, and delete tiles whose row/column no longer
+	// exists (e.g. bonus turned off, or rows reduced). Existing tile content is
+	// preserved — only missing/removed ids change.
+	await syncEventGrid(eventId, normalized);
+	return { ok: true };
+}
+
+// Ensure vs_event_tiles matches the structure's desired (row × column + bonus)
+// set: insert blanks for missing ids, delete ids no longer in the grid.
+export async function syncEventGrid(eventId: string, structure: BingoStructure): Promise<void> {
+	const desired = generateBlankTiles(structure);
+	const desiredIds = new Set(desired.map((d) => d.tile_id));
+
+	const { data: existing, error } = await db()
+		.from('vs_event_tiles')
+		.select('tile_id')
+		.eq('event_id', eventId);
+	if (error) return; // table missing / transient — skip silently
+	const existingIds = new Set((existing ?? []).map((r) => (r as { tile_id: string }).tile_id));
+
+	const toInsert = desired
+		.filter((d) => !existingIds.has(d.tile_id))
+		.map((d) => ({ event_id: eventId, ...d }));
+	if (toInsert.length) await db().from('vs_event_tiles').insert(toInsert);
+
+	const toDelete = [...existingIds].filter((id) => !desiredIds.has(id));
+	if (toDelete.length) {
+		await db().from('vs_event_tiles').delete().eq('event_id', eventId).in('tile_id', toDelete);
+	}
 }
 
 export interface SaveEventTileInput {
