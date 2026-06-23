@@ -430,6 +430,7 @@
 	}
 
 	.panel {
+		padding: 1.1rem 1.25rem;
 		animation: fade-in 0.2s ease-out;
 	}
 
