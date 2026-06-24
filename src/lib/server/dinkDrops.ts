@@ -44,7 +44,15 @@ const BATCH = 500;
 
 // Consumer verdict recorded on each drop (vs_dink_drops.outcome) so admins can see
 // why a drop did or didn't credit a tile.
-type Outcome = 'credited' | 'no_tile' | 'no_user' | 'timing' | 'duplicate' | 'partial' | 'reverted';
+type Outcome =
+	| 'credited'
+	| 'no_tile'
+	| 'no_user'
+	| 'timing'
+	| 'duplicate'
+	| 'partial'
+	| 'consumed' // a prior partial that has now been rolled into a completed collect-N tile
+	| 'reverted';
 
 // Resolve an RSN to a site user id (case-insensitive, mirrors clan.ts/users.ts).
 async function resolveUserId(rsn: string): Promise<string | null> {
@@ -190,7 +198,9 @@ export async function simulateDinkDrop(input: {
 		processed: false
 	});
 	if (error) return { ok: false, error: error.message, processed: 0, credited: 0 };
-	const res = await processDinkDrops();
+	// Suppress the public feed: an admin simulating a drop must never post a real
+	// bingo-credit announcement, even against an open event.
+	const res = await processDinkDrops({ suppressFeed: true });
 	return { ok: !res.error, error: res.error, processed: res.processed, credited: res.credited };
 }
 
@@ -227,9 +237,18 @@ export async function revertDinkCredit(dropId: number): Promise<{ ok: boolean; e
 		.eq('user_id', userId)
 		.eq('tile_id', matched.tile_id)
 		.eq('status', 'approved')
-		.like('review_note', 'Auto-tracked via Dink%');
+		.eq('source', 'dink'); // a real column, not a review_note text prefix
 	if (delErr) return { ok: false, error: delErr.message };
 	await sb.from('vs_dink_drops').update({ outcome: 'reverted' }).eq('id', dropId);
+	// Restore any partial drops that were rolled into this completion, so the player's
+	// collect-N progress isn't lost and a single new drop can't instantly re-credit.
+	await sb
+		.from('vs_dink_drops')
+		.update({ outcome: 'partial' })
+		.eq('event_id', row.event_id)
+		.eq('tile_id', matched.tile_id)
+		.ilike('rsn', rsnExactPattern(row.rsn))
+		.eq('outcome', 'consumed');
 	return { ok: true };
 }
 
@@ -240,7 +259,9 @@ export async function reprocessDinkDrop(dropId: number): Promise<{ processed: nu
 	return processDinkDrops();
 }
 
-export async function processDinkDrops(): Promise<{ processed: number; credited: number; error?: string }> {
+export async function processDinkDrops(
+	opts: { suppressFeed?: boolean } = {}
+): Promise<{ processed: number; credited: number; error?: string }> {
 	const sb = db();
 
 	const { data: drops, error } = await sb
@@ -289,6 +310,9 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 	const userIdByRsn = new Map<string, string | null>();
 	// Record a verdict per drop so the admin "why no credit?" view can explain it.
 	const outcomeById = new Map<number, Outcome>();
+	// The tile each drop was attributed to (persisted alongside the outcome) so a
+	// partial drop is scoped to its tile and a credit can mark its own partials consumed.
+	const tileIdByDrop = new Map<number, string>();
 	const feedPosts: { by: string; tileName: string; eventName: string; eventSlug: string; via: string | null }[] = [];
 	let credited = 0;
 
@@ -340,7 +364,7 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 		}
 
 		// Idempotent: skip if this player already has an approved completion for the tile.
-		const { data: existing } = await sb
+		const { data: existing, error: existErr } = await sb
 			.from('vs_bingo_completions')
 			.select('id')
 			.eq('event_id', drop.event_id)
@@ -348,37 +372,42 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 			.eq('tile_id', tileId)
 			.eq('status', 'approved')
 			.limit(1);
+		if (existErr) {
+			// Don't risk a double-credit on a flaky read — leave the drop unprocessed and
+			// log it; the unique index is the real backstop, but skipping is safest here.
+			console.error('[dink] dup-check failed for drop', drop.id, existErr.message);
+			continue;
+		}
 		if (existing && existing.length > 0) {
 			outcomeById.set(drop.id, 'duplicate');
+			tileIdByDrop.set(drop.id, tileId);
 			continue;
 		}
 
 		// Collect-N: a tile that needs more than one of an item only credits once the
-		// player's accumulated quantity reaches required_qty. Prior drops counted toward
-		// this same tile are marked 'partial'; we sum them plus this drop. Each drop is
-		// processed exactly once, so there's no double-counting.
+		// player's accumulated quantity reaches required_qty. Prior drops attributed to
+		// THIS tile are marked 'partial'; we sum those plus this drop. Scoping by tile_id
+		// (not just item) keeps two collect-N tiles tracking the same item from pooling.
 		const need = Math.max(1, matched.required_qty || 1);
+		const partialIds: number[] = [];
 		if (need > 1) {
-			const { data: priorPartials } = await sb
+			const { data: priorPartials, error: ppErr } = await sb
 				.from('vs_dink_drops')
-				.select('item_id, item_name, quantity')
+				.select('id, quantity')
 				.eq('event_id', drop.event_id)
+				.eq('tile_id', tileId)
 				.ilike('rsn', rsnExactPattern(drop.rsn))
 				.eq('outcome', 'partial');
-			// Count only prior partials of the SAME item (id match, else name) so two
-			// different collect-N tiles for one player don't pool their progress.
-			const matchedNameLc = matched.item_name.toLowerCase();
+			if (ppErr) console.error('[dink] partial-sum read failed for drop', drop.id, ppErr.message);
 			let priorQty = 0;
-			for (const p of (priorPartials ?? []) as { item_id: number | null; item_name: string | null; quantity: number }[]) {
-				const sameItem =
-					matched.item_id != null
-						? p.item_id === matched.item_id
-						: (p.item_name ?? '').toLowerCase() === matchedNameLc;
-				if (sameItem) priorQty += Number(p.quantity) || 0;
+			for (const p of (priorPartials ?? []) as { id: number; quantity: number }[]) {
+				priorQty += Number(p.quantity) || 0;
+				partialIds.push(p.id);
 			}
 			const total = priorQty + (Number(drop.quantity) || 1);
 			if (total < need) {
 				outcomeById.set(drop.id, 'partial');
+				tileIdByDrop.set(drop.id, tileId);
 				continue;
 			}
 		}
@@ -388,23 +417,45 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 			event_id: drop.event_id,
 			user_id: userId,
 			tile_id: tileId,
+			// Mirror the manual submit path's column set — the legacy singular proof_url/
+			// proof_path columns may be NOT NULL, which would otherwise fail every insert.
+			proof_url: '',
+			proof_path: '',
 			proof_urls: [],
 			proof_paths: [],
 			status: 'approved',
+			source: 'dink',
 			submitted_at: now,
 			reviewed_at: now,
 			reviewed_by: null,
 			review_note: `Auto-tracked via Dink (${drop.item_name ?? drop.item_id ?? 'item'})`
 		});
 		if (insErr) {
-			// Leave unprocessed (no outcome) so a transient insert failure is retried next run.
+			// Unique index (event,user,tile) WHERE approved → a concurrent/other-instance
+			// credit already landed. Treat as duplicate (done), not a transient failure.
+			if (insErr.code === '23505') {
+				outcomeById.set(drop.id, 'duplicate');
+				tileIdByDrop.set(drop.id, tileId);
+				continue;
+			}
+			// Otherwise leave unprocessed so a genuinely transient failure retries — but
+			// LOG it, so a systemic failure (e.g. a NOT NULL column) is visible instead of
+			// silently looping forever.
+			console.error('[dink] completion insert failed for drop', drop.id, insErr.message);
 			continue;
 		}
 		outcomeById.set(drop.id, 'credited');
+		tileIdByDrop.set(drop.id, tileId);
+		// Roll the prior partials into this completion so they can't be re-summed (which
+		// would let a single later drop re-credit the tile after a revert).
+		if (partialIds.length) {
+			await sb.from('vs_dink_drops').update({ outcome: 'consumed', processed: true }).in('id', partialIds);
+		}
 		credited += 1;
 
-		// Queue a Discord announcement (public, open events only; never the self-test).
-		if (ev.status === 'open' && !FEED_SUPPRESS_SLUGS.has(ev.slug)) {
+		// Queue a Discord announcement (public, open events only; never the self-test,
+		// and never when the caller suppresses the feed — e.g. the admin simulator).
+		if (!opts.suppressFeed && ev.status === 'open' && !FEED_SUPPRESS_SLUGS.has(ev.slug)) {
 			feedPosts.push({
 				by: drop.rsn,
 				tileName: tile.name || tileId,
@@ -415,15 +466,18 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 		}
 	}
 
-	// Mark processed + stamp the verdict, grouped by outcome to minimise requests.
-	const idsByOutcome = new Map<Outcome, number[]>();
+	// Mark processed + stamp the verdict (and the attributed tile_id, so partials are
+	// tile-scoped), grouped by outcome+tile to minimise requests.
+	const idsByKey = new Map<string, { outcome: Outcome; tileId: string | null; ids: number[] }>();
 	for (const [id, outcome] of outcomeById) {
-		const arr = idsByOutcome.get(outcome) ?? [];
-		arr.push(id);
-		idsByOutcome.set(outcome, arr);
+		const tileId = tileIdByDrop.get(id) ?? null;
+		const key = `${outcome}|${tileId ?? ''}`;
+		const group = idsByKey.get(key) ?? { outcome, tileId, ids: [] };
+		group.ids.push(id);
+		idsByKey.set(key, group);
 	}
-	for (const [outcome, ids] of idsByOutcome) {
-		await sb.from('vs_dink_drops').update({ processed: true, outcome }).in('id', ids);
+	for (const { outcome, tileId, ids } of idsByKey.values()) {
+		await sb.from('vs_dink_drops').update({ processed: true, outcome, tile_id: tileId }).in('id', ids);
 	}
 
 	// Announce credited tiles (best-effort; never blocks or throws the consumer).
