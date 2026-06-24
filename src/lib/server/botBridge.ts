@@ -1,4 +1,5 @@
 import { env } from '$env/dynamic/private';
+import { serverFetch } from './http';
 
 // SERVER-ONLY site→bot bridge. Posts a structured message to a Discord webhook
 // (DISCORD_BOT_BRIDGE_WEBHOOK_URL) pointing at a dedicated bridge channel that the
@@ -36,7 +37,9 @@ async function postToWebhook(body: unknown): Promise<WebhookResult> {
 	const url = env.DISCORD_BOT_BRIDGE_WEBHOOK_URL;
 	if (!url) return { ok: false, error: 'DISCORD_BOT_BRIDGE_WEBHOOK_URL is not set' };
 	try {
-		const res = await fetch(url, {
+		// serverFetch adds an abort-on-timeout deadline — this POST is awaited inside
+		// the gamba open action, so a stalled Discord egress must not hang the request.
+		const res = await serverFetch(url, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify(body)

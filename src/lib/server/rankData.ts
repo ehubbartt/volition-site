@@ -5,6 +5,7 @@
 // bot's behaviour (and wom.ts's "return null on outage" style).
 
 import { calculateGearPoints, calculateCAPoints, type RankInputs } from './rankScoring';
+import { getJson } from './http';
 
 // Same WOM group as the bot (voli-disc-bot/config.json clanId).
 const WOM_CLAN_ID = 4765;
@@ -12,22 +13,7 @@ const WOM_BASE = 'https://api.wiseoldman.net/v2';
 const TEMPLE_BASE = 'https://templeosrs.com/api';
 const WIKISYNC_BASE = 'https://sync.runescape.wiki/runelite/player';
 
-const UA = { 'User-Agent': 'Volition-Site', Accept: 'application/json' };
 const MONTH_MS = 1000 * 60 * 60 * 24 * 30.44;
-
-async function getJson(url: string, timeoutMs = 15000): Promise<unknown | null> {
-	const ctrl = new AbortController();
-	const t = setTimeout(() => ctrl.abort(), timeoutMs);
-	try {
-		const res = await fetch(url, { headers: UA, signal: ctrl.signal });
-		if (!res.ok) return null;
-		return await res.json();
-	} catch {
-		return null;
-	} finally {
-		clearTimeout(t);
-	}
-}
 
 export interface RosterEntry {
 	rsn: string;

@@ -57,6 +57,23 @@ Every request passes through the handle hook, in order:
 - Hand-applied SQL only — there is **no migration runner**. New tables/functions live in
   `db/scripts/` and `db/functions/` and are run manually against Supabase. (Note: the
   repo's `.gitignore` excludes `db/migrations/`, so don't put committed SQL there.)
+- **Authorization posture (important).** Every read *and write* uses the **anon** key, and
+  RLS is effectively off, so **all** authorization is enforced in app code (the
+  `isAdmin`/`isSuperAdmin` gates), not the database. The generic table editor
+  (`/admin/tables/*`) reads/writes *any* table on this key, so its route guard is the only
+  thing protecting those tables — treat that gate as security-critical. There is no
+  service-role separation; a future hardening step would split privileged writes onto a
+  service-role client behind RLS.
+- **Money writes** (`players.points` / `gold_balance` in `playerStats.ts`) use optimistic
+  concurrency (read → CAS-update only if unchanged) with a short retry, since the anon
+  client has no transactions. Refunds/credits go through the shared `grantColumn` helper so
+  the lock is identical everywhere.
+- **Error-handling convention.** Reads **fail open** (return `null`/empty on error so a page
+  still renders); writes return a structured `{ ok, error }` result; external integrations
+  (Discord webhooks, ops alerts) **swallow + log** and never throw into the request.
+- **External fetches** go through `src/lib/server/http.ts` (`serverFetch`/`getJson`/`postJson`),
+  which add an abort-on-timeout deadline — Node's global `fetch` has none, so an upstream
+  stall would otherwise hang a page load or form action.
 
 ### Key tables (by area)
 - **Identity/session:** `vs_users` (members; discord_id, rsn, clan_allegiance,

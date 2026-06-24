@@ -52,10 +52,10 @@ export async function selectAll<T = Record<string, unknown>>(
 // returns every matching row. Use for event-scoped reads that can exceed 1000 rows — e.g. ALL
 // of a duo event's submissions, where truncation silently broke board progress once the event
 // passed 1000 submissions (oldest 1000 returned, newest dropped).
-export async function fetchAllFiltered(
-	make: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: PostgrestError | null }>
-): Promise<{ data: unknown[]; error: PostgrestError | null }> {
-	const out: unknown[] = [];
+export async function fetchAllFiltered<T = Record<string, unknown>>(
+	make: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: PostgrestError | null }>
+): Promise<{ data: T[]; error: PostgrestError | null }> {
+	const out: T[] = [];
 	for (let from = 0; ; from += PAGE_SIZE) {
 		const { data, error } = await make(from, from + PAGE_SIZE - 1);
 		if (error) return { data: out, error };

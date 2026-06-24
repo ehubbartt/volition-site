@@ -66,14 +66,15 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// Send every authenticated request to /banned — except the /banned page itself,
 	// logout (so they can leave), and static assets (so /banned can render). Only
 	// queried when a session resolved, so logged-out browsing is unaffected.
-	event.locals.ban = session?.user ? await getBan(session.user.discord_id) : null;
+	// Skip the bans-table read for static assets (/_app/ bundles, fonts, images) —
+	// they never render the /banned UI, so querying on every asset request just adds
+	// a round-trip to asset latency. Real pages (incl. /banned itself, so it can show
+	// the reason) still resolve locals.ban.
+	const path = event.url.pathname;
+	const isAsset = path.startsWith('/_app/') || path.includes('.');
+	event.locals.ban = session?.user && !isAsset ? await getBan(session.user.discord_id) : null;
 	if (event.locals.ban) {
-		const path = event.url.pathname;
-		const allowed =
-			path === '/banned' ||
-			path.startsWith('/auth/logout') ||
-			path.startsWith('/_app/') ||
-			path.includes('.'); // fonts, images, favicon, etc.
+		const allowed = path === '/banned' || path.startsWith('/auth/logout');
 		if (!allowed) {
 			return new Response(null, { status: 303, headers: { location: '/banned' } });
 		}

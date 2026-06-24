@@ -65,6 +65,7 @@ export const RANK_CONFIG_NAME = 'rank_scoring';
 export const RANK_CONFIG_GROUP = 'ranks';
 
 let cache: { value: RankScoringConfig; at: number } | null = null;
+let inflight: Promise<RankScoringConfig> | null = null;
 const CACHE_TTL_MS = 60_000;
 
 // Coerce/repair a stored config so a partial or hand-edited row can't break scoring:
@@ -86,17 +87,30 @@ function sanitize(raw: unknown): RankScoringConfig {
 // mirroring getLootConfig(true)). Falls back to DEFAULT_RANK_CONFIG if unavailable.
 export async function getRankConfig(force = false): Promise<RankScoringConfig> {
 	if (!force && cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.value;
+	// De-dupe concurrent (re)loads: the first caller does the DB read and everyone
+	// waiting shares its promise, so a burst of checkRank calls hits bot_config once.
+	if (!force && inflight) return inflight;
+
+	const load = (async () => {
+		try {
+			const { data } = await db()
+				.from('bot_config')
+				.select('config_value')
+				.eq('config_name', RANK_CONFIG_NAME)
+				.maybeSingle();
+			const value = data?.config_value ? sanitize(data.config_value) : DEFAULT_RANK_CONFIG;
+			cache = { value, at: Date.now() };
+			return value;
+		} catch {
+			return DEFAULT_RANK_CONFIG;
+		}
+	})();
+
+	if (!force) inflight = load;
 	try {
-		const { data } = await db()
-			.from('bot_config')
-			.select('config_value')
-			.eq('config_name', RANK_CONFIG_NAME)
-			.maybeSingle();
-		const value = data?.config_value ? sanitize(data.config_value) : DEFAULT_RANK_CONFIG;
-		cache = { value, at: Date.now() };
-		return value;
-	} catch {
-		return DEFAULT_RANK_CONFIG;
+		return await load;
+	} finally {
+		if (inflight === load) inflight = null;
 	}
 }
 
