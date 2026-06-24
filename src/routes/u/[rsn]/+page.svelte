@@ -277,7 +277,7 @@
 	}
 
 	.ms-num {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.3rem;
 		color: var(--accent);
 		text-shadow: var(--ts);

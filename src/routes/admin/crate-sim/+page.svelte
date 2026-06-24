@@ -441,7 +441,7 @@
 
 	button.primary {
 		border-color: var(--accent);
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 	}
 	button.primary:hover:not(:disabled) {
 		background: var(--accent-soft);
@@ -531,7 +531,7 @@
 	.stat strong {
 		font-size: 1.25rem;
 		font-variant-numeric: tabular-nums;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 	}
 	.stat .sub {
 		font-size: 0.72rem;

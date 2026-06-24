@@ -117,7 +117,7 @@
 
 	button[type='submit'] {
 		border-color: var(--accent);
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 	}
 
 	button[type='submit']:hover {

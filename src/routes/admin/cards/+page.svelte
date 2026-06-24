@@ -1277,7 +1277,7 @@
 		border-radius: 0;
 		background: none;
 		text-align: left;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.15rem;
 		color: inherit;
 		cursor: pointer;
@@ -1366,7 +1366,7 @@
 	}
 
 	.tile-name {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 0.92rem;
 		line-height: 1.15;
 		overflow: hidden;
@@ -1457,7 +1457,7 @@
 		background: var(--surface-alt);
 		color: var(--muted);
 		font-size: 0.7rem;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		letter-spacing: 0.5px;
 		text-transform: uppercase;
 	}
@@ -1578,7 +1578,7 @@
 	.builder-btn {
 		align-self: flex-start;
 		padding: 0.45rem 0.8rem;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 0.88rem;
 		color: var(--accent);
 		background: var(--accent-soft);
@@ -1725,7 +1725,7 @@
 	.slot-head {
 		display: block;
 		margin-bottom: 0.4rem;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 0.8rem;
 		letter-spacing: 0.5px;
 		color: var(--text);
@@ -1938,7 +1938,7 @@
 
 	button.primary {
 		border-color: var(--accent);
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		align-self: flex-start;
 	}
 

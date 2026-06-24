@@ -90,10 +90,10 @@
 		display: flex;
 		align-items: center;
 		gap: 0.6rem;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.7rem;
 		letter-spacing: 1px;
-		color: #ff981f;
+		color: var(--accent);
 		text-decoration: none;
 		text-shadow: 2px 2px #000;
 		flex: 0 0 auto;
@@ -130,12 +130,12 @@
 	}
 
 	.primary-nav a:hover {
-		color: #ff981f;
+		color: var(--accent);
 		background: rgba(255, 152, 31, 0.08);
 	}
 
 	.primary-nav a.active {
-		color: #ff981f;
+		color: var(--accent);
 		background: #4d4336;
 		border: 9px solid transparent;
 		border-image: url('/osrs/button.png') 9 / 9px stretch;
@@ -150,7 +150,7 @@
 		background: #4d4336;
 		border: 9px solid transparent;
 		border-image: url('/osrs/button.png') 9 / 9px stretch;
-		color: #ff981f;
+		color: var(--accent);
 		text-decoration: none;
 		text-shadow: 1px 1px #000;
 		font-size: 0.95rem;
@@ -176,7 +176,7 @@
 		background: #4d4336;
 		border: 9px solid transparent;
 		border-image: url('/osrs/button.png') 9 / 9px stretch;
-		color: #ff981f;
+		color: var(--accent);
 		padding: 0.3rem 1rem;
 		text-decoration: none;
 	}
@@ -225,7 +225,7 @@
 	}
 
 	.discord-link {
-		color: #ff981f;
+		color: var(--accent);
 		font-size: 0.9rem;
 		text-decoration: none;
 		text-shadow: 1px 1px #000;

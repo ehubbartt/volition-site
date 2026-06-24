@@ -217,7 +217,7 @@
 		width: 100%;
 		min-height: 11rem;
 		padding: 1.25rem;
-		background-color: #4d4030;
+		background-color: var(--stone-fill);
 		background-image: var(--stone-tile);
 		background-repeat: repeat;
 		border: 4px solid transparent;
@@ -235,7 +235,7 @@
 	}
 
 	.event-name {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.2rem;
 		color: var(--accent);
 		text-shadow: 2px 2px #000;

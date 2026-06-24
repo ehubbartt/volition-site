@@ -234,7 +234,7 @@
 		text-shadow: var(--ts);
 	}
 	.stat .num {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.5rem;
 		color: var(--accent);
 	}
