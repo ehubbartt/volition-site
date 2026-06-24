@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Volition Site 2.0 — Refactor Report</title>
+<style>
+	:root {
+		--bg: #14110b; --panel: #221b11; --panel2: #2c2418; --stone: #4d4030;
+		--ink: #ece3d0; --muted: #b3a589; --accent: #ff981f; --gold: #d9b65e;
+		--green: #46e44b; --red: #ff6b5e; --blue: #6fb3ff; --line: #5f4a22;
+		--bug: #ff6b5e; --arch: #ffb454; --clean: #8bd450; --theme: #6fb3ff;
+	}
+	* { box-sizing: border-box; }
+	html { scroll-behavior: smooth; }
+	body {
+		margin: 0; background: var(--bg); color: var(--ink);
+		font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+		background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(255,152,31,.06), transparent 60%);
+	}
+	a { color: var(--accent); text-decoration: none; }
+	a:hover { text-decoration: underline; }
+	code { background: #000; color: #ffd98a; padding: .08em .4em; border-radius: 3px; font-size: .86em;
+		font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-word; }
+	.wrap { max-width: 1000px; margin: 0 auto; padding: 0 20px 120px; }
+	header.hero {
+		padding: 44px 20px 28px; text-align: center;
+		border-bottom: 2px solid var(--line); background: linear-gradient(180deg, #1c170f, #14110b);
+	}
+	header.hero h1 { margin: 0 0 6px; font-size: 30px; color: var(--accent); letter-spacing: .5px; }
+	header.hero .sub { color: var(--muted); margin: 0; }
+	.badges { margin-top: 16px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+	.badge { font-size: 12.5px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line);
+		background: #000; color: var(--ink); }
+	.badge.ok { color: var(--green); border-color: #2c7a38; }
+	.badge.warn { color: var(--accent); border-color: #9c6326; }
+
+	h2.section { font-size: 22px; color: var(--gold); margin: 44px 0 6px; padding-top: 10px;
+		border-top: 1px solid var(--line); }
+	h2.section .n { color: var(--accent); font-weight: 800; }
+	.section-note { color: var(--muted); margin: 0 0 18px; }
+
+	.toc { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; margin: 26px 0; }
+	.toc h3 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+	.toc ol { margin: 0; padding-left: 20px; columns: 2; }
+	.toc li { margin: 3px 0; break-inside: avoid; }
+	@media (max-width: 640px) { .toc ol { columns: 1; } }
+
+	.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+		padding: 16px 18px; margin: 14px 0; }
+	.card h3 { margin: 0 0 4px; font-size: 17px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+	.tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+		padding: 2px 8px; border-radius: 4px; color: #14110b; }
+	.tag.bug { background: var(--bug); } .tag.arch { background: var(--arch); }
+	.tag.clean { background: var(--clean); } .tag.theme { background: var(--theme); }
+	.tag.new { background: var(--gold); }
+	.why { margin: 8px 0; }
+	.why b { color: var(--accent); }
+	.files { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+	.files code { font-size: 12px; }
+	.muted { color: var(--muted); }
+
+	.todo { background: linear-gradient(180deg, #2a1d10, #221811); border: 1px solid #9c6326;
+		border-radius: 12px; padding: 18px 22px; margin: 26px 0; }
+	.todo h2 { margin: 0 0 4px; color: var(--accent); font-size: 20px; }
+	.todo p.lead { margin: 0 0 14px; color: var(--muted); }
+	.check { display: flex; gap: 12px; align-items: flex-start; padding: 11px 0; border-top: 1px solid #3a2a14; }
+	.check:first-of-type { border-top: none; }
+	.check input { margin-top: 4px; width: 17px; height: 17px; accent-color: var(--accent); flex: 0 0 auto; cursor: pointer; }
+	.check label { cursor: pointer; }
+	.check .t { font-weight: 600; }
+	.check.done label { text-decoration: line-through; color: var(--muted); }
+	.pri { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+	.pri.must { background: var(--red); color: #fff; }
+	.pri.should { background: var(--accent); color: #14110b; }
+	.pri.fyi { background: #3a3024; color: var(--ink); border: 1px solid var(--line); }
+
+	.callout { border-left: 4px solid var(--accent); background: #000; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 12px 0; }
+	.callout.danger { border-color: var(--red); }
+	.callout.good { border-color: var(--green); }
+	pre { background: #000; border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow-x: auto;
+		font-size: 12.5px; color: #cfe8c0; }
+	table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 14px; }
+	th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+	th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+	.foot { margin-top: 50px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+	details > summary { cursor: pointer; color: var(--gold); font-weight: 600; margin: 6px 0; }
+</style>
+</head>
+<body>
+<header class="hero">
+	<h1>Volition Site 2.0 — Refactor Report</h1>
+	<p class="sub">Branch <code>voli-site-2.0-refactor</code> &middot; off <code>voli-site-2.0</code> &middot; full review &amp; cleanup pass</p>
+	<div class="badges">
+		<span class="badge ok">✓ npm run check — 0 errors</span>
+		<span class="badge ok">✓ npm run build — success</span>
+		<span class="badge ok">7 commits</span>
+		<span class="badge warn">1 manual DB step required</span>
+	</div>
+</header>
+
+<div class="wrap">
+
+	<p style="margin-top:26px">
+		This is a self-contained summary of everything changed on the refactor branch — grouped by area, with the
+		<b>reasoning</b> for each change, the files touched, and a checklist of things for you to verify or do.
+		It was produced from a five-agent review of the merged 2.0 branch (component reuse, the events/Dink feature,
+		the rank system, the server/data layer, and theming). The full prose review is in
+		<code>docs/CODE-REVIEW-2.0.md</code>.
+	</p>
+
+	<!-- ── ACTION CHECKLIST ─────────────────────────────────────── -->
+	<div class="todo">
+		<h2>✅ Things to check / do</h2>
+		<p class="lead">Checkboxes persist in this browser (localStorage). Ordered by priority.</p>
+
+		<div class="check" data-k="dinksql">
+			<input type="checkbox" id="c1" />
+			<label for="c1"><span class="t">Apply the Dink migration before enabling Dink auto-tracking</span>
+				<span class="pri must">MUST — before dink goes live</span><br />
+				<span class="muted">Run <code>db/scripts/dink_tracking_hardening.sql</code> in the Supabase SQL editor.
+				It adds <code>vs_dink_drops.tile_id</code>, <code>vs_bingo_completions.source</code>, and a unique
+				index on approved completions. The new consumer code expects these columns. The unique index will
+				<b>fail if duplicate approved completions already exist</b> — in a fresh/empty Dink dataset there are none.
+				Dink isn't live yet, so apply it any time before flipping it on.</span></label>
+		</div>
+
+		<div class="check" data-k="proofcols">
+			<input type="checkbox" id="c2" />
+			<label for="c2"><span class="t">Confirm the <code>proof_url</code> / <code>proof_path</code> columns on <code>vs_bingo_completions</code></span>
+				<span class="pri should">SHOULD</span><br />
+				<span class="muted">The auto-credit insert now writes empty strings for the legacy singular proof columns
+				(mirroring the manual submit path) on the theory they're <code>NOT NULL</code>. Worth a one-line check so we
+				know the original behaviour was the bug:
+				<br /><code>select column_name, is_nullable from information_schema.columns where table_name='vs_bingo_completions' and column_name in ('proof_url','proof_path');</code></span></label>
+		</div>
+
+		<div class="check" data-k="visual">
+			<input type="checkbox" id="c3" />
+			<label for="c3"><span class="t">Eyeball the pages that adopted new shared components</span>
+				<span class="pri should">SHOULD</span><br />
+				<span class="muted">Spin the app up and glance at: <code>/me</code> (VP counter, Rank tab badge + bar,
+				Wallet list with icons), <code>/u/[rsn]</code> (now matches <code>/me</code>), the home dashboard stat strips,
+				the Events/Tasks cards (status chips), and <code>/dink-check</code> (now sprite-framed).</span></label>
+		</div>
+
+		<div class="check" data-k="rankweights">
+			<input type="checkbox" id="c4" />
+			<label for="c4"><span class="t">Note the rank-weight behaviour change</span>
+				<span class="pri fyi">FYI</span><br />
+				<span class="muted">Composite weights are now <b>normalized to sum 1</b> on save/load. If you'd previously
+				saved weights summing to something other than 1, the admin rank-sim will now show them rescaled (and ranks
+				computed from a correctly-normalized score). This is the intended fix, just flagging the visible difference.</span></label>
+		</div>
+
+		<div class="check" data-k="moneypaths">
+			<input type="checkbox" id="c5" />
+			<label for="c5"><span class="t">Smoke-test the money paths once</span>
+				<span class="pri should">SHOULD</span><br />
+				<span class="muted">The VP/GP read+write code was consolidated. Behaviour is unchanged by design, but these
+				touch real balances: do one pack open (VP spend), one wallet→GP convert, and confirm balances look right.
+				No automated tests exist for these.</span></label>
+		</div>
+
+		<div class="check" data-k="merge">
+			<input type="checkbox" id="c6" />
+			<label for="c6"><span class="t">Merge plan</span>
+				<span class="pri fyi">FYI</span><br />
+				<span class="muted">This branch sits on top of <code>voli-site-2.0</code>. Merge it into 2.0 (or fold both into
+				your eventual <code>main</code> merge). No PR was opened — say the word if you want one.</span></label>
+		</div>
+	</div>
+
+	<!-- ── TOC ──────────────────────────────────────────────────── -->
+	<div class="toc">
+		<h3>Contents</h3>
+		<ol>
+			<li><a href="#s1">§1 Correctness bug fixes</a></li>
+			<li><a href="#s2">§2 Component reuse</a></li>
+			<li><a href="#s3">§3 Theming consistency</a></li>
+			<li><a href="#s4">§4 Server / data layer</a></li>
+			<li><a href="#s5">§5 Rank scoring</a></li>
+			<li><a href="#s6">§6 Dink auto-tracking</a></li>
+			<li><a href="#deferred">Deferred (not done)</a></li>
+			<li><a href="#verify">Verification &amp; commits</a></li>
+		</ol>
+	</div>
+
+	<p class="muted" style="font-size:13px">
+		Legend:
+		<span class="tag bug">bug</span> correctness &nbsp;
+		<span class="tag arch">arch</span> architecture &nbsp;
+		<span class="tag clean">cleanup</span> DRY/quality &nbsp;
+		<span class="tag theme">theme</span> styling &nbsp;
+		<span class="tag new">new</span> new shared code
+	</p>
+
+	<!-- ════════ §1 ════════ -->
+	<h2 class="section" id="s1"><span class="n">§1</span> &nbsp;Correctness bug fixes <span class="muted" style="font-size:14px">— commit <code>399730f</code></span></h2>
+	<p class="section-note">Real, user-visible bugs found in the review. Each fix is self-contained.</p>
+
+	<div class="card">
+		<h3><span class="tag bug">bug</span> VP refunds could silently lose points</h3>
+		<div class="why"><b>Why:</b> <code>grantPlayerVp</code> (the refund path when a pack open fails) did a plain
+			read-then-write with no optimistic lock, while <code>grantGold</code> had a proper CAS-retry loop. Two concurrent
+			refunds — or a refund racing the bot's own points write — could drop an increment, leaving the member down VP
+			with no trace.</div>
+		<div class="why"><b>Fix:</b> both VP and GP grants now go through one shared <code>grantColumn</code> helper that
+			re-reads and compare-and-swaps with a few retries.</div>
+		<p class="files"><b>Files:</b> <code>src/lib/server/playerStats.ts</code></p>
+	</div>
+
+	<div class="card">
+		<h3><span class="tag bug">bug</span> Wallet→GP conversion could settle items but not credit GP</h3>
+		<div class="why"><b>Why:</b> <code>convertWalletToGold</code> flipped wallet items to <code>paid_out=true</code>
+			first, then credited GP. If the GP credit failed, the items were already burned (no longer claimable in-game)
+			but no balance was added — the member permanently lost the value, with only a <code>console.error</code>.</div>
+		<div class="why"><b>Fix:</b> on a failed credit it now rolls the item-settle back (items stay claimable) and fires a
+			<code>postOpsAlert</code> — the money-losing event is surfaced, not swallowed.</div>
+		<p class="files"><b>Files:</b> <code>src/lib/server/playerStats.ts</code></p>
+	</div>
+
+	<div class="card">
+		<h3><span class="tag bug">bug</span> A transient stats outage could demote a member on Discord</h3>
+		<div class="why"><b>Why:</b> every external fetch returns <code>null</code> on failure, and a missing source
+			degrades that score component to 0. A momentary WiseOldMan/Temple 429 was indistinguishable from "no data," so
+			<code>checkRank</code> would compute an artificially low rank and write it to <code>players.rank</code> — which
+			the bot mirrors to a Discord role.</div>
+		<div class="why"><b>Fix:</b> when Temple or WikiSync is unavailable, the breakdown still renders but the rank
+			<b>is not persisted</b>, with a note explaining why. No demotion off a bad read.</div>
+		<p class="files"><b>Files:</b> <code>src/routes/me/+page.server.ts</code></p>
+	</div>
+
+	<div class="card">
+		<h3><span class="tag bug">bug</span> Unescaped RSN lookups could match the wrong player</h3>
+		<div class="why"><b>Why:</b> several <code>ilike('rsn', rsn)</code> lookups passed the raw RSN, so a name containing
+			<code>_</code> or <code>%</code> could match the wrong row (or several). A careful escaping helper existed but
+			wasn't used everywhere.</div>
+		<div class="why"><b>Fix:</b> exported <code>rsnExactPattern</code> and routed every <code>players</code> and
+			<code>vs_users</code> RSN lookup through one shared <code>findPlayerRow</code> helper / the escape function.</div>
+		<p class="files"><b>Files:</b> <code>src/lib/server/playerStats.ts</code>, <code>users.ts</code>, <code>dinkDrops.ts</code></p>
+	</div>
+
+	<div class="card">
+		<h3><span class="tag clean">cleanup</span> Consolidated the duplicated <code>players</code> read/write logic</h3>
+		<div class="why"><b>Why:</b> the "find by discord_id else rsn" pattern and the optimistic-deduct loop were each
+			copy-pasted ~6× in <code>playerStats.ts</code>.</div>
+		<div class="why"><b>Fix:</b> one <code>findPlayerRow(discordId, rsn, columns)</code> locator and one <code>casColumn</code>
+			/ <code>grantColumn</code> pair now back every read, spend, and grant.</div>
+		<p class="files"><b>Files:</b> <code>src/lib/server/playerStats.ts</code></p>
+	</div>
+
+	<!-- ════════ §2 ════════ -->
+	<h2 class="section" id="s2"><span class="n">§2</span> &nbsp;Component reuse <span class="muted" style="font-size:14px">— commit <code>75633fb</code></span></h2>
+	<p class="section-note">The core of the ask: extract repeated UI/logic into shared primitives and adopt them, so new pages stop drifting.</p>
+
+	<table>
+		<tr><th>New shared piece</th><th>Replaces</th><th>Adopted in</th></tr>
+		<tr><td><span class="tag new">new</span> <code>OsrsCounter.svelte</code></td>
+			<td>The engraved VP/wallet readout hand-written 4× + a divergent rounded clone on <code>/u/[rsn]</code> that
+				skipped the value-colour tiering.</td>
+			<td><code>/me</code>, <code>/u/[rsn]</code></td></tr>
+		<tr><td><span class="tag new">new</span> <code>StatusPill.svelte</code></td>
+			<td>Byte-identical pending/approved/rejected chip CSS + label logic in the event/task/submission cards.</td>
+			<td><code>EventTaskCard</code>, <code>WeeklyTaskCard</code></td></tr>
+		<tr><td><span class="tag new">new</span> <code>StatCard.svelte</code> + <code>.stat-grid</code></td>
+			<td>The "big number + label" tile reimplemented ~8 ways with 3 class vocabularies.</td>
+			<td>home dashboard stat strips</td></tr>
+		<tr><td><span class="tag new">new</span> <code>RankBadge.svelte</code></td>
+			<td>The rank art-or-colour-dot branch written twice as markup.</td>
+			<td><code>/me</code> Rank tab</td></tr>
+		<tr><td><span class="tag new">new</span> <code>ItemIcon.svelte</code> + <code>WalletList.svelte</code></td>
+			<td>The fiddly wiki item-icon hotlink incantation; the unpaid-wallet list (now both show icons).</td>
+			<td><code>/me</code>, <code>/u/[rsn]</code></td></tr>
+		<tr><td><span class="tag new">new</span> <code>formatDate</code> / <code>formatDateTime</code> / <code>timeAgo</code></td>
+			<td>Two copied <code>ago()</code> functions + ~15 open-coded <code>toLocaleString()</code> calls.</td>
+			<td>admin wallets/pack-stats, WeeklyTaskCard</td></tr>
+		<tr><td><span class="tag new">new</span> <code>formatPct</code></td>
+			<td>Two <code>pct()</code> copies with <b>different argument shapes</b> (a latent bug).</td>
+			<td>admin pack-stats</td></tr>
+		<tr><td><span class="tag new">new</span> <code>toRankValue</code> export</td>
+			<td>Open-coded <code>RANK_ORDER.includes(x.toLowerCase())</code> checks.</td>
+			<td>rank-sim, rankConfig (§5)</td></tr>
+	</table>
+	<p class="why"><b>Why it matters:</b> <code>/u/[rsn]</code> now renders identically to <code>/me</code> (it was a flatter,
+		off-theme subset), both wallet views finally show item icons, and the next page that needs a stat tile or a status
+		chip has one obvious component to reach for. Orphaned per-page CSS was removed in each case.</p>
+
+	<!-- ════════ §3 ════════ -->
+	<h2 class="section" id="s3"><span class="n">§3</span> &nbsp;Theming consistency <span class="muted" style="font-size:14px">— commit <code>256bdc0</code></span></h2>
+	<p class="section-note">Mostly mechanical — make everything use the design tokens and the OSRS sprite frames.</p>
+
+	<div class="card">
+		<h3><span class="tag theme">theme</span> 50 hardcoded font literals → tokens</h3>
+		<div class="why"><b>Why:</b> <code>'rsbold'/'rssmall', ui-sans-serif, …</code> was spelled out 50× across 20 files
+			instead of <code>var(--font-heading)</code> / <code>var(--font-body)</code>. One place to change the type stack now.</div>
+	</div>
+	<div class="card">
+		<h3><span class="tag theme">theme</span> Accent &amp; stone literals → tokens</h3>
+		<div class="why"><b>Why:</b> the global layout had six literal <code>#ff981f</code>; the panel-fill colour
+			<code>#4d4030</code> was scattered. Added a <code>--stone-fill</code> token and routed both through tokens.</div>
+	</div>
+	<div class="card">
+		<h3><span class="tag theme">theme</span> Flat pages framed; re-rolled buttons use the base button</h3>
+		<div class="why"><b>Why:</b> <code>/dink-check</code>'s status banner was a flat gradient card (not sprite-framed),
+			and <code>/me</code>'s "Check rank" + the rank-sim buttons hand-rolled a flat outline instead of the bronze
+			OSRS button. Both now match the rest of the interface. The <code>.osrs-badge</code> and the admin role pill were
+			squared off (999px → 3px), and the rank composite bar adopts the new shared <code>.osrs-bar</code> utility.</div>
+		<p class="files"><b>Files:</b> <code>app.css</code>, <code>+layout.svelte</code>, <code>dink-check</code>, <code>me</code>, <code>admin/rank-sim</code>, <code>admin/admins</code></p>
+	</div>
+
+	<!-- ════════ §4 ════════ -->
+	<h2 class="section" id="s4"><span class="n">§4</span> &nbsp;Server / data layer <span class="muted" style="font-size:14px">— commit <code>be26548</code></span></h2>
+
+	<div class="card">
+		<h3><span class="tag arch">arch</span> Shared fetch helper with a real timeout</h3>
+		<div class="why"><b>Why:</b> Node's global <code>fetch</code> has <b>no default timeout</b>. <code>wom.ts</code> and the
+			Discord-webhook POST in <code>botBridge.ts</code> (which is awaited inside the gamba open action) had none, so a
+			stalled upstream could hang a page load or a form submit indefinitely.</div>
+		<div class="why"><b>Fix:</b> new <code>src/lib/server/http.ts</code> (<code>serverFetch</code> / <code>getJson</code> /
+			<code>postJson</code>) adds an abort-on-timeout deadline; <code>wom</code>, <code>rankData</code>, and
+			<code>botBridge</code> now route through it.</div>
+	</div>
+	<div class="card">
+		<h3><span class="tag clean">cleanup</span> Generic <code>fetchAllFiltered&lt;T&gt;</code> &amp; rank-config de-dupe</h3>
+		<div class="why"><b>Why:</b> <code>fetchAllFiltered</code> returned <code>unknown[]</code>, forcing a cast at ~15
+			callers; <code>getRankConfig</code> had no in-flight guard, so a burst of rank checks each hit <code>bot_config</code>.</div>
+		<div class="why"><b>Fix:</b> made the paginator generic (mirrors <code>selectAll&lt;T&gt;</code>) and added a
+			single-flight guard to the rank-config cache.</div>
+	</div>
+	<div class="card">
+		<h3><span class="tag arch">arch</span> Cheaper ban check + last type error fixed + docs</h3>
+		<div class="why"><b>Why:</b> the bans-table read ran on <b>every</b> authenticated request including static assets.</div>
+		<div class="why"><b>Fix:</b> skip it for asset paths (they never render the banned UI). Also fixed the one
+			pre-existing <code>svelte-check</code> error (a Supabase embed cast), and documented the anon-key authorization
+			posture, money-write locking, and error conventions in <code>ARCHITECTURE.md</code>.</div>
+		<div class="callout"><b>Worth knowing:</b> every read <i>and write</i> uses the Supabase <b>anon key</b> with RLS
+			effectively off, so <b>all</b> authorization lives in app code (the <code>isAdmin</code>/<code>isSuperAdmin</code>
+			gates). The generic table editor at <code>/admin/tables/*</code> reads/writes any table on that key — its route
+			guard is security-critical. A future hardening step is a service-role split. (Now noted in ARCHITECTURE.md.)</div>
+	</div>
+
+	<!-- ════════ §5 ════════ -->
+	<h2 class="section" id="s5"><span class="n">§5</span> &nbsp;Rank scoring <span class="muted" style="font-size:14px">— commit <code>a39e5de</code></span></h2>
+	<div class="card">
+		<h3><span class="tag arch">arch</span> Weights are normalized to sum 1</h3>
+		<div class="why"><b>Why:</b> the composite is Σ(component·weight) and the score→rank thresholds are calibrated for
+			weights that sum to 1. A hand-edited <code>bot_config</code> row whose weights summed to, say, 1.3 would scale
+			every score up and make the thresholds meaningless — silently jumping people's ranks.</div>
+		<div class="why"><b>Fix:</b> <code>sanitize()</code> now normalizes the weights to sum 1 (keeping their relative
+			emphasis) on both read and write. Also reuses <code>toRankValue()</code> and corrects a stale doc comment.</div>
+		<p class="files"><b>Files:</b> <code>src/lib/server/rankConfig.ts</code>, <code>admin/rank-sim/+page.server.ts</code></p>
+	</div>
+
+	<!-- ════════ §6 ════════ -->
+	<h2 class="section" id="s6"><span class="n">§6</span> &nbsp;Dink auto-tracking <span class="muted" style="font-size:14px">— commit <code>09d35c9</code></span></h2>
+	<p class="section-note">The pipeline with the most issues. It isn't live in prod (static config only), so it was safe to fix
+		fully, including a schema change. <b>Requires the migration in the checklist above.</b></p>
+
+	<div class="callout danger">
+		<b>Headline bug:</b> the auto-credit insert omitted the legacy <code>proof_url</code>/<code>proof_path</code> columns
+		that the manual submit path still writes — if those are <code>NOT NULL</code>, <b>every auto-credit was failing its
+		constraint and retrying forever</b>, silently. The insert now mirrors the manual path and the error is logged.
+	</div>
+
+	<table>
+		<tr><th>Change</th><th>Why</th></tr>
+		<tr><td>Mirror <code>proof_url</code>/<code>proof_path</code>, tag <code>source='dink'</code></td>
+			<td>Likely-<code>NOT NULL</code> columns were blocking inserts; <code>source</code> lets revert match a real column, not a <code>review_note</code> text prefix.</td></tr>
+		<tr><td>Log dup-check &amp; insert errors; treat unique-violation as <code>duplicate</code></td>
+			<td>Errors were swallowed, hiding the bug above and risking infinite retries. The new unique index makes idempotency correct even across instances.</td></tr>
+		<tr><td>Scope collect-N progress to the matched <code>tile_id</code></td>
+			<td>Two tiles tracking the same item pooled their progress (matched on item only). Drops now carry their tile.</td></tr>
+		<tr><td>Mark consumed partials <code>consumed</code>; revert restores them</td>
+			<td>Partials were never consumed, so after a revert a single new drop could instantly re-credit. Now they're rolled in and restored on revert.</td></tr>
+		<tr><td>Simulator suppresses the public feed</td>
+			<td>An admin simulating a drop against an open event could post a real bingo-credit announcement to Discord.</td></tr>
+		<tr><td>Clone is snapshot-and-restore safe</td>
+			<td><code>cloneTemplateToEvent</code> deleted tiles then inserted; a failed re-clone left the board empty. It now restores the prior tiles on failure.</td></tr>
+	</table>
+
+	<details>
+		<summary>The migration SQL (db/scripts/dink_tracking_hardening.sql)</summary>
+<pre>alter table vs_dink_drops add column if not exists tile_id text;
+
+alter table vs_bingo_completions add column if not exists source text;
+
+create unique index if not exists vs_bingo_completions_one_approved
+    on vs_bingo_completions (event_id, user_id, tile_id)
+    where status = 'approved';</pre>
+	</details>
+
+	<!-- ════════ DEFERRED ════════ -->
+	<h2 class="section" id="deferred">Deferred — reviewed but intentionally not done</h2>
+	<p class="section-note">Lower-value or higher-risk items from the review I left alone, so you know they were considered.</p>
+	<ul>
+		<li><b>Scoring math for <code>clogAvailable</code></b> — the field is fetched but doesn't affect the score. It's
+			either a latent bug or intended; I didn't change rank math without confirming the bot's original intent.</li>
+		<li><b>Batching the rank-sim "apply"</b> — it writes N players sequentially. Fine for the current clan size; a bulk
+			upsert is a future optimization.</li>
+		<li><b><code>ModalShell</code> extraction</b> — the 7 board/bingo modals each re-roll the backdrop/escape handling.
+			High value but each has bespoke sizing/animation, so it's a careful refactor, not a mechanical one.</li>
+		<li><b>Full <code>ConfirmDialog</code> adoption</b> — 8 destructive actions still use native <code>confirm()</code>.
+			Mechanical but per-site wiring; do the high-traffic admin pages first.</li>
+		<li><b><code>isTileOpenAt</code> consolidation</b> — three copies of the "is this tile open at time T" check remain;
+			worth unifying but touches the manual submit path too.</li>
+	</ul>
+	<p class="muted">All of these are described in full in <code>docs/CODE-REVIEW-2.0.md</code> (§5.3, §2.10, §2.11, §6.7).</p>
+
+	<!-- ════════ VERIFY ════════ -->
+	<h2 class="section" id="verify">Verification &amp; commits</h2>
+	<div class="callout good">
+		<b><code>npm run check</code></b> → 0 errors (the one pre-existing error is now fixed too). &nbsp;
+		<b><code>npm run build</code></b> → success. &nbsp;
+		The remaining 10 warnings are all pre-existing and unrelated (unused <code>kbd</code> selectors, a Lightbox a11y
+		note, and the PR authors' <code>state_referenced_locally</code> notes).
+	</div>
+	<p class="muted">No automated test suite exists, and the Dink pipeline + money paths weren't exercised at runtime
+		(Dink isn't live; money paths need a real Discord session) — hence the smoke-test items in the checklist.</p>
+
+	<table>
+		<tr><th>Commit</th><th>Area</th></tr>
+		<tr><td><code>399730f</code></td><td>§1 Money/rank correctness + player-lookup consolidation</td></tr>
+		<tr><td><code>75633fb</code></td><td>§2 Shared components &amp; helpers + adoption</td></tr>
+		<tr><td><code>256bdc0</code></td><td>§3 Theming consistency</td></tr>
+		<tr><td><code>be26548</code></td><td>§4 Server layer: fetch helper, generics, cache, hooks, docs</td></tr>
+		<tr><td><code>a39e5de</code></td><td>§5 Rank config: weight normalization, helper reuse</td></tr>
+		<tr><td><code>09d35c9</code></td><td>§6 Dink pipeline hardening (+ migration)</td></tr>
+		<tr><td><code>8c4bae1</code></td><td>The original written review (<code>CODE-REVIEW-2.0.md</code>)</td></tr>
+	</table>
+
+	<p class="foot">Generated for the <code>voli-site-2.0-refactor</code> branch. Open this file in any browser; checkbox
+		state is saved locally. The companion prose review lives at <code>docs/CODE-REVIEW-2.0.md</code>.</p>
+
+</div>
+
+<script>
+	// Persist checklist state locally so it survives reopening the file.
+	(function () {
+		var KEY = 'voli2report.checks';
+		var saved = {};
+		try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
+		document.querySelectorAll('.check').forEach(function (row) {
+			var box = row.querySelector('input');
+			var k = row.getAttribute('data-k');
+			if (saved[k]) { box.checked = true; row.classList.add('done'); }
+			box.addEventListener('change', function () {
+				row.classList.toggle('done', box.checked);
+				saved[k] = box.checked;
+				try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+			});
+		});
+	})();
+</script>
+</body>
+</html>
