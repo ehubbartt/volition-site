@@ -73,11 +73,15 @@ export const RANK_IMG: Record<RankValue, string | null> = {
 
 const UNRANKED_COLOR = '#9aa0a6';
 
-function normalize(womRole: string | null | undefined): RankValue | null {
+// Coerce an arbitrary wom-role string to a known RankValue (lowercased) or null.
+// Exported so the rank-sim/config code reuses this instead of re-checking
+// RANK_ORDER.includes(x.toLowerCase()) inline.
+export function toRankValue(womRole: string | null | undefined): RankValue | null {
 	if (!womRole) return null;
 	const v = womRole.trim().toLowerCase();
 	return (RANK_ORDER as readonly string[]).includes(v) ? (v as RankValue) : null;
 }
+const normalize = toRankValue;
 
 // Ladder position (0 = lowest). Unknown / unranked sorts last (-1 → treated as the
 // bottom for descending sorts; callers can special-case).

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import ImageDropper from '$lib/ImageDropper.svelte';
+	import StatusPill from '$lib/StatusPill.svelte';
 	import type { EventTask } from '$lib/events/simple';
 
 	let { task, canSubmit }: { task: EventTask; canSubmit: boolean } = $props();
@@ -50,13 +51,7 @@
 						</div>
 						<div class="mine-meta">
 							<div class="mine-meta-left">
-								<span class="status-pill status-{sub.status}">
-									{sub.status === 'pending'
-										? 'Pending review'
-										: sub.status === 'approved'
-											? 'Approved'
-											: 'Rejected'}
-								</span>
+								<StatusPill status={sub.status} label={sub.status === 'pending' ? 'Pending review' : undefined} />
 								<span class="meta">Submitted {fmtDate(sub.submitted_at)}</span>
 								{#if sub.status === 'approved' && sub.reviewed_by_name}
 									<span class="meta">· Accepted by {sub.reviewed_by_name}</span>
@@ -270,32 +265,6 @@
 	.meta {
 		color: var(--muted);
 		font-size: 0.8rem;
-	}
-	.status-pill {
-		display: inline-block;
-		padding: 0.05rem 0.45rem;
-		font-family: var(--font-heading);
-		font-size: 0.68rem;
-		letter-spacing: 1px;
-		text-transform: uppercase;
-		border-radius: 3px;
-		border: 1px solid transparent;
-		text-shadow: none;
-	}
-	.status-pill.status-pending {
-		background: rgba(255, 152, 31, 0.18);
-		border-color: var(--accent);
-		color: var(--accent);
-	}
-	.status-pill.status-approved {
-		background: rgba(127, 209, 138, 0.12);
-		border-color: #7fd18a;
-		color: #7fd18a;
-	}
-	.status-pill.status-rejected {
-		background: rgba(255, 0, 0, 0.12);
-		border-color: var(--danger);
-		color: var(--danger);
 	}
 	.reject-note {
 		margin: 0;

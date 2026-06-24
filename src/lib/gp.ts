@@ -24,6 +24,14 @@ export function formatGP(gp: number): string {
 	return String(gp);
 }
 
+// Percentage formatter shared by the stats/sim pages. With one arg, `n` is treated
+// as a 0–1 fraction (0.25 → "25.0%"); with `total`, it's `n / total` (3, 12 → "25.0%").
+// Consolidates the two divergent `pct()` copies that took different argument shapes.
+export function formatPct(n: number, total?: number, digits = 1): string {
+	const frac = total === undefined ? n : total === 0 ? 0 : n / total;
+	return `${(frac * 100).toFixed(digits)}%`;
+}
+
 // OSRS quantity colour tier: the game tints stacked values yellow under 100k,
 // white under 10M, and green at 10M+. Returns the class to apply to the number.
 export function osrsTier(value: number): 't-k' | 't-m' | 't-b' {
