@@ -17,7 +17,7 @@ import {
 	type BingoStructure,
 	type BingoTierConfig
 } from '$lib/bingo/config';
-import { BINGO_TILES, getTileDetails } from '$lib/server/bingoTiles';
+import { BINGO_TILES, getTileDetails, DEFAULT_TILE_DETAILS } from '$lib/server/bingoTiles';
 import type { BingoTier, BingoTile } from '$lib/bingo/tiles';
 
 export interface EventTileRow {
@@ -98,8 +98,6 @@ function rowsToTiles(rows: EventTileRow[]): BingoTile[] {
 		}));
 }
 
-const DEFAULT_DETAILS = 'Screenshot of the new collection log or the untradeable loot notification.';
-
 // Load the renderable board for an event row (must include id, slug, structure).
 export async function loadEventBoard(event: {
 	id: string;
@@ -126,7 +124,7 @@ export async function loadEventBoard(event: {
 			built: true,
 			structure,
 			tiles: rowsToTiles(rows),
-			getDetails: (id) => detailsById.get(id) ?? DEFAULT_DETAILS
+			getDetails: (id) => detailsById.get(id) ?? DEFAULT_TILE_DETAILS
 		};
 	}
 
@@ -140,7 +138,7 @@ export async function loadEventBoard(event: {
 			getDetails: (id) => getTileDetails(id)
 		};
 	}
-	return { built: false, structure, tiles: [], getDetails: () => DEFAULT_DETAILS };
+	return { built: false, structure, tiles: [], getDetails: () => DEFAULT_TILE_DETAILS };
 }
 
 // ── Builder mutations ───────────────────────────────────────────────────────
@@ -171,6 +169,16 @@ export async function cloneTemplateToEvent(
 		tiles = (Array.isArray(data.tiles) ? data.tiles : []) as EventTileRow[];
 	}
 
+	// Snapshot the existing tiles (content columns only) BEFORE we delete them, so a
+	// failed re-clone on an existing event can be rolled back instead of leaving the
+	// board tile-less. There are no transactions through the anon client, so this
+	// best-effort restore is the safety net.
+	const tileCols = 'event_id, tile_id, row, tier, name, points, details_md, img';
+	const { data: prevTiles } = await db()
+		.from('vs_event_tiles')
+		.select(tileCols)
+		.eq('event_id', eventId);
+
 	const { error: structErr } = await db()
 		.from('vs_events')
 		.update({ structure })
@@ -192,7 +200,14 @@ export async function cloneTemplateToEvent(
 			img: t.img ?? null
 		}));
 		const { error: insErr } = await db().from('vs_event_tiles').insert(rows);
-		if (insErr) return { ok: false, error: insErr.message };
+		if (insErr) {
+			// Restore the snapshot so the event keeps its prior board on a failed re-clone.
+			if (prevTiles && prevTiles.length) {
+				await db().from('vs_event_tiles').delete().eq('event_id', eventId);
+				await db().from('vs_event_tiles').insert(prevTiles);
+			}
+			return { ok: false, error: insErr.message };
+		}
 	}
 
 	return { ok: true };

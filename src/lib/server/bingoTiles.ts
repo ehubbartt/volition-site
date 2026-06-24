@@ -87,7 +87,7 @@ export const BINGO_TILE_BY_ID: Record<string, BingoTile> = Object.fromEntries(
 // Lives under $lib/server/ so future-tile details never get sent to the
 // browser before that row releases.
 
-const DEFAULT_TILE_DETAILS =
+export const DEFAULT_TILE_DETAILS =
 	'Screenshot of the new collection log or the untradeable loot notification.';
 
 const TILE_DETAILS: Record<string, string> = {
