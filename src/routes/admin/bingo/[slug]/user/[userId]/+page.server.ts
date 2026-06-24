@@ -49,7 +49,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		.order('submitted_at', { ascending: true });
 	if (sErr) throw error(500, sErr.message);
 
-	const subs = (subsRaw ?? []) as SubRow[];
+	// `reviewer` is a to-one embed (FK reviewed_by), so PostgREST returns a single
+	// object at runtime; supabase-js types it loosely, hence the cast through unknown.
+	const subs = (subsRaw ?? []) as unknown as SubRow[];
 
 	// Group submissions by tile, attaching tile metadata.
 	const groupsMap = new Map<

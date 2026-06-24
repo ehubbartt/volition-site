@@ -3,8 +3,9 @@
 // User-Agent header. Used by the on-site Skill or Kill leaderboard to read the same
 // competition standings the bot shows in Discord.
 
+import { getJson } from './http';
+
 const WOM_BASE = 'https://api.wiseoldman.net/v2';
-const WOM_HEADERS = { 'User-Agent': 'Volition-Site', Accept: 'application/json' };
 
 export interface WomParticipation {
 	player: { displayName: string };
@@ -24,13 +25,7 @@ export interface WomCompetition {
 // network/parse error so a WOM outage degrades to "standings unavailable" rather
 // than breaking the page.
 export async function fetchCompetition(womId: number | string): Promise<WomCompetition | null> {
-	try {
-		const res = await fetch(`${WOM_BASE}/competitions/${womId}`, { headers: WOM_HEADERS });
-		if (!res.ok) return null;
-		return (await res.json()) as WomCompetition;
-	} catch {
-		return null;
-	}
+	return getJson<WomCompetition>(`${WOM_BASE}/competitions/${womId}`);
 }
 
 // The 24 OSRS skill metrics (incl. overall). Everything else WOM exposes as a
