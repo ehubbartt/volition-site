@@ -8,6 +8,8 @@
 	import { FINISH_BY_KEY } from '$lib/cards/finishes';
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
+	import OsrsCounter from '$lib/OsrsCounter.svelte';
+	import WalletList from '$lib/WalletList.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -48,10 +50,7 @@
 				</span>
 			</div>
 		</div>
-		<div class="vp" title="Volition Points">
-			<span class="vp-amount">{data.vp_balance.toLocaleString()}</span>
-			<span class="vp-label">VP</span>
-		</div>
+		<OsrsCounter value={data.vp_balance} label="VP" title="Volition Points" />
 	</header>
 
 	{#if data.isSelf}
@@ -168,14 +167,7 @@
 					<p>Wallet is empty.</p>
 				</div>
 			{:else}
-				<ul class="wallet-list">
-					{#each data.wallet as item}
-						<li>
-							<span class="item-name">{item.name}</span>
-							<span class="item-qty">×{item.quantity}</span>
-						</li>
-					{/each}
-				</ul>
+				<WalletList items={data.wallet} />
 			{/if}
 		</div>
 	{/if}
@@ -230,28 +222,6 @@
 
 	.self-note {
 		margin: 0.75rem 0 0;
-		font-size: 0.85rem;
-	}
-
-	.vp {
-		display: flex;
-		align-items: baseline;
-		gap: 0.4rem;
-		padding: 0.5rem 1rem;
-		background: var(--accent-soft);
-		border: 1px solid var(--accent);
-		border-radius: 999px;
-		text-shadow: var(--ts);
-	}
-
-	.vp-amount {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
-		font-size: 1.4rem;
-		color: var(--accent);
-	}
-
-	.vp-label {
-		color: var(--accent);
 		font-size: 0.85rem;
 	}
 
@@ -411,29 +381,6 @@
 	}
 
 	.muted {
-		color: var(--muted);
-	}
-
-	.wallet-list {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0.4rem;
-	}
-
-	.wallet-list li {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0.6rem 0.85rem;
-		background: var(--surface-alt);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-	}
-
-	.item-qty {
 		color: var(--muted);
 	}
 

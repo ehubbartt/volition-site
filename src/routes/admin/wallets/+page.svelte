@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import { formatGP } from '$lib/gp';
+	import { formatDate } from '$lib/datetime';
 	import { enhance } from '$app/forms';
 	import StatsTabs from '$lib/admin/StatsTabs.svelte';
 
@@ -15,12 +16,7 @@
 
 	const fmt = (n: number) => n.toLocaleString();
 
-	function ago(iso: string | null): string {
-		if (!iso) return '—';
-		const d = new Date(iso);
-		if (isNaN(d.getTime())) return '—';
-		return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-	}
+	const ago = formatDate;
 
 	function toggleSort(col: typeof sortBy) {
 		if (sortBy === col) {

@@ -10,8 +10,11 @@
 	import type { ClanValue } from '$lib/clans';
 	import { rsnToSlug } from '$lib/rsn';
 	import { itemIconUrl } from '$lib/osrsItems';
-	import { rankLabel, rankColor, rankImg } from '$lib/ranks';
-	import { formatGP, osrsTier } from '$lib/gp';
+	import { rankLabel, rankColor } from '$lib/ranks';
+	import { formatGP } from '$lib/gp';
+	import OsrsCounter from '$lib/OsrsCounter.svelte';
+	import WalletList from '$lib/WalletList.svelte';
+	import RankBadge from '$lib/RankBadge.svelte';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
@@ -90,10 +93,7 @@
 				</span>
 			</div>
 		</div>
-		<div class="osrs-counter" title="Volition Points">
-			<span class="amount {osrsTier(data.vp_balance)}">{data.vp_balance.toLocaleString()}</span>
-			<span class="label">VP</span>
-		</div>
+		<OsrsCounter value={data.vp_balance} label="VP" title="Volition Points" />
 	</header>
 
 	{#if data.user.rsn}
@@ -178,15 +178,7 @@
 			<section class="rank-panel">
 				<div class="rank-head">
 					<div class="rank-id">
-						{#if rankImg(rank?.rank ?? data.currentRank)}
-							<img
-								src={rankImg(rank?.rank ?? data.currentRank)}
-								alt={rankLabel(rank?.rank ?? data.currentRank)}
-								class="rank-badge"
-							/>
-						{:else}
-							<span class="rank-dot" style="background:{rankColor(rank?.rank ?? data.currentRank)}"></span>
-						{/if}
+						<RankBadge rank={rank?.rank ?? data.currentRank} size={40} />
 						<div>
 							<span class="rank-label">Clan rank</span>
 							<strong class="rank-name" style="color:{rankColor(rank?.rank ?? data.currentRank)}">
@@ -399,10 +391,12 @@
 	{:else if tab === 'wallet'}
 		<div class="panel">
 			<div class="wallet-head">
-				<div class="osrs-counter" title="Your spendable wallet balance">
-					<span class="amount {osrsTier(data.gold_balance)}">{formatGP(data.gold_balance)}</span>
-					<span class="label">Wallet balance</span>
-				</div>
+				<OsrsCounter
+					value={data.gold_balance}
+					label="Wallet balance"
+					format="gp"
+					title="Your spendable wallet balance"
+				/>
 				{#if data.walletGpValue > 0}
 					<button
 						type="button"
@@ -457,17 +451,7 @@
 					<p class="muted">Items you win from gamble boxes show up here. Convert them into a spendable balance, or have them paid out in-game.</p>
 				</div>
 			{:else}
-				<ul class="wallet-list">
-					{#each data.wallet as item}
-						<li>
-							<span class="item-name">{item.name}</span>
-							<span class="item-meta">
-								{#if item.unitPrice > 0}<span class="item-val">{formatGP(item.value)}</span>{/if}
-								<span class="item-qty">×{item.quantity}</span>
-							</span>
-						</li>
-					{/each}
-				</ul>
+				<WalletList items={data.wallet} />
 				<p class="muted small wallet-total">Wallet value: <strong>{formatGP(data.walletGpValue)}</strong></p>
 			{/if}
 		</div>
@@ -813,38 +797,6 @@
 		color: var(--muted);
 	}
 
-	.wallet-list {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0.4rem;
-	}
-
-	.wallet-list li {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0.6rem 0.85rem;
-		background: var(--surface-alt);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-	}
-
-	.item-meta {
-		display: flex;
-		align-items: baseline;
-		gap: 0.6rem;
-	}
-	.item-val {
-		color: #e9c349;
-		font-size: 0.9rem;
-	}
-	.item-qty {
-		color: var(--muted);
-	}
-
 	.wallet-head {
 		display: flex;
 		align-items: center;
@@ -905,18 +857,6 @@
 		display: flex;
 		align-items: center;
 		gap: 0.7rem;
-	}
-	.rank-badge {
-		width: 40px;
-		height: 40px;
-		object-fit: contain;
-		image-rendering: pixelated;
-	}
-	.rank-dot {
-		display: inline-block;
-		width: 22px;
-		height: 22px;
-		border-radius: 999px;
 	}
 	.rank-label {
 		display: block;

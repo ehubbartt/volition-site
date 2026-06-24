@@ -12,6 +12,45 @@ import type { SubmitFunction } from '@sveltejs/kit';
 // Fields that hold a datetime-local value across the event/calendar admin forms.
 const DATE_FIELDS = ['starts_at', 'ends_at', 'signup_opens_at', 'signup_closes_at'];
 
+// --- Display formatters -------------------------------------------------------
+// Shared "show this instant to the user" helpers so pages stop re-inventing
+// `new Date(iso).toLocaleString()` (and the two copies of `ago()`). All return an
+// em dash for null/invalid input so callers don't have to guard.
+
+const EM_DASH = '—';
+
+// Date only, e.g. "Jun 10, 2026" (override via opts). '—' on null/invalid.
+export function formatDate(
+	iso: string | null | undefined,
+	opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' }
+): string {
+	if (!iso) return EM_DASH;
+	const d = new Date(iso);
+	return Number.isNaN(d.getTime()) ? EM_DASH : d.toLocaleDateString(undefined, opts);
+}
+
+// Date + time, e.g. "Jun 10, 2026, 2:30 PM". '—' on null/invalid.
+export function formatDateTime(iso: string | null | undefined): string {
+	if (!iso) return EM_DASH;
+	const d = new Date(iso);
+	return Number.isNaN(d.getTime()) ? EM_DASH : d.toLocaleString();
+}
+
+// Compact relative age, e.g. "3d", "5h", "just now". '—' on null/invalid.
+// Replaces the duplicated ago() helpers in the admin wallet/pack-stats pages.
+export function timeAgo(iso: string | null | undefined): string {
+	if (!iso) return EM_DASH;
+	const t = new Date(iso).getTime();
+	if (Number.isNaN(t)) return EM_DASH;
+	const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+	if (s < 60) return 'just now';
+	const m = Math.floor(s / 60);
+	if (m < 60) return `${m}m`;
+	const h = Math.floor(m / 60);
+	if (h < 24) return `${h}h`;
+	return `${Math.floor(h / 24)}d`;
+}
+
 // "2026-06-10T14:30" (browser-local) → "2026-06-10T18:30:00.000Z" (UTC ISO).
 export function datetimeLocalToIso(value: string): string | null {
 	if (!value.trim()) return null;

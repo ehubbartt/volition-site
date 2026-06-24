@@ -2,7 +2,8 @@
 	import type { PageData } from './$types';
 	import CardsTabs from '$lib/admin/CardsTabs.svelte';
 	import { rsnToSlug } from '$lib/rsn';
-	import { formatGP } from '$lib/gp';
+	import { formatGP, formatPct } from '$lib/gp';
+	import { formatDate } from '$lib/datetime';
 
 	let { data }: { data: PageData } = $props();
 
@@ -14,16 +15,8 @@
 		data.finishPulls.normal + data.finishPulls.holo + data.finishPulls.reverse
 	);
 
-	function ago(iso: string | null): string {
-		if (!iso) return '—';
-		const d = new Date(iso);
-		return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-	}
-
-	function pct(n: number, total: number): string {
-		if (total <= 0) return '0%';
-		return `${((n / total) * 100).toFixed(1)}%`;
-	}
+	const ago = formatDate;
+	const pct = formatPct;
 </script>
 
 <svelte:head>

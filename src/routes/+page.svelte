@@ -6,6 +6,7 @@
 	import { datetimeLocalToIso } from '$lib/datetime';
 	import { rankLabel, rankColor, rankIndex, rankImg } from '$lib/ranks';
 	import { rsnToSlug } from '$lib/rsn';
+	import StatCard from '$lib/StatCard.svelte';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -265,18 +266,9 @@
 	</section>
 
 	<div class="public-stats">
-		<div class="stat">
-			<span class="stat-value">{data.stats.members}</span>
-			<span class="stat-label">Members</span>
-		</div>
-		<div class="stat">
-			<span class="stat-value">{data.stats.activeEvents}</span>
-			<span class="stat-label">Active events</span>
-		</div>
-		<div class="stat">
-			<span class="stat-value">{data.stats.totalEvents}</span>
-			<span class="stat-label">Events all-time</span>
-		</div>
+		<StatCard value={data.stats.members} label="Members" />
+		<StatCard value={data.stats.activeEvents} label="Active events" />
+		<StatCard value={data.stats.totalEvents} label="Events all-time" />
 	</div>
 
 	{#if agendaItems.length > 0}
@@ -321,22 +313,10 @@
 	</section>
 
 	<div class="stat-strip">
-		<div class="stat">
-			<span class="stat-value">{data.stats.members}</span>
-			<span class="stat-label">Members</span>
-		</div>
-		<div class="stat">
-			<span class="stat-value">{data.stats.activeEvents}</span>
-			<span class="stat-label">Active events</span>
-		</div>
-		<div class="stat">
-			<span class="stat-value">{data.stats.totalEvents}</span>
-			<span class="stat-label">Events all-time</span>
-		</div>
-		<div class="stat">
-			<span class="stat-value">{data.stats.packsOpened}</span>
-			<span class="stat-label">Packs opened</span>
-		</div>
+		<StatCard value={data.stats.members} label="Members" />
+		<StatCard value={data.stats.activeEvents} label="Active events" />
+		<StatCard value={data.stats.totalEvents} label="Events all-time" />
+		<StatCard value={data.stats.packsOpened} label="Packs opened" />
 	</div>
 
 	{#if data.taskSummary}
@@ -763,29 +743,8 @@
 	.public-stats {
 		grid-template-columns: repeat(3, 1fr);
 	}
-	.stat {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.15rem;
-		padding: 0.9rem 0.5rem;
-		background: linear-gradient(180deg, rgba(58, 48, 36, 0.85), rgba(40, 32, 24, 0.85));
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		box-shadow: var(--shadow-card);
-	}
-	.stat-value {
-		font-family: var(--font-heading);
-		font-size: 1.7rem;
-		color: var(--yellow);
-		text-shadow: var(--ts);
-		line-height: 1;
-	}
-	.stat-label {
-		font-size: 0.8rem;
-		color: var(--muted);
-		text-align: center;
-	}
+	/* Individual stat tiles are rendered by StatCard; the wrappers above just lay
+	   them out in a grid. */
 
 	/* ── To-do summary card ── */
 	.todo-card {
@@ -1331,9 +1290,6 @@
 		}
 		.public-stats {
 			grid-template-columns: repeat(3, 1fr);
-		}
-		.stat-value {
-			font-size: 1.4rem;
 		}
 		.welcome {
 			align-items: flex-start;
