@@ -17,7 +17,7 @@ import {
 } from '$lib/server/rankData';
 import { calculateGearPoints, calculateCAPoints } from '$lib/server/rankScoring';
 import { setPlayerRank } from '$lib/server/playerStats';
-import { RANK_ORDER, RANK_LABEL, rankIndex, type RankValue } from '$lib/ranks';
+import { RANK_ORDER, RANK_LABEL, rankIndex, toRankValue, type RankValue } from '$lib/ranks';
 import type { Actions, PageServerLoad } from './$types';
 
 // Admin rank-distribution simulator. Mirrors voli-disc-bot/scripts/simulateRanks.js as
@@ -90,9 +90,7 @@ function buildSummary(rows: SimRow[], config: RankScoringConfig, current: Map<st
 			config
 		);
 		const cur = current.get(row.rsn.toLowerCase()) ?? null;
-		const curNorm = cur && (RANK_ORDER as readonly string[]).includes(cur.toLowerCase())
-			? (cur.toLowerCase() as RankValue)
-			: null;
+		const curNorm = toRankValue(cur);
 		return {
 			rsn: row.rsn,
 			current: curNorm,

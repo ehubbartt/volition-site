@@ -1,5 +1,5 @@
 import { db } from './db';
-import { RANK_ORDER, type RankValue } from '$lib/ranks';
+import { toRankValue, type RankValue } from '$lib/ranks';
 
 // SERVER-ONLY tunable rank-scoring config. Stored in the SHARED Supabase `bot_config`
 // table (config_name='rank_scoring', config_group='ranks') — the SAME mechanism the
@@ -38,9 +38,12 @@ export interface RankScoringConfig {
 	thresholds: RankThreshold[];
 }
 
-// Defaults copied VERBATIM from voli-disc-bot/scripts/simulateRanks.js (the weights
-// in calculateCompositeScore + RANK_THRESHOLDS + the normalize* caps). Used when the
-// bot_config row is missing, and as the seed payload (db/scripts/seedRankConfig.mjs).
+// Defaults ported from the bot's original rank-scoring formula (composite weights +
+// thresholds + normalization caps). The live values are the bot_config row tuned via
+// the admin rank-sim; this constant is the FALLBACK used only when that row is missing
+// or unreadable. The gear point table + CA point map live in rankScoring/*.json, which
+// are now the canonical copies (the bot's source script has since been removed) — keep
+// them in sync by hand if the bot's tables change.
 export const DEFAULT_RANK_CONFIG: RankScoringConfig = {
 	weights: { gear: 0.35, ehb: 0.25, ca: 0.1, time: 0.1, clog: 0.1, level: 0.1 },
 	caps: { ehb: 3000, months: 24, clog: 1200, levelMin: 2000, levelRange: 376 },
@@ -72,11 +75,19 @@ const CACHE_TTL_MS = 60_000;
 // fall back field-by-field to the defaults, and keep thresholds in valid rank order.
 function sanitize(raw: unknown): RankScoringConfig {
 	const r = (raw ?? {}) as Partial<RankScoringConfig>;
-	const weights = { ...DEFAULT_RANK_CONFIG.weights, ...(r.weights ?? {}) };
+	const merged = { ...DEFAULT_RANK_CONFIG.weights, ...(r.weights ?? {}) };
+	// The composite is Σ(component·weight) and the thresholds are calibrated for weights
+	// that sum to 1. A hand-edited row whose weights sum to e.g. 1.3 would scale every
+	// score up and make the thresholds meaningless, so normalise to sum 1 here (keeping
+	// the admin's relative emphasis). Falls back to the defaults if the sum is non-positive.
+	const keys = Object.keys(DEFAULT_RANK_CONFIG.weights) as (keyof RankWeights)[];
+	const total = keys.reduce((s, k) => s + (Number(merged[k]) || 0), 0);
+	const weights = { ...DEFAULT_RANK_CONFIG.weights };
+	if (total > 0) for (const k of keys) weights[k] = (Number(merged[k]) || 0) / total;
 	const caps = { ...DEFAULT_RANK_CONFIG.caps, ...(r.caps ?? {}) };
 	let thresholds = Array.isArray(r.thresholds) ? r.thresholds : DEFAULT_RANK_CONFIG.thresholds;
 	thresholds = thresholds
-		.filter((t) => t && (RANK_ORDER as readonly string[]).includes(t.womRole) && typeof t.scoreMin === 'number')
+		.filter((t) => t && toRankValue(t.womRole) && typeof t.scoreMin === 'number')
 		.sort((a, b) => a.scoreMin - b.scoreMin);
 	if (thresholds.length === 0) thresholds = DEFAULT_RANK_CONFIG.thresholds;
 	return { weights, caps, thresholds };
