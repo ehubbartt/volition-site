@@ -222,7 +222,7 @@
 									<span class="comp-label">{c.label}</span>
 									<span class="comp-weight">{pct(c.weight)} of score</span>
 								</div>
-								<div class="comp-bar"><span style="width:{pct(c.normalized)}"></span></div>
+								<div class="osrs-bar"><span class="osrs-bar-fill" style="width:{pct(c.normalized)}"></span></div>
 								<div class="comp-foot">
 									<span class="comp-raw">{num(c.raw)} / {num(c.cap)}</span>
 									<span class="comp-norm">{pct(c.normalized)}</span>
@@ -475,7 +475,7 @@
 		gap: 1rem;
 		flex-wrap: wrap;
 		padding: 1.5rem;
-		background-color: #4d4030;
+		background-color: var(--stone-fill);
 		background-image: var(--stone-tile);
 		background-repeat: repeat;
 		border: 4px solid transparent;
@@ -617,7 +617,7 @@
 
 	button.primary {
 		border-color: var(--accent);
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		align-self: flex-start;
 	}
 
@@ -773,7 +773,7 @@
 	}
 
 	.ms-num {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.3rem;
 		color: var(--accent);
 		text-shadow: var(--ts);
@@ -864,26 +864,11 @@
 		color: var(--muted);
 	}
 	.rank-name {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.25rem;
 		text-shadow: var(--ts);
 	}
-	.check-btn {
-		border: 1px solid var(--accent);
-		background: var(--accent-soft);
-		color: var(--accent);
-		padding: 0.5rem 0.9rem;
-		border-radius: var(--radius);
-		cursor: pointer;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
-	}
-	.check-btn:hover:not(:disabled) {
-		background: rgba(255, 152, 31, 0.2);
-	}
-	.check-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
+	/* .check-btn uses the base OSRS bronze button styling from app.css. */
 	.rank-error {
 		margin: 0 0 0.85rem;
 		color: var(--danger);
@@ -914,20 +899,7 @@
 		font-size: 0.74rem;
 		color: var(--muted);
 	}
-	.comp-bar {
-		height: 8px;
-		background: var(--surface);
-		border: 1px solid var(--border);
-		border-radius: 999px;
-		overflow: hidden;
-	}
-	.comp-bar span {
-		display: block;
-		height: 100%;
-		background: linear-gradient(90deg, var(--accent), #ffc46b);
-		border-radius: 999px;
-		transition: width 0.3s ease-out;
-	}
+	/* composite bars use the shared .osrs-bar / .osrs-bar-fill utility (app.css) */
 	.comp-foot {
 		display: flex;
 		align-items: baseline;
@@ -941,7 +913,7 @@
 	}
 	.comp-norm {
 		font-size: 0.78rem;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		color: var(--accent);
 	}
 
@@ -1002,7 +974,7 @@
 	}
 	.gtile.owned .gtile-pts {
 		color: var(--accent);
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 	}
 
 	/* Combat achievements summary */
@@ -1031,7 +1003,7 @@
 		border-radius: var(--radius);
 	}
 	.ca-num {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.05rem;
 		color: var(--accent);
 		text-shadow: var(--ts);

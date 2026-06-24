@@ -156,12 +156,17 @@
 	.small { font-size: 0.85rem; }
 	.status {
 		display: flex; align-items: center; gap: 1rem;
-		border: 1px solid var(--border); border-radius: var(--radius);
 		padding: 1.1rem 1.2rem; margin: 1.1rem 0;
-		background: linear-gradient(180deg, rgba(58, 48, 36, 0.85), rgba(40, 32, 24, 0.85));
+		background-color: var(--stone-fill);
+		background-image: var(--stone-tile);
+		background-repeat: repeat;
+		border: 4px solid transparent;
+		border-image: url('/osrs/border-tiny.png') 4 / 4px round;
+		border-radius: 4px;
 	}
-	.status.good { border-color: var(--success); }
-	.status.wait { border-color: var(--yellow); }
+	/* status colour accents shift the inner glow rather than the gold frame */
+	.status.good { box-shadow: inset 0 0 0 2px var(--success); }
+	.status.wait { box-shadow: inset 0 0 0 2px var(--yellow); }
 	.status h2 { margin: 0 0 0.2rem; font-size: 1.1rem; }
 	.status.good h2 { color: var(--success); }
 	.status.wait h2 { color: var(--yellow); }

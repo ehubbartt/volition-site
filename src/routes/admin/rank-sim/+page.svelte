@@ -374,29 +374,12 @@
 	input {
 		width: 100%;
 	}
-	.btn {
-		border: 1px solid var(--border);
-		background: var(--surface);
-		color: var(--text);
-		padding: 0.5rem 0.9rem;
-		border-radius: var(--radius);
-		cursor: pointer;
-	}
-	.btn:hover:not(:disabled) {
-		border-color: var(--accent);
-	}
-	.btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
+	/* .btn uses the base OSRS bronze button (app.css); variants just retint text. */
 	.btn.primary {
-		border-color: var(--accent);
 		color: var(--accent);
-		background: var(--accent-soft);
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 	}
 	.btn.danger {
-		border-color: var(--danger);
 		color: var(--danger);
 	}
 	table {

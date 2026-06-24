@@ -1269,7 +1269,7 @@
     flex-wrap: wrap;
     padding: 1.6rem 1.75rem;
     margin-bottom: 1.5rem;
-    background-color: #4d4030;
+    background-color: var(--stone-fill);
     background-image: var(--stone-tile);
     background-repeat: repeat;
     border: 4px solid transparent;
@@ -1316,7 +1316,7 @@
     display: inline-block;
     margin-top: 0.7rem;
     padding: 0.4rem 0.85rem;
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     font-size: 0.9rem;
     color: var(--accent);
     background: #4d4336;
@@ -1711,7 +1711,7 @@
     display: inline-block;
     margin-left: 0.4rem;
     padding: 0.08rem 0.45rem;
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     font-size: 0.62rem;
     letter-spacing: 1px;
     text-transform: uppercase;
@@ -1737,7 +1737,7 @@
   button.primary {
     width: 100%;
     border-color: var(--accent);
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
   }
 
   button.primary:hover:not(:disabled) {
@@ -1781,7 +1781,7 @@
     border-radius: 5px;
     background: #2f281c;
     color: var(--muted);
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     opacity: 0.8;
   }
 
@@ -1802,7 +1802,7 @@
     gap: 1.1rem;
     align-items: center;
     padding: 1.25rem;
-    background-color: #4d4030;
+    background-color: var(--stone-fill);
     background-image: var(--stone-tile);
     background-repeat: repeat;
     border: 4px solid transparent;
@@ -1886,7 +1886,7 @@
   }
 
   .odds-label {
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
   }
 
   /* ---- Crate reveal modal ---- */
@@ -2023,7 +2023,7 @@
   }
 
   .reel-text {
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     font-size: 0.78rem;
     text-align: center;
     line-height: 1.15;
@@ -2089,7 +2089,7 @@
   .reveal-spinning {
     margin: 0;
     color: var(--muted);
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     letter-spacing: 1px;
   }
 
@@ -2101,7 +2101,7 @@
 
   .reveal-detail {
     margin: 0;
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     font-size: 1.3rem;
   }
 
@@ -2212,7 +2212,7 @@
     border-radius: 3px;
     background: color-mix(in srgb, var(--rare-color) 22%, #000a);
     color: var(--rare-color);
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     font-size: 0.78rem;
   }
 
@@ -2234,7 +2234,7 @@
 
   .drop-rarity {
     font-size: 0.72rem;
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

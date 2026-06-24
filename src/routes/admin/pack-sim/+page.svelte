@@ -280,7 +280,7 @@
 
 	button.primary {
 		border-color: var(--accent);
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 	}
 
 	button.primary:hover:not(:disabled) {

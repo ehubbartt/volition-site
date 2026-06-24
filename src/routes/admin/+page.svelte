@@ -130,7 +130,7 @@
 		flex-direction: column;
 		gap: 0.4rem;
 		padding: 1.25rem;
-		background-color: #4d4030;
+		background-color: var(--stone-fill);
 		background-image: var(--stone-tile);
 		background-repeat: repeat;
 		border: 4px solid transparent;
@@ -148,7 +148,7 @@
 	}
 
 	.tool strong {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.15rem;
 		color: var(--accent);
 		text-shadow: var(--ts);

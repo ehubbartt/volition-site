@@ -2370,7 +2370,7 @@
 
   .title {
     margin: 0;
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     font-size: 1.5rem;
     color: var(--accent);
     text-shadow: var(--ts-strong);
@@ -2378,7 +2378,7 @@
 
   .card-name {
     margin: 0;
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     font-size: 1.4rem;
     color: var(--rarity, var(--text));
     text-shadow: var(--ts-strong);
@@ -2388,7 +2388,7 @@
   }
 
   .card-sub {
-    font-family: "rssmall", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-body);
     font-size: 0.85rem;
     color: rgba(255, 255, 255, 0.7);
   }
@@ -2401,7 +2401,7 @@
     left: 1rem;
     z-index: 2;
     pointer-events: none;
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     font-size: 0.8rem;
     letter-spacing: 1.5px;
     color: #ff4d4d;
@@ -2425,7 +2425,7 @@
   }
 
   .holo-tag {
-    font-family: "rssmall", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-body);
     font-size: 0.8rem;
     color: #fff;
     background: linear-gradient(
@@ -2473,7 +2473,7 @@
   .rip {
     border-color: var(--accent);
     color: var(--accent);
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     background: rgba(255, 152, 31, 0.12);
     padding: 0 1.5rem;
   }

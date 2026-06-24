@@ -899,7 +899,7 @@
 	}
 
 	.team-name {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.1rem;
 		color: var(--yellow);
 		text-shadow: var(--ts-strong);
@@ -914,7 +914,7 @@
 	}
 
 	.team-name-form input {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1rem;
 	}
 
@@ -992,7 +992,7 @@
 	.clan-count {
 		font-size: 0.85rem;
 		color: var(--muted);
-		font-family: 'rssmall', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-body);
 	}
 
 	.team-row {
@@ -1012,7 +1012,7 @@
 	}
 
 	.team-row-name {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		color: var(--yellow);
 		text-shadow: var(--ts);
 	}
@@ -1163,7 +1163,7 @@
 	.board-open {
 		flex-shrink: 0;
 		padding: 0.5rem 1rem;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		background: var(--accent-soft);
 		border: 1px solid var(--accent);
 		border-radius: var(--radius);
