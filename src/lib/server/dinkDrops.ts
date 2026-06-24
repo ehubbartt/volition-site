@@ -12,6 +12,7 @@
 //   2. opportunistically at the top of the bingo board load (poll-on-read backstop)
 
 import { db } from '$lib/server/db';
+import { rsnExactPattern } from '$lib/server/users';
 import { loadEventBoard } from '$lib/server/eventStructure';
 import { getBingoState, getTileStatus } from '$lib/bingo/state';
 import { postBingoCredit } from '$lib/server/dropsFeed';
@@ -47,7 +48,14 @@ type Outcome = 'credited' | 'no_tile' | 'no_user' | 'timing' | 'duplicate' | 'pa
 
 // Resolve an RSN to a site user id (case-insensitive, mirrors clan.ts/users.ts).
 async function resolveUserId(rsn: string): Promise<string | null> {
-	const { data } = await db().from('vs_users').select('id').ilike('rsn', rsn).limit(1).maybeSingle();
+	// Escape the RSN so a stray '_'/'%' can't match the wrong row (OSRS treats
+	// space/underscore as equal — same exact-match helper the vs_users lookups use).
+	const { data } = await db()
+		.from('vs_users')
+		.select('id')
+		.ilike('rsn', rsnExactPattern(rsn))
+		.limit(1)
+		.maybeSingle();
 	return (data as { id: string } | null)?.id ?? null;
 }
 
@@ -165,7 +173,9 @@ export async function simulateDinkDrop(input: {
 	notif_type?: string;
 }): Promise<{ ok: boolean; error?: string; processed: number; credited: number }> {
 	const sb = db();
-	const dropKey = `test-${input.event_id}-${input.item_id ?? input.item_name}-${input.rsn}-${Date.now()}`;
+	// Random suffix (not just Date.now()) so two simulations in the same millisecond
+	// can't collide on the drop_key unique constraint.
+	const dropKey = `test-${input.event_id}-${input.item_id ?? input.item_name}-${input.rsn}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 	const { error } = await sb.from('vs_dink_drops').insert({
 		event_id: input.event_id,
 		rsn: input.rsn,
@@ -353,7 +363,7 @@ export async function processDinkDrops(): Promise<{ processed: number; credited:
 				.from('vs_dink_drops')
 				.select('item_id, item_name, quantity')
 				.eq('event_id', drop.event_id)
-				.ilike('rsn', drop.rsn)
+				.ilike('rsn', rsnExactPattern(drop.rsn))
 				.eq('outcome', 'partial');
 			// Count only prior partials of the SAME item (id match, else name) so two
 			// different collect-N tiles for one player don't pool their progress.

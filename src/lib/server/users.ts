@@ -14,7 +14,8 @@ export interface ProfileUser {
 // OSRS treats space and underscore as the same character, so we normalise '_' to
 // ' ' first; then we escape the LIKE metacharacters (% _ \) so the lookup is an
 // exact match, not a pattern (a stray '_' in input would otherwise match any char).
-function rsnExactPattern(rsn: string): string {
+// Exported so every `ilike('rsn', …)` lookup (players + vs_users) shares one escape.
+export function rsnExactPattern(rsn: string): string {
 	return rsn.trim().replace(/_/g, ' ').replace(/[\\%_]/g, '\\$&');
 }
 

@@ -249,6 +249,19 @@ export const actions: Actions = {
 				return fail(500, { rankError: 'Could not save your rank breakdown — try again later.' });
 			}
 
+			// If a stats source was down (Temple/WikiSync), its component degrades to 0 and
+			// the composite is artificially low. Show the breakdown, but DON'T persist the
+			// rank — the bot mirrors players.rank to a Discord role, so writing a degraded
+			// score off a transient 429/outage could wrongly demote the member.
+			if (!inputs.templeAvailable || !inputs.wikisyncAvailable) {
+				return {
+					rankOk: true,
+					rankSaved: false,
+					rankNote:
+						'Computed from partial data — a stats source (Temple/WikiSync) was unavailable, so your clan rank was not updated to avoid an inaccurate change. Try again shortly.'
+				};
+			}
+
 			// Mirror the computed rank to the clan player record (the bot syncs it to
 			// Discord). A missing player record isn't fatal — the breakdown still renders.
 			const write = await setPlayerRank(locals.user.discord_id, rsn, rank);

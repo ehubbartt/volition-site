@@ -1,5 +1,75 @@
 import { db } from './db';
 import { itemPrice } from '$lib/gp';
+import { rsnExactPattern } from './users';
+import { postOpsAlert } from './opsAlert';
+
+// Locate a player row by discord_id first, then by an escaped, case-insensitive
+// rsn match (OSRS treats space/underscore as equal — see rsnExactPattern). One
+// shared lookup so every read/write below resolves the SAME row the same way and
+// can't be fooled by a `_`/`%` in the rsn. `columns` is a Supabase select string;
+// the row is returned untyped (callers read the columns they asked for).
+async function findPlayerRow(
+	discordId: string | null,
+	rsn: string | null,
+	columns: string
+): Promise<Record<string, unknown> | null> {
+	const sb = db();
+	if (discordId) {
+		const { data } = await sb.from('players').select(columns).eq('discord_id', discordId).maybeSingle();
+		if (data) return data as unknown as Record<string, unknown>;
+	}
+	if (rsn) {
+		const { data } = await sb
+			.from('players')
+			.select(columns)
+			.ilike('rsn', rsnExactPattern(rsn))
+			.maybeSingle();
+		if (data) return data as unknown as Record<string, unknown>;
+	}
+	return null;
+}
+
+const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
+
+// Optimistic-lock numeric write: set `column` to `next` only if it's still `prev`
+// (no SQL `+=`/transactions through the anon client). Returns true if it landed the
+// row. Shared by the VP/GP spend + grant paths so the concurrency guard is identical.
+async function casColumn(
+	id: number,
+	column: 'points' | 'gold_balance',
+	prev: number,
+	next: number
+): Promise<boolean> {
+	const { data, error } = await db()
+		.from('players')
+		.update({ [column]: next })
+		.eq('id', id)
+		.eq(column, prev)
+		.select('id');
+	return !error && !!data && data.length > 0;
+}
+
+// Optimistic increment with a few retries: re-read + CAS-write, retrying if a
+// concurrent change beat us. Returns the new balance, or null if the row is missing
+// or it couldn't settle. Shared by grantPlayerVp (refund) and grantGold.
+async function grantColumn(
+	discordId: string | null,
+	rsn: string | null,
+	column: 'points' | 'gold_balance',
+	amount: number
+): Promise<number | null> {
+	if (amount <= 0) {
+		const cur = await findPlayerRow(discordId, rsn, `id, ${column}`);
+		return cur ? num(cur[column]) : null;
+	}
+	for (let attempt = 0; attempt < 5; attempt++) {
+		const cur = await findPlayerRow(discordId, rsn, `id, ${column}`);
+		if (!cur) return null;
+		const prev = num(cur[column]);
+		if (await casColumn(cur.id as number, column, prev, prev + amount)) return prev + amount;
+	}
+	return null; // gave up after retries (extremely rare)
+}
 
 // Reads player-facing currency + loot from the Discord bot's tables, which live
 // in the same Supabase project (see voli-disc-bot/db/CLAUDE.md). These are owned
@@ -19,27 +89,8 @@ export async function getPlayerVp(
 	discordId: string | null,
 	rsn: string | null
 ): Promise<number> {
-	const sb = db();
-
-	if (discordId) {
-		const { data } = await sb
-			.from('players')
-			.select('points')
-			.eq('discord_id', discordId)
-			.maybeSingle();
-		if (data) return data.points ?? 0;
-	}
-
-	if (rsn) {
-		const { data } = await sb
-			.from('players')
-			.select('points')
-			.ilike('rsn', rsn)
-			.maybeSingle();
-		if (data) return data.points ?? 0;
-	}
-
-	return 0;
+	const row = await findPlayerRow(discordId, rsn, 'points');
+	return row ? num(row.points) : 0;
 }
 
 // --- VP writes (spend / refund the bot's players.points) -------------------
@@ -54,63 +105,31 @@ export type SpendResult =
 	| { ok: true; balance: number }
 	| { ok: false; reason: 'no_player' | 'insufficient' | 'conflict'; balance: number };
 
-// Find the player row the same way getPlayerVp does (discord_id, then rsn), but
-// also grab the serial primary key so all writes target that exact row by id
-// (rsn's unique constraint is case-sensitive, so an ilike write could touch a
-// different-case row — id avoids that).
-async function locatePlayer(
-	discordId: string | null,
-	rsn: string | null
-): Promise<{ id: number; points: number } | null> {
-	const sb = db();
-	if (discordId) {
-		const { data } = await sb
-			.from('players')
-			.select('id, points')
-			.eq('discord_id', discordId)
-			.maybeSingle();
-		if (data) return { id: data.id, points: data.points ?? 0 };
-	}
-	if (rsn) {
-		const { data } = await sb.from('players').select('id, points').ilike('rsn', rsn).maybeSingle();
-		if (data) return { id: data.id, points: data.points ?? 0 };
-	}
-	return null;
-}
-
 export async function spendPlayerVp(
 	discordId: string | null,
 	rsn: string | null,
 	amount: number
 ): Promise<SpendResult> {
-	const p = await locatePlayer(discordId, rsn);
+	const p = await findPlayerRow(discordId, rsn, 'id, points');
 	if (!p) return { ok: false, reason: 'no_player', balance: 0 };
-	if (p.points < amount) return { ok: false, reason: 'insufficient', balance: p.points };
+	const points = num(p.points);
+	if (points < amount) return { ok: false, reason: 'insufficient', balance: points };
 
 	// Only deduct if points is unchanged since the read (optimistic lock).
-	const { data, error } = await db()
-		.from('players')
-		.update({ points: p.points - amount })
-		.eq('id', p.id)
-		.eq('points', p.points)
-		.select('points');
-
-	if (error || !data || data.length === 0) return { ok: false, reason: 'conflict', balance: p.points };
-	return { ok: true, balance: p.points - amount };
+	if (!(await casColumn(p.id as number, 'points', points, points - amount)))
+		return { ok: false, reason: 'conflict', balance: points };
+	return { ok: true, balance: points - amount };
 }
 
-// Best-effort add-back used to refund a failed open. Re-reads then writes by id.
+// Best-effort add-back used to refund a failed open. Uses the same optimistic
+// increment-with-retry as grantGold so two concurrent refunds can't lose an
+// increment (a plain read-then-write here previously dropped points under a race).
 export async function grantPlayerVp(
 	discordId: string | null,
 	rsn: string | null,
 	amount: number
 ): Promise<void> {
-	const p = await locatePlayer(discordId, rsn);
-	if (!p) return;
-	await db()
-		.from('players')
-		.update({ points: p.points + amount })
-		.eq('id', p.id);
+	await grantColumn(discordId, rsn, 'points', amount);
 }
 
 // --- Rank write (players.rank) --------------------------------------------
@@ -125,16 +144,8 @@ export async function getPlayerRank(
 	discordId: string | null,
 	rsn: string | null
 ): Promise<string | null> {
-	const sb = db();
-	if (discordId) {
-		const { data } = await sb.from('players').select('rank').eq('discord_id', discordId).maybeSingle();
-		if (data) return (data.rank as string | null) ?? null;
-	}
-	if (rsn) {
-		const { data } = await sb.from('players').select('rank').ilike('rsn', rsn).maybeSingle();
-		if (data) return (data.rank as string | null) ?? null;
-	}
-	return null;
+	const row = await findPlayerRow(discordId, rsn, 'rank');
+	return row ? ((row.rank as string | null) ?? null) : null;
 }
 
 export async function setPlayerRank(
@@ -142,19 +153,10 @@ export async function setPlayerRank(
 	rsn: string | null,
 	womRole: string
 ): Promise<RankWriteResult> {
-	const sb = db();
-	let id: number | null = null;
-	if (discordId) {
-		const { data } = await sb.from('players').select('id').eq('discord_id', discordId).maybeSingle();
-		if (data) id = data.id as number;
-	}
-	if (id == null && rsn) {
-		const { data } = await sb.from('players').select('id').ilike('rsn', rsn).maybeSingle();
-		if (data) id = data.id as number;
-	}
-	if (id == null) return { ok: false, reason: 'no_player' };
+	const row = await findPlayerRow(discordId, rsn, 'id');
+	if (!row) return { ok: false, reason: 'no_player' };
 
-	const { error } = await sb.from('players').update({ rank: womRole }).eq('id', id);
+	const { error } = await db().from('players').update({ rank: womRole }).eq('id', row.id as number);
 	if (error) return { ok: false, reason: 'error' };
 	return { ok: true, rank: womRole };
 }
@@ -167,44 +169,8 @@ export async function setPlayerRank(
 const GP_CONVERSION_MARKER = 'gp_conversion';
 
 export async function getPlayerGold(discordId: string | null, rsn: string | null): Promise<number> {
-	const sb = db();
-	if (discordId) {
-		const { data } = await sb
-			.from('players')
-			.select('gold_balance')
-			.eq('discord_id', discordId)
-			.maybeSingle();
-		if (data) return (data.gold_balance as number | null) ?? 0;
-	}
-	if (rsn) {
-		const { data } = await sb.from('players').select('gold_balance').ilike('rsn', rsn).maybeSingle();
-		if (data) return (data.gold_balance as number | null) ?? 0;
-	}
-	return 0;
-}
-
-async function locatePlayerGold(
-	discordId: string | null,
-	rsn: string | null
-): Promise<{ id: number; gold: number } | null> {
-	const sb = db();
-	if (discordId) {
-		const { data } = await sb
-			.from('players')
-			.select('id, gold_balance')
-			.eq('discord_id', discordId)
-			.maybeSingle();
-		if (data) return { id: data.id, gold: (data.gold_balance as number | null) ?? 0 };
-	}
-	if (rsn) {
-		const { data } = await sb
-			.from('players')
-			.select('id, gold_balance')
-			.ilike('rsn', rsn)
-			.maybeSingle();
-		if (data) return { id: data.id, gold: (data.gold_balance as number | null) ?? 0 };
-	}
-	return null;
+	const row = await findPlayerRow(discordId, rsn, 'gold_balance');
+	return row ? num(row.gold_balance) : 0;
 }
 
 export async function spendGold(
@@ -212,46 +178,23 @@ export async function spendGold(
 	rsn: string | null,
 	amount: number
 ): Promise<SpendResult> {
-	const p = await locatePlayerGold(discordId, rsn);
+	const p = await findPlayerRow(discordId, rsn, 'id, gold_balance');
 	if (!p) return { ok: false, reason: 'no_player', balance: 0 };
-	if (p.gold < amount) return { ok: false, reason: 'insufficient', balance: p.gold };
+	const gold = num(p.gold_balance);
+	if (gold < amount) return { ok: false, reason: 'insufficient', balance: gold };
 
-	const { data, error } = await db()
-		.from('players')
-		.update({ gold_balance: p.gold - amount })
-		.eq('id', p.id)
-		.eq('gold_balance', p.gold) // optimistic lock
-		.select('gold_balance');
-
-	if (error || !data || data.length === 0) return { ok: false, reason: 'conflict', balance: p.gold };
-	return { ok: true, balance: p.gold - amount };
+	if (!(await casColumn(p.id as number, 'gold_balance', gold, gold - amount)))
+		return { ok: false, reason: 'conflict', balance: gold };
+	return { ok: true, balance: gold - amount };
 }
 
-// Add to the GP balance (refund a failed open, or credit a conversion). Optimistic
-// increment with a few retries — there's no SQL `+=` through the anon client, so we
-// re-read + write under a lock, retrying if a concurrent change beat us. Returns the
-// new balance, or null if the player row is missing / it couldn't settle.
+// Add to the GP balance (refund a failed open, or credit a conversion).
 export async function grantGold(
 	discordId: string | null,
 	rsn: string | null,
 	amount: number
 ): Promise<number | null> {
-	if (amount <= 0) {
-		const cur = await locatePlayerGold(discordId, rsn);
-		return cur ? cur.gold : null;
-	}
-	for (let attempt = 0; attempt < 5; attempt++) {
-		const p = await locatePlayerGold(discordId, rsn);
-		if (!p) return null;
-		const { data, error } = await db()
-			.from('players')
-			.update({ gold_balance: p.gold + amount })
-			.eq('id', p.id)
-			.eq('gold_balance', p.gold)
-			.select('gold_balance');
-		if (!error && data && data.length > 0) return p.gold + amount;
-	}
-	return null; // gave up after retries (extremely rare)
+	return grantColumn(discordId, rsn, 'gold_balance', amount);
 }
 
 export type ConvertResult =
@@ -294,16 +237,37 @@ export async function convertWalletToGold(
 			priced.map((i) => i.id)
 		)
 		.eq('paid_out', false)
-		.select('item_name');
+		.select('id, item_name');
 	if (flipErr) return { ok: false, reason: 'error' };
 
-	const rows = (flipped ?? []) as Array<{ item_name: string }>;
+	const rows = (flipped ?? []) as Array<{ id: string | number; item_name: string }>;
 	if (rows.length === 0) return { ok: false, reason: 'empty' }; // a concurrent convert got them
 
 	const gained = rows.reduce((sum, r) => sum + itemPrice(r.item_name), 0);
 	const newBalance = await grantGold(discordId, rsn, gained);
 	if (newBalance == null) {
+		// We already settled the items but couldn't credit the GP. Roll the settle back
+		// so the value isn't lost (items stay claimable), and alert — this is exactly the
+		// money-losing event ops should see, not just a console line.
+		const { error: rollbackErr } = await sb
+			.from('wallet_items')
+			.update({ paid_out: false, paid_out_at: null, paid_out_by: null })
+			.in(
+				'id',
+				rows.map((r) => r.id)
+			);
 		console.error('[gp-convert] settled items but could not credit GP for', discordId);
+		postOpsAlert({
+			title: 'GP conversion failed after settling wallet items',
+			detail: rollbackErr
+				? 'Rollback ALSO failed — items may be stuck paid_out with no GP credited.'
+				: 'Items were rolled back to unpaid; the player kept their items.',
+			fields: [
+				{ name: 'User', value: String(discordId) },
+				{ name: 'GP not credited', value: String(gained) },
+				{ name: 'Items', value: String(rows.length) }
+			]
+		});
 		return { ok: false, reason: 'error' };
 	}
 	return { ok: true, gained, newBalance };
@@ -340,20 +304,8 @@ export async function getLastLootDate(
 	discordId: string | null,
 	rsn: string | null
 ): Promise<string | null> {
-	const sb = db();
-	if (discordId) {
-		const { data } = await sb
-			.from('players')
-			.select('last_loot_date')
-			.eq('discord_id', discordId)
-			.maybeSingle();
-		if (data) return (data.last_loot_date as string | null) ?? null;
-	}
-	if (rsn) {
-		const { data } = await sb.from('players').select('last_loot_date').ilike('rsn', rsn).maybeSingle();
-		if (data) return (data.last_loot_date as string | null) ?? null;
-	}
-	return null;
+	const row = await findPlayerRow(discordId, rsn, 'last_loot_date');
+	return row ? ((row.last_loot_date as string | null) ?? null) : null;
 }
 
 export type FreeClaimResult = { ok: true } | { ok: false; reason: 'no_player' | 'already' | 'error' };
@@ -369,25 +321,10 @@ export async function claimFreeLootDay(
 	const sb = db();
 
 	// Locate the player row + its current claim date (by id, so the write targets
-	// exactly one row — same reasoning as locatePlayer).
-	let row: { id: number; last_loot_date: string | null } | null = null;
-	if (discordId) {
-		const { data } = await sb
-			.from('players')
-			.select('id, last_loot_date')
-			.eq('discord_id', discordId)
-			.maybeSingle();
-		if (data) row = data as { id: number; last_loot_date: string | null };
-	}
-	if (!row && rsn) {
-		const { data } = await sb
-			.from('players')
-			.select('id, last_loot_date')
-			.ilike('rsn', rsn)
-			.maybeSingle();
-		if (data) row = data as { id: number; last_loot_date: string | null };
-	}
-	if (!row) return { ok: false, reason: 'no_player' };
+	// exactly one row — same shared lookup as the other player reads/writes).
+	const found = await findPlayerRow(discordId, rsn, 'id, last_loot_date');
+	if (!found) return { ok: false, reason: 'no_player' };
+	const row = { id: found.id as number, last_loot_date: (found.last_loot_date as string | null) ?? null };
 	if (row.last_loot_date === todayUtc) return { ok: false, reason: 'already' };
 
 	// Optimistic claim: only set today's date if last_loot_date is still what we
