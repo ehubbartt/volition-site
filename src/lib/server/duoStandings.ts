@@ -109,23 +109,54 @@ export async function loadDuoStandings(
 	const sb = db();
 	// Paginate every event-wide read past the 1000-row cap — `subs` especially, which silently
 	// truncated (and broke all progress) once the event crossed 1000 submissions.
+	//
+	// CRITICAL: every paginated read MUST have a STABLE, UNIQUE sort key. `.range()` without an
+	// explicit total order lets Postgres return rows in an arbitrary order that can differ
+	// between page requests, so rows at a page boundary get silently SKIPPED or DUPLICATED once
+	// a second page is needed (event > 1000 submissions). A dropped submission pushes a tile
+	// back under `required`, collapsing the team to its first-incomplete stage — i.e. teams
+	// appear "a few sections back" on the leaderboard + markers, non-deterministically. Order
+	// by a unique key (or the full unique-constraint columns) so each page is a consistent slice.
 	const [{ data: teamRows }, { data: allChoices }, { data: allSwaps }, { data: subs }, { data: signups }] =
 		await Promise.all([
-			fetchAllFiltered((f, t) => sb.from('vs_teams').select('id, name').eq('event_id', eventId).range(f, t)),
 			fetchAllFiltered((f, t) =>
-				sb.from('vs_team_path_choices').select('team_id, floor, section, lane').eq('event_id', eventId).range(f, t)
+				sb.from('vs_teams').select('id, name').eq('event_id', eventId).order('id', { ascending: true }).range(f, t)
 			),
 			fetchAllFiltered((f, t) =>
-				sb.from('vs_team_tile_swaps').select('team_id, floor, section, step, lane').eq('event_id', eventId).range(f, t)
+				sb
+					.from('vs_team_path_choices')
+					.select('team_id, floor, section, lane')
+					.eq('event_id', eventId)
+					.order('team_id', { ascending: true })
+					.order('floor', { ascending: true })
+					.order('section', { ascending: true })
+					.range(f, t)
 			),
 			fetchAllFiltered((f, t) =>
-				sb.from('vs_submissions').select('team_id, target_id, status, quantity').eq('event_id', eventId).range(f, t)
+				sb
+					.from('vs_team_tile_swaps')
+					.select('team_id, floor, section, step, lane')
+					.eq('event_id', eventId)
+					.order('team_id', { ascending: true })
+					.order('floor', { ascending: true })
+					.order('section', { ascending: true })
+					.order('step', { ascending: true })
+					.range(f, t)
+			),
+			fetchAllFiltered((f, t) =>
+				sb
+					.from('vs_submissions')
+					.select('team_id, target_id, status, quantity')
+					.eq('event_id', eventId)
+					.order('id', { ascending: true })
+					.range(f, t)
 			),
 			fetchAllFiltered((f, t) =>
 				sb
 					.from('vs_event_signups')
 					.select('team_id, vs_users(rsn, discord_username, clan_allegiance)')
 					.eq('event_id', eventId)
+					.order('user_id', { ascending: true })
 					.range(f, t)
 			)
 		]);
