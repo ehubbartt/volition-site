@@ -330,7 +330,14 @@ export const load: PageServerLoad = async ({ params, locals, url, cookies }) => 
 		);
 		// Degrade gracefully if the tables aren't there yet (migrations applied by
 		// hand): admins can still preview tile content; submissions show empty.
-		if (cErr) console.warn('[duo board] could not load completions:', cErr.message);
+		// A read error here may mean PARTIAL rows came back. Rendering the board from a
+		// partial read is exactly what shows phantom "lost progress" (tiles revert to 0/3,
+		// "tile not open" on submit). Fail loud so the player just retries, instead of being
+		// shown a wrong board — the data is intact, the read just hiccuped.
+		if (cErr) {
+			console.error('[duo board] submissions read failed:', cErr.message);
+			throw error(503, 'The board is busy right now — refresh in a moment.');
+		}
 
 		const completions = (completionsRaw ?? []) as unknown as CompletionRow[];
 
