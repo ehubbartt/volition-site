@@ -325,6 +325,7 @@ export const load: PageServerLoad = async ({ params, locals, url, cookies }) => 
 				)
 				.eq('event_id', event.id)
 				.order('submitted_at', { ascending: true })
+				.order('id', { ascending: true })
 				.range(f, t)
 		);
 		// Degrade gracefully if the tables aren't there yet (migrations applied by
