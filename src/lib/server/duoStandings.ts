@@ -117,8 +117,7 @@ export async function loadDuoStandings(
 	// back under `required`, collapsing the team to its first-incomplete stage — i.e. teams
 	// appear "a few sections back" on the leaderboard + markers, non-deterministically. Order
 	// by a unique key (or the full unique-constraint columns) so each page is a consistent slice.
-	const [{ data: teamRows }, { data: allChoices }, { data: allSwaps }, { data: subs }, { data: signups }] =
-		await Promise.all([
+	const [teamsR, choicesR, swapsR, subsR, signupsR] = await Promise.all([
 			fetchAllFiltered((f, t) =>
 				sb.from('vs_teams').select('id, name').eq('event_id', eventId).order('id', { ascending: true }).range(f, t)
 			),
@@ -160,6 +159,22 @@ export async function loadDuoStandings(
 					.range(f, t)
 			)
 		]);
+
+	// If a paginated read errored mid-way it may hold only PARTIAL rows — computing the
+	// standings from those would show teams "a few sections back" (the very bug we're
+	// guarding against). On any read error, return an empty leaderboard (the board page
+	// still renders for the player) rather than a wrong one; it self-corrects next load.
+	const readErr =
+		teamsR.error ?? choicesR.error ?? swapsR.error ?? subsR.error ?? signupsR.error;
+	if (readErr) {
+		console.error('[duoStandings] read failed — returning empty standings:', readErr.message);
+		return { leaderboard: [], byClan: [], teamMarkers: {}, teamCount: 0, myEntry: null };
+	}
+	const teamRows = teamsR.data;
+	const allChoices = choicesR.data;
+	const allSwaps = swapsR.data;
+	const subs = subsR.data;
+	const signups = signupsR.data;
 
 	// A team's clan = its members' clan if they share one, else "mixed" (matches the
 	// signup-page grouping). Used for the leaderboard's per-clan tabs.
