@@ -210,6 +210,29 @@ export async function loadPersonalBoard(userId: string): Promise<PersonalBoard |
 	};
 }
 
+// Flip a single personal-board tile to obtained (false→true). Used by the Dink
+// auto-tracker when a COLLECTION unlock matches a board tile. The `obtained=false`
+// guard makes it idempotent: 'credited' if this call flipped it, 'noop' if it was
+// already obtained (or the index is gone), 'error' on a transient DB failure. The
+// activation rule (drop received_at >= board.created_at) is enforced by the caller.
+export async function creditPersonalTile(
+	boardId: string,
+	idx: number
+): Promise<'credited' | 'noop' | 'error'> {
+	const { data, error } = await db()
+		.from('vs_personal_board_tiles')
+		.update({ obtained: true, obtained_at: new Date().toISOString() })
+		.eq('board_id', boardId)
+		.eq('idx', idx)
+		.eq('obtained', false)
+		.select('idx');
+	if (error) {
+		console.error('[personalBoard] creditPersonalTile failed', boardId, idx, error.message);
+		return 'error';
+	}
+	return data && data.length > 0 ? 'credited' : 'noop';
+}
+
 export type RefreshResult =
 	| { ok: true; newlyObtained: string[]; totalObtained: number }
 	| { ok: false; reason: 'no_board' | 'clog_unavailable' };

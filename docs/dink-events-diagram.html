@@ -171,9 +171,10 @@
 
 			<div class="arrow">⬇<small>proxy reads a cached manifest (~30s) from these views/tables</small></div>
 			<div class="lane">
-				<div class="box db"><div class="t">🗄️ vs_active_participants</div><div class="d">clan RSNs ∪ open-event signups (lowercased)</div></div>
-				<div class="box db"><div class="t">🗄️ vs_active_tracked_items</div><div class="d">tracked items (+ <code>match_type</code>) for <b>open</b> events</div></div>
-				<div class="box db"><div class="t">🗄️ vs_dink_drops</div><div class="d">raw matched drops; <code>processed=false</code>, <code>outcome</code> null until the site runs</div></div>
+				<div class="box db"><div class="t">🗄️ vs_active_player_tiles <span class="tag">source of truth</span></div><div class="d">live view: one row per <b>tile a player is currently on</b> (open-event tiles + personal boards), each typed <code>item</code>/<code>manual</code>. The two views below derive from its <code>item</code> subset.</div></div>
+					<div class="box db"><div class="t">🗄️ vs_active_participants</div><div class="d">distinct owners of any active item tile (lowercased) — derived</div></div>
+				<div class="box db"><div class="t">🗄️ vs_active_tracked_items</div><div class="d">distinct active item ids (+ <code>match_type</code>) — derived</div></div>
+				<div class="box db"><div class="t">🗄️ vs_dink_drops</div><div class="d">raw matched drops; <code>processed=false</code>, <code>outcome</code> null until the site runs. Durable recent-drops log for race healing.</div></div>
 			</div>
 
 			<div class="arrow">⬇<small>POST /api/dink/process (cron) &nbsp;+&nbsp; throttled backstop on board load</small></div>
@@ -182,7 +183,8 @@
 				<div class="d">Drains unprocessed drops → matches the tile by type → <b>timing gate</b> (was the tile open at the
 					drop's <code>received_at</code>?) → resolves <code>rsn → vs_users</code> → <b>collect-N</b> accumulation →
 					inserts an <b>approved</b> completion. Every drop is stamped with an <b>outcome</b> so admins can see why it
-					did or didn't credit. Idempotent — it can't double-credit.</div></div>
+					did or didn't credit. Idempotent — it can't double-credit.
+						<br><br><b>2.0:</b> matching is now <b>per player</b> against the live <code>vs_active_player_tiles</code> index, not per event &mdash; the drop is matched only against the dropper's own active <code>item</code> tiles (open-event tiles <b>and</b> their personal collection-log board), so one drop can credit both an event tile <b>and</b> a board tile. The timing gate is the <b>activation rule</b>: a drop credits only if its <code>received_at</code> is at/after when that tile became active (event start, or the board's creation) &mdash; never a drop you already had. The cron path also runs a bounded <b>reconcile</b> that re-checks recent un-credited drops to heal ordering races, still subject to the activation rule.</div></div>
 
 			<div class="arrow">⬇</div>
 			<div class="lane">
@@ -208,7 +210,7 @@
 					equals the notification type.</li>
 			</ul>
 			<p>Then, when the site processes it, the RSN is resolved to a <code>vs_users</code> row (the dropper must have
-				onboarded on the site) and the tile is credited. Bingo tiles are binary, so the first qualifying drop credits
+				onboarded on the site) and the drop is matched against <b>that user's own</b> active <code>item</code> tiles in <code>vs_active_player_tiles</code> (their open-event tiles <b>and</b> their personal collection-log board), so credit is always per-user-correct. Bingo tiles are binary, so the first qualifying drop credits
 				the tile (collect-N tiles accumulate first — see below).</p>
 
 			<!-- ── Consumer / outcomes ── -->
@@ -306,7 +308,9 @@
 			</div>
 
 			<!-- ── Testing ── -->
-			<h2 id="testing">How to test it</h2>
+			<p style="margin-top: 1rem"><b>Unified active-tiles index (this branch).</b> Matching moved from per-event tracked items to the single live <code>vs_active_player_tiles</code> view, and the Dink consumer now also credits <b>personal collection-log boards</b>. The activation rule (no credit for a drop received before the tile was active) is enforced in the consumer, and a bounded reconcile pass heals ordering races. Apply <code>db/scripts/active_tiles.sql</code> and <code>db/scripts/personal_boards.sql</code> in the SQL editor. The proxy's <code>vs_active_participants</code>/<code>vs_active_tracked_items</code> views are recreated as <b>derived</b> from the index, with the same column shapes, so the proxy needs no change.</p>
+
+				<h2 id="testing">How to test it</h2>
 			<div class="box-note">
 				<b>A) No game needed (proves the site pipeline):</b>
 				<ol style="margin: 0.4rem 0 0.8rem; padding-left: 1.1rem">
