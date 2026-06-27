@@ -21,6 +21,7 @@
 				<a href="/events" class:active={path.startsWith('/events')}>Events</a>
 				<a href="/tasks" class:active={path.startsWith('/tasks')}>To Do</a>
 				<a href="/gamba" class:active={path.startsWith('/gamba')}>Gamba</a>
+				<a href="/clog-bingo" class:active={path.startsWith('/clog-bingo')}>Clog Bingo</a>
 				{#if data.isAdmin || data.isCardTester}
 					<a href="/admin" class:active={path.startsWith('/admin')}>Admin</a>
 				{/if}
