@@ -19,6 +19,9 @@ function authorized(request: Request, url: URL): boolean {
 
 export const POST: RequestHandler = async ({ request, url }) => {
 	if (!authorized(request, url)) throw error(403, 'forbidden');
-	const result = await processDinkDrops();
+	// The cron/proxy path also runs a bounded reconcile pass (re-check recent un-credited
+	// drops against the current view) to heal ordering races. The poll-on-read backstop
+	// stays drain-only so it remains cheap.
+	const result = await processDinkDrops({ reconcile: true });
 	return json(result);
 };

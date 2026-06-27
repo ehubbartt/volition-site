@@ -21,12 +21,71 @@ RuneLite + Dink  ──POST /hook/<token>/achievements──▶  dink-proxy Work
                                                           │
    site: processDinkDrops()  ◀── POST /api/dink/process (cron)  +  board-load backstop
                                                           │
-                    resolve rsn → vs_users, match item → tile, insert an
-                    APPROVED  vs_bingo_completions  row  → tile + leaderboard credit
+                    resolve rsn → vs_users, look up THIS user's active item tiles
+                    in vs_active_player_tiles, credit each match (event tile → an
+                    APPROVED vs_bingo_completions row; personal-board tile → flip
+                    obtained) → tile + leaderboard credit
 ```
 
 The proxy stays "dumb" (filter + record); all crediting logic lives on the site next
-to the rest of the bingo code.
+to the rest of the bingo code. Both the proxy's record filter and the site's crediting
+read from **one source of truth** — the per-player active-tiles index below.
+
+---
+
+## The per-player active-tiles index (`vs_active_player_tiles`)
+
+A single **live SQL view** is the source of truth for "what tile is each player
+currently on," across **all** trackable surfaces. One row = one tile a player can
+currently complete. It's a view, so it's always fresh — a closed event, a completed
+tile, or a regenerated board makes rows appear/disappear with no triggers, refresh job,
+or staleness.
+
+Each row carries a **`type` discriminator** so each tracker reads only the tiles it
+understands:
+
+- **`item`** tiles carry an `item_id` + `match_type` and are auto-credited by Dink.
+  Sources: open-event tracked-item tiles, and personal collection-log board tiles.
+- **`manual`** tiles (event tiles with no tracked item) are proof-submission only.
+  They're represented for completeness but the Dink consumer ignores `type<>'item'`.
+
+It unions three producers (`db/scripts/active_tiles.sql`):
+
+1. **Event item tiles** — each signed-up user × the tile's tracked item(s), excluding
+   tiles they've already completed. `activated_at` = the event's `starts_at`.
+2. **Event manual tiles** — signed-up user × event tiles with no tracked item.
+3. **Personal board tiles** — each owner × their not-yet-obtained board tiles
+   (always `item`, `match_type='collection'`). `activated_at` = the board's `created_at`.
+
+The proxy's `vs_active_tracked_items` / `vs_active_participants` views are **derived from
+the `item` subset** of this index, so a new event or personal board automatically enters
+the proxy's record allowlist with no other change. (The proxy reads them by name; their
+column shapes are unchanged.)
+
+**Activation rule (no retroactive credit).** A drop credits a tile **only if
+`drop.received_at >= activated_at`** for that player+tile. For events the existing per-row
+release timing gate refines this further; for personal boards it means a drop obtained
+*before* the board was generated never credits it. Generating a board does **not**
+back-fill past drops.
+
+**Per-user-correct.** A drop is matched against the **dropper's own** active tiles only,
+so it can only ever complete that player's tiles. One drop may legitimately credit both an
+event tile **and** a personal-board tile for the same player — every matching candidate
+that passes its activation check is credited.
+
+**Manual submission always coexists.** The `type` discriminator governs *auto-tracking
+only*, never whether a tile can be submitted manually. Every event tile keeps its
+`/bingo` proof-submission + admin-review path as a safety net if Dink misses or mis-fires;
+the unique approved index on `vs_bingo_completions(event_id,user_id,tile_id)` dedupes a
+double credit (first to approve wins). Personal boards have no review flow — their manual
+check is the existing "Check collection log" re-poll button.
+
+**Race healing.** `vs_dink_drops` stays the durable recent-drops log. The cron/proxy path
+(`POST /api/dink/process`) runs a bounded **reconcile** pass that re-checks recent
+un-credited drops (the last 3 days, outcomes `no_tile`/`no_user`) against the *current*
+view, so a drop that arrived just before a signup/board existed still heals — but only
+ever subject to the activation rule above, never crediting a pre-activation drop. The
+poll-on-read backstop stays drain-only so it remains cheap.
 
 ---
 
@@ -34,8 +93,10 @@ to the rest of the bingo code.
 
 1. **Apply the schema** in the Supabase SQL editor: `db/schema/event_builder.sql`
    (adds `vs_events.structure`, `vs_event_templates`, `vs_event_tiles`,
-   `vs_event_tracked_items`, `vs_dink_drops`, and the `vs_active_tracked_items` /
-   `vs_active_participants` views the proxy reads).
+   `vs_event_tracked_items`, `vs_dink_drops`), then **`db/scripts/active_tiles.sql`**
+   (the per-player active-tiles index `vs_active_player_tiles` and the
+   `vs_active_tracked_items` / `vs_active_participants` proxy views, now derived from
+   it), plus `db/scripts/personal_boards.sql` and `db/scripts/dink_tracking_hardening.sql`.
 2. **Site env:** set `DINK_PROCESS_SECRET` (guards `POST /api/dink/process`).
 3. **Proxy:** set `SUPABASE_URL` (var) + `SUPABASE_KEY` (`wrangler secret put`), then
    `npx wrangler deploy`. The proxy injects each open event's tracked-item names into
@@ -148,15 +209,23 @@ Verify the board renders at **`/bingo/<slug>`** and reflects your edits. The leg
 ## Who gets auto-credited
 
 A drop is recorded when **both** hold:
-- the dropper's RSN is in `vs_active_participants` — the whole clan roster (`players`)
-  plus anyone signed up to an `open` event, lowercased; and
-- the looted item matches a row in `vs_active_tracked_items` for an `open` event
-  (by item id, else by name; honoring the optional `source`).
+- the dropper's RSN is in `vs_active_participants` — distinct owners of any active item
+  tile (open-event signups + personal-board owners), lowercased; and
+- the looted item matches a row in `vs_active_tracked_items` (by item id, else by name).
 
-On processing, the RSN is resolved to a `vs_users` row and an **approved**
-`vs_bingo_completions` row is inserted for that user + tile (idempotent — a tile
-already credited for a player is skipped). Bingo tiles are binary, so the first
-matching drop credits the tile.
+On processing, the RSN is resolved to a `vs_users` row and the drop is matched against
+**that user's own** `type='item'` rows in `vs_active_player_tiles` (`match_type` must
+equal the drop's notif type — a LOOT drop credits `loot` tiles, a collection-log unlock
+credits `collection` tiles). Each matching candidate that passes its activation check is
+credited:
+- **event tile** → an **approved** `vs_bingo_completions` row (idempotent; the unique
+  approved index is the hard guard);
+- **personal-board tile** → the tile is flipped `obtained=true`.
+
+Bingo tiles are binary, so the first qualifying drop credits the tile. The verdict
+(`credited` / `no_tile` / `no_user` / `timing` / `duplicate` / `partial`) and the
+attributed tile are stamped on the drop — personal-board credits as `p:<board_id>:<idx>`
+so **Un-credit** can reverse either kind.
 
 ---
 
