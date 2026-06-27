@@ -1,9 +1,8 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import { ehbOf, DOOM_FLOORS, formatEhb as fmt, type EhbSource, type EhbAssumptions } from '$lib/ehb';
 
 	let { data }: { data: PageData } = $props();
-
-	type EhbSource = PageData['items'][number]['sources'][number];
 
 	// ── Editable assumptions ────────────────────────────────────────────────
 	// Per-raid purple chance entered as "1 / N". Raid uniques in the data are a
@@ -21,17 +20,6 @@
 		if (TOA_PRESETS[v] != null) toaN = TOA_PRESETS[v];
 	}
 
-	// Doom of Mokhaiotl: per-floor, per-kill rates (from the Delve calculator).
-	const DOOM_FLOORS: Record<number, Record<string, number>> = {
-		2: { cloth: 1 / 2500, eye: 0, treads: 0, dom: 0 },
-		3: { cloth: 1 / 1000, eye: 1 / 2000, treads: 0, dom: 0 },
-		4: { cloth: 1 / 450, eye: 1 / 1350, treads: 1 / 1350, dom: 0 },
-		5: { cloth: 1 / 270, eye: 1 / 810, treads: 1 / 810, dom: 0 },
-		6: { cloth: 1 / 255, eye: 1 / 765, treads: 1 / 765, dom: 1 / 1000 },
-		7: { cloth: 1 / 240, eye: 1 / 720, treads: 1 / 720, dom: 1 / 750 },
-		8: { cloth: 1 / 210, eye: 1 / 630, treads: 1 / 630, dom: 1 / 500 },
-		9: { cloth: 1 / 180, eye: 1 / 540, treads: 1 / 540, dom: 1 / 250 }
-	};
 	let doomFloor = $state(8);
 	let doomKph = $state(18); // floor-8 clears/hr (WOM ironman EHB)
 
@@ -39,33 +27,8 @@
 	// efficiency, >1 = more chill (slower play → more hours), <1 = sweatier.
 	let effMult = $state(1);
 
-	// Max-efficiency EHB (hours) for one source under the current assumptions. null = N/A.
-	function rawEhb(src: EhbSource): number | null {
-		switch (src.t) {
-			case 'kill':
-				return src.k! / src.r!;
-			case 'cox':
-				return (src.k! * coxN) / src.r!;
-			case 'tobn':
-				return (src.k! * tobnN) / src.r!;
-			case 'tobh':
-				return (src.k! * tobhN) / src.r!;
-			case 'toa':
-				return (src.k! * toaN) / src.r!;
-			case 'doom': {
-				const rate = DOOM_FLOORS[doomFloor]?.[src.col!] ?? 0;
-				return rate > 0 ? 1 / rate / doomKph : null;
-			}
-			default:
-				return null;
-		}
-	}
-
-	// Apply the efficiency multiplier to the max-efficiency baseline.
-	function ehbOf(src: EhbSource): number | null {
-		const base = rawEhb(src);
-		return base == null ? null : base * effMult;
-	}
+	// The shared EHB math (src/lib/ehb.ts) takes the assumptions as an argument.
+	let assumptions = $derived<EhbAssumptions>({ coxN, tobnN, tobhN, toaN, doomFloor, doomKph, effMult });
 
 	function sourceLabel(src: EhbSource): string {
 		if (src.t === 'doom') return `Doom of Mokhaiotl (floor ${doomFloor})`;
@@ -75,18 +38,9 @@
 	type Computed = { src: EhbSource; ehb: number; label: string };
 	function computedSources(item: { sources: EhbSource[] }): Computed[] {
 		return item.sources
-			.map((src) => ({ src, ehb: ehbOf(src), label: sourceLabel(src) }))
+			.map((src) => ({ src, ehb: ehbOf(src, assumptions), label: sourceLabel(src) }))
 			.filter((c): c is Computed => c.ehb != null && isFinite(c.ehb))
 			.sort((a, b) => a.ehb - b.ehb);
-	}
-	function bestEhb(item: { sources: EhbSource[] }): number | null {
-		const cs = computedSources(item);
-		return cs.length ? cs[0].ehb : null;
-	}
-
-	function fmt(h: number): string {
-		if (h < 1) return `${Math.round(h * 60)} min`;
-		return `${h.toFixed(h < 10 ? 2 : 1)} h`;
 	}
 
 	// ── Item lookup ───────────────────────────────────────────────────────────
