@@ -16,7 +16,7 @@ import { rsnExactPattern } from '$lib/server/users';
 import { loadEventBoard } from '$lib/server/eventStructure';
 import { getBingoState, getTileStatus } from '$lib/bingo/state';
 import { postBingoCredit } from '$lib/server/dropsFeed';
-import { creditPersonalTile } from '$lib/server/personalBoard';
+import { creditPersonalTile, loadPersonalBoard } from '$lib/server/personalBoard';
 
 // The self-test event shouldn't spam the public bingo feed when members test Dink.
 const FEED_SUPPRESS_SLUGS = new Set(['dink-self-test']);
@@ -196,11 +196,50 @@ export async function evaluateDinkDrop(input: {
 	return { wouldCredit, reasons, tileId, userResolved: !!userId, tileOpenAtDropTime: tileOpen, alreadyCredited: already };
 }
 
+// Dry-run for a PERSONAL collection-log board: would this COLLECTION drop credit a tile
+// on the player's board? Mirrors DropVerdict so the admin simulator renders it uniformly.
+// (tileOpenAtDropTime carries the activation check: drop received_at >= board.created_at.)
+export async function evaluatePersonalDink(input: {
+	rsn: string;
+	item_id: number | null;
+	item_name: string | null;
+	received_at: string;
+}): Promise<DropVerdict> {
+	const reasons: string[] = [];
+	const userId = await resolveUserId(input.rsn);
+	if (!userId) {
+		reasons.push(`RSN "${input.rsn}" doesn't resolve to a site user (vs_users).`);
+		return { wouldCredit: false, reasons, tileId: null, userResolved: false, tileOpenAtDropTime: null, alreadyCredited: false };
+	}
+	const board = await loadPersonalBoard(userId);
+	if (!board) {
+		reasons.push('This player has no personal board — generate one at /clog-bingo first.');
+		return { wouldCredit: false, reasons, tileId: null, userResolved: true, tileOpenAtDropTime: null, alreadyCredited: false };
+	}
+	const name = (input.item_name ?? '').toLowerCase();
+	const tile = board.tiles.find(
+		(t) => (input.item_id != null && t.item_id === input.item_id) || (!!name && t.item_name.toLowerCase() === name)
+	);
+	if (!tile) {
+		reasons.push("No tile on this player's board matches that item id/name.");
+		return { wouldCredit: false, reasons, tileId: null, userResolved: true, tileOpenAtDropTime: null, alreadyCredited: false };
+	}
+	const tileId = `p:${board.id}:${tile.idx}`;
+	const already = tile.obtained;
+	if (already) reasons.push(`Board tile "${tile.item_name}" is already obtained.`);
+	// Activation rule: the drop must be received at/after the board was created.
+	const active = new Date(input.received_at).getTime() >= new Date(board.created_at).getTime();
+	if (!active) reasons.push(`Drop received before the board was created (${board.created_at}) — activation rule rejects it.`);
+	const wouldCredit = !already && active;
+	if (wouldCredit) reasons.unshift(`✓ Would credit board tile "${tile.item_name}".`);
+	return { wouldCredit, reasons, tileId, userResolved: true, tileOpenAtDropTime: active, alreadyCredited: already };
+}
+
 // Full-pipeline test: insert a synthetic vs_dink_drops row exactly as the proxy
 // would, then run the real consumer. Returns the consumer result. (Use against a
-// PREVIEW event so it isn't publicly visible.)
+// PREVIEW event so it isn't publicly visible, or event_id=null for a personal board.)
 export async function simulateDinkDrop(input: {
-	event_id: string;
+	event_id: string | null;
 	rsn: string;
 	item_id: number | null;
 	item_name: string | null;

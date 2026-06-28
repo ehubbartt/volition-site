@@ -1,7 +1,10 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
-import { evaluateDinkDrop, simulateDinkDrop, type DropVerdict } from '$lib/server/dinkDrops';
+import { evaluateDinkDrop, evaluatePersonalDink, simulateDinkDrop, type DropVerdict } from '$lib/server/dinkDrops';
+
+// Sentinel event_id for "target the player's personal collection-log board" instead of an event.
+const PERSONAL = '__personal__';
 import { listActiveTokens, revokeTokensFor } from '$lib/server/dinkTokens';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -37,6 +40,7 @@ function parseInput(form: FormData) {
 		item_id: itemIdRaw ? Math.floor(Number(itemIdRaw)) || null : null,
 		item_name: form.get('item_name')?.toString().trim() || null,
 		source: form.get('source')?.toString().trim() || null,
+		notif_type: form.get('notif_type')?.toString().trim() || 'loot',
 		received_at: receivedRaw ? new Date(receivedRaw).toISOString() : new Date().toISOString()
 	};
 }
@@ -104,23 +108,34 @@ export const actions: Actions = {
 	dryRun: async ({ locals, request }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
 		const input = parseInput(await request.formData());
-		if (!input.event_id) return fail(400, { error: 'Pick an event' });
 		if (!input.rsn) return fail(400, { error: 'Enter an RSN' });
 		if (input.item_id == null && !input.item_name) return fail(400, { error: 'Enter an item id or name' });
+		if (input.event_id === PERSONAL) {
+			const verdict = await evaluatePersonalDink(input);
+			return { mode: 'dry' as const, verdict, input, personal: true };
+		}
+		if (!input.event_id) return fail(400, { error: 'Pick an event or the personal board' });
 		const verdict = await evaluateDinkDrop(input);
-		return { mode: 'dry' as const, verdict, input };
+		return { mode: 'dry' as const, verdict, input, personal: false };
 	},
 
 	simulate: async ({ locals, request }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
 		const input = parseInput(await request.formData());
-		if (!input.event_id) return fail(400, { error: 'Pick an event' });
 		if (!input.rsn) return fail(400, { error: 'Enter an RSN' });
 		if (input.item_id == null && !input.item_name) return fail(400, { error: 'Enter an item id or name' });
+		if (input.event_id === PERSONAL) {
+			// Personal board: a clog unlock = COLLECTION notif, no event. Preview the verdict,
+			// then run the real pipeline with event_id=null + notif_type='collection'.
+			const verdict = await evaluatePersonalDink(input);
+			const result = await simulateDinkDrop({ ...input, event_id: null, source: null, notif_type: 'collection' });
+			return { mode: 'sim' as const, verdict, result, input, personal: true };
+		}
+		if (!input.event_id) return fail(400, { error: 'Pick an event or the personal board' });
 		// Preview the verdict first so the UI can explain the outcome…
 		const verdict: DropVerdict = await evaluateDinkDrop(input);
 		// …then run the real pipeline (insert vs_dink_drops + processDinkDrops).
 		const result = await simulateDinkDrop(input);
-		return { mode: 'sim' as const, verdict, result, input };
+		return { mode: 'sim' as const, verdict, result, input, personal: false };
 	}
 };
