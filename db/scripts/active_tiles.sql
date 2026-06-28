@@ -81,12 +81,20 @@ where t.obtained = false;
 -- Proxy record-allowlist views, derived from the item subset (one source of truth so a
 -- new event/board automatically enters the proxy allowlist). The dink-proxy Worker reads
 -- these by NAME — verify the exact columns it selects before applying.
-create or replace view vs_active_participants as
+--
+-- These views may already exist (older event_builder.sql) with a WIDER column shape;
+-- `create or replace view` can't drop columns, so drop them first to recreate cleanly.
+-- Safe: nothing in the DB depends on them (only the external proxy reads them by name),
+-- and they're recreated immediately below.
+drop view if exists vs_active_participants;
+drop view if exists vs_active_tracked_items;
+
+create view vs_active_participants as
   select distinct lower(rsn) as rsn
   from vs_active_player_tiles
   where rsn is not null;
 
-create or replace view vs_active_tracked_items as
+create view vs_active_tracked_items as
   select distinct item_id, item_name, match_type
   from vs_active_player_tiles
   where type = 'item';
