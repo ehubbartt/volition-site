@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import DinkTabs from '$lib/admin/DinkTabs.svelte';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -26,8 +27,7 @@
 <svelte:head><title>Dink Drops · Admin</title></svelte:head>
 
 <section class="dd">
-	<a class="back" href="/admin">← Admin</a>
-	<h1>Dink drops <span class="exp">debug</span></h1>
+	<DinkTabs />
 	<p class="muted">
 		Every drop the proxy matched to an active event, with the consumer's verdict. Use this to
 		answer “why didn't I get credit?”. <strong>Reprocess</strong> re-runs a drop (e.g. after you add the
@@ -81,9 +81,6 @@
 
 <style>
 	.dd { max-width: 900px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
-	.back { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
-	h1 { margin: 0.3rem 0 0.4rem; }
-	.exp { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--bg); background: var(--accent); padding: 0.1rem 0.4rem; border-radius: var(--radius); vertical-align: middle; text-shadow: none; }
 	.muted { color: var(--muted); }
 	.small { font-size: 0.82rem; }
 	.filters { display: flex; gap: 0.5rem; margin: 0.8rem 0; }

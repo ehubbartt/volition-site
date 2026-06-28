@@ -7,6 +7,13 @@
 	let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
 	let path = $derived(page.url.pathname);
+	let menuOpen = $state(false);
+
+	// Collapse the mobile menu whenever the route changes.
+	$effect(() => {
+		path;
+		menuOpen = false;
+	});
 </script>
 
 <header>
@@ -17,11 +24,20 @@
 		</a>
 
 		{#if data.user && !data.banned}
-			<nav class="primary-nav">
+			<button
+				type="button"
+				class="menu-toggle"
+				aria-label="Toggle menu"
+				aria-expanded={menuOpen}
+				onclick={() => (menuOpen = !menuOpen)}
+			>
+				<span class="bars" class:open={menuOpen}></span>
+			</button>
+
+			<nav class="primary-nav" class:open={menuOpen}>
 				<a href="/events" class:active={path.startsWith('/events')}>Events</a>
 				<a href="/tasks" class:active={path.startsWith('/tasks')}>To Do</a>
 				<a href="/gamba" class:active={path.startsWith('/gamba')}>Gamba</a>
-				<a href="/clog-bingo" class:active={path.startsWith('/clog-bingo')}>Clog Bingo</a>
 				{#if data.isAdmin || data.isCardTester}
 					<a href="/admin" class:active={path.startsWith('/admin')}>Admin</a>
 				{/if}
@@ -141,6 +157,60 @@
 		border: 9px solid transparent;
 		border-image: url('/osrs/button.png') 9 / 9px stretch;
 		padding: 0 0.55rem;
+	}
+
+	/* Mobile hamburger — hidden on desktop, shown in the narrow media query below. */
+	.menu-toggle {
+		display: none;
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 0.45rem;
+		margin-left: 0.25rem;
+	}
+
+	.bars,
+	.bars::before,
+	.bars::after {
+		display: block;
+		width: 22px;
+		height: 2px;
+		background: var(--accent);
+		border-radius: 2px;
+		transition: transform 0.2s ease, top 0.2s ease, background 0.2s ease;
+	}
+
+	.bars {
+		position: relative;
+	}
+
+	.bars::before,
+	.bars::after {
+		content: '';
+		position: absolute;
+		left: 0;
+	}
+
+	.bars::before {
+		top: -7px;
+	}
+
+	.bars::after {
+		top: 7px;
+	}
+
+	.bars.open {
+		background: transparent;
+	}
+
+	.bars.open::before {
+		top: 0;
+		transform: rotate(45deg);
+	}
+
+	.bars.open::after {
+		top: 0;
+		transform: rotate(-45deg);
 	}
 
 	.user-pill {
@@ -263,9 +333,42 @@
 			height: 30px;
 		}
 
+		.menu-toggle {
+			display: inline-flex;
+			align-items: center;
+		}
+
+		/* Collapse the links into a dropdown panel under the header. */
+		.primary-nav {
+			display: none;
+			position: absolute;
+			top: 100%;
+			left: 0;
+			right: 0;
+			flex-direction: column;
+			align-items: stretch;
+			gap: 0.15rem;
+			padding: 0.5rem;
+			background-color: rgba(20, 16, 10, 0.99);
+			background-image: url('/osrs/tile-dark.png');
+			background-repeat: repeat;
+			border-bottom: 2px solid var(--gold-mid);
+			box-shadow: 0 10px 18px rgba(0, 0, 0, 0.45);
+		}
+
+		.primary-nav.open {
+			display: flex;
+		}
+
 		.primary-nav a {
-			padding: 0.4rem 0.6rem;
-			font-size: 0.95rem;
+			padding: 0.65rem 0.8rem;
+			font-size: 1.05rem;
+		}
+
+		.primary-nav a.active {
+			border: 1px solid var(--gold-mid);
+			background: rgba(255, 152, 31, 0.12);
+			padding: 0.65rem 0.8rem;
 		}
 
 		.user-name {

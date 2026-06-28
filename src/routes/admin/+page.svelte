@@ -76,14 +76,8 @@
 		},
 		{
 			href: '/admin/dink-test',
-			title: 'Dink Drop Simulator 🧪',
-			desc: 'Test event auto-tracking: dry-run or simulate a drop end-to-end without opening a real event.',
-			show: data.admin
-		},
-		{
-			href: '/admin/dink-drops',
-			title: 'Dink Drops 🔎',
-			desc: 'Incoming matched drops with the consumer’s verdict — debug “why didn’t I get credit?”, reprocess, or un-credit.',
+			title: 'Dink Tracking',
+			desc: 'Simulate drops, inspect the matched-drops log with each verdict, and manage Dink config tokens.',
 			show: data.admin
 		}
 	]);
