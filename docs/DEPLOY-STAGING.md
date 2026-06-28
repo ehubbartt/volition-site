@@ -8,7 +8,27 @@ unified Dink active-tiles index) without touching the live `volition-site` app. 
 > **One-time cost:** it's a `shared-cpu-1x` / 512 MB machine that suspends when idle
 > (`min_machines_running = 0`), so it's nearly free between tests.
 
-## What you need (only you can supply these)
+## Option A — deploy from your phone via GitHub Actions (recommended, no local CLI)
+
+`.github/workflows/deploy-staging.yml` deploys this app on Fly's **remote builders**, so
+you never run `flyctl` locally. Everything below is doable from a phone browser, and **no
+secret ever touches this chat or the repo**:
+
+1. **Fly web dashboard** (fly.io) → create app **`volition-site-staging`**, then set its
+   secrets under the app's *Secrets* tab — the same list as the CLI step below, with
+   `PUBLIC_SITE_URL = https://volition-site-staging.fly.dev`.
+2. **Fly dashboard → Account → Access Tokens** → create a token.
+3. **GitHub → repo Settings → Secrets and variables → Actions** → add a secret named
+   **`FLY_API_TOKEN`** with that token.
+4. Trigger a deploy: push to `voli-site-2.0-refactor`, or use the workflow's **Run
+   workflow** button (Actions tab). The first auto-run before step 3 will fail with a
+   clear "FLY_API_TOKEN not set" message — just add the secret and re-run.
+5. Still required (also phone-doable): add the Discord redirect URI (below) and apply the
+   SQL (below) in the Supabase web SQL editor.
+
+## Option B — deploy from a computer with flyctl
+
+### What you need (only you can supply these)
 
 1. **Fly auth** — `flyctl` logged in (`fly auth login`) or a deploy token
    (`fly tokens create deploy`).
