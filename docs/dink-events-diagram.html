@@ -75,7 +75,8 @@
 					<li><a href="#what">What Dink is</a></li>
 					<li><a href="#jobs">The proxy's two jobs</a></li>
 					<li><a href="#flow">End-to-end flow</a></li>
-					<li><a href="#match">How a drop is matched</a></li>
+					<li><a href="#index">The per-player active-tiles index</a></li>
+						<li><a href="#match">How a drop is matched</a></li>
 					<li><a href="#consumer">The site consumer &amp; outcomes</a></li>
 					<li><a href="#tiles">Tile types (loot / collection / collect-N)</a></li>
 					<li><a href="#tokens">Per-user config URLs (tokens)</a></li>
@@ -95,7 +96,7 @@
 				(so we control what gets sent) and it <b>receives the drop webhooks</b>. For each incoming drop it makes two
 				independent decisions — forward it to the Discord feed (as before), and, if the dropper is a clan member and
 				the item is tracked by an open event, <b>record the drop in the database</b>. The website then drains those
-				recorded drops and <b>auto-credits the matching bingo tile</b>. The proxy stays "dumb" (filter + record);
+				recorded drops and <b>auto-credits the matching tile</b> — matched <b>per player</b> against a single live index of the tiles that player is currently on, spanning both <b>open-event tiles</b> and their <b>personal collection-log board</b>. The proxy stays "dumb" (filter + record);
 				all the crediting logic lives on the site next to the rest of the bingo code.
 			</div>
 
@@ -141,6 +142,8 @@
 					<div class="d"><code>/admin/events/[slug]/builder</code> — tiles + per-tile <b>tracked items</b>
 						(item id/name → tile, with a match type and optional required quantity). Stored in
 						<code>vs_event_tracked_items</code>. Set the event status to <b>open</b>.</div></div>
+					<div class="box site"><div class="t">🧩 …or a player builds a personal board <span class="tag">setup</span></div>
+						<div class="d"><code>/clog-bingo</code> — a member generates their own collection-log board of items they don't yet own. Its unobtained tiles (<code>vs_personal_board_tiles</code>) are a second source of active tiles, auto-tracked the same way. No admin setup needed.</div></div>
 			</div>
 
 			<div class="lane">
@@ -184,7 +187,7 @@
 					drop's <code>received_at</code>?) → resolves <code>rsn → vs_users</code> → <b>collect-N</b> accumulation →
 					inserts an <b>approved</b> completion. Every drop is stamped with an <b>outcome</b> so admins can see why it
 					did or didn't credit. Idempotent — it can't double-credit.
-						<br><br><b>2.0:</b> matching is now <b>per player</b> against the live <code>vs_active_player_tiles</code> index, not per event &mdash; the drop is matched only against the dropper's own active <code>item</code> tiles (open-event tiles <b>and</b> their personal collection-log board), so one drop can credit both an event tile <b>and</b> a board tile. The timing gate is the <b>activation rule</b>: a drop credits only if its <code>received_at</code> is at/after when that tile became active (event start, or the board's creation) &mdash; never a drop you already had. The cron path also runs a bounded <b>reconcile</b> that re-checks recent un-credited drops to heal ordering races, still subject to the activation rule.</div></div>
+						<br><br>Matching is <b>per player</b> against the <code>vs_active_player_tiles</code> index above (the dropper's own <code>item</code> tiles), so it spans events <b>and</b> personal boards and obeys the activation rule; a personal-board credit flips the tile <code>obtained</code> instead of inserting a completion. The cron path also runs a bounded <b>reconcile</b> to heal ordering races.</div></div>
 
 			<div class="arrow">⬇</div>
 			<div class="lane">
@@ -199,7 +202,65 @@
 			</div>
 
 			<!-- ── Matching ── -->
-			<h2 id="match">How a drop is matched</h2>
+			<h2 id="index">The per-player active-tiles index</h2>
+				<p>Everything hangs off one <b>live SQL view</b>, <code>vs_active_player_tiles</code> — the single source of
+					truth for <i>"what tile is each player currently on."</i> One row = one tile a player can complete right now.
+					Because it's a view it's <b>always fresh</b>: a closed event, a completed tile, or a regenerated board makes
+					rows appear/disappear automatically — no triggers, no refresh job, nothing to go stale.</p>
+
+				<p>Each row carries a <b>type</b> so every tracker reads only the tiles it understands:</p>
+				<div class="split">
+					<div class="box site"><div class="t">type = <code>item</code> <span class="tag">Dink auto-tracks</span></div>
+						<div class="d">Carries an <code>item_id</code> + <code>match_type</code>. These are what the Dink consumer
+							matches drops against. Sources: open-event tracked-item tiles, and personal-board tiles.</div></div>
+					<div class="box"><div class="t">type = <code>manual</code> <span class="tag">proof only</span></div>
+						<div class="d">Event tiles with no tracked item. Represented for completeness so the index is the whole
+							picture, but Dink ignores <code>type &ne; item</code> — they're completed by manual proof submission.</div></div>
+				</div>
+
+				<p style="margin-top:0.8rem">It unions <b>three producers</b>, each exposing an <code>activated_at</code>:</p>
+				<div class="lane">
+					<div class="box db"><div class="t">🎯 Event item tiles</div><div class="d">each signed-up user × the tile's tracked item(s), minus tiles they've already completed. <code>activated_at</code> = the event's <code>starts_at</code>.</div></div>
+					<div class="box db"><div class="t">📝 Event manual tiles</div><div class="d">signed-up user × event tiles with no tracked item. <code>activated_at</code> = event start.</div></div>
+					<div class="box db"><div class="t">🧩 Personal board tiles</div><div class="d">each owner × their not-yet-obtained board tiles (always <code>item</code>, <code>match_type=collection</code>). <code>activated_at</code> = the board's <code>created_at</code>.</div></div>
+				</div>
+
+				<p style="margin-top:0.8rem">The proxy's allowlist views <code>vs_active_participants</code> /
+					<code>vs_active_tracked_items</code> are <b>derived from the <code>item</code> subset</b> of this index — one
+					source of truth, so a new event or personal board automatically enters the proxy's record allowlist with no
+					other change. (The proxy reads them by name; their column shapes are unchanged.)</p>
+
+				<div class="callout warn">
+					<b>Activation rule (no retroactive credit).</b> A drop credits a tile <b>only if its
+					<code>received_at</code> is at/after that tile's <code>activated_at</code></b> for that player. For events the
+					per-row release timing gate refines it further; for personal boards it means a drop obtained <i>before</i> the
+					board was generated never credits it. Generating a board does <b>not</b> back-fill past drops.
+				</div>
+
+				<div class="split">
+					<div class="box good" style="border:1px solid var(--border); border-left:4px solid var(--green)">
+						<div class="t">Per-user-correct &amp; multi-credit</div>
+						<div class="d">A drop is matched only against the <b>dropper's own</b> active tiles, so it can only complete
+							that player's tiles. One drop may legitimately credit both an <b>event tile</b> and a <b>personal-board
+							tile</b> for that player — every matching candidate that passes its activation check is credited.</div></div>
+					<div class="box" style="border-left:4px solid var(--blue)">
+						<div class="t">Manual submission always coexists</div>
+						<div class="d"><code>type</code> governs <b>auto-tracking only</b>, never whether a tile can be submitted
+							manually. Every event tile keeps its <code>/bingo</code> proof-submission + admin-review path as a safety
+							net; the unique approved index dedupes a double credit (first to approve wins). Personal boards instead
+							re-poll the collection log ("Check collection log").</div></div>
+				</div>
+
+				<div class="box-note" style="margin-top:0.6rem">
+					<b>Race healing.</b> <code>vs_dink_drops</code> stays the durable recent-drops log. The cron/proxy path
+					(<code>POST /api/dink/process</code>) runs a bounded <b>reconcile</b> pass that re-checks recent un-credited
+					drops (the last few days, outcomes <code>no_tile</code>/<code>no_user</code>) against the <i>current</i> view, so
+					a drop that arrived just before a signup or board existed still heals — always subject to the activation rule, so
+					it can never credit a pre-activation drop. The poll-on-read backstop stays drain-only so it remains cheap.
+				</div>
+
+				<!-- ── Matching ── -->
+				<h2 id="match">How a drop is matched</h2>
 			<p>A drop is <b>recorded</b> (by the proxy) when <b>both</b> hold:</p>
 			<ul>
 				<li>the dropper's RSN is in <code>vs_active_participants</code> — the clan roster (<code>players</code>) plus
@@ -243,6 +304,8 @@
 				<div class="box site"><div class="t">🔢 Collect-N <span class="tag">required_qty &gt; 1</span></div>
 					<div class="d">Credits only once the player accumulates that many of the item across drops (e.g. 100 dragon
 						bones). In-progress drops show as <code>partial</code>; when it completes they become <code>consumed</code>.</div></div>
+					<div class="box site"><div class="t">🧩 Personal board tile <span class="tag">per-user</span></div>
+						<div class="d">A tile on a member's own collection-log board (<code>/clog-bingo</code>), not an event. Auto-tracked exactly like a collection tile (<code>match_type=collection</code>); crediting flips the tile <code>obtained</code> rather than inserting a completion. Activation = the board's creation.</div></div>
 			</div>
 			<div class="box-note" style="margin-top: 0.6rem">
 				Combat-achievement / level / KC tiles aren't wired yet — those notifier payloads need to be captured first
@@ -305,12 +368,11 @@
 				<b>One DB step before going live:</b> run <code>db/scripts/dink_tracking_hardening.sql</code> in the Supabase SQL
 				editor. It adds <code>vs_dink_drops.tile_id</code>, <code>vs_bingo_completions.source</code>, and the unique
 				index. (The unique index assumes no duplicate approved completions already exist — true for a fresh Dink dataset.)
+					<br><br><b>This branch</b> additionally needs <code>db/scripts/active_tiles.sql</code> (the <code>vs_active_player_tiles</code> index + the derived proxy views) and <code>db/scripts/personal_boards.sql</code>. The proxy's <code>vs_active_participants</code> / <code>vs_active_tracked_items</code> keep the same column shapes, so the proxy needs no change — see <a href="#index">the active-tiles index</a> above.
 			</div>
 
 			<!-- ── Testing ── -->
-			<p style="margin-top: 1rem"><b>Unified active-tiles index (this branch).</b> Matching moved from per-event tracked items to the single live <code>vs_active_player_tiles</code> view, and the Dink consumer now also credits <b>personal collection-log boards</b>. The activation rule (no credit for a drop received before the tile was active) is enforced in the consumer, and a bounded reconcile pass heals ordering races. Apply <code>db/scripts/active_tiles.sql</code> and <code>db/scripts/personal_boards.sql</code> in the SQL editor. The proxy's <code>vs_active_participants</code>/<code>vs_active_tracked_items</code> views are recreated as <b>derived</b> from the index, with the same column shapes, so the proxy needs no change.</p>
-
-				<h2 id="testing">How to test it</h2>
+			<h2 id="testing">How to test it</h2>
 			<div class="box-note">
 				<b>A) No game needed (proves the site pipeline):</b>
 				<ol style="margin: 0.4rem 0 0.8rem; padding-left: 1.1rem">
