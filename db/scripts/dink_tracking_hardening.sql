@@ -20,6 +20,12 @@
 
 alter table vs_dink_drops add column if not exists tile_id text;
 
+-- These ship in the hand-applied event_builder.sql, but older databases predate them and
+-- the consumer/simulator read+write them (notif_type routes loot vs collection matching;
+-- outcome stores the per-drop verdict). Additive + idempotent.
+alter table vs_dink_drops add column if not exists notif_type text not null default 'loot';
+alter table vs_dink_drops add column if not exists outcome text;
+
 alter table vs_bingo_completions add column if not exists source text;
 
 -- Drop the earlier (wrong) blanket index name if a prior attempt created it anywhere.
