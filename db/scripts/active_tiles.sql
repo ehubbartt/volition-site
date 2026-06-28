@@ -69,7 +69,7 @@ union all
 --     COLLECTION notif). Each owner × their not-yet-obtained tiles.
 select b.user_id, b.rsn,
        'personal'::text, 'item'::text,
-       null::text, null::text,
+       null::uuid, null::text,
        b.id, t.idx,
        t.item_name,
        t.item_id, t.item_name, 'collection'::text, 1,
