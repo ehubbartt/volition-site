@@ -1,4 +1,9 @@
-app = 'volition-site'
+# fly.toml app configuration file generated for volition-site-staging on 2026-06-28T01:31:10Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'volition-site-staging'
 primary_region = 'iad'
 
 [build]
@@ -8,21 +13,19 @@ primary_region = 'iad'
   PORT = '3000'
 
 [http_service]
-  internal_port = 3000
+  internal_port = 8080
   force_https = true
   auto_stop_machines = 'suspend'
   auto_start_machines = true
   min_machines_running = 1
   processes = ['app']
 
-# Restart a wedged machine automatically. /health is answered in hooks.server.ts
-# before the canonical-host redirect, so the internal probe gets a 200 (not a 308).
-[[http_service.checks]]
-  method = 'get'
-  path = '/health'
-  interval = '30s'
-  timeout = '5s'
-  grace_period = '10s'
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'get'
+    path = '/health'
 
 [[vm]]
   size = 'shared-cpu-1x'
