@@ -17,6 +17,13 @@
 -- (the per-row release timing gate refines it), and the board's created_at for personal
 -- tiles. No retroactive credit for drops obtained before the tile was active.
 
+-- Prerequisite columns on vs_event_tracked_items. These ship in the hand-applied
+-- event_builder.sql, but older databases predate them and both this view and the 2.0
+-- event builder require them. Additive + idempotent; existing rows get sensible defaults.
+alter table vs_event_tracked_items add column if not exists match_type   text not null default 'loot';
+alter table vs_event_tracked_items add column if not exists required_qty int  not null default 1;
+alter table vs_event_tracked_items add column if not exists source_name  text;
+
 create or replace view vs_active_player_tiles as
 -- (1) Event ITEM tiles: each signed-up user × the tile's tracked item(s). One row per
 --     tracked item id so Dink can match by id. Excludes tiles the user already completed.
