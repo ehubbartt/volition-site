@@ -8,16 +8,23 @@
 --      item no longer pools, and so a credit can mark exactly its own partials consumed.
 --   2. vs_bingo_completions.source — tag auto-credits ('dink') so a revert can find them
 --      by a real column instead of matching the human-readable review_note text.
---   3. unique partial index — guarantee at most one approved completion per
---      (event, user, tile). With it, concurrent/multi-instance processing can't
---      double-credit: the second insert raises a unique violation the consumer treats
---      as 'duplicate'. (Will FAIL if duplicate approved rows already exist — de-dupe
---      first if so; in a fresh/empty dink dataset there are none.)
+--   3. unique partial index — guarantee at most one approved DINK auto-credit per
+--      (event, user, tile), so concurrent/multi-instance processing can't double-credit
+--      (the second insert raises a unique violation the consumer treats as 'duplicate').
+--      It is scoped to `source = 'dink'` ON PURPOSE: manual completions legitimately have
+--      MULTIPLE approved rows per tile (collect-N tiles where a player submits proof N
+--      times, each approved), so a blanket unique index on (event,user,tile) would break
+--      those. Manual rows have source IS NULL and are left unconstrained; only Dink rows
+--      are deduped. Creates cleanly even on a DB with manual collect-N duplicates (there
+--      are no source='dink' rows until Dink runs).
 
 alter table vs_dink_drops add column if not exists tile_id text;
 
 alter table vs_bingo_completions add column if not exists source text;
 
-create unique index if not exists vs_bingo_completions_one_approved
+-- Drop the earlier (wrong) blanket index name if a prior attempt created it anywhere.
+drop index if exists vs_bingo_completions_one_approved;
+
+create unique index if not exists vs_bingo_completions_one_dink_approved
 	on vs_bingo_completions (event_id, user_id, tile_id)
-	where status = 'approved';
+	where status = 'approved' and source = 'dink';
