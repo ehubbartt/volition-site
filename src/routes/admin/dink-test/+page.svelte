@@ -4,14 +4,22 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	let eventId = $state(data.events[0]?.id ?? '');
+	const PERSONAL = '__personal__';
+	let eventId = $state(data.events[0]?.id ?? PERSONAL);
 	let rsn = $state(data.myRsn);
 	let itemName = $state('');
 	let itemId = $state<number | ''>('');
 	let source = $state('');
+	let notifType = $state('loot');
 
+	const isPersonal = $derived(eventId === PERSONAL);
 	const selectedEvent = $derived(data.events.find((e) => e.id === eventId));
 	const tracked = $derived(data.trackedByEvent[eventId] ?? []);
+
+	// A clog unlock is always a COLLECTION notif — force it when targeting a personal board.
+	$effect(() => {
+		if (isPersonal) notifType = 'collection';
+	});
 
 	function prefill(t: { tile_id: string; item_id: number | null; item_name: string; source_name: string | null }) {
 		itemName = t.item_name;
@@ -82,14 +90,30 @@
 	</div>
 
 	<form method="POST" use:enhance class="card">
-		<label>
-			<span>Event</span>
-			<select name="event_id" bind:value={eventId}>
-				{#each data.events as e}<option value={e.id}>{e.name} ({e.status}{e.starts_at ? '' : ', no start'})</option>{/each}
-			</select>
-		</label>
+		<div class="row">
+			<label>
+				<span>Target</span>
+				<select name="event_id" bind:value={eventId}>
+					<option value={PERSONAL}>🧩 Personal board (collection log)</option>
+					{#each data.events as e}<option value={e.id}>{e.name} ({e.status}{e.starts_at ? '' : ', no start'})</option>{/each}
+				</select>
+			</label>
+			<label>
+				<span>Drop type</span>
+				<select name="notif_type" bind:value={notifType} disabled={isPersonal}>
+					<option value="loot">Loot</option>
+					<option value="collection">Collection / pet (clog)</option>
+				</select>
+			</label>
+		</div>
 
-		{#if tracked.length}
+		{#if isPersonal}
+			<p class="muted small">
+				🧩 Targets <strong>{rsn || 'the player'}</strong>'s personal collection-log board. A COLLECTION drop of an
+				item on their board flips that tile to obtained — if the drop is received after the board was created.
+				Generate a board at <a href="/clog-bingo" target="_blank" rel="noreferrer">/clog-bingo</a> first.
+			</p>
+		{:else if tracked.length}
 			<div class="tracked">
 				<span class="muted small">Tracked items on this event — click to prefill:</span>
 				<div class="chips">
@@ -137,7 +161,8 @@
 				<p class="sim-result">
 					Pipeline ran: processed <strong>{form.result.processed}</strong>, credited
 					<strong>{form.result.credited}</strong>{#if form.result.error} · error: {form.result.error}{/if}.
-					{#if selectedEvent}<a href="/bingo/{selectedEvent.slug}" target="_blank" rel="noreferrer">View board ↗</a>{/if}
+					{#if form.personal}<a href="/clog-bingo" target="_blank" rel="noreferrer">View board ↗</a>
+					{:else if selectedEvent}<a href="/bingo/{selectedEvent.slug}" target="_blank" rel="noreferrer">View board ↗</a>{/if}
 				</p>
 			{/if}
 		</div>
