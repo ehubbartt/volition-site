@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import DinkTabs from '$lib/admin/DinkTabs.svelte';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -31,8 +32,7 @@
 <svelte:head><title>Dink Drop Simulator · Admin</title></svelte:head>
 
 <section class="dt">
-	<a class="back" href="/admin/events">← Events</a>
-	<h1>Dink Drop Simulator <span class="exp">admin test</span></h1>
+	<DinkTabs />
 	<p class="muted">
 		Runs the exact match → identity → timing → credit logic for a hypothetical drop.
 		<strong>Dry run</strong> writes nothing — use it against any event (incl. draft/preview).
@@ -94,7 +94,7 @@
 			<label>
 				<span>Target</span>
 				<select name="event_id" bind:value={eventId}>
-					<option value={PERSONAL}>🧩 Personal board (collection log)</option>
+					<option value={PERSONAL}>Personal board (collection log)</option>
 					{#each data.events as e}<option value={e.id}>{e.name} ({e.status}{e.starts_at ? '' : ', no start'})</option>{/each}
 				</select>
 			</label>
@@ -109,7 +109,7 @@
 
 		{#if isPersonal}
 			<p class="muted small">
-				🧩 Targets <strong>{rsn || 'the player'}</strong>'s personal collection-log board. A COLLECTION drop of an
+				Targets <strong>{rsn || 'the player'}</strong>'s personal collection-log board. A COLLECTION drop of an
 				item on their board flips that tile to obtained — if the drop is received after the board was created.
 				Generate a board at <a href="/clog-bingo" target="_blank" rel="noreferrer">/clog-bingo</a> first.
 			</p>
@@ -171,9 +171,6 @@
 
 <style>
 	.dt { max-width: 820px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
-	.back { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
-	h1 { margin: 0.3rem 0 0.4rem; }
-	.exp { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--bg); background: var(--accent); padding: 0.1rem 0.4rem; border-radius: var(--radius); vertical-align: middle; text-shadow: none; }
 	.muted { color: var(--muted); }
 	.small { font-size: 0.85rem; }
 	.card {

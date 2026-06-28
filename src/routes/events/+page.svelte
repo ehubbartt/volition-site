@@ -94,7 +94,10 @@
 <section>
 	<div class="head">
 		<h1>Active events</h1>
-		<a class="dink-link" href="/dink-check">🎮 Test your Dink setup</a>
+			<div class="head-actions">
+				<a class="dink-link" href="/clog-bingo">Personal Bingo</a>
+				<a class="dink-link" href="/dink-check">Test your Dink setup</a>
+			</div>
 	</div>
 
 	{#if data.activeEvents.length === 0}
@@ -145,6 +148,12 @@
 
 	.head h1 {
 		margin-bottom: 1.25rem;
+	}
+
+	.head-actions {
+		display: flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
 	}
 
 	.dink-link {

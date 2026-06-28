@@ -42,11 +42,12 @@
 	let obtainedCount = $derived(board ? board.tiles.filter((t) => t.obtained).length : 0);
 </script>
 
-<svelte:head><title>Collection Log Bingo · Volition</title></svelte:head>
+<svelte:head><title>Personal Bingo · Volition</title></svelte:head>
 
 <section class="wrap">
+	<a class="back" href="/events">← Events</a>
 	<header class="head">
-		<h1>Collection Log Bingo</h1>
+		<h1>Personal Bingo</h1>
 		<p class="muted">
 			Generate a personal PVM bingo board from collection-log items you don't have yet —
 			balanced by EHB so every board runs from quick tiles to grindy ones. Tiles tick off
@@ -192,6 +193,13 @@
 	.wrap {
 		max-width: 920px;
 		margin: 0 auto;
+	}
+	.back {
+		display: inline-block;
+		margin-bottom: 0.6rem;
+		color: var(--accent);
+		text-decoration: none;
+		font-size: 0.9rem;
 	}
 	.head h1 {
 		margin: 0 0 0.3rem;
