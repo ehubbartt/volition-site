@@ -25,6 +25,8 @@ alter table vs_dink_drops add column if not exists tile_id text;
 -- outcome stores the per-drop verdict). Additive + idempotent.
 alter table vs_dink_drops add column if not exists notif_type text not null default 'loot';
 alter table vs_dink_drops add column if not exists outcome text;
+-- gp value of the drop (from the proxy); shown in the /admin/dink-drops debug view.
+alter table vs_dink_drops add column if not exists value bigint;
 
 alter table vs_bingo_completions add column if not exists source text;
 
