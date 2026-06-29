@@ -1,8 +1,13 @@
 <script lang="ts">
-	import type { PageData } from './$types';
+	import { enhance } from '$app/forms';
+	import type { PageData, ActionData } from './$types';
 	import { ehbOf, DOOM_FLOORS, formatEhb as fmt, type EhbSource, type EhbAssumptions } from '$lib/ehb';
 
-	let { data }: { data: PageData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	// Manual overrides from the server (boss rates + per-item EHB), applied to every computed
+	// value below so the tool shows corrected numbers. Refreshes when an edit reruns load.
+	let overrides = $derived(data.overrides);
 
 	// ── Editable assumptions ────────────────────────────────────────────────
 	// Per-raid purple chance entered as "1 / N". Raid uniques in the data are a
@@ -38,9 +43,39 @@
 	type Computed = { src: EhbSource; ehb: number; label: string };
 	function computedSources(item: { sources: EhbSource[] }): Computed[] {
 		return item.sources
-			.map((src) => ({ src, ehb: ehbOf(src, assumptions), label: sourceLabel(src) }))
+			.map((src) => ({ src, ehb: ehbOf(src, assumptions, overrides), label: sourceLabel(src) }))
 			.filter((c): c is Computed => c.ehb != null && isFinite(c.ehb))
 			.sort((a, b) => a.ehb - b.ehb);
+	}
+
+	// ── Manual overrides UI ─────────────────────────────────────────────────────
+	const itemsById = $derived(new Map(data.items.map((i) => [i.id, i.name])));
+
+	// Active overrides, derived from the loaded maps for listing + clearing.
+	const activeBossOverrides = $derived(
+		Object.entries(overrides.bossRate)
+			.map(([key, rate]) => {
+				const cut = key.indexOf('|');
+				const mechanic = key.slice(0, cut);
+				const source_name = key.slice(cut + 1);
+				const def = data.bossSources.find((b) => b.mechanic === mechanic && b.source_name === source_name);
+				return { mechanic, source_name, rate, default_rate: def?.default_rate ?? null };
+			})
+			.sort((a, b) => a.source_name.localeCompare(b.source_name))
+	);
+	const activeItemOverrides = $derived(
+		Object.entries(overrides.itemEhb)
+			.map(([id, hours]) => ({ id: Number(id), name: itemsById.get(Number(id)) ?? `#${id}`, hours }))
+			.sort((a, b) => a.name.localeCompare(b.name))
+	);
+
+	// Boss-rate editor state.
+	let bossPick = $state('');
+	let bossRate = $state<number | ''>('');
+	const pickedBoss = $derived(data.bossSources.find((b) => `${b.mechanic}|${b.source_name}` === bossPick));
+	function onPickBoss() {
+		if (!pickedBoss) return (bossRate = '');
+		bossRate = overrides.bossRate[`${pickedBoss.mechanic}|${pickedBoss.source_name}`] ?? pickedBoss.default_rate;
 	}
 
 	// ── Item lookup ───────────────────────────────────────────────────────────
@@ -108,6 +143,95 @@
 		</div>
 	</details>
 
+	<!-- Manual overrides -->
+	<details class="card" open>
+		<summary><strong>Manual overrides</strong> <span class="muted small">— correct a boss's rate or pin an item's EHB. Stored in the DB, applied everywhere (incl. personal bingo), and survives data regeneration.</span></summary>
+
+		{#if form?.error}<p class="err">{form.error}</p>{/if}
+		{#if form?.ok}<p class="ok">Override updated.</p>{/if}
+
+		<div class="ov-grid">
+			<!-- Boss rate -->
+			<div class="ov-col">
+				<h3>Boss rate (kills/raids per hour)</h3>
+				<p class="muted small">Overrides the boss's rate — re-costs every drop from it. Doom isn't here; it's driven by the Doom clears/hr assumption above.</p>
+				<div class="ov-edit">
+					<label>
+						<span>Boss</span>
+						<select bind:value={bossPick} onchange={onPickBoss}>
+							<option value="">— pick a boss —</option>
+							{#each data.bossSources as b (b.mechanic + b.source_name)}
+								<option value={`${b.mechanic}|${b.source_name}`}>{b.source_name} ({b.mechanic})</option>
+							{/each}
+						</select>
+					</label>
+					{#if pickedBoss}
+						<label>
+							<span>Rate /hr <span class="muted">· default {pickedBoss.default_rate}</span></span>
+							<input type="number" min="0.1" step="0.1" bind:value={bossRate} />
+						</label>
+						<form method="POST" action="?/saveBossOverride" use:enhance>
+							<input type="hidden" name="mechanic" value={pickedBoss.mechanic} />
+							<input type="hidden" name="source_name" value={pickedBoss.source_name} />
+							<input type="hidden" name="rate" value={bossRate} />
+							<button class="primary" type="submit" disabled={!bossRate}>Save</button>
+						</form>
+					{/if}
+				</div>
+				{#if activeBossOverrides.length}
+					<table>
+						<thead><tr><th>Boss</th><th>Rate</th><th>Default</th><th></th></tr></thead>
+						<tbody>
+							{#each activeBossOverrides as o (o.mechanic + o.source_name)}
+								<tr>
+									<td>{o.source_name} <span class="muted small">({o.mechanic})</span></td>
+									<td class="ehb">{o.rate}</td>
+									<td class="muted">{o.default_rate ?? '—'}</td>
+									<td>
+										<form method="POST" action="?/deleteBossOverride" use:enhance>
+											<input type="hidden" name="mechanic" value={o.mechanic} />
+											<input type="hidden" name="source_name" value={o.source_name} />
+											<button class="link-btn" type="submit">clear</button>
+										</form>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				{:else}
+					<p class="muted small">No boss overrides yet.</p>
+				{/if}
+			</div>
+
+			<!-- Item EHB -->
+			<div class="ov-col">
+				<h3>Item EHB (direct, hours)</h3>
+				<p class="muted small">Pins an item's final EHB outright. Set one from the <strong>Item lookup</strong> below (Override column); clear active ones here.</p>
+				{#if activeItemOverrides.length}
+					<table>
+						<thead><tr><th>Item</th><th>EHB</th><th></th></tr></thead>
+						<tbody>
+							{#each activeItemOverrides as o (o.id)}
+								<tr>
+									<td>{o.name}</td>
+									<td class="ehb">{fmt(o.hours)}</td>
+									<td>
+										<form method="POST" action="?/deleteItemOverride" use:enhance>
+											<input type="hidden" name="item_id" value={o.id} />
+											<button class="link-btn" type="submit">clear</button>
+										</form>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				{:else}
+					<p class="muted small">No item overrides yet.</p>
+				{/if}
+			</div>
+		</div>
+	</details>
+
 	<div class="grid">
 		<!-- Lookup -->
 		<div class="card">
@@ -118,16 +242,26 @@
 					<p class="muted small">No EHB-trackable item matches “{query}”.</p>
 				{:else}
 					<table>
-						<thead><tr><th>Item</th><th>Source</th><th>Drop rate</th><th>EHB</th></tr></thead>
+						<thead><tr><th>Item</th><th>Source</th><th>Drop rate</th><th>EHB</th><th>Override</th></tr></thead>
 						<tbody>
 							{#each lookup as i (i.id)}
 								{@const cs = computedSources(i)}
+								{@const ov = overrides.itemEhb[i.id]}
 								{#each cs as c, idx (c.src.s + c.src.t)}
-									<tr>
+									<tr class:ov-row={idx === 0 && ov != null}>
 										<td>{idx === 0 ? i.name : ''}</td>
 										<td>{c.label}</td>
 										<td>{c.src.t === 'doom' ? `1/${Math.round(1 / DOOM_FLOORS[doomFloor][c.src.col!])}` : c.src.rate}</td>
-										<td class="ehb">{fmt(c.ehb)}</td>
+										<td class="ehb">{fmt(c.ehb)}{#if idx === 0 && ov != null} <span class="muted small">→ {fmt(ov)}</span>{/if}</td>
+										<td>
+											{#if idx === 0}
+												<form method="POST" action="?/saveItemOverride" use:enhance class="ov-inline">
+													<input type="hidden" name="item_id" value={i.id} />
+													<input type="number" min="0" step="0.5" name="ehb_hours" placeholder="h" value={ov ?? ''} />
+													<button type="submit" class="link-btn">set</button>
+												</form>
+											{/if}
+										</td>
 									</tr>
 								{/each}
 							{/each}
@@ -186,4 +320,19 @@
 	td { padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--surface-alt); vertical-align: top; }
 	td.ehb { color: var(--accent); font-family: var(--font-heading); white-space: nowrap; }
 	a { color: var(--accent); }
+
+	/* Manual overrides */
+	h3 { margin: 0.6rem 0 0.2rem; font-size: 0.95rem; color: var(--accent); }
+	.ov-grid { display: grid; gap: 1.1rem; grid-template-columns: 1fr; margin-top: 0.6rem; }
+	@media (min-width: 56rem) { .ov-grid { grid-template-columns: 1fr 1fr; align-items: start; } }
+	.ov-edit { display: flex; gap: 0.6rem; align-items: flex-end; flex-wrap: wrap; margin: 0.5rem 0; }
+	.ov-edit label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; color: var(--muted); }
+	.ov-inline { display: flex; gap: 0.3rem; align-items: center; }
+	.ov-inline input { width: 4.5rem; }
+	.ov-row td { background: rgba(95, 195, 95, 0.08); }
+	.err { color: var(--danger); background: var(--danger-bg); border: 1px solid var(--danger); padding: 0.4rem 0.7rem; border-radius: var(--radius); margin: 0.5rem 0; }
+	.ok { color: var(--success); margin: 0.5rem 0; }
+	.primary { border-color: var(--accent); font-family: var(--font-heading); }
+	.primary:hover { background: var(--accent-soft); }
+	.link-btn { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0.1rem 0.2rem; min-height: 0; font-size: 0.82rem; }
 </style>
