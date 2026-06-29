@@ -136,8 +136,16 @@ function selectGradient(pool: Candidate[], count: number, difficulty: number): C
 		used.add(choice);
 		picked.push(window[Math.min(choice, window.length - 1)]);
 	}
-	// already ordered easy→hard because bands are ascending
+	// already ordered easy→hard because bands are ascending (the caller shuffles for layout)
 	return picked;
+}
+
+// Fisher-Yates in-place shuffle — used so the board's tiles aren't laid out in EHB order.
+function shuffle<T>(arr: T[]): void {
+	for (let i = arr.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[arr[i], arr[j]] = [arr[j], arr[i]];
+	}
 }
 
 export type GenerateResult =
@@ -183,6 +191,9 @@ export async function generatePersonalBoard(
 	}
 
 	const chosen = selectGradient(pool, tileCount, diff);
+	// The gradient still spans easy→hard items, but scatter them across the grid so the
+	// board isn't sorted by EHB.
+	shuffle(chosen);
 	const sb = db();
 
 	// One board per user: drop the old one (tiles cascade) before inserting the new draft.
