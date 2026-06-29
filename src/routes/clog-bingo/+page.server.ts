@@ -1,14 +1,25 @@
 import { fail, redirect } from '@sveltejs/kit';
 import {
 	generatePersonalBoard,
+	lockPersonalBoard,
 	loadPersonalBoard,
 	refreshPersonalBoard,
+	boardResettableAt,
+	LOCK_DAYS,
 	MIN_SIZE,
 	MAX_SIZE,
 	MIN_DIFFICULTY,
 	MAX_DIFFICULTY
 } from '$lib/server/personalBoard';
 import type { Actions, PageServerLoad } from './$types';
+
+function fmtResetDate(iso: string): string {
+	try {
+		return new Date(iso).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+	} catch {
+		return iso;
+	}
+}
 
 // Per-user cooldown on the Temple collection-log fetch (generate + refresh both hit
 // it). Mirrors the /me rank-check throttle — keeps us off Temple's rate limit.
@@ -23,44 +34,57 @@ function clogCooldownLeft(userId: string): number {
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
 	const board = await loadPersonalBoard(locals.user.id);
+	const resettableAt = board?.locked_at ? boardResettableAt(board.locked_at) : null;
+	const canReset = !board || !board.locked_at || (resettableAt != null && Date.now() >= new Date(resettableAt).getTime());
 	return {
 		rsn: locals.user.rsn,
 		board,
+		locked: !!board?.locked_at,
+		resettableAt,
+		canReset,
+		lockDays: LOCK_DAYS,
 		sizeRange: { min: MIN_SIZE, max: MAX_SIZE },
 		difficultyRange: { min: MIN_DIFFICULTY, max: MAX_DIFFICULTY }
 	};
 };
 
 export const actions: Actions = {
+	// Generate / reroll a DRAFT board. Free to repeat (the owned-clog set is cached in
+	// personalBoard, so rerolls reshuffle without hammering Temple); refused while a board
+	// is locked and inside its commitment window.
 	generate: async ({ locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
 		if (!locals.user.rsn) {
 			return fail(400, { error: 'Set your OSRS RSN on your profile first, then generate a board.' });
-		}
-		const wait = clogCooldownLeft(locals.user.id);
-		if (wait > 0) {
-			return fail(429, { error: `Please wait ${Math.ceil(wait / 1000)}s before reading your collection log again.` });
 		}
 
 		const form = await request.formData();
 		const size = Number(form.get('size') ?? 5);
 		const difficulty = Number(form.get('difficulty') ?? 5);
 
-		lastClogFetch.set(locals.user.id, Date.now());
 		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty);
 
 		if (!result.ok) {
-			// Let them retry a transient clog failure immediately.
-			if (result.reason === 'clog_unavailable') lastClogFetch.delete(locals.user.id);
 			const msg =
 				result.reason === 'no_rsn'
 					? 'Set your OSRS RSN on your profile first.'
-					: result.reason === 'too_few'
-						? `You're only missing ${result.missing} eligible PVM clog items — not enough for a ${Math.sqrt(result.need ?? 0)}×${Math.sqrt(result.need ?? 0)} board. Nice log! Try a smaller grid.`
-						: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
-			return fail(result.reason === 'too_few' ? 400 : 502, { error: msg });
+					: result.reason === 'locked'
+						? `Your board is locked in until ${result.resettable_at ? fmtResetDate(result.resettable_at) : 'later'}. You can make a new one after that.`
+						: result.reason === 'too_few'
+							? `You're only missing ${result.missing} eligible PVM clog items — not enough for a ${Math.sqrt(result.need ?? 0)}×${Math.sqrt(result.need ?? 0)} board. Nice log! Try a smaller grid.`
+							: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
+			const status = result.reason === 'too_few' ? 400 : result.reason === 'locked' ? 403 : 502;
+			return fail(status, { error: msg });
 		}
 		return { ok: true, generated: true };
+	},
+
+	// Lock the current draft in: starts tracking + the commitment window.
+	lock: async ({ locals }) => {
+		if (!locals.user) throw redirect(303, '/');
+		const res = await lockPersonalBoard(locals.user.id);
+		if (!res.ok) return fail(400, { error: 'No board to lock — generate one first.' });
+		return { ok: true, locked: true };
 	},
 
 	refresh: async ({ locals }) => {
@@ -76,8 +100,10 @@ export const actions: Actions = {
 			const msg =
 				result.reason === 'no_board'
 					? 'No board to refresh — generate one first.'
-					: "Couldn't read your collection log from TempleOSRS right now. Try again shortly.";
-			return fail(502, { error: msg });
+					: result.reason === 'not_locked'
+						? 'Lock your board in first — drafts aren’t tracked until you commit to them.'
+						: "Couldn't read your collection log from TempleOSRS right now. Try again shortly.";
+			return fail(result.reason === 'not_locked' ? 400 : 502, { error: msg });
 		}
 		return {
 			ok: true,

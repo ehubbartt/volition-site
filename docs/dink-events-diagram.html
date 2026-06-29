@@ -222,7 +222,7 @@
 				<div class="lane">
 					<div class="box db"><div class="t">🎯 Event item tiles</div><div class="d">each signed-up user × the tile's tracked item(s), minus tiles they've already completed. <code>activated_at</code> = the event's <code>starts_at</code>.</div></div>
 					<div class="box db"><div class="t">📝 Event manual tiles</div><div class="d">signed-up user × event tiles with no tracked item. <code>activated_at</code> = event start.</div></div>
-					<div class="box db"><div class="t">🧩 Personal board tiles</div><div class="d">each owner × their not-yet-obtained board tiles (always <code>item</code>, <code>match_type=collection</code>). <code>activated_at</code> = the board's <code>created_at</code>.</div></div>
+					<div class="box db"><div class="t">🧩 Personal board tiles</div><div class="d">each owner × their not-yet-obtained tiles on a <b>locked</b> board (a draft isn't tracked; always <code>item</code>, <code>match_type=collection</code>). <code>activated_at</code> = the board's <code>locked_at</code>.</div></div>
 				</div>
 
 				<p style="margin-top:0.8rem">The proxy's allowlist views <code>vs_active_participants</code> /
@@ -305,7 +305,7 @@
 					<div class="d">Credits only once the player accumulates that many of the item across drops (e.g. 100 dragon
 						bones). In-progress drops show as <code>partial</code>; when it completes they become <code>consumed</code>.</div></div>
 					<div class="box site"><div class="t">🧩 Personal board tile <span class="tag">per-user</span></div>
-						<div class="d">A tile on a member's own collection-log board (<code>/clog-bingo</code>), not an event. Auto-tracked exactly like a collection tile (<code>match_type=collection</code>); crediting flips the tile <code>obtained</code> rather than inserting a completion. Activation = the board's creation.</div></div>
+						<div class="d">A tile on a member's own collection-log board (<code>/clog-bingo</code>), not an event. Auto-tracked exactly like a collection tile (<code>match_type=collection</code>) once the board is <b>locked in</b>; crediting flips the tile <code>obtained</code> rather than inserting a completion. Activation = the board's lock time.</div></div>
 			</div>
 			<div class="box-note" style="margin-top: 0.6rem">
 				Combat-achievement / level / KC tiles aren't wired yet — those notifier payloads need to be captured first

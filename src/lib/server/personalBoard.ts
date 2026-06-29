@@ -3,9 +3,13 @@
 // A user generates a private N×N grid (N = 3..5) of collection-log items they do NOT
 // already own, drawn from the PVM boss/raid clog universe (itemEhb.json) and balanced
 // by EHB-to-obtain into an easy→hard gradient scaled by a difficulty dial. Tiles are
-// auto-marked "obtained" by re-polling the player's collection log (Temple) — the
-// owner column on the board keeps it per-user-correct and leaves room to layer the
-// Dink auto-tracker on later. One board per user (regenerating replaces it).
+// auto-marked "obtained" by re-polling the player's collection log (Temple) and by the
+// Dink auto-tracker. One board per user (regenerating replaces it).
+//
+// LIFECYCLE: a board starts as a DRAFT (locked_at = null) — the owner can reroll it as
+// many times as they like and it is NOT tracked. LOCKING it (sets locked_at) starts
+// progress tracking and commits the board for LOCK_DAYS; only after that window can it be
+// reset and regenerated.
 
 import { db } from './db';
 import { fetchTempleCollectionLog } from './rankData';
@@ -18,6 +22,15 @@ export const MIN_SIZE = 3;
 export const MAX_SIZE = 5;
 export const MIN_DIFFICULTY = 1;
 export const MAX_DIFFICULTY = 10;
+
+// A locked board is committed for this long before the owner can reset and make a new one.
+export const LOCK_DAYS = 30;
+const LOCK_MS = LOCK_DAYS * 24 * 60 * 60 * 1000;
+
+// When a locked board can be reset (null while it's still a draft).
+export function boardResettableAt(lockedAt: string | null): string | null {
+	return lockedAt ? new Date(new Date(lockedAt).getTime() + LOCK_MS).toISOString() : null;
+}
 
 export interface PersonalBoardTile {
 	idx: number;
@@ -35,6 +48,7 @@ export interface PersonalBoard {
 	difficulty: number;
 	rsn: string;
 	created_at: string;
+	locked_at: string | null; // null = draft (reroll freely, not tracked)
 	tiles: PersonalBoardTile[];
 }
 
@@ -51,6 +65,23 @@ async function fetchOwnedClogNames(rsn: string): Promise<Set<string> | null> {
 			if (item?.name && Number(item.count ?? 1) > 0) owned.add(item.name.toLowerCase());
 		}
 	}
+	return owned;
+}
+
+// Short-lived per-user cache of the owned-clog set so a member can REROLL a draft board
+// many times in a row without hammering Temple — each reroll just reshuffles the same
+// missing pool. `force` (used by the explicit "Check collection log" refresh) bypasses it
+// and refreshes the cache.
+const ownedCache = new Map<string, { at: number; owned: Set<string> }>();
+const OWNED_TTL_MS = 5 * 60 * 1000;
+
+async function getOwnedClogNames(userId: string, rsn: string, force = false): Promise<Set<string> | null> {
+	if (!force) {
+		const hit = ownedCache.get(userId);
+		if (hit && Date.now() - hit.at < OWNED_TTL_MS) return hit.owned;
+	}
+	const owned = await fetchOwnedClogNames(rsn);
+	if (owned) ownedCache.set(userId, { at: Date.now(), owned });
 	return owned;
 }
 
@@ -111,9 +142,16 @@ function selectGradient(pool: Candidate[], count: number, difficulty: number): C
 
 export type GenerateResult =
 	| { ok: true; board: PersonalBoard }
-	| { ok: false; reason: 'no_rsn' | 'clog_unavailable' | 'too_few'; missing?: number; need?: number };
+	| {
+			ok: false;
+			reason: 'no_rsn' | 'clog_unavailable' | 'too_few' | 'locked';
+			missing?: number;
+			need?: number;
+			resettable_at?: string;
+	  };
 
-// Generate (and persist, replacing any existing) a board for the user.
+// Generate (and persist, replacing any existing) a DRAFT board for the user. Refuses if
+// the current board is LOCKED and still inside its commitment window.
 export async function generatePersonalBoard(
 	userId: string,
 	rsn: string | null,
@@ -121,11 +159,22 @@ export async function generatePersonalBoard(
 	difficulty: number
 ): Promise<GenerateResult> {
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
+
+	// A locked board can't be rerolled/reset until its commitment window elapses.
+	const existing = await loadPersonalBoard(userId);
+	if (existing?.locked_at) {
+		const reset = boardResettableAt(existing.locked_at);
+		if (reset && Date.now() < new Date(reset).getTime()) {
+			return { ok: false, reason: 'locked', resettable_at: reset };
+		}
+	}
+
 	const n = Math.min(MAX_SIZE, Math.max(MIN_SIZE, Math.floor(size)));
 	const diff = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, Math.floor(difficulty)));
 	const tileCount = n * n;
 
-	const owned = await fetchOwnedClogNames(rsn);
+	// Cached owned set: rerolling a draft reshuffles without re-hitting Temple each time.
+	const owned = await getOwnedClogNames(userId, rsn);
 	if (owned == null) return { ok: false, reason: 'clog_unavailable' };
 
 	const pool = missingCandidates(owned);
@@ -136,17 +185,17 @@ export async function generatePersonalBoard(
 	const chosen = selectGradient(pool, tileCount, diff);
 	const sb = db();
 
-	// One board per user: drop the old one (tiles cascade) before inserting the new.
+	// One board per user: drop the old one (tiles cascade) before inserting the new draft.
 	await sb.from('vs_personal_boards').delete().eq('user_id', userId);
 
 	const { data: boardRow, error: bErr } = await sb
 		.from('vs_personal_boards')
-		.insert({ user_id: userId, rsn, size: n, difficulty: diff })
-		.select('id, size, difficulty, rsn, created_at')
+		.insert({ user_id: userId, rsn, size: n, difficulty: diff }) // locked_at defaults null = draft
+		.select('id, size, difficulty, rsn, created_at, locked_at')
 		.single();
 	if (bErr || !boardRow) return { ok: false, reason: 'clog_unavailable' };
 
-	const board = boardRow as { id: string; size: number; difficulty: number; rsn: string; created_at: string };
+	const board = boardRow as { id: string; size: number; difficulty: number; rsn: string; created_at: string; locked_at: string | null };
 	const tileRows = chosen.map((c, idx) => ({
 		board_id: board.id,
 		idx,
@@ -170,6 +219,7 @@ export async function generatePersonalBoard(
 			difficulty: board.difficulty,
 			rsn: board.rsn,
 			created_at: board.created_at,
+			locked_at: board.locked_at,
 			tiles: chosen.map((c, idx) => ({
 				idx,
 				item_id: c.item_id,
@@ -188,11 +238,11 @@ export async function loadPersonalBoard(userId: string): Promise<PersonalBoard |
 	const sb = db();
 	const { data: boardRow } = await sb
 		.from('vs_personal_boards')
-		.select('id, size, difficulty, rsn, created_at')
+		.select('id, size, difficulty, rsn, created_at, locked_at')
 		.eq('user_id', userId)
 		.maybeSingle();
 	if (!boardRow) return null;
-	const board = boardRow as { id: string; size: number; difficulty: number; rsn: string; created_at: string };
+	const board = boardRow as { id: string; size: number; difficulty: number; rsn: string; created_at: string; locked_at: string | null };
 
 	const { data: tileRows } = await sb
 		.from('vs_personal_board_tiles')
@@ -206,15 +256,35 @@ export async function loadPersonalBoard(userId: string): Promise<PersonalBoard |
 		difficulty: board.difficulty,
 		rsn: board.rsn,
 		created_at: board.created_at,
+		locked_at: board.locked_at,
 		tiles: (tileRows ?? []) as PersonalBoardTile[]
 	};
+}
+
+// Lock a draft board in: starts progress tracking and the LOCK_DAYS commitment. Idempotent
+// (already-locked returns the board unchanged). Only after the window can it be reset.
+export type LockResult = { ok: true; board: PersonalBoard } | { ok: false; reason: 'no_board' };
+
+export async function lockPersonalBoard(userId: string): Promise<LockResult> {
+	const board = await loadPersonalBoard(userId);
+	if (!board) return { ok: false, reason: 'no_board' };
+	if (board.locked_at) return { ok: true, board }; // already locked
+
+	const lockedAt = new Date().toISOString();
+	await db()
+		.from('vs_personal_boards')
+		.update({ locked_at: lockedAt })
+		.eq('id', board.id)
+		.is('locked_at', null);
+	return { ok: true, board: { ...board, locked_at: lockedAt } };
 }
 
 // Flip a single personal-board tile to obtained (false→true). Used by the Dink
 // auto-tracker when a COLLECTION unlock matches a board tile. The `obtained=false`
 // guard makes it idempotent: 'credited' if this call flipped it, 'noop' if it was
 // already obtained (or the index is gone), 'error' on a transient DB failure. The
-// activation rule (drop received_at >= board.created_at) is enforced by the caller.
+// activation rule (drop received_at >= board.locked_at) is enforced by the caller, and
+// the active-tiles view only surfaces LOCKED boards, so drafts are never credited.
 export async function creditPersonalTile(
 	boardId: string,
 	idx: number
@@ -235,16 +305,18 @@ export async function creditPersonalTile(
 
 export type RefreshResult =
 	| { ok: true; newlyObtained: string[]; totalObtained: number }
-	| { ok: false; reason: 'no_board' | 'clog_unavailable' };
+	| { ok: false; reason: 'no_board' | 'clog_unavailable' | 'not_locked' };
 
 // Re-poll the player's collection log and mark any now-owned tiles obtained. This is
 // the live auto-tracker: a tile flips to done the next time the player's clog shows
-// the item. Only flips false→true (never un-obtains).
+// the item. Only flips false→true (never un-obtains). Only runs on a LOCKED board —
+// a draft isn't tracked until it's locked in.
 export async function refreshPersonalBoard(userId: string): Promise<RefreshResult> {
 	const board = await loadPersonalBoard(userId);
 	if (!board) return { ok: false, reason: 'no_board' };
+	if (!board.locked_at) return { ok: false, reason: 'not_locked' };
 
-	const owned = await fetchOwnedClogNames(board.rsn);
+	const owned = await getOwnedClogNames(userId, board.rsn, true); // force a fresh Temple read
 	if (owned == null) return { ok: false, reason: 'clog_unavailable' };
 
 	const sb = db();

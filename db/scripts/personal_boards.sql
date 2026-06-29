@@ -14,8 +14,14 @@ create table if not exists vs_personal_boards (
 	size        int  not null,            -- 3..5 (grid is size × size)
 	difficulty  int  not null,            -- 1..10 difficulty dial
 	created_at  timestamptz not null default now(),
+	locked_at   timestamptz,              -- null = DRAFT (reroll freely, not tracked); set = locked & tracked
 	unique (user_id)                      -- one active board per user
 );
+
+-- For databases created before the lock lifecycle. A board is a DRAFT until locked_at is
+-- set: drafts can be rerolled freely and are NOT tracked; locking starts progress tracking
+-- and a 1-month commitment before the board can be reset and regenerated.
+alter table vs_personal_boards add column if not exists locked_at timestamptz;
 
 create table if not exists vs_personal_board_tiles (
 	id          uuid primary key default gen_random_uuid(),
