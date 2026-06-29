@@ -55,19 +55,40 @@ export const DOOM_FLOORS: Record<number, Record<string, number>> = {
 	9: { cloth: 1 / 180, eye: 1 / 540, treads: 1 / 540, dom: 1 / 250 }
 };
 
-// Max-efficiency EHB (hours) for one source. null = not computable.
-export function rawEhb(src: EhbSource, a: EhbAssumptions = DEFAULT_EHB_ASSUMPTIONS): number | null {
+// Admin-set manual corrections layered on top of the computed values (EHB is an estimate).
+//   bossRate: key `${t}|${s}` → kills/raids per hour, replacing EhbSource.r for that boss.
+//   itemEhb:  ItemEhb.id → a direct final EHB (hours) that wins outright for that item.
+// Stored in vs_ehb_overrides; loaded by src/lib/server/ehbOverrides.ts and passed in here
+// (keeping this lib DB-free), exactly like the assumptions.
+export interface EhbOverrides {
+	bossRate: Record<string, number>;
+	itemEhb: Record<number, number>;
+}
+
+// Key for a boss-rate override — the (mechanic, source) pair that identifies a boss.
+export function bossKey(src: EhbSource): string {
+	return `${src.t}|${src.s}`;
+}
+
+// Max-efficiency EHB (hours) for one source. null = not computable. A boss-rate override
+// substitutes for the source's `r` (doesn't apply to doom, which uses doomKph).
+export function rawEhb(
+	src: EhbSource,
+	a: EhbAssumptions = DEFAULT_EHB_ASSUMPTIONS,
+	o?: EhbOverrides
+): number | null {
+	const r = o?.bossRate[bossKey(src)] ?? src.r;
 	switch (src.t) {
 		case 'kill':
-			return src.k != null && src.r ? src.k / src.r : null;
+			return src.k != null && r ? src.k / r : null;
 		case 'cox':
-			return src.k != null && src.r ? (src.k * a.coxN) / src.r : null;
+			return src.k != null && r ? (src.k * a.coxN) / r : null;
 		case 'tobn':
-			return src.k != null && src.r ? (src.k * a.tobnN) / src.r : null;
+			return src.k != null && r ? (src.k * a.tobnN) / r : null;
 		case 'tobh':
-			return src.k != null && src.r ? (src.k * a.tobhN) / src.r : null;
+			return src.k != null && r ? (src.k * a.tobhN) / r : null;
 		case 'toa':
-			return src.k != null && src.r ? (src.k * a.toaN) / src.r : null;
+			return src.k != null && r ? (src.k * a.toaN) / r : null;
 		case 'doom': {
 			const rate = DOOM_FLOORS[a.doomFloor]?.[src.col ?? ''] ?? 0;
 			return rate > 0 ? 1 / rate / a.doomKph : null;
@@ -77,31 +98,43 @@ export function rawEhb(src: EhbSource, a: EhbAssumptions = DEFAULT_EHB_ASSUMPTIO
 	}
 }
 
-export function ehbOf(src: EhbSource, a: EhbAssumptions = DEFAULT_EHB_ASSUMPTIONS): number | null {
-	const base = rawEhb(src, a);
+export function ehbOf(
+	src: EhbSource,
+	a: EhbAssumptions = DEFAULT_EHB_ASSUMPTIONS,
+	o?: EhbOverrides
+): number | null {
+	const base = rawEhb(src, a, o);
 	return base == null ? null : base * a.effMult;
 }
 
-// The cheapest (fastest) EHB to obtain an item across all its sources, plus the
-// source that achieves it. null when no source is computable.
+// The cheapest (fastest) EHB to obtain an item across all its sources, plus the source
+// that achieves it. A per-item override wins outright (still reporting the cheapest source
+// for display). null when no source is computable.
 export function bestEhbSource(
-	item: { sources: EhbSource[] },
-	a: EhbAssumptions = DEFAULT_EHB_ASSUMPTIONS
-): { ehb: number; src: EhbSource } | null {
+	item: { id?: number; sources: EhbSource[] },
+	a: EhbAssumptions = DEFAULT_EHB_ASSUMPTIONS,
+	o?: EhbOverrides
+): { ehb: number; src: EhbSource; overridden?: boolean } | null {
 	let best: { ehb: number; src: EhbSource } | null = null;
 	for (const src of item.sources) {
-		const ehb = ehbOf(src, a);
+		const ehb = ehbOf(src, a, o);
 		if (ehb == null || !isFinite(ehb)) continue;
 		if (!best || ehb < best.ehb) best = { ehb, src };
+	}
+	const itemOverride = item.id != null ? o?.itemEhb[item.id] : undefined;
+	if (itemOverride != null && isFinite(itemOverride)) {
+		// Keep the cheapest source for display context; report the override as the EHB.
+		return { ehb: itemOverride, src: best?.src ?? item.sources[0], overridden: true };
 	}
 	return best;
 }
 
 export function bestEhb(
-	item: { sources: EhbSource[] },
-	a: EhbAssumptions = DEFAULT_EHB_ASSUMPTIONS
+	item: { id?: number; sources: EhbSource[] },
+	a: EhbAssumptions = DEFAULT_EHB_ASSUMPTIONS,
+	o?: EhbOverrides
 ): number | null {
-	return bestEhbSource(item, a)?.ehb ?? null;
+	return bestEhbSource(item, a, o)?.ehb ?? null;
 }
 
 // Human-readable hours, e.g. "45 min", "3.20 h", "120 h".
