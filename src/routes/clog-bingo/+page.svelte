@@ -235,7 +235,6 @@
 					<div class="icon"><ItemIcon item={tile.item_name} size={42} /></div>
 					<div class="name">{tile.item_name}</div>
 					<div class="ehb">{formatEhb(tile.ehb)}</div>
-					{#if tile.obtained}<div class="check">✓</div>{/if}
 				</div>
 			{/each}
 		</div>
@@ -436,6 +435,8 @@
 	}
 	.tile.obtained {
 		background-color: #1e2a17;
+		border-image: none;
+		border: 4px solid var(--success);
 	}
 	.tile.inline {
 		box-shadow: 0 0 0 2px var(--accent), 0 0 14px -2px var(--accent);
@@ -460,15 +461,6 @@
 	.tile.obtained .name,
 	.tile.obtained .ehb {
 		opacity: 0.55;
-	}
-	.tile .check {
-		position: absolute;
-		top: 0.25rem;
-		right: 0.35rem;
-		color: var(--success);
-		font-weight: bold;
-		font-size: 1.1rem;
-		text-shadow: 1px 1px #000;
 	}
 	.foot {
 		margin-top: 0.75rem;
