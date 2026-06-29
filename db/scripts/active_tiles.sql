@@ -66,17 +66,18 @@ where not exists (select 1 from vs_event_tracked_items ti
                     and c.tile_id = te.tile_id and c.status = 'approved')
 union all
 -- (3) Personal collection-log board tiles (always item; a clog unlock fires a Dink
---     COLLECTION notif). Each owner × their not-yet-obtained tiles.
+--     COLLECTION notif). Only LOCKED boards are tracked — a draft isn't in play. The
+--     activation time is the LOCK time, so a drop obtained before locking never credits.
 select b.user_id, b.rsn,
        'personal'::text, 'item'::text,
        null::uuid, null::text,
        b.id, t.idx,
        t.item_name,
        t.item_id, t.item_name, 'collection'::text, 1,
-       b.created_at
+       b.locked_at
 from vs_personal_board_tiles t
 join vs_personal_boards b on b.id = t.board_id
-where t.obtained = false;
+where t.obtained = false and b.locked_at is not null;
 
 -- Proxy record-allowlist views, derived from the item subset (one source of truth so a
 -- new event/board automatically enters the proxy allowlist). The dink-proxy Worker reads

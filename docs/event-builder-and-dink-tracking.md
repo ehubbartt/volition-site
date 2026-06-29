@@ -54,8 +54,10 @@ It unions three producers (`db/scripts/active_tiles.sql`):
 1. **Event item tiles** — each signed-up user × the tile's tracked item(s), excluding
    tiles they've already completed. `activated_at` = the event's `starts_at`.
 2. **Event manual tiles** — signed-up user × event tiles with no tracked item.
-3. **Personal board tiles** — each owner × their not-yet-obtained board tiles
-   (always `item`, `match_type='collection'`). `activated_at` = the board's `created_at`.
+3. **Personal board tiles** — each owner × their not-yet-obtained board tiles, but only
+   for a **locked** board (a draft isn't tracked). Always `item`, `match_type='collection'`.
+   `activated_at` = the board's `locked_at` (the lock time), so drops obtained before
+   locking never credit.
 
 The proxy's `vs_active_tracked_items` / `vs_active_participants` views are **derived from
 the `item` subset** of this index, so a new event or personal board automatically enters
@@ -65,8 +67,8 @@ column shapes are unchanged.)
 **Activation rule (no retroactive credit).** A drop credits a tile **only if
 `drop.received_at >= activated_at`** for that player+tile. For events the existing per-row
 release timing gate refines this further; for personal boards it means a drop obtained
-*before* the board was generated never credits it. Generating a board does **not**
-back-fill past drops.
+*before* the board was **locked** never credits it (and a draft board isn't tracked at
+all). Generating or locking a board does **not** back-fill past drops.
 
 **Per-user-correct.** A drop is matched against the **dropper's own** active tiles only,
 so it can only ever complete that player's tiles. One drop may legitimately credit both an

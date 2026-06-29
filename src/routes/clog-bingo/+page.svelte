@@ -7,14 +7,26 @@
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	let board = $derived(data.board);
+	let locked = $derived(data.locked);
+	let canReset = $derived(data.canReset);
 
 	// Create-form state. Defaults: 5×5, mid difficulty.
 	let size = $state(5);
 	let difficulty = $state(5);
 	let generating = $state(false);
 	let refreshing = $state(false);
-	// When a board already exists, the regenerate form is hidden until requested.
+	let locking = $state(false);
+	// For a LOCKED board, the regenerate form stays hidden until the owner asks to reset.
 	let showRegen = $state(false);
+
+	function fmtDate(iso: string | null): string {
+		if (!iso) return '';
+		try {
+			return new Date(iso).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+		} catch {
+			return iso;
+		}
+	}
 
 	const DIFF_LABELS = ['', 'Casual', 'Easy', 'Easy+', 'Light', 'Moderate', 'Spicy', 'Hard', 'Hard+', 'Brutal', 'Insane'];
 	let diffLabel = $derived(DIFF_LABELS[difficulty] ?? 'Moderate');
@@ -50,8 +62,9 @@
 		<h1>Personal Bingo</h1>
 		<p class="muted">
 			Generate a personal PVM bingo board from collection-log items you don't have yet —
-			balanced by EHB so every board runs from quick tiles to grindy ones. Tiles tick off
-			automatically as your collection log fills in.
+			balanced by EHB so every board runs from quick tiles to grindy ones. Reroll it as much as
+			you like, then <strong>lock it in</strong> to start tracking; a locked board is yours for
+			{data.lockDays} days. Tiles tick off automatically from your collection log and Dink drops.
 		</p>
 	</header>
 
@@ -68,15 +81,21 @@
 	{#if form?.refreshed}
 		<div class="panel ok">
 			{#if form.newlyObtained?.length}
-				🎉 Marked obtained: {form.newlyObtained.join(', ')}.
+				Marked obtained: {form.newlyObtained.join(', ')}.
 			{:else}
 				No new items since last check — keep grinding!
 			{/if}
 		</div>
 	{/if}
+	{#if form?.locked}
+		<div class="panel ok">
+			Board locked in — progress now tracks automatically from your collection log and Dink. You
+			can make a new board on {fmtDate(data.resettableAt)}.
+		</div>
+	{/if}
 
-	<!-- ── Create / regenerate form ── -->
-	{#if !board || showRegen}
+	<!-- ── Create / reroll / reset form ── -->
+	{#if !board || !locked || showRegen}
 		<form
 			method="POST"
 			action="?/generate"
@@ -90,9 +109,11 @@
 				};
 			}}
 		>
-			<h2>{board ? 'Generate a new board' : 'Create your board'}</h2>
-			{#if board}
-				<p class="muted small">This replaces your current board.</p>
+			<h2>{!board ? 'Create your board' : locked ? 'Generate a new board' : 'Your draft board — reroll until you like it'}</h2>
+			{#if locked}
+				<p class="muted small">This starts a brand-new draft (and clears your tracked progress).</p>
+			{:else if board}
+				<p class="muted small">Reroll as many times as you want — nothing is tracked until you lock it in.</p>
 			{/if}
 
 			<div class="controls">
@@ -128,44 +149,80 @@
 
 			<div class="actions">
 				<button type="submit" class="primary" disabled={generating || !data.rsn}>
-					{generating ? 'Reading your collection log…' : board ? 'Regenerate' : 'Generate board'}
+					{generating ? 'Reading your collection log…' : !board ? 'Generate board' : locked ? 'Generate new board' : 'Reroll'}
 				</button>
-				{#if board}
+				{#if locked}
 					<button type="button" class="ghost" onclick={() => (showRegen = false)}>Cancel</button>
 				{/if}
 			</div>
 		</form>
 	{/if}
 
+	<!-- ── Draft: lock-in bar ── -->
+	{#if board && !locked}
+		<div class="panel lockbar">
+			<p class="muted small">
+				Happy with this board? <strong>Lock it in</strong> to start tracking — it'll be committed
+				for {data.lockDays} days, and your collection log + Dink drops will tick tiles off
+				automatically. Drops you already had before locking don't count.
+			</p>
+			<form
+				method="POST"
+				action="?/lock"
+				use:enhance={({ cancel }) => {
+					if (!confirm(`Lock this board in for ${data.lockDays} days? You won't be able to reroll until then.`)) {
+						cancel();
+						return;
+					}
+					locking = true;
+					return async ({ update }) => {
+						await update({ reset: false });
+						locking = false;
+					};
+				}}
+			>
+				<button type="submit" class="primary" disabled={locking}>
+					{locking ? 'Locking…' : 'Lock it in'}
+				</button>
+			</form>
+		</div>
+	{/if}
+
 	<!-- ── The board ── -->
 	{#if board}
-		<div class="boardbar">
-			<div class="stats">
-				<span class="stat"><strong>{obtainedCount}</strong> / {board.tiles.length} obtained</span>
-				<span class="stat"><strong>{lines.count}</strong> bingo{lines.count === 1 ? '' : 's'}</span>
-				<span class="stat muted">{board.size}×{board.size} · {DIFF_LABELS[board.difficulty]}</span>
+		{#if locked}
+			<div class="boardbar">
+				<div class="stats">
+					<span class="stat"><strong>{obtainedCount}</strong> / {board.tiles.length} obtained</span>
+					<span class="stat"><strong>{lines.count}</strong> bingo{lines.count === 1 ? '' : 's'}</span>
+					<span class="stat muted">{board.size}×{board.size} · {DIFF_LABELS[board.difficulty]}</span>
+				</div>
+				<div class="bar-actions">
+					<form
+						method="POST"
+						action="?/refresh"
+						use:enhance={() => {
+							refreshing = true;
+							return async ({ update }) => {
+								await update({ reset: false });
+								refreshing = false;
+							};
+						}}
+					>
+						<button type="submit" disabled={refreshing}>
+							{refreshing ? 'Checking…' : '↻ Check collection log'}
+						</button>
+					</form>
+					{#if canReset}
+						{#if !showRegen}
+							<button type="button" class="ghost" onclick={() => (showRegen = true)}>New board</button>
+						{/if}
+					{:else}
+						<span class="muted small lock-note">Locked · new board {fmtDate(data.resettableAt)}</span>
+					{/if}
+				</div>
 			</div>
-			<div class="bar-actions">
-				<form
-					method="POST"
-					action="?/refresh"
-					use:enhance={() => {
-						refreshing = true;
-						return async ({ update }) => {
-							await update({ reset: false });
-							refreshing = false;
-						};
-					}}
-				>
-					<button type="submit" disabled={refreshing}>
-						{refreshing ? 'Checking…' : '↻ Check collection log'}
-					</button>
-				</form>
-				{#if !showRegen}
-					<button type="button" class="ghost" onclick={() => (showRegen = true)}>New board</button>
-				{/if}
-			</div>
-		</div>
+		{/if}
 
 		<div class="grid" style="--n:{board.size}">
 			{#each board.tiles as tile (tile.idx)}
@@ -183,8 +240,13 @@
 			{/each}
 		</div>
 		<p class="muted small foot">
-			EHB = efficient hours to obtain at the cheapest source. Tiles auto-complete from your
-			TempleOSRS collection log — hit <em>Check collection log</em> after a drop.
+			EHB = efficient hours to obtain at the cheapest source.
+			{#if locked}
+				Tiles auto-complete from your TempleOSRS collection log — hit <em>Check collection log</em>
+				after a drop — and from Dink drops.
+			{:else}
+				This is a <strong>draft preview</strong> — nothing is tracked until you lock it in.
+			{/if}
 		</p>
 	{/if}
 </section>
@@ -240,6 +302,24 @@
 	.generator h2 {
 		margin: 0 0 0.4rem;
 		font-size: 1.2rem;
+	}
+	.lockbar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+		border-image: none;
+		border: 1px solid var(--accent);
+	}
+	.lockbar p {
+		margin: 0;
+		flex: 1;
+		min-width: 16rem;
+	}
+	.lock-note {
+		white-space: nowrap;
+		align-self: center;
 	}
 	.controls {
 		display: flex;
