@@ -17,9 +17,11 @@ export interface CaTask {
 	id: number;
 	name: string;
 	tier: string; // 'easy' | 'medium' | 'hard' | 'elite' | 'master' | 'grandmaster'
+	monster?: string | null; // boss/NPC the CA is for (drives the tile's boss image)
 }
 
 const SEED = caSeed as CaTask[];
+const SEED_MONSTER = new Map<number, string | null | undefined>(SEED.map((t) => [t.id, t.monster]));
 
 // Wiki "bucket" query: every combat achievement's id, name and tier in one page (limit 5000
 // comfortably covers the ~640 tasks). Mirrors what public WikiSync rank calculators query.
@@ -49,10 +51,17 @@ async function refreshFromWiki(): Promise<void> {
 		};
 		if (!json?.bucket?.length) throw new Error('wiki bucket empty');
 		// Seed first so any id the wiki omits still resolves; live rows then supersede + extend.
+		// The bucket query is id/name/tier only (the field set proven by public rank tools), so
+		// the boss image comes from the seed, carried over by id.
 		const merged = new Map<number, CaTask>(SEED.map((t) => [t.id, t]));
 		for (const row of json.bucket) {
 			if (typeof row.id !== 'number' || !row.name || !row.tier) continue;
-			merged.set(row.id, { id: row.id, name: row.name, tier: String(row.tier).toLowerCase() });
+			merged.set(row.id, {
+				id: row.id,
+				name: row.name,
+				tier: String(row.tier).toLowerCase(),
+				monster: SEED_MONSTER.get(row.id) ?? null
+			});
 		}
 		cache = merged;
 		nextFetchAllowed = Date.now() + REFRESH_TTL_MS;

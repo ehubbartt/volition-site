@@ -29,3 +29,25 @@ export function caTierIconUrl(tier: string | null | undefined): string {
 	const Tier = t.charAt(0).toUpperCase() + t.slice(1);
 	return `https://oldschool.runescape.wiki/images/Combat_Achievements_-_${Tier}_tier_icon.png`;
 }
+
+// A handful of CA "monster" values are raids / groupings with no NPC image at "<name>.png" —
+// map them to a representative boss image that does exist on the wiki.
+const MONSTER_IMAGE_ALIASES: Record<string, string> = {
+	'chambers of xeric': 'Great Olm',
+	'chambers of xeric: challenge mode': 'Great Olm',
+	'theatre of blood': 'Verzik Vitur',
+	'theatre of blood: hard mode': 'Verzik Vitur',
+	'tombs of amascut': "Tumeken's Warden",
+	'tombs of amascut: expert mode': "Tumeken's Warden"
+};
+
+// OSRS Wiki image for a CA's boss/NPC. Wiki NPC pages use "<Name>.png" as the primary image,
+// so that convention resolves for the vast majority of bosses; the page hides the <img> on a
+// 404. Returns '' when we have no boss for the tile (caller then renders no image).
+export function caMonsterIconUrl(monster: string | null | undefined): string {
+	const m = (monster ?? '').trim();
+	if (!m) return '';
+	const name = MONSTER_IMAGE_ALIASES[m.toLowerCase()] ?? m;
+	const file = (name.charAt(0).toUpperCase() + name.slice(1)).replace(/ /g, '_');
+	return `https://oldschool.runescape.wiki/images/${file}.png`;
+}

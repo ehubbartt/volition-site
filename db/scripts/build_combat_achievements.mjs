@@ -34,12 +34,29 @@ if (!Array.isArray(bucket) || !bucket.length) {
 	process.exit(1);
 }
 
+// The bucket query is id/name/tier only (the field set proven by public rank tools). The boss
+// image comes from the committed `monster` field, so preserve it by id across regenerations;
+// brand-new CAs land with monster=null until one is filled in by hand.
+let prevMonster = new Map();
+try {
+	const prev = JSON.parse(fs.readFileSync(OUT_PATH, 'utf8'));
+	prevMonster = new Map(prev.map((t) => [t.id, t.monster ?? null]));
+} catch {
+	/* no existing file — fine */
+}
+
 const out = [];
 for (const row of bucket) {
 	if (typeof row.id !== 'number' || !row.name || !row.tier) continue;
-	out.push({ id: row.id, name: String(row.name), tier: String(row.tier).toLowerCase() });
+	out.push({
+		id: row.id,
+		name: String(row.name),
+		tier: String(row.tier).toLowerCase(),
+		monster: prevMonster.get(row.id) ?? null
+	});
 }
 out.sort((a, b) => a.id - b.id);
 
 fs.writeFileSync(OUT_PATH, JSON.stringify(out, null, 0) + '\n');
-console.log(`Wrote ${out.length} combat achievements to ${OUT_PATH}`);
+const named = out.filter((t) => t.monster).length;
+console.log(`Wrote ${out.length} combat achievements to ${OUT_PATH} (${named} with a boss image)`);
