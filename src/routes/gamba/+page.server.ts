@@ -306,7 +306,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		getWalletItems(locals.user.discord_id),
 		db()
 			.from('vs_card_packs')
-			.select('id, name, description, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, front_url, back_url')
+			.select('id, name, description, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, front_url, back_url, elemental')
 			.eq('released', true)
 			.order('cost_vp', { ascending: true }),
 		db()
@@ -339,7 +339,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// packs that aren't in the released store list can still be shown + opened.
 		db()
 			.from('vs_user_packs')
-			.select('quantity, vs_card_packs(id, name, description, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, front_url, back_url)')
+			.select('quantity, vs_card_packs(id, name, description, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, front_url, back_url, elemental)')
 			.eq('user_id', locals.user.id)
 			.gt('quantity', 0)
 	]);
@@ -437,15 +437,21 @@ export const load: PageServerLoad = async ({ locals }) => {
 			cards_per_pack: number;
 			front_url: string | null;
 			back_url: string | null;
+			elemental: boolean | null;
 		} | null;
 	}[];
 	const ownedQty = new Map<string, number>();
 	for (const r of ownedPackRows) if (r.vs_card_packs) ownedQty.set(r.vs_card_packs.id, r.quantity);
 
-	const releasedPacks = (packsRes.data ?? []).map((p) => {
-		const cards = sortSetCards(p.id);
-		return { ...p, card_count: cards.length, cards, owned: ownedQty.get(p.id) ?? 0 };
-	});
+	// Elemental packs are event gifts: never browsable in the store and never
+	// purchasable. They reach the page ONLY through extraOwnedPacks below (i.e.
+	// when the player actually holds one), so drop them from the released store list.
+	const releasedPacks = (packsRes.data ?? [])
+		.filter((p) => !p.elemental)
+		.map((p) => {
+			const cards = sortSetCards(p.id);
+			return { ...p, card_count: cards.length, cards, owned: ownedQty.get(p.id) ?? 0 };
+		});
 
 	// Owned packs not in the released store list (e.g. a granted / unreleased pack) —
 	// surface them too so the player can open what they hold.
@@ -466,6 +472,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 				cards_per_pack: p.cards_per_pack,
 				front_url: p.front_url,
 				back_url: p.back_url,
+				elemental: p.elemental ?? false,
 				card_count: cards.length,
 				cards,
 				owned: r.quantity
@@ -483,6 +490,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		.select('id, name, front_url, back_url')
 		.eq('teaser', true)
 		.eq('released', false)
+		.eq('elemental', false)
 		.order('name', { ascending: true });
 	const teaserPacks = (teaserRows ?? []) as {
 		id: string;
@@ -697,11 +705,13 @@ export const actions: Actions = {
 		// Pack must exist AND be released.
 		const { data: pack, error: pErr } = await db()
 			.from('vs_card_packs')
-			.select('id, name, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, holo_regular_url, holo_reverse_url')
+			.select('id, name, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, elemental, holo_regular_url, holo_reverse_url')
 			.eq('id', packId)
 			.maybeSingle();
 		if (pErr) return fail(500, { error: pErr.message });
 		if (!pack || !pack.released) return fail(404, { error: 'That pack is not available.' });
+		// Elemental packs are event gifts — open from inventory only, never purchasable.
+		if (pack.elemental) return fail(400, { error: "This pack can't be purchased — open it from your inventory." });
 
 		// VP price after its own discount (discount_vp_pct), computed server-side.
 		const cost = discountedPrice(pack.cost_vp, pack.discount_vp_pct);
@@ -747,11 +757,13 @@ export const actions: Actions = {
 
 		const { data: pack, error: pErr } = await db()
 			.from('vs_card_packs')
-			.select('id, name, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, holo_regular_url, holo_reverse_url')
+			.select('id, name, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, released, elemental, holo_regular_url, holo_reverse_url')
 			.eq('id', packId)
 			.maybeSingle();
 		if (pErr) return fail(500, { error: pErr.message });
 		if (!pack || !pack.released) return fail(404, { error: 'That pack is not available.' });
+		// Elemental packs are event gifts — open from inventory only, never purchasable.
+		if (pack.elemental) return fail(400, { error: "This pack can't be purchased — open it from your inventory." });
 
 		if (!pack.cost_gp || pack.cost_gp <= 0) return fail(400, { error: "This pack can't be bought with your wallet." });
 		// The charged price is the discounted one (computed server-side, never trusted).

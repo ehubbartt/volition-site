@@ -805,6 +805,7 @@
               {@const gpBase = pack.cost_gp ?? 0}
               {@const gpCost = discountedPrice(pack.cost_gp, pack.discount_pct)}
               {@const gpAffordable = gpBase > 0 && data.gold_balance >= gpCost}
+              {@const isElemental = pack.elemental ?? false}
               <article
                 class="pack"
                 class:dim={(!affordable && !gpAffordable && owned === 0) ||
@@ -826,6 +827,9 @@
                     />
                   {/if}
                   <span class="pack-tag">{pack.cards_per_pack} per open</span>
+                  {#if isElemental}
+                    <span class="gift-tag">✦ Event gift</span>
+                  {/if}
                   {#if owned > 0}
                     <span class="owned-tag">{owned} in inventory</span>
                   {/if}
@@ -868,26 +872,31 @@
                           {/if}
                         </button>
                       </form>
-                      <form
-                        method="POST"
-                        action="?/open"
-                        use:enhance={submitOpen}
-                      >
-                        <input type="hidden" name="pack_id" value={pack.id} />
-                        <button
-                          type="submit"
-                          class="buy-more"
-                          disabled={!canOpen(pack)}
+                      {#if !isElemental}
+                        <form
+                          method="POST"
+                          action="?/open"
+                          use:enhance={submitOpen}
                         >
-                          Buy another · {vpCost.toLocaleString()} VP{#if vpDisc > 0}
-                            <span class="off">{vpDisc}% off</span>{/if}
-                        </button>
-                      </form>
+                          <input type="hidden" name="pack_id" value={pack.id} />
+                          <button
+                            type="submit"
+                            class="buy-more"
+                            disabled={!canOpen(pack)}
+                          >
+                            Buy another · {vpCost.toLocaleString()} VP{#if vpDisc > 0}
+                              <span class="off">{vpDisc}% off</span>{/if}
+                          </button>
+                        </form>
+                      {/if}
                     </div>
-                    {#if !affordable}
+                    {#if isElemental}
+                      <span class="muted small">Earned from events — open from your inventory.</span>
+                    {/if}
+                    {#if !isElemental && !affordable}
                       <span class="warn small">Not enough VP to buy more</span>
                     {/if}
-                    {#if gpBase > 0 && pack.card_count > 0}
+                    {#if !isElemental && gpBase > 0 && pack.card_count > 0}
                       <form
                         method="POST"
                         action="?/openWithGp"
@@ -1649,6 +1658,23 @@
     font-weight: 600;
     /* Plain dark drop shadow for separation — the old accent glow bled colour
        around the edges and made it read as fuzzy. */
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Elemental "event gift" packs — top-left chip marking a non-purchasable pack
+     that only shows because the player was awarded it. */
+  .gift-tag {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 2;
+    padding: 0.1rem 0.5rem;
+    background: linear-gradient(135deg, #7b5cff, #4aa3ff);
+    color: #fff;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-family: ui-sans-serif, system-ui, Arial, sans-serif;
+    font-weight: 600;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   }
 

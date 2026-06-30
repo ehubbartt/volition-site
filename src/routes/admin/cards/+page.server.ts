@@ -36,7 +36,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		db()
 			.from('vs_card_packs')
 			.select(
-				'id, name, description, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, released, weekly_free, rarity_weights, slot_weights, slot_finishes, front_path, front_url, back_path, back_url, holo_regular_path, holo_regular_url, holo_reverse_path, holo_reverse_url, created_at'
+				'id, name, description, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, released, teaser, elemental, weekly_free, rarity_weights, slot_weights, slot_finishes, front_path, front_url, back_path, back_url, holo_regular_path, holo_regular_url, holo_reverse_path, holo_reverse_url, created_at'
 			)
 			.order('created_at', { ascending: false }),
 		// Grant tab: every member with a site profile (the only grantable targets —
@@ -535,7 +535,8 @@ export const actions: Actions = {
 				discount_vp_pct: parsed.data.discount_vp_pct,
 				cards_per_pack: parsed.data.cards_per_pack,
 				released: form.get('released') === 'on',
-				teaser: form.get('teaser') === 'on'
+				teaser: form.get('teaser') === 'on',
+				elemental: form.get('elemental') === 'on'
 			})
 			.select('id')
 			.single();
@@ -608,6 +609,8 @@ export const actions: Actions = {
 			discount_pct: parsed.data.discount_pct,
 			discount_vp_pct: parsed.data.discount_vp_pct,
 			cards_per_pack: parsed.data.cards_per_pack,
+			teaser: form.get('teaser') === 'on',
+			elemental: form.get('elemental') === 'on',
 			slot_weights: slotWeights,
 			slot_finishes: slotFinishes,
 			updated_at: new Date().toISOString()
@@ -676,6 +679,58 @@ export const actions: Actions = {
 		const { error: updErr } = await db()
 			.from('vs_card_packs')
 			.update({ released: !prev.released, updated_at: new Date().toISOString() })
+			.eq('id', id);
+		if (updErr) return fail(500, { error: updErr.message });
+
+		return { ok: true };
+	},
+
+	// Flag (or unflag) a pack as a "coming soon" teaser — shown in the store as a
+	// locked card (name + art only) until it's released.
+	toggleTeaser: async ({ locals, request }) => {
+		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
+
+		const form = await request.formData();
+		const id = form.get('id')?.toString();
+		if (!id) return fail(400, { error: 'Missing id' });
+
+		const { data: prev, error: readErr } = await db()
+			.from('vs_card_packs')
+			.select('teaser')
+			.eq('id', id)
+			.maybeSingle();
+		if (readErr) return fail(500, { error: readErr.message });
+		if (!prev) return fail(404, { error: 'Pack not found' });
+
+		const { error: updErr } = await db()
+			.from('vs_card_packs')
+			.update({ teaser: !prev.teaser, updated_at: new Date().toISOString() })
+			.eq('id', id);
+		if (updErr) return fail(500, { error: updErr.message });
+
+		return { ok: true };
+	},
+
+	// Flag (or unflag) a pack as "elemental" — an event gift that's never
+	// purchasable and only appears on the Gamba page for players who own one.
+	toggleElemental: async ({ locals, request }) => {
+		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
+
+		const form = await request.formData();
+		const id = form.get('id')?.toString();
+		if (!id) return fail(400, { error: 'Missing id' });
+
+		const { data: prev, error: readErr } = await db()
+			.from('vs_card_packs')
+			.select('elemental')
+			.eq('id', id)
+			.maybeSingle();
+		if (readErr) return fail(500, { error: readErr.message });
+		if (!prev) return fail(404, { error: 'Pack not found' });
+
+		const { error: updErr } = await db()
+			.from('vs_card_packs')
+			.update({ elemental: !prev.elemental, updated_at: new Date().toISOString() })
 			.eq('id', id);
 		if (updErr) return fail(500, { error: updErr.message });
 

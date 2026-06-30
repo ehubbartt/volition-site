@@ -780,6 +780,10 @@
 			<input type="checkbox" name="teaser" />
 			<span>Teaser (show in the store as a locked “coming soon” card — name + art only, can't be opened; ignored once released)</span>
 		</label>
+		<label class="check">
+			<input type="checkbox" name="elemental" />
+			<span>Elemental (event gift — never purchasable with VP or wallet; only shows in the store for players who own one. Award via the Grant tab.)</span>
+		</label>
 		<div class="row">
 			<label>
 				<span>Front art (optional — defaults to the standard pack image)</span>
@@ -843,6 +847,15 @@
 				<input name="cards_per_pack" type="number" min="1" max="50" bind:value={slotCount[pack.id]} />
 			</label>
 		</div>
+
+		<label class="check">
+			<input type="checkbox" name="teaser" checked={raw.teaser} />
+			<span>Teaser (show in the store as a locked “coming soon” card — name + art only, can't be opened; ignored once released)</span>
+		</label>
+		<label class="check">
+			<input type="checkbox" name="elemental" checked={raw.elemental} />
+			<span>Elemental (event gift — never purchasable with VP or wallet; only shows in the store for players who own one. Award via the Grant tab.)</span>
+		</label>
 
 		<fieldset class="rates">
 			<legend>
@@ -951,6 +964,8 @@
 			<span class="tile-badges">
 				<span class="badge" class:live={raw.released}>{raw.released ? 'Released' : 'Draft'}</span>
 				{#if raw.weekly_free}<span class="badge weekly">Weekly</span>{/if}
+				{#if raw.teaser}<span class="badge teaser">Coming soon</span>{/if}
+				{#if raw.elemental}<span class="badge elemental">Elemental</span>{/if}
 			</span>
 			<span class="muted small">{pack.cost_vp.toLocaleString()} VP{#if raw.cost_gp} · {formatGP(raw.cost_gp)} GP{/if}{#if raw.discount_vp_pct} · {raw.discount_vp_pct}% off VP{/if}{#if raw.discount_pct} · {raw.discount_pct}% off GP{/if} · {raw.cards_per_pack}/open · {n} card{n === 1 ? '' : 's'}</span>
 		</button>
@@ -963,6 +978,14 @@
 				<form method="POST" action="?/toggleWeeklyFree" use:enhance>
 					<input type="hidden" name="id" value={pack.id} />
 					<button type="submit" class="mini" title="Free pack everyone can claim once a week">{raw.weekly_free ? 'Unset weekly' : 'Set weekly'}</button>
+				</form>
+				<form method="POST" action="?/toggleTeaser" use:enhance>
+					<input type="hidden" name="id" value={pack.id} />
+					<button type="submit" class="mini" title="Show as a locked “coming soon” card in the store (until released)">{raw.teaser ? 'Unset coming soon' : 'Coming soon'}</button>
+				</form>
+				<form method="POST" action="?/toggleElemental" use:enhance>
+					<input type="hidden" name="id" value={pack.id} />
+					<button type="submit" class="mini" title="Event gift — never purchasable; only shows for owners">{raw.elemental ? 'Unset elemental' : 'Make elemental'}</button>
 				</form>
 				<form method="POST" action="?/deletePack" use:enhance>
 					<input type="hidden" name="id" value={pack.id} />
@@ -1472,6 +1495,18 @@
 		border-color: var(--accent);
 		color: var(--accent);
 		background: var(--accent-soft);
+	}
+
+	.badge.teaser {
+		border-color: #c79a3a;
+		color: #e0b34d;
+		background: rgba(199, 154, 58, 0.15);
+	}
+
+	.badge.elemental {
+		border-color: #6f7bff;
+		color: #9aa6ff;
+		background: rgba(111, 123, 255, 0.15);
 	}
 
 	/* ── Slide-out edit drawer ── */
