@@ -12,10 +12,12 @@
 // reset and regenerated.
 
 import { db } from './db';
-import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer } from './rankData';
+import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer, fetchWikiSyncCA } from './rankData';
 import { bestEhbSource, type ItemEhb, type EhbOverrides } from '$lib/ehb';
 import { getEhbOverrides } from './ehbOverrides';
 import { SKILLS, SKILL_EHP_RATES, roundXp, skillTileHours, type Skill } from '$lib/ehp';
+import { CA_TIERS, caTierForDifficulty } from '$lib/ca';
+import { getCATasks, type CaTask } from './caNames';
 import itemEhbData from './data/itemEhb.json';
 
 const ITEM_EHB = itemEhbData as ItemEhb[];
@@ -36,15 +38,17 @@ export function boardResettableAt(lockedAt: string | null): string | null {
 
 export interface PersonalBoardTile {
 	idx: number;
-	kind: 'item' | 'skill';
+	kind: 'item' | 'skill' | 'ca';
 	item_id: number | null; // item tiles
-	item_name: string | null; // item tiles
-	ehb: number; // cost in efficient hours (EHB for items, EHP for skills) — drives the gradient
+	item_name: string | null; // item tiles (also reused as the CA display name on ca tiles)
+	ehb: number; // cost in efficient hours (EHB for items, EHP for skills, nominal per-tier for CAs) — drives the gradient
 	source: string | null; // boss/raid the EHB is costed from (item tiles)
 	skill: string | null; // skill tiles
 	target_xp: number | null; // skill tiles: XP goal
 	baseline_xp: number | null; // skill tiles: XP at lock
 	progress_xp: number | null; // skill tiles: last gained-since-lock (display)
+	ca_id: number | null; // ca tiles: WikiSync CA task id
+	ca_tier: string | null; // ca tiles: 'easy'..'grandmaster'
 	obtained: boolean;
 	obtained_at: string | null;
 }
@@ -90,6 +94,24 @@ async function getOwnedClogNames(userId: string, rsn: string, force = false): Pr
 	const owned = await fetchOwnedClogNames(rsn);
 	if (owned) ownedCache.set(userId, { at: Date.now(), owned });
 	return owned;
+}
+
+// Short-lived per-user cache of the player's COMPLETED combat-achievement id set (WikiSync), so
+// rerolling a draft doesn't re-hit WikiSync each time — same role as ownedCache for clog items.
+// `force` (the explicit refresh) bypasses + refreshes it. Returns null if WikiSync is unreadable.
+const caDoneCache = new Map<string, { at: number; done: Set<number> }>();
+const CA_TTL_MS = 5 * 60 * 1000;
+
+async function getCompletedCAs(userId: string, rsn: string, force = false): Promise<Set<number> | null> {
+	if (!force) {
+		const hit = caDoneCache.get(userId);
+		if (hit && Date.now() - hit.at < CA_TTL_MS) return hit.done;
+	}
+	const ids = await fetchWikiSyncCA(rsn);
+	if (ids == null) return null;
+	const done = new Set(ids);
+	caDoneCache.set(userId, { at: Date.now(), done });
+	return done;
 }
 
 interface Candidate {
@@ -176,11 +198,60 @@ function selectSkillTiles(count: number, difficulty: number): SkillPick[] {
 	return picks;
 }
 
+interface CaPick {
+	ca_id: number;
+	name: string;
+	tier: string;
+	ehb: number; // nominal per-tier cost, only to slot the tile into the easy→hard gradient
+}
+
+// Nominal "efficient hours" per CA tier (index into CA_TIERS) — used solely so CA tiles sort
+// into the board's easy→hard gradient alongside item/skill tiles. CA tiles display the tier,
+// not hours.
+const CA_TIER_HOURS = [0.5, 1.5, 4, 10, 25, 60];
+
+// Pick `count` CA tiles for UNCOMPLETED achievements, banded easy→hard by difficulty. Each band
+// targets a tier via caTierForDifficulty, then draws a random uncompleted CA of that tier,
+// falling back OUTWARD to the nearest tier that still has one available (so an empty target tier
+// never wastes a tile). Returns fewer than `count` only if the player has too few CAs left.
+function selectCATiles(count: number, difficulty: number, completed: Set<number>, catalogue: CaTask[]): CaPick[] {
+	if (count <= 0) return [];
+	const byId = new Map<number, CaTask>(catalogue.map((t) => [t.id, t]));
+	const byTier: number[][] = CA_TIERS.map(() => []); // uncompleted CA ids per tier index
+	for (const t of catalogue) {
+		if (completed.has(t.id)) continue;
+		const ti = CA_TIERS.indexOf(t.tier as (typeof CA_TIERS)[number]);
+		if (ti >= 0) byTier[ti].push(t.id);
+	}
+	for (const arr of byTier) shuffle(arr);
+
+	const picks: CaPick[] = [];
+	for (let i = 0; i < count; i++) {
+		const target = caTierForDifficulty(difficulty, i, count);
+		let chosen: number | null = null;
+		for (let radius = 0; radius < CA_TIERS.length && chosen == null; radius++) {
+			const tiers = radius === 0 ? [target] : [target - radius, target + radius];
+			for (const ti of tiers) {
+				if (ti < 0 || ti >= CA_TIERS.length) continue;
+				if (byTier[ti].length) {
+					chosen = byTier[ti].pop() as number; // consume so it can't be picked twice
+					break;
+				}
+			}
+		}
+		if (chosen == null) break; // no uncompleted CAs left anywhere
+		const task = byId.get(chosen) as CaTask;
+		const ti = Math.max(0, CA_TIERS.indexOf(task.tier as (typeof CA_TIERS)[number]));
+		picks.push({ ca_id: chosen, name: task.name, tier: task.tier, ehb: CA_TIER_HOURS[ti] ?? 1 });
+	}
+	return picks;
+}
+
 export type GenerateResult =
 	| { ok: true; board: PersonalBoard }
 	| {
 			ok: false;
-			reason: 'no_rsn' | 'clog_unavailable' | 'too_few' | 'locked';
+			reason: 'no_rsn' | 'clog_unavailable' | 'ca_unavailable' | 'too_few' | 'locked';
 			missing?: number;
 			need?: number;
 			resettable_at?: string;
@@ -193,7 +264,8 @@ export async function generatePersonalBoard(
 	rsn: string | null,
 	size: number,
 	difficulty: number,
-	includeSkilling = false
+	includeSkilling = false,
+	includeCA = false
 ): Promise<GenerateResult> {
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
 
@@ -209,9 +281,23 @@ export async function generatePersonalBoard(
 	const n = Math.min(MAX_SIZE, Math.max(MIN_SIZE, Math.floor(size)));
 	const diff = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, Math.floor(difficulty)));
 	const tileCount = n * n;
-	// ~1/4 of the board is skilling when enabled; the rest are clog item tiles.
+	// ~1/4 of the board is skilling and ~1/4 is combat achievements when those are enabled; the
+	// remainder are clog item tiles. Skills always fill their quota; CA tiles may underfill if
+	// the player has few uncompleted achievements left, so the item count is settled afterwards.
 	const skillCount = includeSkilling ? Math.round(tileCount / 4) : 0;
-	const itemCount = tileCount - skillCount;
+	const caTarget = includeCA ? Math.round(tileCount / 4) : 0;
+
+	// CA tiles: needs the player's completed-CA set (WikiSync) + the id→name→tier catalogue.
+	let caPicks: CaPick[] = [];
+	if (caTarget > 0) {
+		const completed = await getCompletedCAs(userId, rsn);
+		if (completed == null) return { ok: false, reason: 'ca_unavailable' };
+		const catalogue = await getCATasks();
+		caPicks = selectCATiles(caTarget, diff, completed, catalogue);
+	}
+
+	const skills = selectSkillTiles(skillCount, diff);
+	const itemCount = tileCount - skills.length - caPicks.length;
 
 	// Cached owned set: rerolling a draft reshuffles without re-hitting Temple each time.
 	const owned = await getOwnedClogNames(userId, rsn);
@@ -224,22 +310,24 @@ export async function generatePersonalBoard(
 	}
 
 	const items = selectGradient(pool, itemCount, diff);
-	const skills = selectSkillTiles(skillCount, diff);
 
-	// Unified placed-tile shape (item or skill), scattered across the grid so it isn't
+	// Unified placed-tile shape (item / skill / ca), scattered across the grid so it isn't
 	// sorted by cost.
 	type Placed = {
-		kind: 'item' | 'skill';
+		kind: 'item' | 'skill' | 'ca';
 		item_id: number | null;
 		item_name: string | null;
 		ehb: number;
 		source: string | null;
 		skill: string | null;
 		target_xp: number | null;
+		ca_id: number | null;
+		ca_tier: string | null;
 	};
 	const placed: Placed[] = [
-		...items.map((c) => ({ kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null })),
-		...skills.map((s) => ({ kind: 'skill' as const, item_id: null, item_name: null, ehb: s.ehb, source: null, skill: s.skill, target_xp: s.target_xp }))
+		...items.map((c) => ({ kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null })),
+		...skills.map((s) => ({ kind: 'skill' as const, item_id: null, item_name: null, ehb: s.ehb, source: null, skill: s.skill, target_xp: s.target_xp, ca_id: null, ca_tier: null })),
+		...caPicks.map((c) => ({ kind: 'ca' as const, item_id: null, item_name: c.name, ehb: c.ehb, source: null, skill: null, target_xp: null, ca_id: c.ca_id, ca_tier: c.tier }))
 	];
 	shuffle(placed);
 	const sb = db();
@@ -265,6 +353,8 @@ export async function generatePersonalBoard(
 		source: p.source,
 		skill: p.skill,
 		target_xp: p.target_xp,
+		ca_id: p.ca_id,
+		ca_tier: p.ca_tier,
 		obtained: false
 	}));
 	const { error: tErr } = await sb.from('vs_personal_board_tiles').insert(tileRows);
@@ -293,6 +383,8 @@ export async function generatePersonalBoard(
 				target_xp: p.target_xp,
 				baseline_xp: null,
 				progress_xp: null,
+				ca_id: p.ca_id,
+				ca_tier: p.ca_tier,
 				obtained: false,
 				obtained_at: null
 			}))
@@ -313,7 +405,7 @@ export async function loadPersonalBoard(userId: string): Promise<PersonalBoard |
 
 	const { data: tileRows } = await sb
 		.from('vs_personal_board_tiles')
-		.select('idx, kind, item_id, item_name, ehb, source, skill, target_xp, baseline_xp, progress_xp, obtained, obtained_at')
+		.select('idx, kind, item_id, item_name, ehb, source, skill, target_xp, baseline_xp, progress_xp, ca_id, ca_tier, obtained, obtained_at')
 		.eq('board_id', board.id)
 		.order('idx', { ascending: true });
 
@@ -437,6 +529,22 @@ export async function refreshPersonalBoard(userId: string): Promise<RefreshResul
 					.eq('board_id', board.id)
 					.eq('idx', t.idx);
 				if (done) newlyObtained.push(t.skill as string);
+			}
+		}
+	}
+
+	// CA tiles: re-poll WikiSync's completed-CA set and flip any now-completed tile. Best-effort —
+	// a WikiSync outage just leaves them unchanged this round (not an error), like the WoM path.
+	const caTiles = board.tiles.filter((t) => !t.obtained && t.kind === 'ca' && t.ca_id != null);
+	if (caTiles.length) {
+		const done = await getCompletedCAs(userId, board.rsn, true); // force a fresh WikiSync read
+		if (done) {
+			for (const t of caTiles) {
+				if (done.has(t.ca_id as number)) {
+					const label = t.item_name ?? `Combat achievement #${t.ca_id}`;
+					newlyObtained.push(label);
+					await sb.from('vs_personal_board_tiles').update({ obtained: true, obtained_at: now }).eq('board_id', board.id).eq('idx', t.idx);
+				}
 			}
 		}
 	}

@@ -3,6 +3,7 @@
 	import ItemIcon from '$lib/ItemIcon.svelte';
 	import { formatEhb } from '$lib/ehb';
 	import { formatXp, skillIconUrl } from '$lib/ehp';
+	import { caTierIconUrl, caTierLabel } from '$lib/ca';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -15,6 +16,7 @@
 	let size = $state(5);
 	let difficulty = $state(5);
 	let skilling = $state(data.board?.tiles.some((t) => t.kind === 'skill') ?? false);
+	let ca = $state(data.board?.tiles.some((t) => t.kind === 'ca') ?? false);
 	let generating = $state(false);
 	let refreshing = $state(false);
 	let locking = $state(false);
@@ -155,6 +157,14 @@
 						<span>Include skilling goals</span>
 					</label>
 				</div>
+
+				<div class="field">
+					<span class="label">Combat achievements</span>
+					<label class="toggle">
+						<input type="checkbox" name="ca" bind:checked={ca} />
+						<span>Include combat achievements</span>
+					</label>
+				</div>
 			</div>
 
 			<div class="actions">
@@ -241,7 +251,12 @@
 					class:obtained={tile.obtained}
 					class:inline={lines.cells.has(tile.idx)}
 					class:skill={tile.kind === 'skill'}
-					title={tile.kind === 'skill' ? `${tile.skill}: gain ${formatXp(tile.target_xp ?? 0)} (~${formatEhb(tile.ehb)} EHP)` : `${tile.item_name} · ${formatEhb(tile.ehb)} at ${tile.source}`}
+					class:ca={tile.kind === 'ca'}
+					title={tile.kind === 'skill'
+						? `${tile.skill}: gain ${formatXp(tile.target_xp ?? 0)} (~${formatEhb(tile.ehb)} EHP)`
+						: tile.kind === 'ca'
+							? `Combat achievement (${caTierLabel(tile.ca_tier)}): ${tile.item_name}`
+							: `${tile.item_name} · ${formatEhb(tile.ehb)} at ${tile.source}`}
 				>
 					{#if tile.kind === 'skill'}
 							<div class="icon">
@@ -249,6 +264,12 @@
 							</div>
 							<div class="name">Gain {formatXp(tile.target_xp ?? 0)}</div>
 							<div class="ehb">{locked && !tile.obtained && tile.progress_xp != null ? `${formatXp(tile.progress_xp)} / ${formatXp(tile.target_xp ?? 0)}` : formatEhb(tile.ehb)}</div>
+						{:else if tile.kind === 'ca'}
+							<div class="icon">
+								<img class="skill-img" src={caTierIconUrl(tile.ca_tier)} alt="" width="40" height="40" loading="lazy" referrerpolicy="no-referrer" onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
+							</div>
+							<div class="name">{tile.item_name}</div>
+							<div class="ehb">{caTierLabel(tile.ca_tier)} CA</div>
 						{:else}
 							<div class="icon"><ItemIcon item={tile.item_name ?? ''} size={42} /></div>
 							<div class="name">{tile.item_name}</div>
@@ -260,7 +281,7 @@
 		<p class="muted small foot">
 				EHB/EHP = efficient hours to obtain a drop / train a skill.
 				{#if locked}
-					Item tiles auto-complete from your collection log + Dink; skill tiles track XP gained since you locked in (WiseOldMan) — hit <em>Check progress</em> to refresh.
+					Item tiles auto-complete from your collection log + Dink; skill tiles track XP gained since you locked in (WiseOldMan); combat-achievement tiles complete when you finish the CA (WikiSync) — hit <em>Check progress</em> to refresh.
 				{:else}
 					This is a <strong>draft preview</strong> — nothing is tracked until you lock it in.
 				{/if}
@@ -504,6 +525,13 @@
 		background-color: #15212e;
 	}
 	.tile.skill.obtained {
+		background-color: #1e2a17;
+	}
+	/* Combat-achievement tiles share the same layout, tinted differently again. */
+	.tile.ca {
+		background-color: #251a2e;
+	}
+	.tile.ca.obtained {
 		background-color: #1e2a17;
 	}
 	.skill-img {

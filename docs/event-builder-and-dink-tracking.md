@@ -55,9 +55,11 @@ It unions three producers (`db/scripts/active_tiles.sql`):
    tiles they've already completed. `activated_at` = the event's `starts_at`.
 2. **Event manual tiles** — signed-up user × event tiles with no tracked item.
 3. **Personal board tiles** — each owner × their not-yet-obtained board tiles, but only
-   for a **locked** board (a draft isn't tracked). Always `item`, `match_type='collection'`.
-   `activated_at` = the board's `locked_at` (the lock time), so drops obtained before
-   locking never credit.
+   for a **locked** board (a draft isn't tracked), and only the `kind='item'` tiles. Always
+   `item`, `match_type='collection'`. `activated_at` = the board's `locked_at` (the lock
+   time), so drops obtained before locking never credit. (Personal boards can also carry
+   `kind='skill'` tiles tracked via WiseOldMan XP and `kind='ca'` tiles tracked via WikiSync
+   combat achievements — those are re-poll only and deliberately never enter this Dink index.)
 
 The proxy's `vs_active_tracked_items` / `vs_active_participants` views are **derived from
 the `item` subset** of this index, so a new event or personal board automatically enters

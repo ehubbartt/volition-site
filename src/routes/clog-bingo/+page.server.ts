@@ -62,8 +62,9 @@ export const actions: Actions = {
 		const size = Number(form.get('size') ?? 5);
 		const difficulty = Number(form.get('difficulty') ?? 5);
 		const skilling = form.get('skilling') === 'on' || form.get('skilling') === 'true';
+		const ca = form.get('ca') === 'on' || form.get('ca') === 'true';
 
-		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty, skilling);
+		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty, skilling, ca);
 
 		if (!result.ok) {
 			const msg =
@@ -71,10 +72,13 @@ export const actions: Actions = {
 					? 'Set your OSRS RSN on your profile first.'
 					: result.reason === 'locked'
 						? `Your board is locked in until ${result.resettable_at ? fmtResetDate(result.resettable_at) : 'later'}. You can make a new one after that.`
-						: result.reason === 'too_few'
-							? `You're only missing ${result.missing} eligible PVM clog items — not enough to fill this board (needs ${result.need}). Nice log! Try a smaller grid${skilling ? '' : ', or enable skilling tiles'}.`
-							: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
-			const status = result.reason === 'too_few' ? 400 : result.reason === 'locked' ? 403 : 502;
+						: result.reason === 'ca_unavailable'
+							? "Couldn't read your combat achievements from WikiSync. Make sure your RSN is synced in RuneLite's WikiSync plugin and try again, or turn off combat achievements."
+							: result.reason === 'too_few'
+								? `You're only missing ${result.missing} eligible PVM clog items — not enough to fill this board (needs ${result.need}). Nice log! Try a smaller grid${skilling || ca ? '' : ', or enable skilling / combat achievement tiles'}.`
+								: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
+			const status =
+				result.reason === 'too_few' ? 400 : result.reason === 'locked' ? 403 : 502;
 			return fail(status, { error: msg });
 		}
 		return { ok: true, generated: true };
