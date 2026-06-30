@@ -202,6 +202,7 @@ interface CaPick {
 	ca_id: number;
 	name: string;
 	tier: string;
+	monster: string | null; // boss/NPC the CA is for (stored on the tile for its image)
 	ehb: number; // nominal per-tier cost, only to slot the tile into the easy→hard gradient
 }
 
@@ -242,7 +243,7 @@ function selectCATiles(count: number, difficulty: number, completed: Set<number>
 		if (chosen == null) break; // no uncompleted CAs left anywhere
 		const task = byId.get(chosen) as CaTask;
 		const ti = Math.max(0, CA_TIERS.indexOf(task.tier as (typeof CA_TIERS)[number]));
-		picks.push({ ca_id: chosen, name: task.name, tier: task.tier, ehb: CA_TIER_HOURS[ti] ?? 1 });
+		picks.push({ ca_id: chosen, name: task.name, tier: task.tier, monster: task.monster ?? null, ehb: CA_TIER_HOURS[ti] ?? 1 });
 	}
 	return picks;
 }
@@ -327,7 +328,7 @@ export async function generatePersonalBoard(
 	const placed: Placed[] = [
 		...items.map((c) => ({ kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null })),
 		...skills.map((s) => ({ kind: 'skill' as const, item_id: null, item_name: null, ehb: s.ehb, source: null, skill: s.skill, target_xp: s.target_xp, ca_id: null, ca_tier: null })),
-		...caPicks.map((c) => ({ kind: 'ca' as const, item_id: null, item_name: c.name, ehb: c.ehb, source: null, skill: null, target_xp: null, ca_id: c.ca_id, ca_tier: c.tier }))
+		...caPicks.map((c) => ({ kind: 'ca' as const, item_id: null, item_name: c.name, ehb: c.ehb, source: c.monster, skill: null, target_xp: null, ca_id: c.ca_id, ca_tier: c.tier }))
 	];
 	shuffle(placed);
 	const sb = db();

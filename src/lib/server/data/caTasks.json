@@ -2,2426 +2,2911 @@
 {
 "id":0,
 "name":"Noxious Foe",
-"tier":"easy"
+"tier":"easy",
+"monster":"Aberrant Spectre"
 },
 {
 "id":1,
 "name":"Abyssal Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Abyssal Sire"
 },
 {
 "id":2,
 "name":"Abyssal Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Abyssal Sire"
 },
 {
 "id":3,
 "name":"They Grow Up Too Fast",
-"tier":"hard"
+"tier":"hard",
+"monster":"Abyssal Sire"
 },
 {
 "id":4,
 "name":"Respiratory Runner",
-"tier":"elite"
+"tier":"elite",
+"monster":"Abyssal Sire"
 },
 {
 "id":5,
 "name":"Don't Whip Me",
-"tier":"hard"
+"tier":"hard",
+"monster":"Abyssal Sire"
 },
 {
 "id":6,
 "name":"Demonic Rebound",
-"tier":"elite"
+"tier":"elite",
+"monster":"Abyssal Sire"
 },
 {
 "id":7,
 "name":"Don't Stop Moving",
-"tier":"hard"
+"tier":"hard",
+"monster":"Abyssal Sire"
 },
 {
 "id":8,
 "name":"Perfect Sire",
-"tier":"elite"
+"tier":"elite",
+"monster":"Abyssal Sire"
 },
 {
 "id":9,
 "name":"Kree'arra Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Kree'arra"
 },
 {
 "id":10,
 "name":"Kree'arra Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Kree'arra"
 },
 {
 "id":11,
 "name":"Collateral Damage",
-"tier":"master"
+"tier":"master",
+"monster":"Kree'arra"
 },
 {
 "id":12,
 "name":"Airborne Showdown",
-"tier":"hard"
+"tier":"hard",
+"monster":"Kree'arra"
 },
 {
 "id":13,
 "name":"Swoop No More",
-"tier":"master"
+"tier":"master",
+"monster":"Kree'arra"
 },
 {
 "id":14,
 "name":"The Worst Ranged Weapon",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Kree'arra"
 },
 {
 "id":15,
 "name":"Feather Hunter",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Kree'arra"
 },
 {
 "id":16,
 "name":"General Graardor Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"General Graardor"
 },
 {
 "id":17,
 "name":"General Graardor Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"General Graardor"
 },
 {
 "id":18,
 "name":"Ourg Freezer",
-"tier":"hard"
+"tier":"hard",
+"monster":"General Graardor"
 },
 {
 "id":19,
 "name":"Ourg Freezer II",
-"tier":"elite"
+"tier":"elite",
+"monster":"General Graardor"
 },
 {
 "id":20,
 "name":"General Showdown",
-"tier":"hard"
+"tier":"hard",
+"monster":"General Graardor"
 },
 {
 "id":21,
 "name":"Defence Matters",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"General Graardor"
 },
 {
 "id":22,
 "name":"Keep Away",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"General Graardor"
 },
 {
 "id":23,
 "name":"Ourg Killer",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"General Graardor"
 },
 {
 "id":24,
 "name":"Barrows Novice",
-"tier":"easy"
+"tier":"easy",
+"monster":"Barrows"
 },
 {
 "id":25,
 "name":"Barrows Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"Barrows"
 },
 {
 "id":26,
 "name":"Can't Touch Me",
-"tier":"medium"
+"tier":"medium",
+"monster":"Barrows"
 },
 {
 "id":27,
 "name":"Pray for Success",
-"tier":"medium"
+"tier":"medium",
+"monster":"Barrows"
 },
 {
 "id":28,
 "name":"Defence? What Defence?",
-"tier":"easy"
+"tier":"easy",
+"monster":"Barrows"
 },
 {
 "id":29,
 "name":"Just Like That",
-"tier":"hard"
+"tier":"hard",
+"monster":"Barrows"
 },
 {
 "id":30,
 "name":"Faithless Crypt Run",
-"tier":"hard"
+"tier":"hard",
+"monster":"Barrows"
 },
 {
 "id":31,
 "name":"Reflecting on This Encounter",
-"tier":"elite"
+"tier":"elite",
+"monster":"Basilisk Knight"
 },
 {
 "id":32,
 "name":"Big, Black and Fiery",
-"tier":"easy"
+"tier":"easy",
+"monster":"Black Dragon"
 },
 {
 "id":33,
 "name":"The Demonic Punching Bag",
-"tier":"easy"
+"tier":"easy",
+"monster":"Bloodveld"
 },
 {
 "id":34,
 "name":"Brutal, Big, Black and Firey",
-"tier":"medium"
+"tier":"medium",
+"monster":"Brutal Black Dragon"
 },
 {
 "id":35,
 "name":"Bryophyta Novice",
-"tier":"easy"
+"tier":"easy",
+"monster":"Bryophyta"
 },
 {
 "id":36,
 "name":"Bryophyta Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"Bryophyta"
 },
 {
 "id":37,
 "name":"Protection from Moss",
-"tier":"easy"
+"tier":"easy",
+"monster":"Bryophyta"
 },
 {
 "id":38,
 "name":"Quick Cutter",
-"tier":"medium"
+"tier":"medium",
+"monster":"Bryophyta"
 },
 {
 "id":39,
 "name":"Preparation Is Key",
-"tier":"easy"
+"tier":"easy",
+"monster":"Bryophyta"
 },
 {
 "id":40,
 "name":"A Slow Death",
-"tier":"easy"
+"tier":"easy",
+"monster":"Bryophyta"
 },
 {
 "id":41,
 "name":"Fighting as Intended II",
-"tier":"easy"
+"tier":"easy",
+"monster":"Bryophyta"
 },
 {
 "id":42,
 "name":"Callisto Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Callisto"
 },
 {
 "id":43,
 "name":"Callisto Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Callisto"
 },
 {
 "id":44,
 "name":"Skotizo Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"Skotizo"
 },
 {
 "id":45,
 "name":"Skotizo Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Skotizo"
 },
 {
 "id":46,
 "name":"Demonic Weakening",
-"tier":"medium"
+"tier":"medium",
+"monster":"Skotizo"
 },
 {
 "id":47,
 "name":"Demon Evasion",
-"tier":"elite"
+"tier":"elite",
+"monster":"Skotizo"
 },
 {
 "id":48,
 "name":"Demonbane Weaponry",
-"tier":"medium"
+"tier":"medium",
+"monster":"Skotizo"
 },
 {
 "id":49,
 "name":"Up for the Challenge",
-"tier":"elite"
+"tier":"elite",
+"monster":"Skotizo"
 },
 {
 "id":50,
 "name":"Precise Positioning",
-"tier":"master"
+"tier":"master",
+"monster":"Skotizo"
 },
 {
 "id":51,
 "name":"Cerberus Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Cerberus"
 },
 {
 "id":52,
 "name":"Cerberus Master",
-"tier":"master"
+"tier":"master",
+"monster":"Cerberus"
 },
 {
 "id":53,
 "name":"Arooo No More",
-"tier":"master"
+"tier":"master",
+"monster":"Cerberus"
 },
 {
 "id":54,
 "name":"Ghost Buster",
-"tier":"elite"
+"tier":"elite",
+"monster":"Cerberus"
 },
 {
 "id":55,
 "name":"Unrequired Antifire",
-"tier":"elite"
+"tier":"elite",
+"monster":"Cerberus"
 },
 {
 "id":56,
 "name":"Anti-Bite Mechanics",
-"tier":"elite"
+"tier":"elite",
+"monster":"Cerberus"
 },
 {
 "id":57,
 "name":"Chaos Elemental Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Chaos Elemental"
 },
 {
 "id":58,
 "name":"Chaos Elemental Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Chaos Elemental"
 },
 {
 "id":59,
 "name":"Hoarder",
-"tier":"hard"
+"tier":"hard",
+"monster":"Chaos Elemental"
 },
 {
 "id":60,
 "name":"The Flincher",
-"tier":"hard"
+"tier":"hard",
+"monster":"Chaos Elemental"
 },
 {
 "id":61,
 "name":"Chaos Fanatic Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"Chaos Fanatic"
 },
 {
 "id":62,
 "name":"Chaos Fanatic Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Chaos Fanatic"
 },
 {
 "id":63,
 "name":"Sorry, What Was That?",
-"tier":"medium"
+"tier":"medium",
+"monster":"Chaos Fanatic"
 },
 {
 "id":64,
 "name":"Praying to the Gods",
-"tier":"hard"
+"tier":"hard",
+"monster":"Chaos Fanatic"
 },
 {
 "id":65,
 "name":"Corporeal Beast Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Corporeal Beast"
 },
 {
 "id":66,
 "name":"Corporeal Beast Master",
-"tier":"master"
+"tier":"master",
+"monster":"Corporeal Beast"
 },
 {
 "id":67,
 "name":"Hot on Your Feet",
-"tier":"elite"
+"tier":"elite",
+"monster":"Corporeal Beast"
 },
 {
 "id":68,
 "name":"Finding the Weak Spot",
-"tier":"elite"
+"tier":"elite",
+"monster":"Corporeal Beast"
 },
 {
 "id":69,
 "name":"Chicken Killer",
-"tier":"elite"
+"tier":"elite",
+"monster":"Corporeal Beast"
 },
 {
 "id":70,
 "name":"Crazy Archaeologist Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"Crazy Archaeologist"
 },
 {
 "id":71,
 "name":"Crazy Archaeologist Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Crazy Archaeologist"
 },
 {
 "id":72,
 "name":"Mage of the Ruins",
-"tier":"medium"
+"tier":"medium",
+"monster":"Crazy Archaeologist"
 },
 {
 "id":73,
 "name":"I'd Rather Not Learn",
-"tier":"medium"
+"tier":"medium",
+"monster":"Crazy Archaeologist"
 },
 {
 "id":74,
 "name":"If Gorillas Could Fly",
-"tier":"elite"
+"tier":"elite",
+"monster":"Demonic Gorilla"
 },
 {
 "id":75,
 "name":"Hitting Them Where It Hurts",
-"tier":"elite"
+"tier":"elite",
+"monster":"Demonic Gorilla"
 },
 {
 "id":76,
 "name":"Deranged Archaeologist Novice",
-"tier":"easy"
+"tier":"easy",
+"monster":"Deranged Archaeologist"
 },
 {
 "id":77,
 "name":"Deranged Archaeologist Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"Deranged Archaeologist"
 },
 {
 "id":78,
 "name":"Mage of the Swamp",
-"tier":"medium"
+"tier":"medium",
+"monster":"Deranged Archaeologist"
 },
 {
 "id":79,
 "name":"I'd Rather Be Illiterate",
-"tier":"medium"
+"tier":"medium",
+"monster":"Deranged Archaeologist"
 },
 {
 "id":80,
 "name":"The Walking Volcano",
-"tier":"easy"
+"tier":"easy",
+"monster":"Fire Giant"
 },
 {
 "id":81,
 "name":"Galvek Speed-Trialist",
-"tier":"elite"
+"tier":"elite",
+"monster":"Galvek"
 },
 {
 "id":82,
 "name":"Grotesque Guardians Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Grotesque Guardians"
 },
 {
 "id":83,
 "name":"Grotesque Guardians Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Grotesque Guardians"
 },
 {
 "id":84,
 "name":"Don't Look at the Eclipse",
-"tier":"hard"
+"tier":"hard",
+"monster":"Grotesque Guardians"
 },
 {
 "id":85,
 "name":"Prison Break",
-"tier":"hard"
+"tier":"hard",
+"monster":"Grotesque Guardians"
 },
 {
 "id":86,
 "name":"Granite Footwork",
-"tier":"hard"
+"tier":"hard",
+"monster":"Grotesque Guardians"
 },
 {
 "id":87,
 "name":"Heal No More",
-"tier":"hard"
+"tier":"hard",
+"monster":"Grotesque Guardians"
 },
 {
 "id":88,
 "name":"Static Awareness",
-"tier":"hard"
+"tier":"hard",
+"monster":"Grotesque Guardians"
 },
 {
 "id":89,
 "name":"Done before Dusk",
-"tier":"elite"
+"tier":"elite",
+"monster":"Grotesque Guardians"
 },
 {
 "id":90,
 "name":"Perfect Grotesque Guardians",
-"tier":"elite"
+"tier":"elite",
+"monster":"Grotesque Guardians"
 },
 {
 "id":91,
 "name":"Perfect Grotesque Guardians II",
-"tier":"master"
+"tier":"master",
+"monster":"Grotesque Guardians"
 },
 {
 "id":92,
 "name":"Grotesque Guardians Speed-Trialist",
-"tier":"elite"
+"tier":"elite",
+"monster":"Grotesque Guardians"
 },
 {
 "id":93,
 "name":"Grotesque Guardians Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Grotesque Guardians"
 },
 {
 "id":94,
 "name":"Grotesque Guardians Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Grotesque Guardians"
 },
 {
 "id":95,
 "name":"From Dusk...",
-"tier":"elite"
+"tier":"elite",
+"monster":"Grotesque Guardians"
 },
 {
 "id":96,
 "name":"... 'til Dawn",
-"tier":"master"
+"tier":"master",
+"monster":"Grotesque Guardians"
 },
 {
 "id":97,
 "name":"A Smashing Time",
-"tier":"medium"
+"tier":"medium",
+"monster":"Gargoyle"
 },
 {
 "id":98,
 "name":"Corrupted Gauntlet Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Corrupted Hunllef"
 },
 {
 "id":99,
 "name":"Corrupted Gauntlet Master",
-"tier":"master"
+"tier":"master",
+"monster":"Corrupted Hunllef"
 },
 {
 "id":100,
 "name":"Corrupted Gauntlet Grandmaster",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Corrupted Hunllef"
 },
 {
 "id":101,
 "name":"3, 2, 1 - Mage",
-"tier":"elite"
+"tier":"elite",
+"monster":"Corrupted Hunllef"
 },
 {
 "id":102,
 "name":"Perfect Corrupted Hunllef",
-"tier":"master"
+"tier":"master",
+"monster":"Corrupted Hunllef"
 },
 {
 "id":103,
 "name":"Defence Doesn't Matter II",
-"tier":"master"
+"tier":"master",
+"monster":"Corrupted Hunllef"
 },
 {
 "id":104,
 "name":"Egniol Diet II",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Corrupted Hunllef"
 },
 {
 "id":105,
 "name":"Corrupted Warrior",
-"tier":"master"
+"tier":"master",
+"monster":"Corrupted Hunllef"
 },
 {
 "id":106,
 "name":"Wolf Puncher II",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Corrupted Hunllef"
 },
 {
 "id":107,
 "name":"Corrupted Gauntlet Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Corrupted Hunllef"
 },
 {
 "id":108,
 "name":"Corrupted Gauntlet Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Corrupted Hunllef"
 },
 {
 "id":109,
 "name":"Gauntlet Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Crystalline Hunllef"
 },
 {
 "id":110,
 "name":"Gauntlet Master",
-"tier":"master"
+"tier":"master",
+"monster":"Crystalline Hunllef"
 },
 {
 "id":111,
 "name":"3, 2, 1 - Range",
-"tier":"elite"
+"tier":"elite",
+"monster":"Crystalline Hunllef"
 },
 {
 "id":112,
 "name":"Perfect Crystalline Hunllef",
-"tier":"master"
+"tier":"master",
+"monster":"Crystalline Hunllef"
 },
 {
 "id":113,
 "name":"Defence Doesn't Matter",
-"tier":"master"
+"tier":"master",
+"monster":"Crystalline Hunllef"
 },
 {
 "id":114,
 "name":"Egniol Diet",
-"tier":"elite"
+"tier":"elite",
+"monster":"Crystalline Hunllef"
 },
 {
 "id":115,
 "name":"Crystalline Warrior",
-"tier":"elite"
+"tier":"elite",
+"monster":"Crystalline Hunllef"
 },
 {
 "id":116,
 "name":"Wolf Puncher",
-"tier":"elite"
+"tier":"elite",
+"monster":"Crystalline Hunllef"
 },
 {
 "id":117,
 "name":"Gauntlet Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Crystalline Hunllef"
 },
 {
 "id":118,
 "name":"Gauntlet Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Crystalline Hunllef"
 },
 {
 "id":119,
 "name":"Glough Speed-Trialist",
-"tier":"elite"
+"tier":"elite",
+"monster":"Glough"
 },
 {
 "id":120,
 "name":"A Greater Foe",
-"tier":"easy"
+"tier":"easy",
+"monster":"Greater Demon"
 },
 {
 "id":121,
 "name":"Not So Great After All",
-"tier":"easy"
+"tier":"easy",
+"monster":"Greater Demon"
 },
 {
 "id":122,
 "name":"A Demon's Best Friend",
-"tier":"easy"
+"tier":"easy",
+"monster":"Hellhound"
 },
 {
 "id":123,
 "name":"Hespori Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Hespori"
 },
 {
 "id":124,
 "name":"Hesporisn't",
-"tier":"hard"
+"tier":"hard",
+"monster":"Hespori"
 },
 {
 "id":125,
 "name":"Weed Whacker",
-"tier":"hard"
+"tier":"hard",
+"monster":"Hespori"
 },
 {
 "id":126,
 "name":"Plant-Based Diet",
-"tier":"elite"
+"tier":"elite",
+"monster":"Hespori"
 },
 {
 "id":127,
 "name":"Hespori Speed-Trialist",
-"tier":"elite"
+"tier":"elite",
+"monster":"Hespori"
 },
 {
 "id":128,
 "name":"Hespori Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Hespori"
 },
 {
 "id":129,
 "name":"Obor Novice",
-"tier":"easy"
+"tier":"easy",
+"monster":"Obor"
 },
 {
 "id":130,
 "name":"Obor Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"Obor"
 },
 {
 "id":131,
 "name":"Sleeping Giant",
-"tier":"easy"
+"tier":"easy",
+"monster":"Obor"
 },
 {
 "id":132,
 "name":"Back to the Wall",
-"tier":"medium"
+"tier":"medium",
+"monster":"Obor"
 },
 {
 "id":133,
 "name":"Squashing the Giant",
-"tier":"medium"
+"tier":"medium",
+"monster":"Obor"
 },
 {
 "id":134,
 "name":"Fighting as Intended",
-"tier":"easy"
+"tier":"easy",
+"monster":"Obor"
 },
 {
 "id":135,
 "name":"Alchemical Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Alchemical Hydra"
 },
 {
 "id":136,
 "name":"Alchemical Master",
-"tier":"master"
+"tier":"master",
+"monster":"Alchemical Hydra"
 },
 {
 "id":137,
 "name":"Unrequired Antipoisons",
-"tier":"master"
+"tier":"master",
+"monster":"Alchemical Hydra"
 },
 {
 "id":138,
 "name":"Lightning Lure",
-"tier":"master"
+"tier":"master",
+"monster":"Alchemical Hydra"
 },
 {
 "id":139,
 "name":"Don't Flame Me",
-"tier":"master"
+"tier":"master",
+"monster":"Alchemical Hydra"
 },
 {
 "id":140,
 "name":"Mixing Correctly",
-"tier":"master"
+"tier":"master",
+"monster":"Alchemical Hydra"
 },
 {
 "id":141,
 "name":"The Flame Skipper",
-"tier":"master"
+"tier":"master",
+"monster":"Alchemical Hydra"
 },
 {
 "id":142,
 "name":"Alcleanical Hydra",
-"tier":"master"
+"tier":"master",
+"monster":"Alchemical Hydra"
 },
 {
 "id":143,
 "name":"No Pressure",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Alchemical Hydra"
 },
 {
 "id":144,
 "name":"Alchemical Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Alchemical Hydra"
 },
 {
 "id":145,
 "name":"Alchemical Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Alchemical Hydra"
 },
 {
 "id":146,
 "name":"Working Overtime",
-"tier":"master"
+"tier":"master",
+"monster":"Alchemical Hydra"
 },
 {
 "id":147,
 "name":"Fight Caves Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"TzTok-Jad"
 },
 {
 "id":148,
 "name":"Fight Caves Master",
-"tier":"master"
+"tier":"master",
+"monster":"TzTok-Jad"
 },
 {
 "id":149,
 "name":"A Near Miss!",
-"tier":"elite"
+"tier":"elite",
+"monster":"TzTok-Jad"
 },
 {
 "id":150,
 "name":"Denying the Healers",
-"tier":"master"
+"tier":"master",
+"monster":"TzTok-Jad"
 },
 {
 "id":151,
 "name":"Denying the Healers II",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzTok-Jad"
 },
 {
 "id":152,
 "name":"You Didn't Say Anything About a Bat",
-"tier":"master"
+"tier":"master",
+"monster":"TzTok-Jad"
 },
 {
 "id":153,
 "name":"Facing Jad Head-on",
-"tier":"elite"
+"tier":"elite",
+"monster":"TzTok-Jad"
 },
 {
 "id":154,
 "name":"No Time for a Drink",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzTok-Jad"
 },
 {
 "id":155,
 "name":"Fight Caves Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"TzTok-Jad"
 },
 {
 "id":156,
 "name":"Fight Caves Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzTok-Jad"
 },
 {
 "id":157,
 "name":"Kalphite Queen Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Kalphite Queen"
 },
 {
 "id":158,
 "name":"Kalphite Queen Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Kalphite Queen"
 },
 {
 "id":159,
 "name":"Chitin Penetrator",
-"tier":"hard"
+"tier":"hard",
+"monster":"Kalphite Queen"
 },
 {
 "id":160,
 "name":"Insect Deflection",
-"tier":"elite"
+"tier":"elite",
+"monster":"Kalphite Queen"
 },
 {
 "id":161,
 "name":"Prayer Smasher",
-"tier":"elite"
+"tier":"elite",
+"monster":"Kalphite Queen"
 },
 {
 "id":162,
 "name":"King Black Dragon Novice",
-"tier":"easy"
+"tier":"easy",
+"monster":"King Black Dragon"
 },
 {
 "id":163,
 "name":"King Black Dragon Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"King Black Dragon"
 },
 {
 "id":164,
 "name":"Claw Clipper",
-"tier":"medium"
+"tier":"medium",
+"monster":"King Black Dragon"
 },
 {
 "id":165,
 "name":"Hide Penetration",
-"tier":"medium"
+"tier":"medium",
+"monster":"King Black Dragon"
 },
 {
 "id":166,
 "name":"Antifire Protection",
-"tier":"medium"
+"tier":"medium",
+"monster":"King Black Dragon"
 },
 {
 "id":167,
 "name":"Who Is the King Now?",
-"tier":"hard"
+"tier":"hard",
+"monster":"King Black Dragon"
 },
 {
 "id":168,
 "name":"Kraken Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Kraken"
 },
 {
 "id":169,
 "name":"Unnecessary Optimization",
-"tier":"hard"
+"tier":"hard",
+"monster":"Kraken"
 },
 {
 "id":170,
 "name":"Krakan't Hurt Me",
-"tier":"hard"
+"tier":"hard",
+"monster":"Kraken"
 },
 {
 "id":171,
 "name":"Ten-tacles",
-"tier":"elite"
+"tier":"elite",
+"monster":"Kraken"
 },
 {
 "id":172,
 "name":"One Hundred Tentacles",
-"tier":"master"
+"tier":"master",
+"monster":"Kraken"
 },
 {
 "id":173,
 "name":"Master of Broad Weaponry",
-"tier":"medium"
+"tier":"medium",
+"monster":"Kurask"
 },
 {
 "id":174,
 "name":"A Scaley Encounter",
-"tier":"easy"
+"tier":"easy",
+"monster":"Lizardman Shaman"
 },
 {
 "id":175,
 "name":"Shayzien Protector",
-"tier":"easy"
+"tier":"easy",
+"monster":"Lizardman Shaman"
 },
 {
 "id":176,
 "name":"Mimic Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"The Mimic"
 },
 {
 "id":177,
 "name":"Giant Mole Novice",
-"tier":"easy"
+"tier":"easy",
+"monster":"Giant Mole"
 },
 {
 "id":178,
 "name":"Giant Mole Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"Giant Mole"
 },
 {
 "id":179,
 "name":"Why Are You Running?",
-"tier":"hard"
+"tier":"hard",
+"monster":"Giant Mole"
 },
 {
 "id":180,
 "name":"Hard Hitter",
-"tier":"elite"
+"tier":"elite",
+"monster":"Giant Mole"
 },
 {
 "id":181,
 "name":"Whack-a-Mole",
-"tier":"hard"
+"tier":"hard",
+"monster":"Giant Mole"
 },
 {
 "id":182,
 "name":"Avoiding Those Little Arms",
-"tier":"medium"
+"tier":"medium",
+"monster":"Giant Mole"
 },
 {
 "id":183,
 "name":"Nightmare Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"The Nightmare"
 },
 {
 "id":184,
 "name":"Nightmare Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"The Nightmare"
 },
 {
 "id":185,
 "name":"Nightmare Master",
-"tier":"master"
+"tier":"master",
+"monster":"The Nightmare"
 },
 {
 "id":186,
 "name":"Terrible Parent",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"The Nightmare"
 },
 {
 "id":187,
 "name":"Explosion!",
-"tier":"elite"
+"tier":"elite",
+"monster":"The Nightmare"
 },
 {
 "id":188,
 "name":"Perfect Nightmare",
-"tier":"master"
+"tier":"master",
+"monster":"The Nightmare"
 },
 {
 "id":189,
 "name":"Sleep Tight",
-"tier":"elite"
+"tier":"elite",
+"monster":"The Nightmare"
 },
 {
 "id":190,
 "name":"A Long Trip",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"The Nightmare"
 },
 {
 "id":191,
 "name":"Nightmare (Solo) Speed-Trialist",
-"tier":"elite"
+"tier":"elite",
+"monster":"The Nightmare"
 },
 {
 "id":192,
 "name":"Nightmare (Solo) Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"The Nightmare"
 },
 {
 "id":193,
 "name":"Nightmare (Solo) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"The Nightmare"
 },
 {
 "id":194,
 "name":"Nightmare (5-Scale) Speed-Trialist",
-"tier":"elite"
+"tier":"elite",
+"monster":"The Nightmare"
 },
 {
 "id":195,
 "name":"Nightmare (5-Scale) Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"The Nightmare"
 },
 {
 "id":196,
 "name":"Nightmare (5-Scale) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"The Nightmare"
 },
 {
 "id":197,
 "name":"Dagannoth Prime Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"Dagannoth Prime"
 },
 {
 "id":198,
 "name":"Dagannoth Prime Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Dagannoth Prime"
 },
 {
 "id":199,
 "name":"Death to the Seer King",
-"tier":"elite"
+"tier":"elite",
+"monster":"Dagannoth Prime"
 },
 {
 "id":200,
 "name":"From One King to Another",
-"tier":"elite"
+"tier":"elite",
+"monster":"Dagannoth Prime"
 },
 {
 "id":201,
 "name":"Dagannoth Rex Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"Dagannoth Rex"
 },
 {
 "id":202,
 "name":"Dagannoth Rex Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Dagannoth Rex"
 },
 {
 "id":203,
 "name":"Death to the Warrior King",
-"tier":"elite"
+"tier":"elite",
+"monster":"Dagannoth Rex"
 },
 {
 "id":204,
 "name":"A Frozen King",
-"tier":"medium"
+"tier":"medium",
+"monster":"Dagannoth Rex"
 },
 {
 "id":205,
 "name":"Toppling the Diarchy",
-"tier":"elite"
+"tier":"elite",
+"monster":"Dagannoth Rex"
 },
 {
 "id":206,
 "name":"Sarachnis Novice",
-"tier":"easy"
+"tier":"easy",
+"monster":"Sarachnis"
 },
 {
 "id":207,
 "name":"Sarachnis Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"Sarachnis"
 },
 {
 "id":208,
 "name":"Ready to Pounce",
-"tier":"hard"
+"tier":"hard",
+"monster":"Sarachnis"
 },
 {
 "id":209,
 "name":"Inspect Repellent",
-"tier":"hard"
+"tier":"hard",
+"monster":"Sarachnis"
 },
 {
 "id":210,
 "name":"Newspaper Enthusiast",
-"tier":"medium"
+"tier":"medium",
+"monster":"Sarachnis"
 },
 {
 "id":211,
 "name":"Commander Zilyana Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Commander Zilyana"
 },
 {
 "id":212,
 "name":"Commander Zilyana Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Commander Zilyana"
 },
 {
 "id":213,
 "name":"Commander Showdown",
-"tier":"hard"
+"tier":"hard",
+"monster":"Commander Zilyana"
 },
 {
 "id":214,
 "name":"Animal Whisperer",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Commander Zilyana"
 },
 {
 "id":215,
 "name":"Moving Collateral",
-"tier":"master"
+"tier":"master",
+"monster":"Commander Zilyana"
 },
 {
 "id":216,
 "name":"Reminisce",
-"tier":"elite"
+"tier":"elite",
+"monster":"Commander Zilyana"
 },
 {
 "id":217,
 "name":"Peach Conjurer",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Commander Zilyana"
 },
 {
 "id":218,
 "name":"Scorpia Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Scorpia"
 },
 {
 "id":219,
 "name":"Scorpia Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Scorpia"
 },
 {
 "id":220,
 "name":"I Can't Reach That",
-"tier":"hard"
+"tier":"hard",
+"monster":"Scorpia"
 },
 {
 "id":221,
 "name":"Guardians No More",
-"tier":"hard"
+"tier":"hard",
+"monster":"Scorpia"
 },
 {
 "id":222,
 "name":"Fragment of Seren Speed-Trialist",
-"tier":"elite"
+"tier":"elite",
+"monster":"Fragment of Seren"
 },
 {
 "id":223,
 "name":"A Frozen Foe from the Past",
-"tier":"medium"
+"tier":"medium",
+"monster":"Skeletal Wyvern"
 },
 {
 "id":224,
 "name":"Zulrah Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Zulrah"
 },
 {
 "id":225,
 "name":"Zulrah Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Zulrah"
 },
 {
 "id":226,
 "name":"Zulrah Master",
-"tier":"master"
+"tier":"master",
+"monster":"Zulrah"
 },
 {
 "id":227,
 "name":"Snake Rebound",
-"tier":"elite"
+"tier":"elite",
+"monster":"Zulrah"
 },
 {
 "id":228,
 "name":"Snake. Snake!? Snaaaaaake!",
-"tier":"elite"
+"tier":"elite",
+"monster":"Zulrah"
 },
 {
 "id":229,
 "name":"Perfect Zulrah",
-"tier":"master"
+"tier":"master",
+"monster":"Zulrah"
 },
 {
 "id":230,
 "name":"Zulrah Speed-Trialist",
-"tier":"elite"
+"tier":"elite",
+"monster":"Zulrah"
 },
 {
 "id":231,
 "name":"Zulrah Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Zulrah"
 },
 {
 "id":232,
 "name":"Zulrah Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Zulrah"
 },
 {
 "id":233,
 "name":"Dagannoth Supreme Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"Dagannoth Supreme"
 },
 {
 "id":234,
 "name":"Dagannoth Supreme Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Dagannoth Supreme"
 },
 {
 "id":235,
 "name":"Death to the Archer King",
-"tier":"elite"
+"tier":"elite",
+"monster":"Dagannoth Supreme"
 },
 {
 "id":236,
 "name":"Rapid Succession",
-"tier":"elite"
+"tier":"elite",
+"monster":"Dagannoth Supreme"
 },
 {
 "id":237,
 "name":"Theatre of Blood Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Theatre of Blood"
 },
 {
 "id":238,
 "name":"Theatre of Blood Master",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":239,
 "name":"Theatre of Blood Grandmaster",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood"
 },
 {
 "id":240,
 "name":"Two-Down",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":241,
 "name":"Pop It",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":242,
 "name":"A Timely Snack",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":243,
 "name":"Perfect Theatre",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood"
 },
 {
 "id":244,
 "name":"Perfect Maiden",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":245,
 "name":"Perfect Bloat",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":246,
 "name":"Perfect Nylocas",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":247,
 "name":"Perfect Sotesteg",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":248,
 "name":"Perfect Xarpus",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":249,
 "name":"Perfect Verzik",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":250,
 "name":"Can't Drain This",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":251,
 "name":"Can You Dance?",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":252,
 "name":"Morytania Only",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood"
 },
 {
 "id":253,
 "name":"Back in My Day...",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":254,
 "name":"Theatre (Duo) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood"
 },
 {
 "id":255,
 "name":"Theatre (Trio) Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":256,
 "name":"Theatre (Trio) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood"
 },
 {
 "id":257,
 "name":"Theatre (4-Scale) Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":258,
 "name":"Theatre (4-Scale) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood"
 },
 {
 "id":259,
 "name":"Theatre (5-Scale) Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood"
 },
 {
 "id":260,
 "name":"Theatre (5-Scale) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood"
 },
 {
 "id":261,
 "name":"Thermonuclear Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Thermonuclear Smoke Devil"
 },
 {
 "id":262,
 "name":"Hazard Prevention",
-"tier":"elite"
+"tier":"elite",
+"monster":"Thermonuclear Smoke Devil"
 },
 {
 "id":263,
 "name":"Spec'd Out",
-"tier":"elite"
+"tier":"elite",
+"monster":"Thermonuclear Smoke Devil"
 },
 {
 "id":264,
 "name":"Venenatis Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Venenatis"
 },
 {
 "id":265,
 "name":"Venenatis Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Venenatis"
 },
 {
 "id":266,
 "name":"Vet'ion Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Vet'ion"
 },
 {
 "id":267,
 "name":"Vet'eran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Vet'ion"
 },
 {
 "id":268,
 "name":"Vorkath Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Vorkath"
 },
 {
 "id":269,
 "name":"Vorkath Master",
-"tier":"master"
+"tier":"master",
+"monster":"Vorkath"
 },
 {
 "id":270,
 "name":"The Walk",
-"tier":"master"
+"tier":"master",
+"monster":"Vorkath"
 },
 {
 "id":271,
 "name":"Zombie Destroyer",
-"tier":"elite"
+"tier":"elite",
+"monster":"Vorkath"
 },
 {
 "id":272,
 "name":"Dodging the Dragon",
-"tier":"master"
+"tier":"master",
+"monster":"Vorkath"
 },
 {
 "id":273,
 "name":"Stick 'em With the Pointy End",
-"tier":"elite"
+"tier":"elite",
+"monster":"Vorkath"
 },
 {
 "id":274,
 "name":"Faithless Encounter",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Vorkath"
 },
 {
 "id":275,
 "name":"The Fremennik Way",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Vorkath"
 },
 {
 "id":276,
 "name":"Vorkath Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Vorkath"
 },
 {
 "id":277,
 "name":"Vorkath Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Vorkath"
 },
 {
 "id":278,
 "name":"Extended Encounter",
-"tier":"master"
+"tier":"master",
+"monster":"Vorkath"
 },
 {
 "id":279,
 "name":"Wintertodt Novice",
-"tier":"easy"
+"tier":"easy",
+"monster":"Wintertodt"
 },
 {
 "id":280,
 "name":"Wintertodt Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"Wintertodt"
 },
 {
 "id":281,
 "name":"Mummy!",
-"tier":"easy"
+"tier":"easy",
+"monster":"Wintertodt"
 },
 {
 "id":282,
 "name":"Handyman",
-"tier":"easy"
+"tier":"easy",
+"monster":"Wintertodt"
 },
 {
 "id":283,
 "name":"Can We Fix It?",
-"tier":"medium"
+"tier":"medium",
+"monster":"Wintertodt"
 },
 {
 "id":284,
 "name":"Leaving No One Behind",
-"tier":"medium"
+"tier":"medium",
+"monster":"Wintertodt"
 },
 {
 "id":285,
 "name":"Cosy",
-"tier":"easy"
+"tier":"easy",
+"monster":"Wintertodt"
 },
 {
 "id":286,
 "name":"Why Fletch?",
-"tier":"hard"
+"tier":"hard",
+"monster":"Wintertodt"
 },
 {
 "id":287,
 "name":"A Slithery Encounter",
-"tier":"easy"
+"tier":"easy",
+"monster":"Wyrm"
 },
 {
 "id":288,
 "name":"Chambers of Xeric: CM Master",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric: Challenge Mode"
 },
 {
 "id":289,
 "name":"Chambers of Xeric: CM Grandmaster",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Chambers of Xeric: Challenge Mode"
 },
 {
 "id":290,
 "name":"Immortal Raid Team",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric: Challenge Mode"
 },
 {
 "id":291,
 "name":"Immortal Raider",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric: Challenge Mode"
 },
 {
 "id":292,
 "name":"Dust Seeker",
-"tier":"elite"
+"tier":"elite",
+"monster":"Chambers of Xeric: Challenge Mode"
 },
 {
 "id":293,
 "name":"Chambers of Xeric: CM (Solo) Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric: Challenge Mode"
 },
 {
 "id":294,
 "name":"Chambers of Xeric: CM (Solo) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Chambers of Xeric: Challenge Mode"
 },
 {
 "id":295,
 "name":"Chambers of Xeric: CM (5-Scale) Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric: Challenge Mode"
 },
 {
 "id":296,
 "name":"Chambers of Xeric: CM (5-Scale) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Chambers of Xeric: Challenge Mode"
 },
 {
 "id":297,
 "name":"Chambers of Xeric: CM (Trio) Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric: Challenge Mode"
 },
 {
 "id":298,
 "name":"Chambers of Xeric: CM (Trio) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Chambers of Xeric: Challenge Mode"
 },
 {
 "id":299,
 "name":"Chambers of Xeric Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Chambers of Xeric"
 },
 {
 "id":300,
 "name":"Chambers of Xeric Master",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric"
 },
 {
 "id":301,
 "name":"Chambers of Xeric Grandmaster",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Chambers of Xeric"
 },
 {
 "id":302,
 "name":"Perfectly Balanced",
-"tier":"elite"
+"tier":"elite",
+"monster":"Chambers of Xeric"
 },
 {
 "id":303,
 "name":"Together We'll Fall",
-"tier":"elite"
+"tier":"elite",
+"monster":"Chambers of Xeric"
 },
 {
 "id":304,
 "name":"No Time for Death",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric"
 },
 {
 "id":305,
 "name":"Putting It Olm on the Line",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric"
 },
 {
 "id":306,
 "name":"A Not So Special Lizard",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric"
 },
 {
 "id":307,
 "name":"Mutta-diet",
-"tier":"elite"
+"tier":"elite",
+"monster":"Chambers of Xeric"
 },
 {
 "id":308,
 "name":"Redemption Enthusiast",
-"tier":"elite"
+"tier":"elite",
+"monster":"Chambers of Xeric"
 },
 {
 "id":309,
 "name":"Stop Drop and Roll",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric"
 },
 {
 "id":310,
 "name":"Anvil No More",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric"
 },
 {
 "id":311,
 "name":"Dancing with Statues",
-"tier":"elite"
+"tier":"elite",
+"monster":"Chambers of Xeric"
 },
 {
 "id":312,
 "name":"Undying Raid Team",
-"tier":"elite"
+"tier":"elite",
+"monster":"Chambers of Xeric"
 },
 {
 "id":313,
 "name":"Undying Raider",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric"
 },
 {
 "id":314,
 "name":"Shayzien Specialist",
-"tier":"elite"
+"tier":"elite",
+"monster":"Chambers of Xeric"
 },
 {
 "id":315,
 "name":"Playing with Lasers",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric"
 },
 {
 "id":316,
 "name":"Cryo No More",
-"tier":"elite"
+"tier":"elite",
+"monster":"Chambers of Xeric"
 },
 {
 "id":317,
 "name":"Perfect Olm (Solo)",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric"
 },
 {
 "id":318,
 "name":"Perfect Olm (Trio)",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric"
 },
 {
 "id":319,
 "name":"Blind Spot",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric"
 },
 {
 "id":320,
 "name":"Blizzard Dodger",
-"tier":"elite"
+"tier":"elite",
+"monster":"Chambers of Xeric"
 },
 {
 "id":321,
 "name":"Kill It with Fire",
-"tier":"elite"
+"tier":"elite",
+"monster":"Chambers of Xeric"
 },
 {
 "id":322,
 "name":"Chambers of Xeric (Solo) Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric"
 },
 {
 "id":323,
 "name":"Chambers of Xeric (Solo) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Chambers of Xeric"
 },
 {
 "id":324,
 "name":"Chambers of Xeric (5-Scale) Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric"
 },
 {
 "id":325,
 "name":"Chambers of Xeric (5-Scale) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Chambers of Xeric"
 },
 {
 "id":326,
 "name":"Chambers of Xeric (Trio) Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Chambers of Xeric"
 },
 {
 "id":327,
 "name":"Chambers of Xeric (Trio) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Chambers of Xeric"
 },
 {
 "id":328,
 "name":"Zalcano Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Zalcano"
 },
 {
 "id":329,
 "name":"Perfect Zalcano",
-"tier":"elite"
+"tier":"elite",
+"monster":"Zalcano"
 },
 {
 "id":330,
 "name":"Team Player",
-"tier":"elite"
+"tier":"elite",
+"monster":"Zalcano"
 },
 {
 "id":331,
 "name":"The Spurned Hero",
-"tier":"elite"
+"tier":"elite",
+"monster":"Zalcano"
 },
 {
 "id":332,
 "name":"K'ril Tsutsaroth Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"K'ril Tsutsaroth"
 },
 {
 "id":333,
 "name":"K'ril Tsutsaroth Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"K'ril Tsutsaroth"
 },
 {
 "id":334,
 "name":"Yarr No More",
-"tier":"hard"
+"tier":"hard",
+"monster":"K'ril Tsutsaroth"
 },
 {
 "id":335,
 "name":"Demonic Showdown",
-"tier":"hard"
+"tier":"hard",
+"monster":"K'ril Tsutsaroth"
 },
 {
 "id":336,
 "name":"The Bane of Demons",
-"tier":"elite"
+"tier":"elite",
+"monster":"K'ril Tsutsaroth"
 },
 {
 "id":337,
 "name":"Demonic Defence",
-"tier":"elite"
+"tier":"elite",
+"monster":"K'ril Tsutsaroth"
 },
 {
 "id":338,
 "name":"Demon Whisperer",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"K'ril Tsutsaroth"
 },
 {
 "id":339,
 "name":"Demonbane Weaponry II",
-"tier":"hard"
+"tier":"hard",
+"monster":"K'ril Tsutsaroth"
 },
 {
 "id":340,
 "name":"Ash Collector",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"K'ril Tsutsaroth"
 },
 {
 "id":341,
 "name":"Half-Way There",
-"tier":"elite"
+"tier":"elite",
+"monster":"TzKal-Zuk"
 },
 {
 "id":342,
 "name":"Inferno Grandmaster",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzKal-Zuk"
 },
 {
 "id":343,
 "name":"The Floor Is Lava",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzKal-Zuk"
 },
 {
 "id":344,
 "name":"Playing with Jads",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzKal-Zuk"
 },
 {
 "id":345,
 "name":"No Luck Required",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzKal-Zuk"
 },
 {
 "id":346,
 "name":"Nibblers, Begone!",
-"tier":"master"
+"tier":"master",
+"monster":"TzKal-Zuk"
 },
 {
 "id":347,
 "name":"Wasn't Even Close",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzKal-Zuk"
 },
 {
 "id":348,
 "name":"Budget Setup",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzKal-Zuk"
 },
 {
 "id":349,
 "name":"Nibbler Chaser",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzKal-Zuk"
 },
 {
 "id":350,
 "name":"Facing Jad Head-on II",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzKal-Zuk"
 },
 {
 "id":351,
 "name":"Jad? What Are You Doing Here?",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzKal-Zuk"
 },
 {
 "id":352,
 "name":"Inferno Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzKal-Zuk"
 },
 {
 "id":353,
 "name":"Tempoross Novice",
-"tier":"easy"
+"tier":"easy",
+"monster":"Tempoross"
 },
 {
 "id":354,
 "name":"Tempoross Champion",
-"tier":"medium"
+"tier":"medium",
+"monster":"Tempoross"
 },
 {
 "id":355,
 "name":"Dress Like You Mean It",
-"tier":"hard"
+"tier":"hard",
+"monster":"Tempoross"
 },
 {
 "id":356,
 "name":"Master of Buckets",
-"tier":"easy"
+"tier":"easy",
+"monster":"Tempoross"
 },
 {
 "id":357,
 "name":"Calm Before the Storm",
-"tier":"easy"
+"tier":"easy",
+"monster":"Tempoross"
 },
 {
 "id":358,
 "name":"Why Cook?",
-"tier":"hard"
+"tier":"hard",
+"monster":"Tempoross"
 },
 {
 "id":359,
 "name":"The Lone Angler",
-"tier":"medium"
+"tier":"medium",
+"monster":"Tempoross"
 },
 {
 "id":360,
 "name":"Fire in the Hole!",
-"tier":"easy"
+"tier":"easy",
+"monster":"Tempoross"
 },
 {
 "id":361,
 "name":"The II Jad Challenge",
-"tier":"elite"
+"tier":"elite",
+"monster":"TzHaar-Ket-Rak's Challenges"
 },
 {
 "id":362,
 "name":"The IV Jad Challenge",
-"tier":"master"
+"tier":"master",
+"monster":"TzHaar-Ket-Rak's Challenges"
 },
 {
 "id":363,
 "name":"The VI Jad Challenge",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzHaar-Ket-Rak's Challenges"
 },
 {
 "id":364,
 "name":"TzHaar-Ket-Rak's Speed-Trialist",
-"tier":"elite"
+"tier":"elite",
+"monster":"TzHaar-Ket-Rak's Challenges"
 },
 {
 "id":365,
 "name":"TzHaar-Ket-Rak's Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"TzHaar-Ket-Rak's Challenges"
 },
 {
 "id":366,
 "name":"TzHaar-Ket-Rak's Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzHaar-Ket-Rak's Challenges"
 },
 {
 "id":367,
 "name":"Facing Jad Head-on III",
-"tier":"elite"
+"tier":"elite",
+"monster":"TzHaar-Ket-Rak's Challenges"
 },
 {
 "id":368,
 "name":"Facing Jad Head-on IV",
-"tier":"master"
+"tier":"master",
+"monster":"TzHaar-Ket-Rak's Challenges"
 },
 {
 "id":369,
 "name":"Supplies? Who Needs 'em?",
-"tier":"master"
+"tier":"master",
+"monster":"TzHaar-Ket-Rak's Challenges"
 },
 {
 "id":370,
 "name":"It Wasn't a Fluke",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"TzHaar-Ket-Rak's Challenges"
 },
 {
 "id":371,
 "name":"Multi-Style Specialist",
-"tier":"master"
+"tier":"master",
+"monster":"TzHaar-Ket-Rak's Challenges"
 },
 {
 "id":372,
 "name":"Stop Right There!",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood: Hard Mode"
 },
 {
 "id":373,
 "name":"Personal Space",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood: Hard Mode"
 },
 {
 "id":374,
 "name":"Royal Affairs",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood: Hard Mode"
 },
 {
 "id":375,
 "name":"Harder Mode I",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood: Hard Mode"
 },
 {
 "id":376,
 "name":"Harder Mode II",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood: Hard Mode"
 },
 {
 "id":377,
 "name":"Nylo Sniper",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood: Hard Mode"
 },
 {
 "id":378,
 "name":"Team Work Makes the Dream Work",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood: Hard Mode"
 },
 {
 "id":379,
 "name":"Harder Mode III",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood: Hard Mode"
 },
 {
 "id":380,
 "name":"Pack Like a Yak",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood: Hard Mode"
 },
 {
 "id":381,
 "name":"Hard Mode? Completed It",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood: Hard Mode"
 },
 {
 "id":382,
 "name":"Theatre: HM (Trio) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood: Hard Mode"
 },
 {
 "id":383,
 "name":"Theatre: HM (4-Scale) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood: Hard Mode"
 },
 {
 "id":384,
 "name":"Theatre: HM (5-Scale) Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood: Hard Mode"
 },
 {
 "id":385,
 "name":"Theatre of Blood: HM Grandmaster",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Theatre of Blood: Hard Mode"
 },
 {
 "id":386,
 "name":"Anticoagulants",
-"tier":"elite"
+"tier":"elite",
+"monster":"Theatre of Blood: Entry Mode"
 },
 {
 "id":387,
 "name":"Appropriate Tools",
-"tier":"elite"
+"tier":"elite",
+"monster":"Theatre of Blood: Entry Mode"
 },
 {
 "id":388,
 "name":"They Won't Expect This",
-"tier":"elite"
+"tier":"elite",
+"monster":"Theatre of Blood: Entry Mode"
 },
 {
 "id":389,
 "name":"Chally Time",
-"tier":"elite"
+"tier":"elite",
+"monster":"Theatre of Blood: Entry Mode"
 },
 {
 "id":390,
 "name":"Nylocas, On the Rocks",
-"tier":"elite"
+"tier":"elite",
+"monster":"Theatre of Blood: Entry Mode"
 },
 {
 "id":391,
 "name":"Just To Be Safe",
-"tier":"elite"
+"tier":"elite",
+"monster":"Theatre of Blood: Entry Mode"
 },
 {
 "id":392,
 "name":"Don't Look at Me!",
-"tier":"elite"
+"tier":"elite",
+"monster":"Theatre of Blood: Entry Mode"
 },
 {
 "id":393,
 "name":"No-Pillar",
-"tier":"elite"
+"tier":"elite",
+"monster":"Theatre of Blood: Entry Mode"
 },
 {
 "id":394,
 "name":"Attack, Step, Wait",
-"tier":"elite"
+"tier":"elite",
+"monster":"Theatre of Blood: Entry Mode"
 },
 {
 "id":395,
 "name":"Pass It On",
-"tier":"elite"
+"tier":"elite",
+"monster":"Theatre of Blood: Entry Mode"
 },
 {
 "id":396,
 "name":"Theatre of Blood: SM Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Theatre of Blood: Entry Mode"
 },
 {
 "id":397,
 "name":"Theatre of Blood: SM Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Theatre of Blood: Entry Mode"
 },
 {
 "id":398,
 "name":"Into the Den of Giants",
-"tier":"easy"
+"tier":"easy",
+"monster":"N/A"
 },
 {
 "id":399,
 "name":"Sit Back and Relax",
-"tier":"medium"
+"tier":"medium",
+"monster":"N/A"
 },
 {
 "id":400,
 "name":"Phosani's Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Phosani's Nightmare"
 },
 {
 "id":401,
 "name":"Phosani's Master",
-"tier":"master"
+"tier":"master",
+"monster":"Phosani's Nightmare"
 },
 {
 "id":402,
 "name":"Phosani's Grandmaster",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Phosani's Nightmare"
 },
 {
 "id":403,
 "name":"Perfect Phosani's Nightmare",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Phosani's Nightmare"
 },
 {
 "id":404,
 "name":"Phosani's Speedchaser",
-"tier":"master"
+"tier":"master",
+"monster":"Phosani's Nightmare"
 },
 {
 "id":405,
 "name":"Phosani's Speedrunner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Phosani's Nightmare"
 },
 {
 "id":406,
 "name":"Crush Hour",
-"tier":"master"
+"tier":"master",
+"monster":"Phosani's Nightmare"
 },
 {
 "id":407,
 "name":"I Would Simply React",
-"tier":"master"
+"tier":"master",
+"monster":"Phosani's Nightmare"
 },
 {
 "id":408,
 "name":"Dreamland Express",
-"tier":"master"
+"tier":"master",
+"monster":"Phosani's Nightmare"
 },
 {
 "id":409,
 "name":"Can't Wake Up",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Phosani's Nightmare"
 },
 {
 "id":410,
 "name":"Nex Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Nex"
 },
 {
 "id":411,
 "name":"Nex Master",
-"tier":"master"
+"tier":"master",
+"monster":"Nex"
 },
 {
 "id":412,
 "name":"Nex Survivors",
-"tier":"elite"
+"tier":"elite",
+"monster":"Nex"
 },
 {
 "id":413,
 "name":"A siphon will solve this",
-"tier":"master"
+"tier":"master",
+"monster":"Nex"
 },
 {
 "id":414,
 "name":"Contain this!",
-"tier":"master"
+"tier":"master",
+"monster":"Nex"
 },
 {
 "id":415,
 "name":"There is no escape!",
-"tier":"master"
+"tier":"master",
+"monster":"Nex"
 },
 {
 "id":416,
 "name":"Nex Trio",
-"tier":"master"
+"tier":"master",
+"monster":"Nex"
 },
 {
 "id":417,
 "name":"Nex Duo",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Nex"
 },
 {
 "id":418,
 "name":"I should see a doctor",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Nex"
 },
 {
 "id":419,
 "name":"Perfect Nex",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Nex"
 },
 {
 "id":420,
 "name":"Shadows Move...",
-"tier":"master"
+"tier":"master",
+"monster":"Nex"
 },
 {
 "id":421,
 "name":"Tombs Speed Runner",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut"
 },
 {
 "id":422,
 "name":"Tombs Speed Runner II",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":423,
 "name":"Tombs Speed Runner III",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":424,
 "name":"You are not prepared",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut"
 },
 {
 "id":425,
 "name":"Helpful spirit who?",
-"tier":"elite"
+"tier":"elite",
+"monster":"Tombs of Amascut"
 },
 {
 "id":426,
 "name":"Resourceful Raider",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":427,
 "name":"But... Damage",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":428,
 "name":"Chompington",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut"
 },
 {
 "id":429,
 "name":"Fancy feet",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":430,
 "name":"Hardcore Raiders",
-"tier":"elite"
+"tier":"elite",
+"monster":"Tombs of Amascut"
 },
 {
 "id":431,
 "name":"Hardcore Tombs",
-"tier":"elite"
+"tier":"elite",
+"monster":"Tombs of Amascut"
 },
 {
 "id":432,
 "name":"Perfect Het",
-"tier":"elite"
+"tier":"elite",
+"monster":"Tombs of Amascut"
 },
 {
 "id":433,
 "name":"Perfect Akkha",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut"
 },
 {
 "id":434,
 "name":"Perfection of Het",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":435,
 "name":"Perfect Apmeken",
-"tier":"elite"
+"tier":"elite",
+"monster":"Tombs of Amascut"
 },
 {
 "id":436,
 "name":"Perfect Ba-Ba",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut"
 },
 {
 "id":437,
 "name":"Perfection of Apmeken",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":438,
 "name":"Perfect Crondis",
-"tier":"elite"
+"tier":"elite",
+"monster":"Tombs of Amascut"
 },
 {
 "id":439,
 "name":"Perfect Zebak",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut"
 },
 {
 "id":440,
 "name":"Perfection of Crondis",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":441,
 "name":"Perfect Scabaras",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut"
 },
 {
 "id":442,
 "name":"Perfect Kephri",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut"
 },
 {
 "id":443,
 "name":"Perfection of Scabaras",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":444,
 "name":"Perfect Wardens",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut"
 },
 {
 "id":445,
 "name":"Insanity",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":446,
 "name":"Amascut's Remnant",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":447,
 "name":"Something of an expert myself",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":448,
 "name":"Maybe I'm the boss.",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":449,
 "name":"Dropped the ball",
-"tier":"elite"
+"tier":"elite",
+"monster":"Tombs of Amascut"
 },
 {
 "id":450,
 "name":"Akkhan't Do it",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":451,
 "name":"No skipping allowed",
-"tier":"elite"
+"tier":"elite",
+"monster":"Tombs of Amascut"
 },
 {
 "id":452,
 "name":"I'm in a rush",
-"tier":"elite"
+"tier":"elite",
+"monster":"Tombs of Amascut"
 },
 {
 "id":453,
 "name":"Ba-Bananza",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":454,
 "name":"All Praise Zebak",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":455,
 "name":"Rockin' around the croc",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":456,
 "name":"Doesn't bug me",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":457,
 "name":"All out of medics",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":458,
 "name":"Down Do Specs",
-"tier":"elite"
+"tier":"elite",
+"monster":"Tombs of Amascut"
 },
 {
 "id":459,
 "name":"Better get movin'",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut"
 },
 {
 "id":460,
 "name":"Warden't you believe it",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":461,
 "name":"Novice Tomb Explorer",
-"tier":"hard"
+"tier":"hard",
+"monster":"Tombs of Amascut: Entry Mode"
 },
 {
 "id":462,
 "name":"Novice Tomb Looter",
-"tier":"hard"
+"tier":"hard",
+"monster":"Tombs of Amascut: Entry Mode"
 },
 {
 "id":463,
 "name":"Novice Tomb Raider",
-"tier":"elite"
+"tier":"elite",
+"monster":"Tombs of Amascut: Entry Mode"
 },
 {
 "id":464,
 "name":"Movin' on up",
-"tier":"hard"
+"tier":"hard",
+"monster":"Tombs of Amascut: Entry Mode"
 },
 {
 "id":465,
 "name":"Confident Raider",
-"tier":"hard"
+"tier":"hard",
+"monster":"Tombs of Amascut: Entry Mode"
 },
 {
 "id":466,
 "name":"Tomb Looter",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut"
 },
 {
 "id":467,
 "name":"Tomb Raider",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut"
 },
 {
 "id":468,
 "name":"Tomb Explorer",
-"tier":"elite"
+"tier":"elite",
+"monster":"Tombs of Amascut"
 },
 {
 "id":469,
 "name":"Expert Tomb Explorer",
-"tier":"elite"
+"tier":"elite",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":470,
 "name":"Expert Tomb Looter",
-"tier":"master"
+"tier":"master",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":471,
 "name":"Expert Tomb Raider",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Tombs of Amascut: Expert Mode"
 },
 {
 "id":472,
 "name":"More than just a ranged weapon",
-"tier":"master"
+"tier":"master",
+"monster":"Phantom Muspah"
 },
 {
 "id":473,
 "name":"Can't Escape",
-"tier":"elite"
+"tier":"elite",
+"monster":"Phantom Muspah"
 },
 {
 "id":474,
 "name":"Essence Farmer",
-"tier":"master"
+"tier":"master",
+"monster":"Phantom Muspah"
 },
 {
 "id":475,
 "name":"Phantom Muspah Speed-Trialist",
-"tier":"elite"
+"tier":"elite",
+"monster":"Phantom Muspah"
 },
 {
 "id":476,
 "name":"Phantom Muspah Speed-Chaser",
-"tier":"master"
+"tier":"master",
+"monster":"Phantom Muspah"
 },
 {
 "id":477,
 "name":"Phantom Muspah Speed-Runner",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Phantom Muspah"
 },
 {
 "id":478,
 "name":"Phantom Muspah Adept",
-"tier":"hard"
+"tier":"hard",
+"monster":"Phantom Muspah"
 },
 {
 "id":479,
 "name":"Phantom Muspah Veteran",
-"tier":"elite"
+"tier":"elite",
+"monster":"Phantom Muspah"
 },
 {
 "id":480,
 "name":"Phantom Muspah Master",
-"tier":"master"
+"tier":"master",
+"monster":"Phantom Muspah"
 },
 {
 "id":481,
 "name":"Space is Tight",
-"tier":"master"
+"tier":"master",
+"monster":"Phantom Muspah"
 },
 {
 "id":482,
 "name":"Versatile Drainer",
-"tier":"elite"
+"tier":"elite",
+"monster":"Phantom Muspah"
 },
 {
 "id":483,
 "name":"Walk Straight Pray True",
-"tier":"master"
+"tier":"master",
+"monster":"Phantom Muspah"
 },
 {
 "id":484,
 "name":"Phantom Muspah Manipulator",
-"tier":"grandmaster"
+"tier":"grandmaster",
+"monster":"Phantom Muspah"
 }
 ]

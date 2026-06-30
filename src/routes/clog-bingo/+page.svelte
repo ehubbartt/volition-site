@@ -3,7 +3,7 @@
 	import ItemIcon from '$lib/ItemIcon.svelte';
 	import { formatEhb } from '$lib/ehb';
 	import { formatXp, skillIconUrl } from '$lib/ehp';
-	import { caTierIconUrl, caTierLabel } from '$lib/ca';
+	import { caTierIconUrl, caTierLabel, caMonsterIconUrl } from '$lib/ca';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -266,7 +266,7 @@
 							<div class="ehb">{locked && !tile.obtained && tile.progress_xp != null ? `${formatXp(tile.progress_xp)} / ${formatXp(tile.target_xp ?? 0)}` : formatEhb(tile.ehb)}</div>
 						{:else if tile.kind === 'ca'}
 							<div class="icon">
-								<img class="skill-img" src={caTierIconUrl(tile.ca_tier)} alt="" width="40" height="40" loading="lazy" referrerpolicy="no-referrer" onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
+								<img class="skill-img" src={tile.source ? caMonsterIconUrl(tile.source) : caTierIconUrl(tile.ca_tier)} alt="" width="40" height="40" loading="lazy" referrerpolicy="no-referrer" onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
 							</div>
 							<div class="name">{tile.item_name}</div>
 							<div class="ehb">{caTierLabel(tile.ca_tier)} CA</div>
