@@ -48,6 +48,7 @@ export function caMonsterIconUrl(monster: string | null | undefined): string {
 	const m = (monster ?? '').trim();
 	if (!m) return '';
 	const name = MONSTER_IMAGE_ALIASES[m.toLowerCase()] ?? m;
-	const file = (name.charAt(0).toUpperCase() + name.slice(1)).replace(/ /g, '_');
+	// Mirror itemIconUrl: capitalize, spaces→_, and escape apostrophes (K'ril, Kree'arra, …).
+	const file = (name.charAt(0).toUpperCase() + name.slice(1)).replace(/ /g, '_').replace(/'/g, '%27');
 	return `https://oldschool.runescape.wiki/images/${file}.png`;
 }
