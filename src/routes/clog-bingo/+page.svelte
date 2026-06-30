@@ -152,12 +152,8 @@
 					<span class="label">Skilling tiles</span>
 					<label class="toggle">
 						<input type="checkbox" name="skilling" bind:checked={skilling} />
-						<span>Include skilling goals (~¼ of the board)</span>
+						<span>Include skilling goals</span>
 					</label>
-					<p class="muted small">
-						Adds “gain X XP in a skill” tiles, sized by EHP. They track from when you lock in (XP
-						gained after that), via WiseOldMan.
-					</p>
 				</div>
 			</div>
 
