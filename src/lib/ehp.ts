@@ -39,6 +39,13 @@ export function roundXp(xp: number): number {
 	return Math.max(step, Math.round(xp / step) * step);
 }
 
+// OSRS Wiki skill icon (every skill's icon file is `<Skill>_icon.png`). Mirrors
+// itemIconUrl in $lib/osrsItems.
+export function skillIconUrl(skill: string): string {
+	const file = (skill.trim().charAt(0).toUpperCase() + skill.trim().slice(1)).replace(/ /g, '_');
+	return `https://oldschool.runescape.wiki/images/${file}_icon.png`;
+}
+
 // "250K XP" / "1.2M XP".
 export function formatXp(xp: number): string {
 	if (xp >= 1_000_000) {
