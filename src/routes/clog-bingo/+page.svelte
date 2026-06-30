@@ -252,7 +252,7 @@
 								<img class="skill-img" src={skillIconUrl(tile.skill ?? '')} alt="" width="40" height="40" loading="lazy" referrerpolicy="no-referrer" onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
 							</div>
 							<div class="name">Gain {formatXp(tile.target_xp ?? 0)}</div>
-							<div class="ehb">{locked && !tile.obtained && tile.progress_xp != null ? `${formatXp(tile.progress_xp)} / ${formatXp(tile.target_xp ?? 0)}` : tile.skill}</div>
+							<div class="ehb">{locked && !tile.obtained && tile.progress_xp != null ? `${formatXp(tile.progress_xp)} / ${formatXp(tile.target_xp ?? 0)}` : formatEhb(tile.ehb)}</div>
 						{:else}
 							<div class="icon"><ItemIcon item={tile.item_name ?? ''} size={42} /></div>
 							<div class="name">{tile.item_name}</div>
