@@ -50,3 +50,11 @@ alter table vs_personal_board_tiles add column if not exists baseline_xp bigint;
 alter table vs_personal_board_tiles add column if not exists progress_xp bigint;-- last gained-since-lock (display)
 alter table vs_personal_board_tiles alter column item_id drop not null;
 alter table vs_personal_board_tiles alter column item_name drop not null;
+
+-- Combat Achievement tiles ("complete CA <name>"), also mixed into the same board. A tile is
+-- additionally `kind='ca'`: the CA's display name lives in item_name (reused), the WikiSync
+-- task id in ca_id, and its tier in ca_tier. Tracked by re-polling WikiSync's completed-CA set
+-- (no XP baseline — a CA is excluded if already done at generation and credited when its id
+-- enters the completed set, the same model as clog items). Additive + idempotent.
+alter table vs_personal_board_tiles add column if not exists ca_id int;    -- WikiSync CA task id (kind='ca')
+alter table vs_personal_board_tiles add column if not exists ca_tier text; -- 'easy'..'grandmaster'
