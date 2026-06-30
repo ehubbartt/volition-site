@@ -139,6 +139,15 @@ function parsePackGp(form: FormData): number | null {
 	return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// A pack's release state is a single status picked in the editor's dropdown; it maps
+// to the two stored booleans. 'released' wins over teaser, so a live pack never also
+// carries the "coming soon" flag. Unknown / missing → draft (not released).
+function releaseFlagsFromStatus(status: string | null | undefined): { released: boolean; teaser: boolean } {
+	if (status === 'released') return { released: true, teaser: false };
+	if (status === 'coming_soon') return { released: false, teaser: true };
+	return { released: false, teaser: false };
+}
+
 export const actions: Actions = {
 	createCard: async ({ locals, request }) => {
 		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
@@ -534,8 +543,7 @@ export const actions: Actions = {
 				discount_pct: parsed.data.discount_pct,
 				discount_vp_pct: parsed.data.discount_vp_pct,
 				cards_per_pack: parsed.data.cards_per_pack,
-				released: form.get('released') === 'on',
-				teaser: form.get('teaser') === 'on',
+				...releaseFlagsFromStatus(form.get('release_status')?.toString()),
 				elemental: form.get('elemental') === 'on'
 			})
 			.select('id')
@@ -609,7 +617,7 @@ export const actions: Actions = {
 			discount_pct: parsed.data.discount_pct,
 			discount_vp_pct: parsed.data.discount_vp_pct,
 			cards_per_pack: parsed.data.cards_per_pack,
-			teaser: form.get('teaser') === 'on',
+			...releaseFlagsFromStatus(form.get('release_status')?.toString()),
 			elemental: form.get('elemental') === 'on',
 			slot_weights: slotWeights,
 			slot_finishes: slotFinishes,
@@ -661,7 +669,9 @@ export const actions: Actions = {
 		return { ok: true };
 	},
 
-	toggleRelease: async ({ locals, request }) => {
+	// Set a pack's release state from the catalog dropdown: Not released (draft),
+	// Coming soon (locked teaser), or Released (live in the store).
+	setReleaseStatus: async ({ locals, request }) => {
 		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
 
 		const form = await request.formData();
@@ -670,41 +680,16 @@ export const actions: Actions = {
 
 		const { data: prev, error: readErr } = await db()
 			.from('vs_card_packs')
-			.select('released')
+			.select('id')
 			.eq('id', id)
 			.maybeSingle();
 		if (readErr) return fail(500, { error: readErr.message });
 		if (!prev) return fail(404, { error: 'Pack not found' });
 
+		const flags = releaseFlagsFromStatus(form.get('release_status')?.toString());
 		const { error: updErr } = await db()
 			.from('vs_card_packs')
-			.update({ released: !prev.released, updated_at: new Date().toISOString() })
-			.eq('id', id);
-		if (updErr) return fail(500, { error: updErr.message });
-
-		return { ok: true };
-	},
-
-	// Flag (or unflag) a pack as a "coming soon" teaser — shown in the store as a
-	// locked card (name + art only) until it's released.
-	toggleTeaser: async ({ locals, request }) => {
-		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
-
-		const form = await request.formData();
-		const id = form.get('id')?.toString();
-		if (!id) return fail(400, { error: 'Missing id' });
-
-		const { data: prev, error: readErr } = await db()
-			.from('vs_card_packs')
-			.select('teaser')
-			.eq('id', id)
-			.maybeSingle();
-		if (readErr) return fail(500, { error: readErr.message });
-		if (!prev) return fail(404, { error: 'Pack not found' });
-
-		const { error: updErr } = await db()
-			.from('vs_card_packs')
-			.update({ teaser: !prev.teaser, updated_at: new Date().toISOString() })
+			.update({ ...flags, updated_at: new Date().toISOString() })
 			.eq('id', id);
 		if (updErr) return fail(500, { error: updErr.message });
 

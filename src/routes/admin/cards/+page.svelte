@@ -772,13 +772,13 @@
 				<input name="cards_per_pack" type="number" min="1" max="50" value="5" />
 			</label>
 		</div>
-		<label class="check">
-			<input type="checkbox" name="released" />
-			<span>Released (visible to players in the Gamba store)</span>
-		</label>
-		<label class="check">
-			<input type="checkbox" name="teaser" />
-			<span>Teaser (show in the store as a locked “coming soon” card — name + art only, can't be opened; ignored once released)</span>
+		<label>
+			<span>Release status</span>
+			<select name="release_status">
+				<option value="draft">Not released (draft — hidden from the store)</option>
+				<option value="coming_soon">Coming soon (locked “coming soon” card — name + art only, can't be opened)</option>
+				<option value="released">Released (live and openable in the Gamba store)</option>
+			</select>
 		</label>
 		<label class="check">
 			<input type="checkbox" name="elemental" />
@@ -814,6 +814,7 @@
 <!-- ── Pack edit form (drawer) ── -->
 {#snippet packEditForm(raw: RawPack)}
 	{@const pack = toPack(raw)}
+	{@const releaseStatus = raw.released ? 'released' : raw.teaser ? 'coming_soon' : 'draft'}
 	<form method="POST" action="?/updatePack" enctype="multipart/form-data" use:enhance={keepValues} class="edit-form">
 		<input type="hidden" name="id" value={pack.id} />
 		<fieldset class="form-ro" disabled={!canEdit}>
@@ -848,9 +849,13 @@
 			</label>
 		</div>
 
-		<label class="check">
-			<input type="checkbox" name="teaser" checked={raw.teaser} />
-			<span>Teaser (show in the store as a locked “coming soon” card — name + art only, can't be opened; ignored once released)</span>
+		<label>
+			<span>Release status</span>
+			<select name="release_status">
+				<option value="draft" selected={releaseStatus === 'draft'}>Not released (draft — hidden from the store)</option>
+				<option value="coming_soon" selected={releaseStatus === 'coming_soon'}>Coming soon (locked “coming soon” card — name + art only, can't be opened)</option>
+				<option value="released" selected={releaseStatus === 'released'}>Released (live and openable in the Gamba store)</option>
+			</select>
 		</label>
 		<label class="check">
 			<input type="checkbox" name="elemental" checked={raw.elemental} />
@@ -971,17 +976,23 @@
 		</button>
 		{#if canEdit}
 			<div class="pack-actions">
-				<form method="POST" action="?/toggleRelease" use:enhance>
+				<form method="POST" action="?/setReleaseStatus" use:enhance>
 					<input type="hidden" name="id" value={pack.id} />
-					<button type="submit" class="mini">{raw.released ? 'Unrelease' : 'Release'}</button>
+					<select
+						name="release_status"
+						class="status-select"
+						title="Release status"
+						value={raw.released ? 'released' : raw.teaser ? 'coming_soon' : 'draft'}
+						onchange={(e) => e.currentTarget.form?.requestSubmit()}
+					>
+						<option value="draft">Not released</option>
+						<option value="coming_soon">Coming soon</option>
+						<option value="released">Released</option>
+					</select>
 				</form>
 				<form method="POST" action="?/toggleWeeklyFree" use:enhance>
 					<input type="hidden" name="id" value={pack.id} />
 					<button type="submit" class="mini" title="Free pack everyone can claim once a week">{raw.weekly_free ? 'Unset weekly' : 'Set weekly'}</button>
-				</form>
-				<form method="POST" action="?/toggleTeaser" use:enhance>
-					<input type="hidden" name="id" value={pack.id} />
-					<button type="submit" class="mini" title="Show as a locked “coming soon” card in the store (until released)">{raw.teaser ? 'Unset coming soon' : 'Coming soon'}</button>
 				</form>
 				<form method="POST" action="?/toggleElemental" use:enhance>
 					<input type="hidden" name="id" value={pack.id} />
@@ -1471,6 +1482,24 @@
 	button.mini.danger:hover {
 		border-color: var(--danger);
 		background: var(--danger-bg);
+	}
+
+	/* Release-status dropdown in the pack list — styled to match the mini buttons. */
+	.status-select {
+		width: 100%;
+		padding: 0.3rem 0.4rem;
+		font-size: 0.78rem;
+		min-height: 0;
+		border: 1px solid var(--border);
+		color: var(--muted);
+		background: var(--surface-alt);
+		border-radius: var(--radius, 6px);
+		cursor: pointer;
+	}
+
+	.status-select:hover {
+		border-color: var(--accent);
+		color: var(--text);
 	}
 
 	.badge {
