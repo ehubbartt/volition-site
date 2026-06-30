@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import ItemIcon from '$lib/ItemIcon.svelte';
 	import { formatEhb } from '$lib/ehb';
+	import { formatXp } from '$lib/ehp';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -13,6 +14,7 @@
 	// Create-form state. Defaults: 5×5, mid difficulty.
 	let size = $state(5);
 	let difficulty = $state(5);
+	let skilling = $state(data.board?.tiles.some((t) => t.kind === 'skill') ?? false);
 	let generating = $state(false);
 	let refreshing = $state(false);
 	let locking = $state(false);
@@ -142,7 +144,19 @@
 					/>
 					<div class="slider-ends"><span>Easier items</span><span>Rarer items</span></div>
 					<p class="muted small">
-						Higher difficulty pulls in rarer drops; every board still runs easy → hard.
+						Higher difficulty pulls in rarer drops (and bigger XP goals); every board still runs easy → hard.
+					</p>
+				</div>
+
+				<div class="field">
+					<span class="label">Skilling tiles</span>
+					<label class="toggle">
+						<input type="checkbox" name="skilling" bind:checked={skilling} />
+						<span>Include skilling goals (~¼ of the board)</span>
+					</label>
+					<p class="muted small">
+						Adds “gain X XP in a skill” tiles, sized by EHP. They track from when you lock in (XP
+						gained after that), via WiseOldMan.
 					</p>
 				</div>
 			</div>
@@ -163,8 +177,8 @@
 		<div class="panel lockbar">
 			<p class="muted small">
 				Happy with this board? <strong>Lock it in</strong> to start tracking — it'll be committed
-				for {data.lockDays} days, and your collection log + Dink drops will tick tiles off
-				automatically. Drops you already had before locking don't count.
+				for {data.lockDays} days. Item tiles tick off from your collection log + Dink; skilling
+				tiles count XP gained from now on. Progress you already had before locking doesn't count.
 			</p>
 			<form
 				method="POST"
@@ -210,7 +224,7 @@
 						}}
 					>
 						<button type="submit" disabled={refreshing}>
-							{refreshing ? 'Checking…' : '↻ Check collection log'}
+							{refreshing ? 'Checking…' : '↻ Check progress'}
 						</button>
 					</form>
 					{#if canReset}
@@ -230,23 +244,31 @@
 					class="tile"
 					class:obtained={tile.obtained}
 					class:inline={lines.cells.has(tile.idx)}
-					title="{tile.item_name} · {formatEhb(tile.ehb)} at {tile.source}"
+					class:skill={tile.kind === 'skill'}
+					title={tile.kind === 'skill' ? `${tile.skill}: gain ${formatXp(tile.target_xp ?? 0)} (~${formatEhb(tile.ehb)} EHP)` : `${tile.item_name} · ${formatEhb(tile.ehb)} at ${tile.source}`}
 				>
-					<div class="icon"><ItemIcon item={tile.item_name} size={42} /></div>
-					<div class="name">{tile.item_name}</div>
-					<div class="ehb">{formatEhb(tile.ehb)}</div>
+					{#if tile.kind === 'skill'}
+							<div class="skill-tag">{tile.skill}</div>
+							<div class="name">Gain {formatXp(tile.target_xp ?? 0)}</div>
+							{#if locked && !tile.obtained && tile.progress_xp != null}
+								<div class="ehb">{formatXp(tile.progress_xp)} / {formatXp(tile.target_xp ?? 0)}</div>
+							{/if}
+						{:else}
+							<div class="icon"><ItemIcon item={tile.item_name ?? ''} size={42} /></div>
+							<div class="name">{tile.item_name}</div>
+							<div class="ehb">{formatEhb(tile.ehb)}</div>
+						{/if}
 				</div>
 			{/each}
 		</div>
 		<p class="muted small foot">
-			EHB = efficient hours to obtain at the cheapest source.
-			{#if locked}
-				Tiles auto-complete from your TempleOSRS collection log — hit <em>Check collection log</em>
-				after a drop — and from Dink drops.
-			{:else}
-				This is a <strong>draft preview</strong> — nothing is tracked until you lock it in.
-			{/if}
-		</p>
+				EHB/EHP = efficient hours to obtain a drop / train a skill.
+				{#if locked}
+					Item tiles auto-complete from your collection log + Dink; skill tiles track XP gained since you locked in (WiseOldMan) — hit <em>Check progress</em> to refresh.
+				{:else}
+					This is a <strong>draft preview</strong> — nothing is tracked until you lock it in.
+				{/if}
+			</p>
 	{/if}
 </section>
 
@@ -410,6 +432,18 @@
 		display: flex;
 		gap: 0.5rem;
 	}
+	.toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		cursor: pointer;
+		font-size: 0.9rem;
+	}
+	.toggle input {
+		width: auto;
+		min-height: 0;
+		accent-color: var(--accent);
+	}
 	.grid {
 		display: grid;
 		grid-template-columns: repeat(var(--n), 1fr);
@@ -461,6 +495,25 @@
 	.tile.obtained .name,
 	.tile.obtained .ehb {
 		opacity: 0.55;
+	}
+	/* Skilling tiles: no item icon — a skill tag + XP goal, tinted to stand apart. */
+	.tile.skill {
+		background-color: #15212e;
+		justify-content: center;
+	}
+	.tile.skill.obtained {
+		background-color: #1e2a17;
+	}
+	.skill-tag {
+		font-family: var(--font-heading);
+		font-size: 0.8rem;
+		color: var(--accent);
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		padding: 0.1rem 0.45rem;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		margin-bottom: 0.1rem;
 	}
 	.foot {
 		margin-top: 0.75rem;

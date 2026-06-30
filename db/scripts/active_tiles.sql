@@ -77,7 +77,8 @@ select b.user_id, b.rsn,
        b.locked_at
 from vs_personal_board_tiles t
 join vs_personal_boards b on b.id = t.board_id
-where t.obtained = false and b.locked_at is not null;
+where t.obtained = false and b.locked_at is not null
+  and t.kind = 'item' and t.item_id is not null; -- skill tiles are WoM-tracked, not Dink drops
 
 -- Proxy record-allowlist views, derived from the item subset (one source of truth so a
 -- new event/board automatically enters the proxy allowlist). The dink-proxy Worker reads
