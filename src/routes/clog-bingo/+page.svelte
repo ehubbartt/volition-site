@@ -2,7 +2,7 @@
 	import { enhance } from '$app/forms';
 	import ItemIcon from '$lib/ItemIcon.svelte';
 	import { formatEhb } from '$lib/ehb';
-	import { formatXp } from '$lib/ehp';
+	import { formatXp, skillIconUrl } from '$lib/ehp';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -248,11 +248,11 @@
 					title={tile.kind === 'skill' ? `${tile.skill}: gain ${formatXp(tile.target_xp ?? 0)} (~${formatEhb(tile.ehb)} EHP)` : `${tile.item_name} · ${formatEhb(tile.ehb)} at ${tile.source}`}
 				>
 					{#if tile.kind === 'skill'}
-							<div class="skill-tag">{tile.skill}</div>
+							<div class="icon">
+								<img class="skill-img" src={skillIconUrl(tile.skill ?? '')} alt="" width="40" height="40" loading="lazy" referrerpolicy="no-referrer" onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
+							</div>
 							<div class="name">Gain {formatXp(tile.target_xp ?? 0)}</div>
-							{#if locked && !tile.obtained && tile.progress_xp != null}
-								<div class="ehb">{formatXp(tile.progress_xp)} / {formatXp(tile.target_xp ?? 0)}</div>
-							{/if}
+							<div class="ehb">{locked && !tile.obtained && tile.progress_xp != null ? `${formatXp(tile.progress_xp)} / ${formatXp(tile.target_xp ?? 0)}` : tile.skill}</div>
 						{:else}
 							<div class="icon"><ItemIcon item={tile.item_name ?? ''} size={42} /></div>
 							<div class="name">{tile.item_name}</div>
@@ -486,6 +486,12 @@
 		line-height: 1.1;
 		color: var(--text);
 		overflow-wrap: anywhere;
+		/* Clamp to 2 lines so a long item name can't make one tile taller than the rest. */
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		overflow: hidden;
 	}
 	.tile .ehb {
 		font-size: 0.72rem;
@@ -496,24 +502,19 @@
 	.tile.obtained .ehb {
 		opacity: 0.55;
 	}
-	/* Skilling tiles: no item icon — a skill tag + XP goal, tinted to stand apart. */
+	/* Skilling tiles share the item-tile layout (icon slot + name + sub-line), just tinted
+	   to stand apart, so every tile is the same size. */
 	.tile.skill {
 		background-color: #15212e;
-		justify-content: center;
 	}
 	.tile.skill.obtained {
 		background-color: #1e2a17;
 	}
-	.skill-tag {
-		font-family: var(--font-heading);
-		font-size: 0.8rem;
-		color: var(--accent);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-		padding: 0.1rem 0.45rem;
-		border: 1px solid var(--border);
-		border-radius: 999px;
-		margin-bottom: 0.1rem;
+	.skill-img {
+		width: 40px;
+		height: 40px;
+		object-fit: contain;
+		image-rendering: -webkit-optimize-contrast;
 	}
 	.foot {
 		margin-top: 0.75rem;
