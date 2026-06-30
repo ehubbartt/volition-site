@@ -37,3 +37,16 @@ create table if not exists vs_personal_board_tiles (
 );
 
 create index if not exists vs_personal_board_tiles_board on vs_personal_board_tiles (board_id);
+
+-- Skilling tiles ("gain N XP in skill X"), mixed into the same board. A tile is `kind='item'`
+-- (a collection-log drop, tracked via clog/Dink) or `kind='skill'` (XP goal, tracked via WoM
+-- "gained since locked_at"). The existing `ehb` column doubles as the tile's cost in efficient
+-- hours (EHB for items, EHP for skills) so the difficulty gradient works for both. Item-only
+-- columns become nullable for skill rows. Additive + idempotent.
+alter table vs_personal_board_tiles add column if not exists kind text not null default 'item';
+alter table vs_personal_board_tiles add column if not exists skill text;        -- skill name (kind='skill')
+alter table vs_personal_board_tiles add column if not exists target_xp bigint;  -- XP goal
+alter table vs_personal_board_tiles add column if not exists baseline_xp bigint;-- skill XP snapshot at lock
+alter table vs_personal_board_tiles add column if not exists progress_xp bigint;-- last gained-since-lock (display)
+alter table vs_personal_board_tiles alter column item_id drop not null;
+alter table vs_personal_board_tiles alter column item_name drop not null;

@@ -61,8 +61,9 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const size = Number(form.get('size') ?? 5);
 		const difficulty = Number(form.get('difficulty') ?? 5);
+		const skilling = form.get('skilling') === 'on' || form.get('skilling') === 'true';
 
-		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty);
+		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty, skilling);
 
 		if (!result.ok) {
 			const msg =
@@ -71,7 +72,7 @@ export const actions: Actions = {
 					: result.reason === 'locked'
 						? `Your board is locked in until ${result.resettable_at ? fmtResetDate(result.resettable_at) : 'later'}. You can make a new one after that.`
 						: result.reason === 'too_few'
-							? `You're only missing ${result.missing} eligible PVM clog items — not enough for a ${Math.sqrt(result.need ?? 0)}×${Math.sqrt(result.need ?? 0)} board. Nice log! Try a smaller grid.`
+							? `You're only missing ${result.missing} eligible PVM clog items — not enough to fill this board (needs ${result.need}). Nice log! Try a smaller grid${skilling ? '' : ', or enable skilling tiles'}.`
 							: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
 			const status = result.reason === 'too_few' ? 400 : result.reason === 'locked' ? 403 : 502;
 			return fail(status, { error: msg });

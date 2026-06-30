@@ -218,7 +218,10 @@ export async function evaluatePersonalDink(input: {
 	}
 	const name = (input.item_name ?? '').toLowerCase();
 	const tile = board.tiles.find(
-		(t) => (input.item_id != null && t.item_id === input.item_id) || (!!name && t.item_name.toLowerCase() === name)
+		(t) =>
+			t.kind === 'item' &&
+			((input.item_id != null && t.item_id === input.item_id) ||
+				(!!name && (t.item_name ?? '').toLowerCase() === name))
 	);
 	if (!tile) {
 		reasons.push("No tile on this player's board matches that item id/name.");

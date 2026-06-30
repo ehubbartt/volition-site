@@ -12,9 +12,10 @@
 // reset and regenerated.
 
 import { db } from './db';
-import { fetchTempleCollectionLog } from './rankData';
+import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer } from './rankData';
 import { bestEhbSource, type ItemEhb, type EhbOverrides } from '$lib/ehb';
 import { getEhbOverrides } from './ehbOverrides';
+import { SKILLS, SKILL_EHP_RATES, roundXp, skillTileHours, type Skill } from '$lib/ehp';
 import itemEhbData from './data/itemEhb.json';
 
 const ITEM_EHB = itemEhbData as ItemEhb[];
@@ -35,10 +36,15 @@ export function boardResettableAt(lockedAt: string | null): string | null {
 
 export interface PersonalBoardTile {
 	idx: number;
-	item_id: number;
-	item_name: string;
-	ehb: number;
-	source: string; // boss/raid the EHB is costed from (cheapest source)
+	kind: 'item' | 'skill';
+	item_id: number | null; // item tiles
+	item_name: string | null; // item tiles
+	ehb: number; // cost in efficient hours (EHB for items, EHP for skills) — drives the gradient
+	source: string | null; // boss/raid the EHB is costed from (item tiles)
+	skill: string | null; // skill tiles
+	target_xp: number | null; // skill tiles: XP goal
+	baseline_xp: number | null; // skill tiles: XP at lock
+	progress_xp: number | null; // skill tiles: last gained-since-lock (display)
 	obtained: boolean;
 	obtained_at: string | null;
 }
@@ -149,6 +155,27 @@ function shuffle<T>(arr: T[]): void {
 	}
 }
 
+interface SkillPick {
+	skill: Skill;
+	target_xp: number;
+	ehb: number; // EHP-hours cost (for the difficulty gradient)
+}
+
+// Pick `count` skilling tiles (distinct skills) as an easy→hard band by difficulty: each
+// tile's EHP-hours → a clean rounded XP goal for a random skill via its EHP rate.
+function selectSkillTiles(count: number, difficulty: number): SkillPick[] {
+	if (count <= 0) return [];
+	const pool = [...SKILLS];
+	shuffle(pool);
+	const picks: SkillPick[] = [];
+	for (let i = 0; i < count; i++) {
+		const skill = pool[i % pool.length];
+		const hours = skillTileHours(difficulty, i, count);
+		picks.push({ skill, target_xp: roundXp(hours * SKILL_EHP_RATES[skill]), ehb: hours });
+	}
+	return picks;
+}
+
 export type GenerateResult =
 	| { ok: true; board: PersonalBoard }
 	| {
@@ -165,7 +192,8 @@ export async function generatePersonalBoard(
 	userId: string,
 	rsn: string | null,
 	size: number,
-	difficulty: number
+	difficulty: number,
+	includeSkilling = false
 ): Promise<GenerateResult> {
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
 
@@ -181,6 +209,9 @@ export async function generatePersonalBoard(
 	const n = Math.min(MAX_SIZE, Math.max(MIN_SIZE, Math.floor(size)));
 	const diff = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, Math.floor(difficulty)));
 	const tileCount = n * n;
+	// ~1/4 of the board is skilling when enabled; the rest are clog item tiles.
+	const skillCount = includeSkilling ? Math.round(tileCount / 4) : 0;
+	const itemCount = tileCount - skillCount;
 
 	// Cached owned set: rerolling a draft reshuffles without re-hitting Temple each time.
 	const owned = await getOwnedClogNames(userId, rsn);
@@ -188,14 +219,29 @@ export async function generatePersonalBoard(
 
 	const overrides = await getEhbOverrides();
 	const pool = missingCandidates(owned, overrides);
-	if (pool.length < tileCount) {
-		return { ok: false, reason: 'too_few', missing: pool.length, need: tileCount };
+	if (pool.length < itemCount) {
+		return { ok: false, reason: 'too_few', missing: pool.length, need: itemCount };
 	}
 
-	const chosen = selectGradient(pool, tileCount, diff);
-	// The gradient still spans easy→hard items, but scatter them across the grid so the
-	// board isn't sorted by EHB.
-	shuffle(chosen);
+	const items = selectGradient(pool, itemCount, diff);
+	const skills = selectSkillTiles(skillCount, diff);
+
+	// Unified placed-tile shape (item or skill), scattered across the grid so it isn't
+	// sorted by cost.
+	type Placed = {
+		kind: 'item' | 'skill';
+		item_id: number | null;
+		item_name: string | null;
+		ehb: number;
+		source: string | null;
+		skill: string | null;
+		target_xp: number | null;
+	};
+	const placed: Placed[] = [
+		...items.map((c) => ({ kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null })),
+		...skills.map((s) => ({ kind: 'skill' as const, item_id: null, item_name: null, ehb: s.ehb, source: null, skill: s.skill, target_xp: s.target_xp }))
+	];
+	shuffle(placed);
 	const sb = db();
 
 	// One board per user: drop the old one (tiles cascade) before inserting the new draft.
@@ -209,13 +255,16 @@ export async function generatePersonalBoard(
 	if (bErr || !boardRow) return { ok: false, reason: 'clog_unavailable' };
 
 	const board = boardRow as { id: string; size: number; difficulty: number; rsn: string; created_at: string; locked_at: string | null };
-	const tileRows = chosen.map((c, idx) => ({
+	const tileRows = placed.map((p, idx) => ({
 		board_id: board.id,
 		idx,
-		item_id: c.item_id,
-		item_name: c.item_name,
-		ehb: c.ehb,
-		source: c.source,
+		kind: p.kind,
+		item_id: p.item_id,
+		item_name: p.item_name,
+		ehb: p.ehb,
+		source: p.source,
+		skill: p.skill,
+		target_xp: p.target_xp,
 		obtained: false
 	}));
 	const { error: tErr } = await sb.from('vs_personal_board_tiles').insert(tileRows);
@@ -233,12 +282,17 @@ export async function generatePersonalBoard(
 			rsn: board.rsn,
 			created_at: board.created_at,
 			locked_at: board.locked_at,
-			tiles: chosen.map((c, idx) => ({
+			tiles: placed.map((p, idx) => ({
 				idx,
-				item_id: c.item_id,
-				item_name: c.item_name,
-				ehb: c.ehb,
-				source: c.source,
+				kind: p.kind,
+				item_id: p.item_id,
+				item_name: p.item_name,
+				ehb: p.ehb,
+				source: p.source,
+				skill: p.skill,
+				target_xp: p.target_xp,
+				baseline_xp: null,
+				progress_xp: null,
 				obtained: false,
 				obtained_at: null
 			}))
@@ -259,7 +313,7 @@ export async function loadPersonalBoard(userId: string): Promise<PersonalBoard |
 
 	const { data: tileRows } = await sb
 		.from('vs_personal_board_tiles')
-		.select('idx, item_id, item_name, ehb, source, obtained, obtained_at')
+		.select('idx, kind, item_id, item_name, ehb, source, skill, target_xp, baseline_xp, progress_xp, obtained, obtained_at')
 		.eq('board_id', board.id)
 		.order('idx', { ascending: true });
 
@@ -284,11 +338,25 @@ export async function lockPersonalBoard(userId: string): Promise<LockResult> {
 	if (board.locked_at) return { ok: true, board }; // already locked
 
 	const lockedAt = new Date().toISOString();
-	await db()
-		.from('vs_personal_boards')
-		.update({ locked_at: lockedAt })
-		.eq('id', board.id)
-		.is('locked_at', null);
+	const sb = db();
+	await sb.from('vs_personal_boards').update({ locked_at: lockedAt }).eq('id', board.id).is('locked_at', null);
+
+	// Snapshot per-skill XP as the baseline for skilling tiles ("gained since lock"). Best-
+	// effort: if WoM is unavailable, baselines stay null and are captured lazily on the first
+	// refresh.
+	const skillTiles = board.tiles.filter((t) => t.kind === 'skill' && t.skill);
+	if (skillTiles.length) {
+		await updateWomPlayer(board.rsn);
+		const xp = await fetchPlayerSkillXp(board.rsn);
+		if (xp) {
+			for (const t of skillTiles) {
+				const base = xp[t.skill as Skill];
+				if (base != null) {
+					await sb.from('vs_personal_board_tiles').update({ baseline_xp: base }).eq('board_id', board.id).eq('idx', t.idx);
+				}
+			}
+		}
+	}
 	return { ok: true, board: { ...board, locked_at: lockedAt } };
 }
 
@@ -329,23 +397,50 @@ export async function refreshPersonalBoard(userId: string): Promise<RefreshResul
 	if (!board) return { ok: false, reason: 'no_board' };
 	if (!board.locked_at) return { ok: false, reason: 'not_locked' };
 
-	const owned = await getOwnedClogNames(userId, board.rsn, true); // force a fresh Temple read
-	if (owned == null) return { ok: false, reason: 'clog_unavailable' };
-
 	const sb = db();
 	const now = new Date().toISOString();
 	const newlyObtained: string[] = [];
-	for (const tile of board.tiles) {
-		if (tile.obtained) continue;
-		if (owned.has(tile.item_name.toLowerCase())) {
-			newlyObtained.push(tile.item_name);
-			await sb
-				.from('vs_personal_board_tiles')
-				.update({ obtained: true, obtained_at: now })
-				.eq('board_id', board.id)
-				.eq('idx', tile.idx);
+
+	// Item tiles: re-poll the collection log.
+	const itemTiles = board.tiles.filter((t) => !t.obtained && t.kind === 'item' && t.item_name);
+	if (itemTiles.length) {
+		const owned = await getOwnedClogNames(userId, board.rsn, true); // force a fresh Temple read
+		if (owned == null) return { ok: false, reason: 'clog_unavailable' };
+		for (const tile of itemTiles) {
+			if (owned.has((tile.item_name as string).toLowerCase())) {
+				newlyObtained.push(tile.item_name as string);
+				await sb.from('vs_personal_board_tiles').update({ obtained: true, obtained_at: now }).eq('board_id', board.id).eq('idx', tile.idx);
+			}
 		}
 	}
+
+	// Skill tiles: XP gained since lock (WoM). Best-effort — a WoM outage just leaves progress
+	// unchanged this round (not an error). Captures a missing baseline lazily.
+	const skillTiles = board.tiles.filter((t) => !t.obtained && t.kind === 'skill' && t.skill);
+	if (skillTiles.length) {
+		await updateWomPlayer(board.rsn);
+		const xp = await fetchPlayerSkillXp(board.rsn);
+		if (xp) {
+			for (const t of skillTiles) {
+				const current = xp[t.skill as Skill];
+				if (current == null) continue;
+				if (t.baseline_xp == null) {
+					// Lock-time snapshot failed; set the baseline now and credit from here on.
+					await sb.from('vs_personal_board_tiles').update({ baseline_xp: current, progress_xp: 0 }).eq('board_id', board.id).eq('idx', t.idx);
+					continue;
+				}
+				const gained = Math.max(0, current - t.baseline_xp);
+				const done = t.target_xp != null && gained >= t.target_xp;
+				await sb
+					.from('vs_personal_board_tiles')
+					.update({ progress_xp: gained, ...(done ? { obtained: true, obtained_at: now } : {}) })
+					.eq('board_id', board.id)
+					.eq('idx', t.idx);
+				if (done) newlyObtained.push(t.skill as string);
+			}
+		}
+	}
+
 	const totalObtained = board.tiles.filter((t) => t.obtained).length + newlyObtained.length;
 	return { ok: true, newlyObtained, totalObtained };
 }

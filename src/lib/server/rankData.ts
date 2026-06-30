@@ -6,6 +6,7 @@
 
 import { calculateGearPoints, calculateCAPoints, type RankInputs } from './rankScoring';
 import { getJson } from './http';
+import { SKILLS, SKILL_WOM_KEY, type Skill } from '$lib/ehp';
 
 // Same WOM group as the bot (voli-disc-bot/config.json clanId).
 const WOM_CLAN_ID = 4765;
@@ -49,6 +50,33 @@ export async function fetchPlayerTotalLevel(rsn: string): Promise<number | null>
 		| { latestSnapshot?: { data?: { skills?: { overall?: { level?: number } } } } }
 		| null;
 	return data?.latestSnapshot?.data?.skills?.overall?.level ?? null;
+}
+
+// Best-effort: ask WoM to refresh this player's snapshot so per-skill XP is current. WoM
+// rate-limits updates (~1/min/player); failures are non-fatal — fetchPlayerSkillXp below
+// falls back to the last stored snapshot.
+export async function updateWomPlayer(rsn: string): Promise<void> {
+	try {
+		await fetch(`${WOM_BASE}/players/${encodeURIComponent(rsn)}`, { method: 'POST' });
+	} catch {
+		// ignore
+	}
+}
+
+// Per-skill current XP from WoM's latest snapshot (used for skilling-tile baselines + the
+// "gained since lock" check). Best-effort: null on outage; missing skills default to 0.
+export async function fetchPlayerSkillXp(rsn: string): Promise<Record<Skill, number> | null> {
+	const data = (await getJson(`${WOM_BASE}/players/${encodeURIComponent(rsn)}`)) as
+		| { latestSnapshot?: { data?: { skills?: Record<string, { experience?: number }> } } }
+		| null;
+	const skills = data?.latestSnapshot?.data?.skills;
+	if (!skills) return null;
+	const out = {} as Record<Skill, number>;
+	for (const s of SKILLS) {
+		const xp = skills[SKILL_WOM_KEY[s]]?.experience;
+		out[s] = typeof xp === 'number' && xp >= 0 ? xp : 0;
+	}
+	return out;
 }
 
 export async function fetchTempleCollectionLog(
