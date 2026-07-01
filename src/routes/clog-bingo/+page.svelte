@@ -1,16 +1,43 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import ItemIcon from '$lib/ItemIcon.svelte';
+	import BingoTile from '$lib/BingoTile.svelte';
 	import { formatEhb } from '$lib/ehb';
-	import { formatXp, skillIconUrl } from '$lib/ehp';
-	import { caTierIconUrl, caTierLabel, caMonsterIconUrl } from '$lib/ca';
+	import { formatXp } from '$lib/ehp';
+	import { caTierLabel } from '$lib/ca';
+	import { itemImageUrl, skillImageUrl, monsterImageUrl, caTierImageUrl } from '$lib/wikiImage';
 	import type { PageData, ActionData } from './$types';
+
+	type Tile = NonNullable<PageData['board']>['tiles'][number];
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	let board = $derived(data.board);
 	let locked = $derived(data.locked);
 	let canReset = $derived(data.canReset);
+
+	// Map a personal-board tile (item / skill / ca) onto the generic BingoTile props.
+	function tileImage(t: Tile): string {
+		if (t.kind === 'skill') return skillImageUrl(t.skill ?? '');
+		if (t.kind === 'ca') return t.source ? monsterImageUrl(t.source) : caTierImageUrl(t.ca_tier);
+		return itemImageUrl(t.item_name ?? '');
+	}
+	function tileName(t: Tile): string {
+		return t.kind === 'skill' ? `Gain ${formatXp(t.target_xp ?? 0)}` : (t.item_name ?? '');
+	}
+	function tileSub(t: Tile): string {
+		if (t.kind === 'skill') {
+			return locked && !t.obtained && t.progress_xp != null
+				? `${formatXp(t.progress_xp)} / ${formatXp(t.target_xp ?? 0)}`
+				: formatEhb(t.ehb);
+		}
+		if (t.kind === 'ca') return `${caTierLabel(t.ca_tier)} CA`;
+		return formatEhb(t.ehb);
+	}
+	function tileTitle(t: Tile): string {
+		if (t.kind === 'skill') return `${t.skill}: gain ${formatXp(t.target_xp ?? 0)} (~${formatEhb(t.ehb)} EHP)`;
+		if (t.kind === 'ca') return `Combat achievement (${caTierLabel(t.ca_tier)}): ${t.item_name}`;
+		return `${t.item_name} · ${formatEhb(t.ehb)} at ${t.source}`;
+	}
 
 	// Create-form state. Defaults: 5×5, mid difficulty.
 	let size = $state(5);
@@ -246,36 +273,14 @@
 
 		<div class="grid" style="--n:{board.size}">
 			{#each board.tiles as tile (tile.idx)}
-				<div
-					class="tile"
-					class:obtained={tile.obtained}
-					class:inline={lines.cells.has(tile.idx)}
-					class:skill={tile.kind === 'skill'}
-					class:ca={tile.kind === 'ca'}
-					title={tile.kind === 'skill'
-						? `${tile.skill}: gain ${formatXp(tile.target_xp ?? 0)} (~${formatEhb(tile.ehb)} EHP)`
-						: tile.kind === 'ca'
-							? `Combat achievement (${caTierLabel(tile.ca_tier)}): ${tile.item_name}`
-							: `${tile.item_name} · ${formatEhb(tile.ehb)} at ${tile.source}`}
-				>
-					{#if tile.kind === 'skill'}
-							<div class="icon">
-								<img class="skill-img" src={skillIconUrl(tile.skill ?? '')} alt="" width="40" height="40" loading="lazy" referrerpolicy="no-referrer" onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
-							</div>
-							<div class="name">Gain {formatXp(tile.target_xp ?? 0)}</div>
-							<div class="ehb">{locked && !tile.obtained && tile.progress_xp != null ? `${formatXp(tile.progress_xp)} / ${formatXp(tile.target_xp ?? 0)}` : formatEhb(tile.ehb)}</div>
-						{:else if tile.kind === 'ca'}
-							<div class="icon">
-								<img class="skill-img" src={tile.source ? caMonsterIconUrl(tile.source) : caTierIconUrl(tile.ca_tier)} alt="" width="40" height="40" loading="lazy" referrerpolicy="no-referrer" onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} />
-							</div>
-							<div class="name">{tile.item_name}</div>
-							<div class="ehb">{caTierLabel(tile.ca_tier)} CA</div>
-						{:else}
-							<div class="icon"><ItemIcon item={tile.item_name ?? ''} size={42} /></div>
-							<div class="name">{tile.item_name}</div>
-							<div class="ehb">{formatEhb(tile.ehb)}</div>
-						{/if}
-				</div>
+				<BingoTile
+					image={tileImage(tile)}
+					name={tileName(tile)}
+					sub={tileSub(tile)}
+					obtained={tile.obtained}
+					highlighted={lines.cells.has(tile.idx)}
+					title={tileTitle(tile)}
+				/>
 			{/each}
 		</div>
 		<p class="muted small foot">
@@ -466,79 +471,7 @@
 		grid-template-columns: repeat(var(--n), 1fr);
 		gap: 0.5rem;
 	}
-	/* Tiles wear the same bronze OSRS button frame + tan fill as the site's buttons, so the
-	   board reads as part of the interface. Every icon sits on a light parchment disc so even
-	   dark/black wiki glyphs (e.g. the Agility icon) stay visible on the tan tile. */
-	.tile {
-		position: relative;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: flex-start;
-		gap: 0.3rem;
-		padding: 0.55rem 0.4rem;
-		min-height: 7rem;
-		text-align: center;
-		background: #4d4336;
-		border: 9px solid transparent;
-		border-image: url('/osrs/button.png') 9 / 9px stretch;
-		border-radius: 5px;
-	}
-	/* Completed: a green inner ring + faint green wash. The frame is unchanged so a tile never
-	   resizes when it ticks off. */
-	.tile.obtained {
-		background: #3b4a2c;
-		box-shadow: inset 0 0 0 3px var(--success);
-	}
-	.tile.inline {
-		box-shadow: 0 0 0 2px var(--accent), 0 0 14px -2px var(--accent);
-	}
-	.tile.obtained.inline {
-		box-shadow:
-			inset 0 0 0 3px var(--success),
-			0 0 0 2px var(--accent),
-			0 0 14px -2px var(--accent);
-	}
-	.tile .icon {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		/* Wide enough that a square 40–42px icon's corners clear the circle (needs ≥ side·√2). */
-		width: 64px;
-		height: 64px;
-		border-radius: 50%;
-		background: radial-gradient(circle at 50% 38%, #f1e8cf, #c3b088);
-		box-shadow:
-			inset 0 0 0 2px rgba(0, 0, 0, 0.45),
-			inset 0 -3px 6px rgba(0, 0, 0, 0.18);
-	}
-	.tile .name {
-		font-size: 0.78rem;
-		line-height: 1.1;
-		color: var(--accent);
-		overflow-wrap: anywhere;
-		/* Clamp to 2 lines so a long item name can't make one tile taller than the rest. */
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
-		overflow: hidden;
-	}
-	.tile .ehb {
-		font-size: 0.72rem;
-		color: #cbb78b;
-		font-family: var(--font-heading);
-	}
-	.tile.obtained .name,
-	.tile.obtained .ehb {
-		opacity: 0.6;
-	}
-	.skill-img {
-		width: 40px;
-		height: 40px;
-		object-fit: contain;
-		image-rendering: -webkit-optimize-contrast;
-	}
+	/* Individual tiles are the reusable <BingoTile> component ($lib/BingoTile.svelte). */
 	.foot {
 		margin-top: 0.75rem;
 	}
