@@ -9,6 +9,16 @@ export const SKILLS = [
 ] as const;
 export type Skill = (typeof SKILLS)[number];
 
+// Combat skills that are NOT offered as skilling bingo tiles (they're covered by PvM/CA tiles
+// instead). Prayer is deliberately kept — it's the one combat skill that's a pure grind tile.
+export const NON_TILE_SKILLS: ReadonlySet<Skill> = new Set([
+	'Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Magic'
+]);
+
+// The skills a personal-board skilling tile can be drawn from (everything except the combat
+// skills above, i.e. Prayer + all non-combat skills).
+export const TILE_SKILLS: readonly Skill[] = SKILLS.filter((s) => !NON_TILE_SKILLS.has(s));
+
 // WiseOldMan metric key per skill (lowercase; the only odd one is Runecraft → 'runecrafting').
 export const SKILL_WOM_KEY: Record<Skill, string> = Object.fromEntries(
 	SKILLS.map((s) => [s, s === 'Runecraft' ? 'runecrafting' : s.toLowerCase()])
