@@ -21,6 +21,12 @@ export function wikiImageUrl(name: string): string {
 	return file ? `https://oldschool.runescape.wiki/images/${file}.png` : '';
 }
 
+// Wiki ARTICLE link (/w/<Page>) for a boss / skill / item / etc. Returns '' for an empty name.
+export function wikiPageUrl(name: string | null | undefined): string {
+	const n = (name ?? '').trim();
+	return n ? `https://oldschool.runescape.wiki/w/${encodeURIComponent(n.replace(/ /g, '_'))}` : '';
+}
+
 // Thumbnail scaled to `width` px: /images/thumb/<File>.png/<width>px-<File>.png. Handy for the
 // large boss/scene renders used on event boards (the cache-busting ?hash suffix is optional).
 export function wikiThumbUrl(name: string, width: number): string {

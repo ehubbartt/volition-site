@@ -14,7 +14,8 @@
 		obtained = false,
 		highlighted = false,
 		title = '',
-		imageSize = 42
+		imageSize = 42,
+		onselect
 	}: {
 		image?: string | null;
 		imageAlt?: string;
@@ -24,15 +25,25 @@
 		highlighted?: boolean;
 		title?: string;
 		imageSize?: number;
+		/** When provided, the icon disc becomes a button that calls this on click. */
+		onselect?: () => void;
 	} = $props();
 </script>
 
 <div class="tile" class:obtained class:highlighted {title}>
-	<div class="icon">
-		{#if image}
-			<WikiImage src={image} alt={imageAlt} size={imageSize} />
-		{/if}
-	</div>
+	{#if onselect}
+		<button type="button" class="icon" onclick={onselect} aria-label={`${name} — details`}>
+			{#if image}
+				<WikiImage src={image} alt={imageAlt} size={imageSize} />
+			{/if}
+		</button>
+	{:else}
+		<div class="icon">
+			{#if image}
+				<WikiImage src={image} alt={imageAlt} size={imageSize} />
+			{/if}
+		</div>
+	{/if}
 	<div class="name">{name}</div>
 	{#if sub}
 		<div class="sub">{sub}</div>
@@ -90,6 +101,21 @@
 		box-shadow:
 			inset 0 0 0 2px rgba(0, 0, 0, 0.45),
 			inset 0 -3px 6px rgba(0, 0, 0, 0.18);
+		/* Resets for when .icon is a <button> (overrides the global bronze button styling). */
+		border: none;
+		min-height: 0;
+		padding: 0;
+	}
+	button.icon {
+		cursor: pointer;
+		transition: filter 0.1s ease;
+	}
+	button.icon:hover {
+		filter: brightness(1.08);
+	}
+	button.icon:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
 	}
 	/* The wiki image fits inside the disc regardless of the disc's (responsive) size. Use a
 	   DEFINITE size (66% of the disc) rather than width:auto — a lazy-loaded <img> with an

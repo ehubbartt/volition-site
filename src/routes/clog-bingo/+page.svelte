@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import BingoTile from '$lib/BingoTile.svelte';
+	import WikiImage from '$lib/WikiImage.svelte';
 	import { formatEhb } from '$lib/ehb';
 	import { formatXp } from '$lib/ehp';
 	import { caTierLabel } from '$lib/ca';
-	import { itemImageUrl, skillImageUrl, monsterImageUrl, caTierImageUrl } from '$lib/wikiImage';
+	import { itemImageUrl, skillImageUrl, monsterImageUrl, caTierImageUrl, wikiPageUrl } from '$lib/wikiImage';
 	import type { PageData, ActionData } from './$types';
 
 	type Tile = NonNullable<PageData['board']>['tiles'][number];
@@ -38,6 +39,12 @@
 		if (t.kind === 'ca') return `Combat achievement (${caTierLabel(t.ca_tier)}): ${t.item_name}`;
 		return `${t.item_name} · ${formatEhb(t.ehb)} at ${t.source}`;
 	}
+
+	// Tile-detail modal: clicking a tile's icon disc opens it.
+	let modalTile = $state<Tile | null>(null);
+	const modalHeading = $derived(
+		modalTile ? (modalTile.kind === 'skill' ? (modalTile.skill ?? 'Skill') : (modalTile.item_name ?? '')) : ''
+	);
 
 	// Create-form state. Defaults: 5×5, mid difficulty.
 	let size = $state(5);
@@ -88,6 +95,7 @@
 </script>
 
 <svelte:head><title>Personal Bingo · Volition</title></svelte:head>
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') modalTile = null; }} />
 
 <section class="wrap">
 	<a class="back" href="/events">← Events</a>
@@ -288,6 +296,7 @@
 					obtained={tile.obtained}
 					highlighted={lines.cells.has(tile.idx)}
 					title={tileTitle(tile)}
+					onselect={() => (modalTile = tile)}
 				/>
 			{/each}
 		</div>
@@ -301,6 +310,56 @@
 			</p>
 	{/if}
 </section>
+
+<!-- Tile-detail modal (opens on clicking a tile's icon disc). -->
+{#if modalTile}
+	{@const t = modalTile}
+	<div class="modal-backdrop" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) modalTile = null; }}>
+		<div class="modal" role="dialog" tabindex="-1" aria-modal="true" aria-label={modalHeading}>
+			<button class="modal-close" type="button" aria-label="Close" onclick={() => (modalTile = null)}>×</button>
+			<div class="modal-head">
+				<div class="modal-icon"><WikiImage src={tileImage(t)} size={48} /></div>
+				<h3>{modalHeading}</h3>
+			</div>
+
+			{#if t.kind === 'item'}
+				<dl class="modal-dl">
+					<div><dt>Boss</dt><dd>{t.source ?? '—'}</dd></div>
+					<div><dt>Drop rate</dt><dd>{data.dropRates[t.idx] ?? '—'}</dd></div>
+					<div><dt>EHB</dt><dd>{formatEhb(t.ehb)}</dd></div>
+				</dl>
+				<div class="modal-links">
+					{#if t.source}<a href={wikiPageUrl(t.source)} target="_blank" rel="noreferrer noopener">{t.source} wiki ↗</a>{/if}
+					{#if t.item_name}<a href={wikiPageUrl(t.item_name)} target="_blank" rel="noreferrer noopener">{t.item_name} wiki ↗</a>{/if}
+				</div>
+			{:else if t.kind === 'skill'}
+				<dl class="modal-dl">
+					<div><dt>Skill</dt><dd>{t.skill}</dd></div>
+					<div><dt>Goal</dt><dd>Gain {formatXp(t.target_xp ?? 0)}</dd></div>
+					<div><dt>≈ EHP</dt><dd>{formatEhb(t.ehb)}</dd></div>
+					{#if locked && t.progress_xp != null}
+						<div><dt>Progress</dt><dd>{formatXp(t.progress_xp)} / {formatXp(t.target_xp ?? 0)}</dd></div>
+					{/if}
+				</dl>
+				<div class="modal-links">
+					{#if t.skill}<a href={wikiPageUrl(t.skill)} target="_blank" rel="noreferrer noopener">{t.skill} wiki ↗</a>{/if}
+				</div>
+			{:else}
+				<dl class="modal-dl">
+					<div><dt>Combat achievement</dt><dd>{t.item_name}</dd></div>
+					<div><dt>Tier</dt><dd>{caTierLabel(t.ca_tier)}</dd></div>
+					{#if t.source}<div><dt>Boss</dt><dd>{t.source}</dd></div>{/if}
+				</dl>
+				<div class="modal-links">
+					{#if t.source}<a href={wikiPageUrl(t.source)} target="_blank" rel="noreferrer noopener">{t.source} wiki ↗</a>{/if}
+					<a href="https://oldschool.runescape.wiki/w/Combat_Achievements" target="_blank" rel="noreferrer noopener">Combat Achievements wiki ↗</a>
+				</div>
+			{/if}
+
+			{#if t.obtained}<p class="modal-done">✓ Completed</p>{/if}
+		</div>
+	</div>
+{/if}
 
 <style>
 	.wrap {
@@ -495,5 +554,100 @@
 	/* Individual tiles are the reusable <BingoTile> component ($lib/BingoTile.svelte). */
 	.foot {
 		margin-top: 0.75rem;
+	}
+
+	/* ── Tile-detail modal ── */
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 50;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 1rem;
+		background: rgba(0, 0, 0, 0.6);
+	}
+	.modal {
+		position: relative;
+		width: 100%;
+		max-width: 22rem;
+		background: #2a2418;
+		border: 4px solid transparent;
+		border-image: url('/osrs/border-tiny.png') 4 / 4px round;
+		border-radius: 6px;
+		padding: 1.1rem 1.2rem 1.2rem;
+	}
+	.modal-close {
+		position: absolute;
+		top: 0.35rem;
+		right: 0.5rem;
+		background: none;
+		border: none;
+		min-height: 0;
+		padding: 0.1rem 0.4rem;
+		font-size: 1.3rem;
+		line-height: 1;
+		color: var(--muted);
+		cursor: pointer;
+	}
+	.modal-close:hover {
+		color: var(--accent);
+	}
+	.modal-head {
+		display: flex;
+		align-items: center;
+		gap: 0.7rem;
+		margin-bottom: 0.8rem;
+	}
+	.modal-icon {
+		flex: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 58px;
+		height: 58px;
+		border-radius: 50%;
+		background: radial-gradient(circle at 50% 38%, #f1e8cf, #c3b088);
+		box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.45);
+	}
+	.modal-head h3 {
+		margin: 0;
+		font-size: 1.05rem;
+		color: var(--accent);
+	}
+	.modal-dl {
+		margin: 0 0 0.9rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+	}
+	.modal-dl > div {
+		display: flex;
+		justify-content: space-between;
+		gap: 1rem;
+		font-size: 0.88rem;
+	}
+	.modal-dl dt {
+		color: var(--muted);
+	}
+	.modal-dl dd {
+		margin: 0;
+		text-align: right;
+		color: var(--text);
+	}
+	.modal-links {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+	.modal-links a {
+		color: var(--accent);
+		font-size: 0.88rem;
+	}
+	.modal-done {
+		margin: 0.8rem 0 0;
+		color: var(--success);
+		font-weight: bold;
+		font-size: 0.9rem;
 	}
 </style>
