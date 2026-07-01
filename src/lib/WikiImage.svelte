@@ -11,17 +11,22 @@
 </script>
 
 {#if src}
-	<img
-		class="wiki-img {klass}"
-		{src}
-		{alt}
-		width={size}
-		height={size}
-		loading="lazy"
-		decoding="async"
-		referrerpolicy="no-referrer"
-		onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-	/>
+	<!-- Key on src so a changed URL (e.g. rerolling a board) remounts a FRESH <img>: the reused
+	     element would otherwise keep any onerror `display:none` from a prior src, leaving tiles
+	     blank until a hard refresh. No lazy-loading — these icons are small/few and eager loading
+	     avoids the intersection quirks that dynamically-swapped images run into. -->
+	{#key src}
+		<img
+			class="wiki-img {klass}"
+			{src}
+			{alt}
+			width={size}
+			height={size}
+			decoding="async"
+			referrerpolicy="no-referrer"
+			onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+		/>
+	{/key}
 {/if}
 
 <style>
