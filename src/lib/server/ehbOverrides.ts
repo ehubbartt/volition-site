@@ -1,6 +1,7 @@
 // SERVER-ONLY: admin-set manual EHB corrections (vs_ehb_overrides), layered on top of the
 // computed values from itemEhb.json. EHB is an estimate; admins fix a boss's rate (affects
-// all its drops) or pin a specific item's EHB. Cached ~60s like rankConfig/getLootConfig.
+// all its drops), pin a specific item's EHB, or EXCLUDE an item from the personal-board draw
+// pool ('exclude' kind — see getExcludedItemIds). Cached ~60s like rankConfig/getLootConfig.
 //
 // Shape returned to the math (src/lib/ehb.ts EhbOverrides):
 //   bossRate: `${mechanic}|${source_name}` → kills/raids per hour
@@ -24,11 +25,13 @@ export interface ItemOverrideRow {
 
 let cache: { value: EhbOverrides; at: number } | null = null;
 let inflight: Promise<EhbOverrides> | null = null;
+let excludeCache: { value: Set<number>; at: number } | null = null;
 const CACHE_TTL_MS = 60_000;
 
 function bustCache() {
 	cache = null;
 	inflight = null;
+	excludeCache = null;
 }
 
 // The override map for the EHB math, cached for a minute. force=true bypasses the cache so
@@ -138,6 +141,40 @@ export async function setItemOverride(
 
 export async function clearItemOverride(itemId: number): Promise<{ ok: boolean; error?: string }> {
 	const { error } = await db().from('vs_ehb_overrides').delete().eq('kind', 'item').eq('item_id', itemId);
+	bustCache();
+	return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+// Item exclusions ('exclude' kind): items removed from the personal-board draw pool. Keyed by
+// item_id (shares the unique(item_id) target with 'item', so an item is either pinned or
+// excluded). Cached ~60s; never throws (missing table → empty set).
+export async function getExcludedItemIds(force = false): Promise<Set<number>> {
+	if (!force && excludeCache && Date.now() - excludeCache.at < CACHE_TTL_MS) return excludeCache.value;
+	try {
+		const { data } = await db().from('vs_ehb_overrides').select('item_id').eq('kind', 'exclude');
+		const set = new Set<number>();
+		for (const r of (data ?? []) as { item_id: number | null }[]) if (r.item_id != null) set.add(r.item_id);
+		excludeCache = { value: set, at: Date.now() };
+		return set;
+	} catch {
+		return new Set();
+	}
+}
+
+export async function setItemExclusion(itemId: number, updatedBy: string, note?: string): Promise<{ ok: boolean; error?: string }> {
+	const { error } = await db()
+		.from('vs_ehb_overrides')
+		.upsert(
+			// null the pin-only columns in case this item previously had an EHB override.
+			{ kind: 'exclude', item_id: itemId, ehb_hours: null, mechanic: null, source_name: null, rate: null, note: note ?? null, updated_by: updatedBy, updated_at: new Date().toISOString() },
+			{ onConflict: 'item_id' }
+		);
+	bustCache();
+	return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+export async function clearItemExclusion(itemId: number): Promise<{ ok: boolean; error?: string }> {
+	const { error } = await db().from('vs_ehb_overrides').delete().eq('kind', 'exclude').eq('item_id', itemId);
 	bustCache();
 	return error ? { ok: false, error: error.message } : { ok: true };
 }

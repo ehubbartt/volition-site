@@ -188,7 +188,7 @@
 					{#if skilling}
 						<label class="toggle sub">
 							<input type="checkbox" name="skip99" bind:checked={skip99} />
-							<span>Skip skills already at 99</span>
+							<span>Exclude maxed skills</span>
 						</label>
 					{/if}
 					<label class="toggle">

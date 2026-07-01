@@ -8,12 +8,14 @@
 --     boss's EhbSource.r, so EVERY drop from that boss re-costs. (Doom uses doomKph, not r;
 --     boss overrides don't apply to it.)
 --   * 'item' — key item_id → `ehb_hours`, a direct final EHB that wins outright for that item.
+--   * 'exclude' — key item_id, removes that item from the personal-board draw pool entirely
+--     (it shares the unique(item_id) target, so an item is either EHB-pinned or excluded).
 -- The EHB math layers these on top of itemEhb.json in memory (see src/lib/server/ehbOverrides.ts),
 -- so they survive regeneration as long as the source name / item id is stable.
 
 create table if not exists vs_ehb_overrides (
 	id          uuid primary key default gen_random_uuid(),
-	kind        text not null check (kind in ('boss', 'item')),
+	kind        text not null check (kind in ('boss', 'item', 'exclude')),
 	-- boss kind:
 	mechanic    text,        -- EhbSource.t ('kill'|'cox'|'tobn'|'tobh'|'toa')
 	source_name text,        -- EhbSource.s (boss / chest display name)
@@ -31,3 +33,7 @@ create table if not exists vs_ehb_overrides (
 	unique (mechanic, source_name),
 	unique (item_id)
 );
+
+-- Widen the kind check on databases created before 'exclude' existed (safe to re-run).
+alter table vs_ehb_overrides drop constraint if exists vs_ehb_overrides_kind_check;
+alter table vs_ehb_overrides add constraint vs_ehb_overrides_kind_check check (kind in ('boss', 'item', 'exclude'));
