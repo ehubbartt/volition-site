@@ -466,42 +466,55 @@
 		grid-template-columns: repeat(var(--n), 1fr);
 		gap: 0.5rem;
 	}
+	/* Tiles wear the same bronze OSRS button frame + tan fill as the site's buttons, so the
+	   board reads as part of the interface. Every icon sits on a light parchment disc so even
+	   dark/black wiki glyphs (e.g. the Agility icon) stay visible on the tan tile. */
 	.tile {
 		position: relative;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: flex-start;
-		gap: 0.25rem;
-		padding: 0.6rem 0.4rem;
+		gap: 0.3rem;
+		padding: 0.55rem 0.4rem;
 		min-height: 7rem;
 		text-align: center;
-		background-color: #241d12;
-		background-image: var(--stone-tile);
-		background-repeat: repeat;
-		background-blend-mode: multiply;
-		border: 4px solid transparent;
-		border-image: url('/osrs/border-tiny.png') 4 / 4px round;
-		border-radius: 4px;
+		background: #4d4336;
+		border: 9px solid transparent;
+		border-image: url('/osrs/button.png') 9 / 9px stretch;
+		border-radius: 5px;
 	}
+	/* Completed: a green inner ring + faint green wash. The frame is unchanged so a tile never
+	   resizes when it ticks off. */
 	.tile.obtained {
-		background-color: #1e2a17;
-		border-image: none;
-		border: 4px solid var(--success);
+		background: #3b4a2c;
+		box-shadow: inset 0 0 0 3px var(--success);
 	}
 	.tile.inline {
 		box-shadow: 0 0 0 2px var(--accent), 0 0 14px -2px var(--accent);
+	}
+	.tile.obtained.inline {
+		box-shadow:
+			inset 0 0 0 3px var(--success),
+			0 0 0 2px var(--accent),
+			0 0 14px -2px var(--accent);
 	}
 	.tile .icon {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		height: 44px;
+		width: 50px;
+		height: 50px;
+		border-radius: 50%;
+		background: radial-gradient(circle at 50% 38%, #f1e8cf, #c3b088);
+		box-shadow:
+			inset 0 0 0 2px rgba(0, 0, 0, 0.45),
+			inset 0 -3px 6px rgba(0, 0, 0, 0.18);
 	}
 	.tile .name {
 		font-size: 0.78rem;
 		line-height: 1.1;
-		color: var(--text);
+		color: var(--accent);
 		overflow-wrap: anywhere;
 		/* Clamp to 2 lines so a long item name can't make one tile taller than the rest. */
 		display: -webkit-box;
@@ -512,27 +525,12 @@
 	}
 	.tile .ehb {
 		font-size: 0.72rem;
-		color: var(--muted);
+		color: #cbb78b;
 		font-family: var(--font-heading);
 	}
 	.tile.obtained .name,
 	.tile.obtained .ehb {
-		opacity: 0.55;
-	}
-	/* Skilling tiles share the item-tile layout (icon slot + name + sub-line), just tinted
-	   to stand apart, so every tile is the same size. */
-	.tile.skill {
-		background-color: #15212e;
-	}
-	.tile.skill.obtained {
-		background-color: #1e2a17;
-	}
-	/* Combat-achievement tiles share the same layout, tinted differently again. */
-	.tile.ca {
-		background-color: #251a2e;
-	}
-	.tile.ca.obtained {
-		background-color: #1e2a17;
+		opacity: 0.6;
 	}
 	.skill-img {
 		width: 40px;
