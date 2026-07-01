@@ -103,6 +103,9 @@
 		<h1>{data.event.name}</h1>
 		<span class="badge {data.event.status}">{data.event.status}</span>
 	</div>
+	{#if data.host && (data.host.discord_username || data.host.rsn)}
+		<p class="host muted small">Hosted by {data.host.discord_username ? `@${data.host.discord_username}` : data.host.rsn} — message them with questions.</p>
+	{/if}
 	{#if data.event.description_html}
 		{@const isLong = (data.event.description?.length ?? 0) > 220}
 		<div

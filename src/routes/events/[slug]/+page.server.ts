@@ -114,13 +114,24 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	const { data: event, error: eventErr } = await supabase
 		.from('vs_events')
 		.select(
-			'id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, starts_at, team_size'
+			'id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, starts_at, team_size, owner_user_id'
 		)
 		.eq('slug', params.slug)
 		.maybeSingle();
 
 	if (eventErr) throw error(500, eventErr.message);
 	if (!event) throw error(404, 'Event not found');
+
+	// Who hosts this event (the admin who created it) — shown so members know who to contact.
+	let host: { rsn: string | null; discord_username: string | null } | null = null;
+	if (event.owner_user_id) {
+		const { data: owner } = await supabase
+			.from('vs_users')
+			.select('rsn, discord_username')
+			.eq('id', event.owner_user_id)
+			.maybeSingle();
+		host = owner ?? null;
+	}
 	// This page is the bespoke DuoWolf detail; task events (open/sequential) live on
 	// the generic /event/[slug] page. (Custom/legacy events stay here.)
 	if (isTaskEvent(event.kind)) throw redirect(307, `/event/${params.slug}`);
@@ -300,6 +311,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		standings,
 		adminSignups,
 		event: { ...event, description_html: renderMarkdown(event.description) },
+		host,
 		mySignup: mySignup
 			? {
 					id: mySignup.id,
