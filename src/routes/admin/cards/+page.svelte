@@ -144,6 +144,10 @@
 
 	// Only the grantPacks action returns a `message` (success toast for the Grant tab).
 	let grantMsg = $derived(form && 'message' in form ? (form as { message?: string }).message : null);
+	// The event-participants grant also returns the recipient names (rsn/Discord).
+	let grantRecipients = $derived(
+		form && 'recipients' in form ? ((form as { recipients?: string[] }).recipients ?? []) : []
+	);
 
 	// Edit forms: keep the typed values after a successful save. SvelteKit's default
 	// enhance resets the form on success, but Svelte sets the input `value` property
@@ -1025,7 +1029,19 @@
 		<div class="error">{form.error}</div>
 	{/if}
 	{#if grantMsg}
-		<div class="ok">{grantMsg}</div>
+		<div class="ok">
+			{grantMsg}
+			{#if grantRecipients.length > 0}
+				<details class="recipients">
+					<summary>Show {grantRecipients.length} recipient{grantRecipients.length === 1 ? '' : 's'}</summary>
+					<ul>
+						{#each grantRecipients as name (name)}
+							<li>{name}</li>
+						{/each}
+					</ul>
+				</details>
+			{/if}
+		</div>
 	{/if}
 
 	{#if tab === 'cards'}
@@ -1246,6 +1262,28 @@
 		padding: 0.6rem 0.8rem;
 		border-radius: 4px;
 		margin-bottom: 1rem;
+	}
+
+	.ok .recipients {
+		margin-top: 0.4rem;
+	}
+
+	.ok .recipients summary {
+		cursor: pointer;
+		color: var(--muted);
+		font-size: 0.85rem;
+	}
+
+	.ok .recipients ul {
+		margin: 0.4rem 0 0;
+		padding-left: 1.2rem;
+		max-height: 12rem;
+		overflow-y: auto;
+		columns: 2;
+	}
+
+	.ok .recipients li {
+		font-size: 0.85rem;
 	}
 
 	/* View-only (non-card-tester admin) banner on the Cards/Packs tabs. */

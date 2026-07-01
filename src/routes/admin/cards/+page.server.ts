@@ -882,12 +882,21 @@ export const actions: Actions = {
 
 			// Keep only clan members: load the participants' identity keys, then filter.
 			const { data: pUsers, error: puErr } = await fetchAllFiltered((f, t) =>
-				db().from('vs_users').select('id, discord_id, rsn').in('id', participantIds).order('id', { ascending: true }).range(f, t)
+				db()
+					.from('vs_users')
+					.select('id, discord_id, discord_username, rsn')
+					.in('id', participantIds)
+					.order('id', { ascending: true })
+					.range(f, t)
 			);
 			if (puErr) return fail(500, { error: puErr.message });
-			const clan = await filterClanMembers(
-				(pUsers ?? []) as { id: string; discord_id: string | null; rsn: string | null }[]
-			);
+			const pRows = (pUsers ?? []) as {
+				id: string;
+				discord_id: string | null;
+				discord_username: string | null;
+				rsn: string | null;
+			}[];
+			const clan = await filterClanMembers(pRows);
 			const ids = participantIds.filter((id) => clan.has(id));
 			if (ids.length === 0) {
 				return fail(400, { error: 'None of that event’s participants are current clan members.' });
@@ -896,10 +905,17 @@ export const actions: Actions = {
 			const res = await bulkGrantPacks(packId, ids, qty);
 			if (res.error) return fail(500, { error: res.error });
 
+			// List of who received a pack, for the admin's confirmation (rsn, else Discord name).
+			const labelById = new Map(pRows.map((u) => [u.id, u.rsn || u.discord_username || 'Unknown member']));
+			const recipients = ids
+				.map((id) => labelById.get(id) ?? 'Unknown member')
+				.sort((a, b) => a.localeCompare(b));
+
 			const who = ids.length === 1 ? 'clan participant' : 'clan participants';
 			return {
 				ok: true,
-				message: `Awarded ${qty} ${pack.name} ${plural} to ${ids.length} ${who} of ${ev.name}.`
+				message: `Awarded ${qty} ${pack.name} ${plural} to ${ids.length} ${who} of ${ev.name}.`,
+				recipients
 			};
 		}
 
