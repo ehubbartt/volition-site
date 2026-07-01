@@ -1,7 +1,7 @@
 import type { Handle } from '@sveltejs/kit';
 import { env } from '$env/dynamic/public';
 import { env as serverEnv } from '$env/dynamic/private';
-import { readSession } from '$lib/server/auth';
+import { readSession, isAdmin } from '$lib/server/auth';
 import { ensureFreshAdminRoles } from '$lib/server/adminRoles';
 import { getBan } from '$lib/server/bans';
 import { shouldAudit, capturePayload, captureBeforeState, logAudit } from '$lib/server/audit';
@@ -20,6 +20,41 @@ try {
 	CANONICAL_HOST = CANONICAL ? new URL(CANONICAL).host : '';
 } catch {
 	CANONICAL_HOST = '';
+}
+
+// STAGING LOCK: when STAGING_ADMIN_ONLY is truthy (set only on the staging Fly app), the
+// whole site is restricted to admins so in-progress features aren't exposed to members. Unset
+// in prod, so prod is unaffected. Read once at startup.
+const STAGING_ADMIN_ONLY = /^(1|true|on|yes)$/i.test((serverEnv.STAGING_ADMIN_ONLY ?? '').trim());
+
+// Minimal admin-only notice for the staging lock (no app assets needed — inline styles). Shows
+// a Discord sign-in link when signed out, or a "not an admin" note (+ logout) when signed in.
+function stagingLockResponse(signedIn: boolean): Response {
+	const body = signedIn
+		? `<p>This is the <strong>staging</strong> site and it's restricted to admins.</p>
+		   <p class="muted">Your account isn't an admin here.</p>
+		   <a class="btn" href="/auth/logout">Log out</a>`
+		: `<p>This is the <strong>staging</strong> site and it's restricted to admins.</p>
+		   <a class="btn" href="/auth/discord/login">Sign in with Discord</a>`;
+	const html = `<!doctype html><html lang="en"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" /><title>Volition — staging</title>
+<style>
+  html,body{height:100%;margin:0}
+  body{display:flex;align-items:center;justify-content:center;background:#1b1b1b;color:#e8e0d0;
+       font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;text-align:center;padding:1.5rem}
+  .card{max-width:26rem}
+  h1{color:#ff981f;font-size:1.3rem;margin:0 0 .75rem}
+  p{line-height:1.5;margin:.4rem 0}
+  .muted{color:#a99}
+  .btn{display:inline-block;margin-top:1rem;padding:.6rem 1.1rem;background:#4d4336;color:#ff981f;
+       text-decoration:none;border-radius:6px;border:1px solid #6a5a3f}
+</style></head>
+<body><div class="card"><h1>Volition — staging</h1>${body}</div></body></html>`;
+	return new Response(html, {
+		status: signedIn ? 403 : 401,
+		headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
+	});
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
@@ -59,6 +94,17 @@ export const handle: Handle = async ({ event, resolve }) => {
 			await ensureFreshAdminRoles();
 		} catch {
 			/* fail-open for env roles; DB grants simply won't apply this request */
+		}
+	}
+
+	// Staging lock: gate the whole site behind admin. The auth flow (so an admin can sign in)
+	// and static assets stay open; /health already returned above. Runs after the admin-role
+	// cache refresh so DB-granted admins are recognised.
+	if (STAGING_ADMIN_ONLY) {
+		const gatePath = event.url.pathname;
+		const openForLogin = gatePath.startsWith('/auth/') || gatePath.startsWith('/_app/') || gatePath.includes('.');
+		if (!openForLogin && !isAdmin(event.locals.user)) {
+			return stagingLockResponse(!!event.locals.user);
 		}
 	}
 
