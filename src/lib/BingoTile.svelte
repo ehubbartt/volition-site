@@ -91,12 +91,14 @@
 			inset 0 0 0 2px rgba(0, 0, 0, 0.45),
 			inset 0 -3px 6px rgba(0, 0, 0, 0.18);
 	}
-	/* The wiki image fits inside the disc regardless of the disc's (responsive) size. */
+	/* The wiki image fits inside the disc regardless of the disc's (responsive) size. Use a
+	   DEFINITE size (66% of the disc) rather than width:auto — a lazy-loaded <img> with an
+	   indefinite size can collapse to 0×0 and then never enters the viewport to load. object-fit
+	   keeps the aspect ratio within that square. */
 	.icon :global(.wiki-img) {
-		max-width: 66%;
-		max-height: 66%;
-		width: auto;
-		height: auto;
+		width: 66%;
+		height: 66%;
+		object-fit: contain;
 	}
 	.name {
 		font-size: clamp(0.62rem, 13cqw, 0.78rem);
