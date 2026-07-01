@@ -95,6 +95,11 @@ Every request passes through the handle hook, in order:
 
 ## Routes & features
 
+> **Building a new event/board?** Follow the standard in **[`docs/EVENTS.md`](EVENTS.md)** — the
+> shared spine (`vs_events` + `vs_tiles` + `vs_submissions` ledger + `vs_active_tiles` view) and a
+> per-`kind` strategy, so a new event is data + a small module, not new tables. Existing events are
+> grandfathered.
+
 Filesystem routing under `src/routes/`; pages pair a `+page.svelte` with a
 `+page.server.ts` (loaders + form actions).
 
