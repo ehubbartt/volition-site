@@ -86,5 +86,10 @@ Then open `https://volition-site-staging.fly.dev`, log in with Discord, and try
   `DISCORD_BOT_BRIDGE_WEBHOOK_URL`) on staging — leaving them unset makes those posts
   no-op, so testing a tile credit won't announce to the real clan. Set them only if you
   want to test the announcements (ideally pointed at a throwaway webhook).
+- **Admin-only lock.** `fly.staging.toml` sets `STAGING_ADMIN_ONLY = 'true'`, so the whole
+  staging site is gated behind admin sign-in (env allow-lists + `vs_admin_roles` grants) —
+  non-admins get a "restricted to admins" notice; the Discord auth flow and `/health` stay
+  open. Prod never sets this var, so prod is unaffected. To open staging to everyone, set it to
+  `'false'` (or remove it) and redeploy.
 - **`FLY_MACHINE_ID` / `FLY_REGION`** are injected by Fly automatically — don't set them.
 - **Tear down** when done: `fly apps destroy volition-site-staging`.

@@ -17,6 +17,10 @@ primary_region = 'iad'
 [env]
   NODE_ENV = 'production'
   PORT = '3000'
+  # Lock the staging site behind admin sign-in so in-progress features aren't exposed to
+  # members. Only admins (env allow-lists + vs_admin_roles grants) can view it; the Discord
+  # auth flow stays open so an admin can sign in. Set to 'false' (or remove) to open staging up.
+  STAGING_ADMIN_ONLY = 'true'
 
 [http_service]
   internal_port = 3000
