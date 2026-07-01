@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import BingoTile from '$lib/BingoTile.svelte';
 	import WikiImage from '$lib/WikiImage.svelte';
+	import TileSubmitModal from '$lib/TileSubmitModal.svelte';
 	import { formatEhb } from '$lib/ehb';
 	import { formatXp } from '$lib/ehp';
 	import { caTierLabel } from '$lib/ca';
@@ -45,6 +46,12 @@
 	const modalHeading = $derived(
 		modalTile ? (modalTile.kind === 'skill' ? (modalTile.skill ?? 'Skill') : (modalTile.item_name ?? '')) : ''
 	);
+
+	// Manual-submission modal (reusable <TileSubmitModal>), opened from the detail modal.
+	let submitTarget = $state<Tile | null>(null);
+	function tileHeading(t: Tile): string {
+		return t.kind === 'skill' ? (t.skill ?? 'Skill') : (t.item_name ?? 'Tile');
+	}
 
 	// Create-form state. Defaults: 5×5, mid difficulty.
 	let size = $state(5);
@@ -356,9 +363,33 @@
 				</div>
 			{/if}
 
-			{#if t.obtained}<p class="modal-done">✓ Completed</p>{/if}
+			{#if t.obtained}
+				<p class="modal-done">✓ Completed{#if t.manual} · submitted manually{/if}</p>
+				{#if t.proof_urls && t.proof_urls.length}
+					<div class="modal-proof">
+						{#each t.proof_urls as url (url)}
+							<a href={url} target="_blank" rel="noreferrer noopener"><img src={url} alt="proof" /></a>
+						{/each}
+					</div>
+				{/if}
+			{:else if locked}
+				<button type="button" class="modal-submit" onclick={() => { submitTarget = t; modalTile = null; }}>
+					Mark done / submit proof
+				</button>
+			{/if}
 		</div>
 	</div>
+{/if}
+
+<!-- Manual tile submission (reusable component). -->
+{#if submitTarget}
+	<TileSubmitModal
+		tile={{ id: submitTarget.idx, name: tileHeading(submitTarget), img: tileImage(submitTarget) }}
+		submitUrl="?/submitTile"
+		note="Add a screenshot as proof (optional), then submit to mark this tile complete."
+		submitLabel="Mark done"
+		onclose={() => (submitTarget = null)}
+	/>
 {/if}
 
 <style>
@@ -649,5 +680,22 @@
 		color: var(--success);
 		font-weight: bold;
 		font-size: 0.9rem;
+	}
+	.modal-submit {
+		margin-top: 0.9rem;
+		width: 100%;
+	}
+	.modal-proof {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		margin-top: 0.5rem;
+	}
+	.modal-proof img {
+		width: 54px;
+		height: 54px;
+		object-fit: cover;
+		border-radius: 4px;
+		border: 1px solid rgba(255, 255, 255, 0.15);
 	}
 </style>

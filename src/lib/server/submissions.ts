@@ -794,7 +794,10 @@ function extForMime(mime: string): string | null {
 	return EXT_BY_MIME[mime] ?? null;
 }
 
-async function uploadProof(
+// Upload one proof image to the shared bucket, returning its storage path + public URL.
+// `scope`/`ownerKey`/`targetId` just shape the object path (scope is the event id for event
+// submissions, or 'personal' for personal-board self-submissions). Exported for reuse.
+export async function uploadProof(
 	eventId: string,
 	ownerKey: string,
 	targetId: string,

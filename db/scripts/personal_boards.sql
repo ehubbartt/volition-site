@@ -58,3 +58,10 @@ alter table vs_personal_board_tiles alter column item_name drop not null;
 -- enters the completed set, the same model as clog items). Additive + idempotent.
 alter table vs_personal_board_tiles add column if not exists ca_id int;    -- WikiSync CA task id (kind='ca')
 alter table vs_personal_board_tiles add column if not exists ca_tier text; -- 'easy'..'grandmaster'
+
+-- Manual submissions: a member can mark a tile done by hand (with optional proof screenshots),
+-- for drops/goals the auto-trackers miss. Self-serve (personal boards have no review flow), so
+-- `manual` flags the tile as owner-attested and `proof_urls` holds any uploaded proof (shared
+-- bingo bucket). Additive + idempotent.
+alter table vs_personal_board_tiles add column if not exists manual boolean not null default false;
+alter table vs_personal_board_tiles add column if not exists proof_urls text[];

@@ -15,6 +15,8 @@ import { db } from './db';
 import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer, fetchWikiSyncCA } from './rankData';
 import { bestEhbSource, isPetItem, type ItemEhb, type EhbOverrides } from '$lib/ehb';
 import { getEhbOverrides, getExcludedItemIds } from './ehbOverrides';
+import { uploadProof } from './submissions';
+import { MAX_IMAGES_PER_SUBMISSION, BINGO_BUCKET } from '$lib/bingo/config';
 import { TILE_SKILLS, SKILL_EHP_RATES, MAX_SKILL_XP, roundXp, skillTileHours, type Skill } from '$lib/ehp';
 import { CA_TIERS, caTierForDifficulty } from '$lib/ca';
 import { getCATasks, type CaTask } from './caNames';
@@ -49,6 +51,8 @@ export interface PersonalBoardTile {
 	progress_xp: number | null; // skill tiles: last gained-since-lock (display)
 	ca_id: number | null; // ca tiles: WikiSync CA task id
 	ca_tier: string | null; // ca tiles: 'easy'..'grandmaster'
+	manual: boolean; // owner-attested via a manual submission (vs auto-tracked)
+	proof_urls: string[] | null; // manual-submission proof screenshots
 	obtained: boolean;
 	obtained_at: string | null;
 }
@@ -416,6 +420,8 @@ export async function generatePersonalBoard(
 				progress_xp: null,
 				ca_id: p.ca_id,
 				ca_tier: p.ca_tier,
+				manual: false,
+				proof_urls: null,
 				obtained: false,
 				obtained_at: null
 			}))
@@ -436,7 +442,7 @@ export async function loadPersonalBoard(userId: string): Promise<PersonalBoard |
 
 	const { data: tileRows } = await sb
 		.from('vs_personal_board_tiles')
-		.select('idx, kind, item_id, item_name, ehb, source, skill, target_xp, baseline_xp, progress_xp, ca_id, ca_tier, obtained, obtained_at')
+		.select('idx, kind, item_id, item_name, ehb, source, skill, target_xp, baseline_xp, progress_xp, ca_id, ca_tier, manual, proof_urls, obtained, obtained_at')
 		.eq('board_id', board.id)
 		.order('idx', { ascending: true });
 
@@ -582,4 +588,48 @@ export async function refreshPersonalBoard(userId: string): Promise<RefreshResul
 
 	const totalObtained = board.tiles.filter((t) => t.obtained).length + newlyObtained.length;
 	return { ok: true, newlyObtained, totalObtained };
+}
+
+export type SubmitTileResult =
+	| { ok: true }
+	| { ok: false; reason: 'no_board' | 'not_locked' | 'no_tile' | 'upload_failed'; error?: string };
+
+// Manual, owner-attested completion of a personal-board tile (for drops/goals the auto-trackers
+// miss). Uploads any proof screenshots to the shared bingo bucket, then flips the tile to
+// obtained with manual=true. Self-serve: personal boards have no review flow. Only on a LOCKED
+// board (drafts aren't tracked); proof is optional. Idempotent on an already-obtained tile.
+export async function submitPersonalTile(userId: string, idx: number, files: File[]): Promise<SubmitTileResult> {
+	const board = await loadPersonalBoard(userId);
+	if (!board) return { ok: false, reason: 'no_board' };
+	if (!board.locked_at) return { ok: false, reason: 'not_locked' };
+
+	const tile = board.tiles.find((t) => t.idx === idx);
+	if (!tile) return { ok: false, reason: 'no_tile' };
+	if (tile.obtained) return { ok: true }; // already done — nothing to do
+
+	const valid = files.filter((f) => f instanceof File && f.size > 0).slice(0, MAX_IMAGES_PER_SUBMISSION);
+	const urls: string[] = [];
+	const paths: string[] = [];
+	const sb = db();
+	for (const file of valid) {
+		const res = await uploadProof('personal', userId, `${board.id}-${idx}`, file);
+		if ('error' in res) {
+			if (paths.length) await sb.storage.from(BINGO_BUCKET).remove(paths);
+			return { ok: false, reason: 'upload_failed', error: res.error };
+		}
+		urls.push(res.url);
+		paths.push(res.path);
+	}
+
+	const { error } = await sb
+		.from('vs_personal_board_tiles')
+		.update({ obtained: true, obtained_at: new Date().toISOString(), manual: true, proof_urls: urls.length ? urls : null })
+		.eq('board_id', board.id)
+		.eq('idx', idx)
+		.eq('obtained', false);
+	if (error) {
+		if (paths.length) await sb.storage.from(BINGO_BUCKET).remove(paths);
+		return { ok: false, reason: 'upload_failed', error: error.message };
+	}
+	return { ok: true };
 }

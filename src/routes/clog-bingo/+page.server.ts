@@ -4,6 +4,7 @@ import {
 	lockPersonalBoard,
 	loadPersonalBoard,
 	refreshPersonalBoard,
+	submitPersonalTile,
 	boardResettableAt,
 	LOCK_DAYS,
 	MIN_SIZE,
@@ -138,5 +139,28 @@ export const actions: Actions = {
 			newlyObtained: result.newlyObtained,
 			totalObtained: result.totalObtained
 		};
+	},
+
+	// Manually mark a tile done (owner-attested), with optional proof screenshots.
+	submitTile: async ({ locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		const form = await request.formData();
+		const idx = Math.floor(Number(form.get('tile_id')));
+		if (!Number.isFinite(idx)) return fail(400, { error: 'Unknown tile' });
+		const files = form.getAll('proof').filter((f): f is File => f instanceof File && f.size > 0);
+
+		const result = await submitPersonalTile(locals.user.id, idx, files);
+		if (!result.ok) {
+			const msg =
+				result.reason === 'no_board'
+					? 'No board to submit to — generate one first.'
+					: result.reason === 'not_locked'
+						? 'Lock your board in first — drafts aren’t tracked until you commit to them.'
+						: result.reason === 'no_tile'
+							? 'That tile is no longer on your board.'
+							: (result.error ?? "Couldn't save your submission. Try again shortly.");
+			return fail(result.reason === 'not_locked' ? 400 : result.reason === 'no_tile' ? 404 : 502, { error: msg });
+		}
+		return { ok: true, submitted: true };
 	}
 };
