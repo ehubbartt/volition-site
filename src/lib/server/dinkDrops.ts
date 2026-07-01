@@ -230,8 +230,8 @@ export async function evaluatePersonalDink(input: {
 	const tileId = `p:${board.id}:${tile.idx}`;
 	const already = tile.obtained;
 	if (already) reasons.push(`Board tile "${tile.item_name}" is already obtained.`);
-	// Activation rule: the drop must be received at/after the board was created.
-	const active = new Date(input.received_at).getTime() >= new Date(board.created_at).getTime();
+	// Activation rule: only LOCKED boards are tracked; the drop must be at/after lock time.
+	const active = board.locked_at != null && new Date(input.received_at).getTime() >= new Date(board.locked_at).getTime();
 	if (!active) reasons.push(`Drop received before the board was created (${board.created_at}) — activation rule rejects it.`);
 	const wouldCredit = !already && active;
 	if (wouldCredit) reasons.unshift(`✓ Would credit board tile "${tile.item_name}".`);
@@ -303,15 +303,18 @@ export async function revertDinkCredit(dropId: number): Promise<{ ok: boolean; e
 		| null;
 	if (!row) return { ok: false, error: 'Drop not found' };
 
-	// Personal-board credit: un-flip the tile (obtained → false). No event/user delete.
+	// Personal-board credit: delete the auto (dink) ledger credit → the tile reopens (obtained is
+	// derived from the ledger). No event/user delete.
 	const personal = parsePersonalTileMarker(row.tile_id);
 	if (personal) {
-		const { error: upErr } = await sb
-			.from('vs_personal_board_tiles')
-			.update({ obtained: false, obtained_at: null })
-			.eq('board_id', personal.boardId)
-			.eq('idx', personal.idx);
-		if (upErr) return { ok: false, error: upErr.message };
+		const { error: delErr } = await sb
+			.from('vs_submissions')
+			.delete()
+			.eq('event_id', personal.boardId)
+			.eq('target_id', String(personal.idx))
+			.eq('status', 'approved')
+			.eq('source', 'dink');
+		if (delErr) return { ok: false, error: delErr.message };
 		await sb.from('vs_dink_drops').update({ outcome: 'reverted' }).eq('id', dropId);
 		return { ok: true };
 	}
@@ -450,7 +453,7 @@ export async function processDinkDrops(
 		// A drop obtained BEFORE the board (tile) became active never credits it.
 		if (cand.activated_at && new Date(drop.received_at).getTime() < new Date(cand.activated_at).getTime())
 			return 'timing';
-		const res = await creditPersonalTile(cand.board_id as string, cand.board_idx as number);
+		const res = await creditPersonalTile(cand.board_id as string, cand.board_idx as number, cand.user_id as string);
 		if (res === 'error') return 'retry';
 		return res === 'credited' ? 'credited' : 'duplicate';
 	}

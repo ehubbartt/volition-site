@@ -65,20 +65,27 @@ where not exists (select 1 from vs_event_tracked_items ti
                   where c.event_id = te.event_id and c.user_id = s.user_id
                     and c.tile_id = te.tile_id and c.status = 'approved')
 union all
--- (3) Personal collection-log board tiles (always item; a clog unlock fires a Dink
---     COLLECTION notif). Only LOCKED boards are tracked — a draft isn't in play. The
---     activation time is the LOCK time, so a drop obtained before locking never credits.
-select b.user_id, b.rsn,
+-- (3) Personal collection-log board tiles. Personal boards are now vs_events rows
+--     (kind='personal', owner_user_id set) whose tiles live in vs_tiles; completion is derived
+--     from the vs_submissions ledger (no `obtained` column). Only LOCKED boards are tracked; the
+--     activation time is the LOCK time (structure->>'rsn' carries the board's RSN). `board_id` =
+--     the event id and `board_idx` = the tile position, so the Dink `p:<id>:<idx>` marker is
+--     unchanged. Only item tiles with an item_id are Dink-trackable; skill/ca are WoM/WikiSync.
+select e.owner_user_id, (e.structure->>'rsn'),
        'personal'::text, 'item'::text,
        null::uuid, null::text,
-       b.id, t.idx,
-       t.item_name,
-       t.item_id, t.item_name, 'collection'::text, 1,
-       b.locked_at
-from vs_personal_board_tiles t
-join vs_personal_boards b on b.id = t.board_id
-where t.obtained = false and b.locked_at is not null
-  and t.kind = 'item' and t.item_id is not null; -- skill tiles are WoM-tracked, not Dink drops
+       e.id, t.position,
+       t.name,
+       (t.meta->>'item_id')::int, t.name, 'collection'::text, 1,
+       e.locked_at
+from vs_tiles t
+join vs_events e on e.id = t.event_id
+where e.kind = 'personal' and e.locked_at is not null
+  and t.kind = 'item' and (t.meta->>'item_id') is not null
+  and not exists (
+    select 1 from vs_submissions s
+    where s.event_id = e.id and s.target_id = t.tile_key
+      and s.user_id = e.owner_user_id and s.status = 'approved');
 
 -- Proxy record-allowlist views, derived from the item subset (one source of truth so a
 -- new event/board automatically enters the proxy allowlist). The dink-proxy Worker reads
@@ -107,4 +114,13 @@ create index if not exists vs_event_signups_event     on vs_event_signups (event
 create index if not exists vs_event_tracked_items_evt on vs_event_tracked_items (event_id, tile_id);
 create index if not exists vs_event_tiles_evt         on vs_event_tiles (event_id, tile_id);
 create index if not exists vs_bingo_completions_ut    on vs_bingo_completions (user_id, event_id, tile_id);
--- vs_personal_board_tiles(board_id) already indexed in personal_boards.sql.
+create index if not exists vs_tiles_event_kind         on vs_tiles (event_id, kind);
+-- Personal-board completion is derived from vs_submissions (see vs_submissions_event_target in
+-- events_v2.sql). Requires events_v2.sql applied first (vs_tiles + vs_events.owner_user_id).
+
+-- Retire the old personal-board tables now that the view no longer references them (they're
+-- superseded by vs_events(kind='personal') + vs_tiles). Personal boards are unreleased, so there's
+-- no data to migrate. Safe/idempotent. If you re-run this file before events_v2.sql, comment these
+-- out (the view above requires vs_tiles to exist first).
+drop table if exists vs_personal_board_tiles;
+drop table if exists vs_personal_boards;

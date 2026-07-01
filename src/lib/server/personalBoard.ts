@@ -3,13 +3,18 @@
 // A user generates a private N×N grid (N = 3..5) of collection-log items they do NOT
 // already own, drawn from the PVM boss/raid clog universe (itemEhb.json) and balanced
 // by EHB-to-obtain into an easy→hard gradient scaled by a difficulty dial. Tiles are
-// auto-marked "obtained" by re-polling the player's collection log (Temple) and by the
-// Dink auto-tracker. One board per user (regenerating replaces it).
+// auto-marked "obtained" by re-polling the player's collection log (Temple), WiseOldMan
+// (skill XP), WikiSync (combat achievements) and the Dink auto-tracker. One board per user.
 //
-// LIFECYCLE: a board starts as a DRAFT (locked_at = null) — the owner can reroll it as
-// many times as they like and it is NOT tracked. LOCKING it (sets locked_at) starts
-// progress tracking and commits the board for LOCK_DAYS; only after that window can it be
-// reset and regenerated.
+// STORAGE (events-v2 spine, see docs/EVENTS.md): a board is a `vs_events` row (kind='personal',
+// owner_user_id set) whose tiles are `vs_tiles` rows; every completion — auto or manual — is an
+// approved `vs_submissions` ledger row (source='dink'|'clog'|'wom'|'wikisync'|'manual'). A tile's
+// `obtained` is DERIVED from the ledger (no boolean column). Display/config extras live in
+// `vs_tiles.meta`; auto-track rules live in `vs_tiles.triggers`.
+//
+// LIFECYCLE: a board starts as a DRAFT (locked_at = null) — the owner can reroll it freely and it
+// is NOT tracked. LOCKING it (sets vs_events.locked_at) starts tracking and commits it for
+// LOCK_DAYS; only after that window can it be reset and regenerated.
 
 import { db } from './db';
 import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer, fetchWikiSyncCA } from './rankData';
@@ -29,6 +34,10 @@ export const MAX_SIZE = 5;
 export const MIN_DIFFICULTY = 1;
 export const MAX_DIFFICULTY = 10;
 
+// Personal boards are vs_events rows with this kind + a per-user slug.
+const PERSONAL_KIND = 'personal';
+const personalSlug = (userId: string) => `personal-${userId}`;
+
 // A locked board is committed for this long before the owner can reset and make a new one.
 export const LOCK_DAYS = 30;
 const LOCK_MS = LOCK_DAYS * 24 * 60 * 60 * 1000;
@@ -44,7 +53,7 @@ export interface PersonalBoardTile {
 	item_id: number | null; // item tiles
 	item_name: string | null; // item tiles (also reused as the CA display name on ca tiles)
 	ehb: number; // cost in efficient hours (EHB for items, EHP for skills, nominal per-tier for CAs) — drives the gradient
-	source: string | null; // boss/raid the EHB is costed from (item tiles)
+	source: string | null; // boss/raid the EHB is costed from (item tiles) / boss for CA image
 	skill: string | null; // skill tiles
 	target_xp: number | null; // skill tiles: XP goal
 	baseline_xp: number | null; // skill tiles: XP at lock
@@ -58,7 +67,7 @@ export interface PersonalBoardTile {
 }
 
 export interface PersonalBoard {
-	id: string;
+	id: string; // the vs_events row id
 	size: number;
 	difficulty: number;
 	rsn: string;
@@ -67,9 +76,176 @@ export interface PersonalBoard {
 	tiles: PersonalBoardTile[];
 }
 
-// Flatten the Temple collection-log response into a lowercased set of OWNED item
-// names. Temple returns only the slots the player has unlocked (per category), so a
-// name's presence = owned. Returns null if the clog couldn't be read.
+// ── Ledger-backed storage helpers ─────────────────────────────────────────────
+
+interface EventRow {
+	id: string;
+	structure: { size?: number; difficulty?: number; rsn?: string } | null;
+	created_at: string;
+	locked_at: string | null;
+}
+
+// The user's personal-board event row (null if none).
+async function loadPersonalEvent(userId: string): Promise<EventRow | null> {
+	const { data } = await db()
+		.from('vs_events')
+		.select('id, structure, created_at, locked_at')
+		.eq('owner_user_id', userId)
+		.eq('kind', PERSONAL_KIND)
+		.maybeSingle();
+	return (data as EventRow) ?? null;
+}
+
+interface Completion {
+	source: string | null;
+	proof_urls: string[] | null;
+	at: string;
+}
+
+// Approved ledger credits for this board, keyed by tile_key → how it was completed.
+async function getCompletions(eventId: string, userId: string): Promise<Map<string, Completion>> {
+	const { data } = await db()
+		.from('vs_submissions')
+		.select('target_id, source, proof_urls, submitted_at')
+		.eq('event_id', eventId)
+		.eq('user_id', userId)
+		.eq('status', 'approved');
+	const out = new Map<string, Completion>();
+	for (const r of (data ?? []) as { target_id: string; source: string | null; proof_urls: string[] | null; submitted_at: string }[]) {
+		if (!out.has(r.target_id)) out.set(r.target_id, { source: r.source ?? null, proof_urls: r.proof_urls ?? null, at: r.submitted_at });
+	}
+	return out;
+}
+
+// A generated/placed tile (kind + all kind-specific fields), before it's a DB row.
+type Placed = {
+	kind: 'item' | 'skill' | 'ca';
+	item_id: number | null;
+	item_name: string | null;
+	ehb: number;
+	source: string | null;
+	skill: string | null;
+	target_xp: number | null;
+	ca_id: number | null;
+	ca_tier: string | null;
+};
+
+// Placed tile → vs_tiles insert row. Display/config extras go in `meta`; auto-track rules in
+// `triggers` (item = Dink id + Temple clog name; skill = WoM XP; ca = WikiSync id; empty = manual).
+function tileToRow(eventId: string, p: Placed, idx: number) {
+	const meta: Record<string, unknown> = { ehb: p.ehb };
+	const triggers: Record<string, unknown>[] = [];
+	if (p.kind === 'item') {
+		meta.item_id = p.item_id;
+		meta.item_name = p.item_name;
+		meta.source = p.source;
+		triggers.push({ type: 'dink_item', match_key: String(p.item_id), required_qty: 1 });
+		triggers.push({ type: 'clog', match_key: p.item_name, required_qty: 1 });
+	} else if (p.kind === 'skill') {
+		meta.skill = p.skill;
+		meta.target_xp = p.target_xp;
+		triggers.push({ type: 'skill_xp', match_key: p.skill, required_qty: p.target_xp });
+	} else {
+		meta.ca_id = p.ca_id;
+		meta.ca_tier = p.ca_tier;
+		meta.source = p.source; // boss/NPC for the CA image
+		triggers.push({ type: 'combat_achievement', match_key: String(p.ca_id), required_qty: 1 });
+	}
+	return {
+		event_id: eventId,
+		tile_key: String(idx),
+		kind: p.kind,
+		name: p.kind === 'skill' ? p.skill : p.item_name,
+		position: idx,
+		points: 0,
+		meta,
+		triggers
+	};
+}
+
+interface TileRow {
+	tile_key: string;
+	kind: string;
+	name: string | null;
+	position: number | null;
+	meta: Record<string, unknown> | null;
+}
+
+// vs_tiles row (+ its ledger completion, if any) → the PersonalBoardTile the page renders.
+function rowToTile(r: TileRow, comp?: Completion): PersonalBoardTile {
+	const meta = (r.meta ?? {}) as Record<string, unknown>;
+	const kind = (r.kind as 'item' | 'skill' | 'ca') ?? 'item';
+	const num = (v: unknown): number | null => (v == null ? null : Number(v));
+	return {
+		idx: r.position ?? Number(r.tile_key),
+		kind,
+		item_id: num(meta.item_id),
+		item_name: kind === 'skill' ? null : (r.name ?? (meta.item_name as string) ?? null),
+		ehb: Number(meta.ehb ?? 0),
+		source: (meta.source as string) ?? null,
+		skill: (meta.skill as string) ?? null,
+		target_xp: num(meta.target_xp),
+		baseline_xp: num(meta.baseline_xp),
+		progress_xp: num(meta.progress),
+		ca_id: num(meta.ca_id),
+		ca_tier: (meta.ca_tier as string) ?? null,
+		manual: comp?.source === 'manual',
+		proof_urls: comp?.proof_urls ?? null,
+		obtained: !!comp,
+		obtained_at: comp?.at ?? null
+	};
+}
+
+// Merge a patch into a tile's `meta` jsonb (read-modify-write; personal boards are tiny).
+async function updateTileMeta(eventId: string, tileKey: string, patch: Record<string, unknown>): Promise<void> {
+	const sb = db();
+	const { data } = await sb.from('vs_tiles').select('meta').eq('event_id', eventId).eq('tile_key', tileKey).maybeSingle();
+	const meta = { ...(((data?.meta as Record<string, unknown>) ?? {})), ...patch };
+	await sb.from('vs_tiles').update({ meta }).eq('event_id', eventId).eq('tile_key', tileKey);
+}
+
+// Credit a tile by appending an APPROVED submission to the ledger. Idempotent: a tile that already
+// has an approved credit is a no-op (personal tiles complete once). Returns what happened.
+async function creditTile(
+	eventId: string,
+	userId: string,
+	tileKey: string,
+	source: string,
+	opts?: { proofUrls?: string[]; targetLabel?: string }
+): Promise<'credited' | 'noop' | 'error'> {
+	const sb = db();
+	const { data: existing } = await sb
+		.from('vs_submissions')
+		.select('id')
+		.eq('event_id', eventId)
+		.eq('user_id', userId)
+		.eq('target_id', tileKey)
+		.eq('status', 'approved')
+		.limit(1);
+	if (existing && existing.length) return 'noop';
+	const now = new Date().toISOString();
+	const { error } = await sb.from('vs_submissions').insert({
+		event_id: eventId,
+		user_id: userId,
+		target_id: tileKey,
+		target_label: opts?.targetLabel ?? null,
+		quantity: 1,
+		status: 'approved',
+		source,
+		proof_urls: opts?.proofUrls ?? null,
+		submitted_at: now,
+		reviewed_at: now
+	});
+	if (error) {
+		console.error('[personalBoard] creditTile failed', eventId, tileKey, source, error.message);
+		return 'error';
+	}
+	return 'credited';
+}
+
+// ── Collection-log / WoM / WikiSync polling caches ────────────────────────────
+
+// Flatten the Temple collection-log response into a lowercased set of OWNED item names.
 async function fetchOwnedClogNames(rsn: string): Promise<Set<string> | null> {
 	const temple = await fetchTempleCollectionLog(rsn);
 	if (!temple) return null;
@@ -83,10 +259,6 @@ async function fetchOwnedClogNames(rsn: string): Promise<Set<string> | null> {
 	return owned;
 }
 
-// Short-lived per-user cache of the owned-clog set so a member can REROLL a draft board
-// many times in a row without hammering Temple — each reroll just reshuffles the same
-// missing pool. `force` (used by the explicit "Check collection log" refresh) bypasses it
-// and refreshes the cache.
 const ownedCache = new Map<string, { at: number; owned: Set<string> }>();
 const OWNED_TTL_MS = 5 * 60 * 1000;
 
@@ -100,9 +272,6 @@ async function getOwnedClogNames(userId: string, rsn: string, force = false): Pr
 	return owned;
 }
 
-// Short-lived per-user cache of the player's COMPLETED combat-achievement id set (WikiSync), so
-// rerolling a draft doesn't re-hit WikiSync each time — same role as ownedCache for clog items.
-// `force` (the explicit refresh) bypasses + refreshes it. Returns null if WikiSync is unreadable.
 const caDoneCache = new Map<string, { at: number; done: Set<number> }>();
 const CA_TTL_MS = 5 * 60 * 1000;
 
@@ -118,9 +287,6 @@ async function getCompletedCAs(userId: string, rsn: string, force = false): Prom
 	return done;
 }
 
-// Short-lived per-user cache of the player's per-skill XP (WoM), used only to skip already-99'd
-// skills at generation time. Reads the latest WoM snapshot (no forced re-sync — a slightly stale
-// snapshot is fine for a "is this skill 99?" check) so rerolling a draft doesn't spam WoM.
 const skillXpCache = new Map<string, { at: number; xp: Record<Skill, number> | null }>();
 const SKILL_XP_TTL_MS = 5 * 60 * 1000;
 
@@ -132,6 +298,8 @@ async function getPlayerSkillXpCached(userId: string, rsn: string): Promise<Reco
 	return xp;
 }
 
+// ── Board generation (selection logic — unchanged by the storage migration) ────
+
 interface Candidate {
 	item_id: number;
 	item_name: string;
@@ -140,7 +308,7 @@ interface Candidate {
 }
 
 // All PVM clog items the player is MISSING, each costed at its cheapest EHB source
-// (with admin overrides applied), sorted easy→hard. Pet drops are excluded unless includePets.
+// (with admin overrides applied), sorted easy→hard. Pet drops excluded unless includePets.
 function missingCandidates(owned: Set<string>, overrides?: EhbOverrides, includePets = true, excludedIds?: Set<number>): Candidate[] {
 	const out: Candidate[] = [];
 	for (const item of ITEM_EHB) {
@@ -155,15 +323,10 @@ function missingCandidates(owned: Set<string>, overrides?: EhbOverrides, include
 	return out;
 }
 
-// Pick N tiles as an easy→hard GRADIENT scaled by difficulty. Difficulty raises the
-// EHB ceiling (how rare the hardest tiles get); the pool up to that ceiling is split
-// into N equal bands and one item is drawn at random from each band, so every board
-// runs from quick tiles up to grindy ones, with variety on each regenerate.
+// Pick N tiles as an easy→hard GRADIENT scaled by difficulty.
 function selectGradient(pool: Candidate[], count: number, difficulty: number): Candidate[] {
 	if (pool.length <= count) return pool.slice(); // take everything we have
 	const d = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, difficulty));
-	// Ceiling fraction of the (EHB-ascending) pool: difficulty 1 → easiest ~25%,
-	// difficulty 10 → the full pool. Always leaves at least `count` items to band.
 	const frac = 0.25 + (0.75 * (d - MIN_DIFFICULTY)) / (MAX_DIFFICULTY - MIN_DIFFICULTY);
 	const ceiling = Math.max(count, Math.round(pool.length * frac));
 	const window = pool.slice(0, ceiling);
@@ -172,7 +335,6 @@ function selectGradient(pool: Candidate[], count: number, difficulty: number): C
 	for (let i = 0; i < count; i++) {
 		const lo = Math.floor((i * window.length) / count);
 		const hi = Math.max(lo + 1, Math.floor(((i + 1) * window.length) / count));
-		// random item within this band that we haven't already taken
 		let choice = lo;
 		for (let tries = 0; tries < 8; tries++) {
 			const c = lo + Math.floor(Math.random() * (hi - lo));
@@ -185,11 +347,10 @@ function selectGradient(pool: Candidate[], count: number, difficulty: number): C
 		used.add(choice);
 		picked.push(window[Math.min(choice, window.length - 1)]);
 	}
-	// already ordered easy→hard because bands are ascending (the caller shuffles for layout)
 	return picked;
 }
 
-// Fisher-Yates in-place shuffle — used so the board's tiles aren't laid out in EHB order.
+// Fisher-Yates in-place shuffle.
 function shuffle<T>(arr: T[]): void {
 	for (let i = arr.length - 1; i > 0; i--) {
 		const j = Math.floor(Math.random() * (i + 1));
@@ -200,13 +361,10 @@ function shuffle<T>(arr: T[]): void {
 interface SkillPick {
 	skill: Skill;
 	target_xp: number;
-	ehb: number; // EHP-hours cost (for the difficulty gradient)
+	ehb: number;
 }
 
-// Pick up to `count` DISTINCT skilling tiles as an easy→hard band by difficulty: each tile's
-// EHP-hours → a clean rounded XP goal for a random skill via its EHP rate. Drawn from `allowed`
-// (defaults to TILE_SKILLS); returns fewer than `count` if the allowed pool is smaller (e.g.
-// after excluding maxed skills) — the caller backfills the board with item tiles.
+// Pick up to `count` DISTINCT skilling tiles as an easy→hard band by difficulty.
 function selectSkillTiles(count: number, difficulty: number, allowed: readonly Skill[] = TILE_SKILLS): SkillPick[] {
 	if (count <= 0 || allowed.length === 0) return [];
 	const pool = [...allowed];
@@ -225,23 +383,17 @@ interface CaPick {
 	ca_id: number;
 	name: string;
 	tier: string;
-	monster: string | null; // boss/NPC the CA is for (stored on the tile for its image)
-	ehb: number; // nominal per-tier cost, only to slot the tile into the easy→hard gradient
+	monster: string | null;
+	ehb: number;
 }
 
-// Nominal "efficient hours" per CA tier (index into CA_TIERS) — used solely so CA tiles sort
-// into the board's easy→hard gradient alongside item/skill tiles. CA tiles display the tier,
-// not hours.
 const CA_TIER_HOURS = [0.5, 1.5, 4, 10, 25, 60];
 
-// Pick `count` CA tiles for UNCOMPLETED achievements, banded easy→hard by difficulty. Each band
-// targets a tier via caTierForDifficulty, then draws a random uncompleted CA of that tier,
-// falling back OUTWARD to the nearest tier that still has one available (so an empty target tier
-// never wastes a tile). Returns fewer than `count` only if the player has too few CAs left.
+// Pick `count` CA tiles for UNCOMPLETED achievements, banded easy→hard by difficulty.
 function selectCATiles(count: number, difficulty: number, completed: Set<number>, catalogue: CaTask[]): CaPick[] {
 	if (count <= 0) return [];
 	const byId = new Map<number, CaTask>(catalogue.map((t) => [t.id, t]));
-	const byTier: number[][] = CA_TIERS.map(() => []); // uncompleted CA ids per tier index
+	const byTier: number[][] = CA_TIERS.map(() => []);
 	for (const t of catalogue) {
 		if (completed.has(t.id)) continue;
 		const ti = CA_TIERS.indexOf(t.tier as (typeof CA_TIERS)[number]);
@@ -258,12 +410,12 @@ function selectCATiles(count: number, difficulty: number, completed: Set<number>
 			for (const ti of tiers) {
 				if (ti < 0 || ti >= CA_TIERS.length) continue;
 				if (byTier[ti].length) {
-					chosen = byTier[ti].pop() as number; // consume so it can't be picked twice
+					chosen = byTier[ti].pop() as number;
 					break;
 				}
 			}
 		}
-		if (chosen == null) break; // no uncompleted CAs left anywhere
+		if (chosen == null) break;
 		const task = byId.get(chosen) as CaTask;
 		const ti = Math.max(0, CA_TIERS.indexOf(task.tier as (typeof CA_TIERS)[number]));
 		picks.push({ ca_id: chosen, name: task.name, tier: task.tier, monster: task.monster ?? null, ehb: CA_TIER_HOURS[ti] ?? 1 });
@@ -281,8 +433,8 @@ export type GenerateResult =
 			resettable_at?: string;
 	  };
 
-// Generate (and persist, replacing any existing) a DRAFT board for the user. Refuses if
-// the current board is LOCKED and still inside its commitment window.
+// Generate (and persist, replacing any existing) a DRAFT board for the user. Refuses if the
+// current board is LOCKED and still inside its commitment window.
 export async function generatePersonalBoard(
 	userId: string,
 	rsn: string | null,
@@ -296,7 +448,7 @@ export async function generatePersonalBoard(
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
 
 	// A locked board can't be rerolled/reset until its commitment window elapses.
-	const existing = await loadPersonalBoard(userId);
+	const existing = await loadPersonalEvent(userId);
 	if (existing?.locked_at) {
 		const reset = boardResettableAt(existing.locked_at);
 		if (reset && Date.now() < new Date(reset).getTime()) {
@@ -307,9 +459,6 @@ export async function generatePersonalBoard(
 	const n = Math.min(MAX_SIZE, Math.max(MIN_SIZE, Math.floor(size)));
 	const diff = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, Math.floor(difficulty)));
 	const tileCount = n * n;
-	// ~1/4 of the board is skilling and ~1/4 is combat achievements when those are enabled; the
-	// remainder are clog item tiles. Skills always fill their quota; CA tiles may underfill if
-	// the player has few uncompleted achievements left, so the item count is settled afterwards.
 	const skillCount = includeSkilling ? Math.round(tileCount / 4) : 0;
 	const caTarget = includeCA ? Math.round(tileCount / 4) : 0;
 
@@ -322,8 +471,7 @@ export async function generatePersonalBoard(
 		caPicks = selectCATiles(caTarget, diff, completed, catalogue);
 	}
 
-	// Optionally drop skills the player has already 99'd. Best-effort: if WoM XP can't be read,
-	// don't exclude anything (fall back to the full pool).
+	// Optionally drop skills the player has already 99'd (best-effort).
 	let allowedSkills = TILE_SKILLS;
 	if (skillCount > 0 && excludeMaxedSkills) {
 		const xp = await getPlayerSkillXpCached(userId, rsn);
@@ -333,7 +481,6 @@ export async function generatePersonalBoard(
 	const skills = selectSkillTiles(skillCount, diff, allowedSkills);
 	const itemCount = tileCount - skills.length - caPicks.length;
 
-	// Cached owned set: rerolling a draft reshuffles without re-hitting Temple each time.
 	const owned = await getOwnedClogNames(userId, rsn);
 	if (owned == null) return { ok: false, reason: 'clog_unavailable' };
 
@@ -346,19 +493,6 @@ export async function generatePersonalBoard(
 
 	const items = selectGradient(pool, itemCount, diff);
 
-	// Unified placed-tile shape (item / skill / ca), scattered across the grid so it isn't
-	// sorted by cost.
-	type Placed = {
-		kind: 'item' | 'skill' | 'ca';
-		item_id: number | null;
-		item_name: string | null;
-		ehb: number;
-		source: string | null;
-		skill: string | null;
-		target_xp: number | null;
-		ca_id: number | null;
-		ca_tier: string | null;
-	};
 	const placed: Placed[] = [
 		...items.map((c) => ({ kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null })),
 		...skills.map((s) => ({ kind: 'skill' as const, item_id: null, item_name: null, ehb: s.ehb, source: null, skill: s.skill, target_xp: s.target_xp, ca_id: null, ca_tier: null })),
@@ -367,98 +501,71 @@ export async function generatePersonalBoard(
 	shuffle(placed);
 	const sb = db();
 
-	// One board per user: drop the old one (tiles cascade) before inserting the new draft.
-	await sb.from('vs_personal_boards').delete().eq('user_id', userId);
+	// One board per user: drop the old event (tiles cascade) + its ledger rows before inserting.
+	if (existing) {
+		await sb.from('vs_submissions').delete().eq('event_id', existing.id);
+		await sb.from('vs_events').delete().eq('id', existing.id);
+	}
 
-	const { data: boardRow, error: bErr } = await sb
-		.from('vs_personal_boards')
-		.insert({ user_id: userId, rsn, size: n, difficulty: diff }) // locked_at defaults null = draft
-		.select('id, size, difficulty, rsn, created_at, locked_at')
+	const { data: evRow, error: eErr } = await sb
+		.from('vs_events')
+		.insert({
+			slug: personalSlug(userId),
+			name: 'Personal board',
+			kind: PERSONAL_KIND,
+			owner_user_id: userId,
+			team_size: 1,
+			status: 'open', // personal boards are gated by locked_at, not status; filtered from public lists by owner_user_id
+			structure: { size: n, difficulty: diff, rsn }
+		})
+		.select('id, structure, created_at, locked_at')
 		.single();
-	if (bErr || !boardRow) return { ok: false, reason: 'clog_unavailable' };
+	if (eErr || !evRow) return { ok: false, reason: 'clog_unavailable' };
+	const ev = evRow as EventRow;
 
-	const board = boardRow as { id: string; size: number; difficulty: number; rsn: string; created_at: string; locked_at: string | null };
-	const tileRows = placed.map((p, idx) => ({
-		board_id: board.id,
-		idx,
-		kind: p.kind,
-		item_id: p.item_id,
-		item_name: p.item_name,
-		ehb: p.ehb,
-		source: p.source,
-		skill: p.skill,
-		target_xp: p.target_xp,
-		ca_id: p.ca_id,
-		ca_tier: p.ca_tier,
-		obtained: false
-	}));
-	const { error: tErr } = await sb.from('vs_personal_board_tiles').insert(tileRows);
+	const { error: tErr } = await sb.from('vs_tiles').insert(placed.map((p, idx) => tileToRow(ev.id, p, idx)));
 	if (tErr) {
-		await sb.from('vs_personal_boards').delete().eq('id', board.id);
+		await sb.from('vs_events').delete().eq('id', ev.id);
 		return { ok: false, reason: 'clog_unavailable' };
 	}
 
 	return {
 		ok: true,
 		board: {
-			id: board.id,
-			size: board.size,
-			difficulty: board.difficulty,
-			rsn: board.rsn,
-			created_at: board.created_at,
-			locked_at: board.locked_at,
-			tiles: placed.map((p, idx) => ({
-				idx,
-				kind: p.kind,
-				item_id: p.item_id,
-				item_name: p.item_name,
-				ehb: p.ehb,
-				source: p.source,
-				skill: p.skill,
-				target_xp: p.target_xp,
-				baseline_xp: null,
-				progress_xp: null,
-				ca_id: p.ca_id,
-				ca_tier: p.ca_tier,
-				manual: false,
-				proof_urls: null,
-				obtained: false,
-				obtained_at: null
-			}))
+			id: ev.id,
+			size: n,
+			difficulty: diff,
+			rsn,
+			created_at: ev.created_at,
+			locked_at: ev.locked_at,
+			tiles: placed.map((p, idx) => rowToTile(tileToRow(ev.id, p, idx)))
 		}
 	};
 }
 
 // Load the user's current board (null if none).
 export async function loadPersonalBoard(userId: string): Promise<PersonalBoard | null> {
-	const sb = db();
-	const { data: boardRow } = await sb
-		.from('vs_personal_boards')
-		.select('id, size, difficulty, rsn, created_at, locked_at')
-		.eq('user_id', userId)
-		.maybeSingle();
-	if (!boardRow) return null;
-	const board = boardRow as { id: string; size: number; difficulty: number; rsn: string; created_at: string; locked_at: string | null };
-
-	const { data: tileRows } = await sb
-		.from('vs_personal_board_tiles')
-		.select('idx, kind, item_id, item_name, ehb, source, skill, target_xp, baseline_xp, progress_xp, ca_id, ca_tier, manual, proof_urls, obtained, obtained_at')
-		.eq('board_id', board.id)
-		.order('idx', { ascending: true });
-
+	const ev = await loadPersonalEvent(userId);
+	if (!ev) return null;
+	const structure = ev.structure ?? {};
+	const { data: tileRows } = await db()
+		.from('vs_tiles')
+		.select('tile_key, kind, name, position, meta')
+		.eq('event_id', ev.id)
+		.order('position', { ascending: true });
+	const comp = await getCompletions(ev.id, userId);
 	return {
-		id: board.id,
-		size: board.size,
-		difficulty: board.difficulty,
-		rsn: board.rsn,
-		created_at: board.created_at,
-		locked_at: board.locked_at,
-		tiles: (tileRows ?? []) as PersonalBoardTile[]
+		id: ev.id,
+		size: Number(structure.size ?? 5),
+		difficulty: Number(structure.difficulty ?? 5),
+		rsn: String(structure.rsn ?? ''),
+		created_at: ev.created_at,
+		locked_at: ev.locked_at,
+		tiles: ((tileRows ?? []) as TileRow[]).map((r) => rowToTile(r, comp.get(r.tile_key)))
 	};
 }
 
-// Lock a draft board in: starts progress tracking and the LOCK_DAYS commitment. Idempotent
-// (already-locked returns the board unchanged). Only after the window can it be reset.
+// Lock a draft board in: starts tracking + the LOCK_DAYS commitment. Idempotent.
 export type LockResult = { ok: true; board: PersonalBoard } | { ok: false; reason: 'no_board' };
 
 export async function lockPersonalBoard(userId: string): Promise<LockResult> {
@@ -467,12 +574,10 @@ export async function lockPersonalBoard(userId: string): Promise<LockResult> {
 	if (board.locked_at) return { ok: true, board }; // already locked
 
 	const lockedAt = new Date().toISOString();
-	const sb = db();
-	await sb.from('vs_personal_boards').update({ locked_at: lockedAt }).eq('id', board.id).is('locked_at', null);
+	await db().from('vs_events').update({ locked_at: lockedAt }).eq('id', board.id).is('locked_at', null);
 
-	// Snapshot per-skill XP as the baseline for skilling tiles ("gained since lock"). Best-
-	// effort: if WoM is unavailable, baselines stay null and are captured lazily on the first
-	// refresh.
+	// Snapshot per-skill XP into each skill tile's meta as the baseline for "gained since lock".
+	// Best-effort: if WoM is unavailable, baselines stay null and are captured on the first refresh.
 	const skillTiles = board.tiles.filter((t) => t.kind === 'skill' && t.skill);
 	if (skillTiles.length) {
 		await updateWomPlayer(board.rsn);
@@ -480,54 +585,31 @@ export async function lockPersonalBoard(userId: string): Promise<LockResult> {
 		if (xp) {
 			for (const t of skillTiles) {
 				const base = xp[t.skill as Skill];
-				if (base != null) {
-					await sb.from('vs_personal_board_tiles').update({ baseline_xp: base }).eq('board_id', board.id).eq('idx', t.idx);
-				}
+				if (base != null) await updateTileMeta(board.id, String(t.idx), { baseline_xp: base });
 			}
 		}
 	}
 	return { ok: true, board: { ...board, locked_at: lockedAt } };
 }
 
-// Flip a single personal-board tile to obtained (false→true). Used by the Dink
-// auto-tracker when a COLLECTION unlock matches a board tile. The `obtained=false`
-// guard makes it idempotent: 'credited' if this call flipped it, 'noop' if it was
-// already obtained (or the index is gone), 'error' on a transient DB failure. The
-// activation rule (drop received_at >= board.locked_at) is enforced by the caller, and
-// the active-tiles view only surfaces LOCKED boards, so drafts are never credited.
-export async function creditPersonalTile(
-	boardId: string,
-	idx: number
-): Promise<'credited' | 'noop' | 'error'> {
-	const { data, error } = await db()
-		.from('vs_personal_board_tiles')
-		.update({ obtained: true, obtained_at: new Date().toISOString() })
-		.eq('board_id', boardId)
-		.eq('idx', idx)
-		.eq('obtained', false)
-		.select('idx');
-	if (error) {
-		console.error('[personalBoard] creditPersonalTile failed', boardId, idx, error.message);
-		return 'error';
-	}
-	return data && data.length > 0 ? 'credited' : 'noop';
+// Credit a personal-board tile from the Dink auto-tracker (COLLECTION unlock match). Idempotent;
+// the activation rule (drop.received_at >= locked_at) and locked-only gating are enforced by the
+// caller + the active-tiles view. `eventId` is the board's vs_events id, `idx` the tile position.
+export async function creditPersonalTile(eventId: string, idx: number, userId: string): Promise<'credited' | 'noop' | 'error'> {
+	return creditTile(eventId, userId, String(idx), 'dink');
 }
 
 export type RefreshResult =
 	| { ok: true; newlyObtained: string[]; totalObtained: number }
 	| { ok: false; reason: 'no_board' | 'clog_unavailable' | 'not_locked' };
 
-// Re-poll the player's collection log and mark any now-owned tiles obtained. This is
-// the live auto-tracker: a tile flips to done the next time the player's clog shows
-// the item. Only flips false→true (never un-obtains). Only runs on a LOCKED board —
-// a draft isn't tracked until it's locked in.
+// Re-poll Temple (clog) / WoM (skill XP) / WikiSync (CAs) and append an approved ledger credit for
+// any tile now satisfied. Only runs on a LOCKED board. Never un-credits.
 export async function refreshPersonalBoard(userId: string): Promise<RefreshResult> {
 	const board = await loadPersonalBoard(userId);
 	if (!board) return { ok: false, reason: 'no_board' };
 	if (!board.locked_at) return { ok: false, reason: 'not_locked' };
-
-	const sb = db();
-	const now = new Date().toISOString();
+	const eventId = board.id;
 	const newlyObtained: string[] = [];
 
 	// Item tiles: re-poll the collection log.
@@ -535,16 +617,16 @@ export async function refreshPersonalBoard(userId: string): Promise<RefreshResul
 	if (itemTiles.length) {
 		const owned = await getOwnedClogNames(userId, board.rsn, true); // force a fresh Temple read
 		if (owned == null) return { ok: false, reason: 'clog_unavailable' };
-		for (const tile of itemTiles) {
-			if (owned.has((tile.item_name as string).toLowerCase())) {
-				newlyObtained.push(tile.item_name as string);
-				await sb.from('vs_personal_board_tiles').update({ obtained: true, obtained_at: now }).eq('board_id', board.id).eq('idx', tile.idx);
+		for (const t of itemTiles) {
+			if (owned.has((t.item_name as string).toLowerCase())) {
+				const r = await creditTile(eventId, userId, String(t.idx), 'clog', { targetLabel: t.item_name ?? undefined });
+				if (r === 'credited') newlyObtained.push(t.item_name as string);
 			}
 		}
 	}
 
 	// Skill tiles: XP gained since lock (WoM). Best-effort — a WoM outage just leaves progress
-	// unchanged this round (not an error). Captures a missing baseline lazily.
+	// unchanged this round. Captures a missing baseline lazily.
 	const skillTiles = board.tiles.filter((t) => !t.obtained && t.kind === 'skill' && t.skill);
 	if (skillTiles.length) {
 		await updateWomPlayer(board.rsn);
@@ -554,24 +636,20 @@ export async function refreshPersonalBoard(userId: string): Promise<RefreshResul
 				const current = xp[t.skill as Skill];
 				if (current == null) continue;
 				if (t.baseline_xp == null) {
-					// Lock-time snapshot failed; set the baseline now and credit from here on.
-					await sb.from('vs_personal_board_tiles').update({ baseline_xp: current, progress_xp: 0 }).eq('board_id', board.id).eq('idx', t.idx);
+					await updateTileMeta(eventId, String(t.idx), { baseline_xp: current, progress: 0 });
 					continue;
 				}
 				const gained = Math.max(0, current - t.baseline_xp);
-				const done = t.target_xp != null && gained >= t.target_xp;
-				await sb
-					.from('vs_personal_board_tiles')
-					.update({ progress_xp: gained, ...(done ? { obtained: true, obtained_at: now } : {}) })
-					.eq('board_id', board.id)
-					.eq('idx', t.idx);
-				if (done) newlyObtained.push(t.skill as string);
+				await updateTileMeta(eventId, String(t.idx), { progress: gained });
+				if (t.target_xp != null && gained >= t.target_xp) {
+					const r = await creditTile(eventId, userId, String(t.idx), 'wom', { targetLabel: t.skill ?? undefined });
+					if (r === 'credited') newlyObtained.push(t.skill as string);
+				}
 			}
 		}
 	}
 
-	// CA tiles: re-poll WikiSync's completed-CA set and flip any now-completed tile. Best-effort —
-	// a WikiSync outage just leaves them unchanged this round (not an error), like the WoM path.
+	// CA tiles: re-poll WikiSync's completed-CA set. Best-effort.
 	const caTiles = board.tiles.filter((t) => !t.obtained && t.kind === 'ca' && t.ca_id != null);
 	if (caTiles.length) {
 		const done = await getCompletedCAs(userId, board.rsn, true); // force a fresh WikiSync read
@@ -579,8 +657,8 @@ export async function refreshPersonalBoard(userId: string): Promise<RefreshResul
 			for (const t of caTiles) {
 				if (done.has(t.ca_id as number)) {
 					const label = t.item_name ?? `Combat achievement #${t.ca_id}`;
-					newlyObtained.push(label);
-					await sb.from('vs_personal_board_tiles').update({ obtained: true, obtained_at: now }).eq('board_id', board.id).eq('idx', t.idx);
+					const r = await creditTile(eventId, userId, String(t.idx), 'wikisync', { targetLabel: label });
+					if (r === 'credited') newlyObtained.push(label);
 				}
 			}
 		}
@@ -594,10 +672,9 @@ export type SubmitTileResult =
 	| { ok: true }
 	| { ok: false; reason: 'no_board' | 'not_locked' | 'no_tile' | 'upload_failed'; error?: string };
 
-// Manual, owner-attested completion of a personal-board tile (for drops/goals the auto-trackers
-// miss). Uploads any proof screenshots to the shared bingo bucket, then flips the tile to
-// obtained with manual=true. Self-serve: personal boards have no review flow. Only on a LOCKED
-// board (drafts aren't tracked); proof is optional. Idempotent on an already-obtained tile.
+// Manual, owner-attested completion of a tile (for drops/goals the auto-trackers miss). Uploads any
+// proof to the shared bingo bucket, then appends an approved manual credit. Self-serve (personal
+// boards have no review). Only on a LOCKED board; proof optional; idempotent.
 export async function submitPersonalTile(userId: string, idx: number, files: File[]): Promise<SubmitTileResult> {
 	const board = await loadPersonalBoard(userId);
 	if (!board) return { ok: false, reason: 'no_board' };
@@ -605,7 +682,7 @@ export async function submitPersonalTile(userId: string, idx: number, files: Fil
 
 	const tile = board.tiles.find((t) => t.idx === idx);
 	if (!tile) return { ok: false, reason: 'no_tile' };
-	if (tile.obtained) return { ok: true }; // already done — nothing to do
+	if (tile.obtained) return { ok: true }; // already done
 
 	const valid = files.filter((f) => f instanceof File && f.size > 0).slice(0, MAX_IMAGES_PER_SUBMISSION);
 	const urls: string[] = [];
@@ -621,15 +698,13 @@ export async function submitPersonalTile(userId: string, idx: number, files: Fil
 		paths.push(res.path);
 	}
 
-	const { error } = await sb
-		.from('vs_personal_board_tiles')
-		.update({ obtained: true, obtained_at: new Date().toISOString(), manual: true, proof_urls: urls.length ? urls : null })
-		.eq('board_id', board.id)
-		.eq('idx', idx)
-		.eq('obtained', false);
-	if (error) {
+	const r = await creditTile(board.id, userId, String(idx), 'manual', {
+		proofUrls: urls.length ? urls : undefined,
+		targetLabel: tile.item_name ?? tile.skill ?? undefined
+	});
+	if (r === 'error') {
 		if (paths.length) await sb.storage.from(BINGO_BUCKET).remove(paths);
-		return { ok: false, reason: 'upload_failed', error: error.message };
+		return { ok: false, reason: 'upload_failed', error: 'Could not save your submission' };
 	}
 	return { ok: true };
 }
