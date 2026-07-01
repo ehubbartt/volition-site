@@ -63,8 +63,10 @@ export const actions: Actions = {
 		const difficulty = Number(form.get('difficulty') ?? 5);
 		const skilling = form.get('skilling') === 'on' || form.get('skilling') === 'true';
 		const ca = form.get('ca') === 'on' || form.get('ca') === 'true';
+		// "Include pets" is a checkbox — absent from the form data means unchecked (exclude pets).
+		const pets = form.get('pets') === 'on' || form.get('pets') === 'true';
 
-		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty, skilling, ca);
+		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty, skilling, ca, pets);
 
 		if (!result.ok) {
 			const msg =
@@ -75,7 +77,7 @@ export const actions: Actions = {
 						: result.reason === 'ca_unavailable'
 							? "Couldn't read your combat achievements from WikiSync. Make sure your RSN is synced in RuneLite's WikiSync plugin and try again, or turn off combat achievements."
 							: result.reason === 'too_few'
-								? `You're only missing ${result.missing} eligible PVM clog items — not enough to fill this board (needs ${result.need}). Nice log! Try a smaller grid${skilling || ca ? '' : ', or enable skilling / combat achievement tiles'}.`
+								? `You're only missing ${result.missing} eligible PVM clog items — not enough to fill this board (needs ${result.need}). Nice log! Try a smaller grid${skilling && ca && pets ? '' : ', or enable more options (skilling, combat achievements, pets)'}.`
 								: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
 			const status =
 				result.reason === 'too_few' ? 400 : result.reason === 'locked' ? 403 : 502;

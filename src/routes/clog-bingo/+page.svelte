@@ -44,6 +44,7 @@
 	let difficulty = $state(5);
 	let skilling = $state(data.board?.tiles.some((t) => t.kind === 'skill') ?? false);
 	let ca = $state(data.board?.tiles.some((t) => t.kind === 'ca') ?? false);
+	let pets = $state(true); // pets are included by default; unchecking filters pet drops out
 	let generating = $state(false);
 	let refreshing = $state(false);
 	let locking = $state(false);
@@ -178,18 +179,18 @@
 				</div>
 
 				<div class="field">
-					<span class="label">Skilling tiles</span>
+					<span class="label">Settings</span>
 					<label class="toggle">
 						<input type="checkbox" name="skilling" bind:checked={skilling} />
 						<span>Include skilling goals</span>
 					</label>
-				</div>
-
-				<div class="field">
-					<span class="label">Combat achievements</span>
 					<label class="toggle">
 						<input type="checkbox" name="ca" bind:checked={ca} />
 						<span>Include combat achievements</span>
+					</label>
+					<label class="toggle">
+						<input type="checkbox" name="pets" bind:checked={pets} />
+						<span>Include pets</span>
 					</label>
 				</div>
 			</div>
@@ -460,6 +461,10 @@
 		gap: 0.45rem;
 		cursor: pointer;
 		font-size: 0.9rem;
+	}
+	/* Stacked toggles under the single "Settings" label get a little breathing room. */
+	.toggle + .toggle {
+		margin-top: 0.4rem;
 	}
 	.toggle input {
 		width: auto;

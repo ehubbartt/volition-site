@@ -21,6 +21,23 @@ export interface ItemEhb {
 	sources: EhbSource[];
 }
 
+// Boss/raid/wildy pet drops in the clog universe (lowercased). Used to optionally exclude pet
+// tiles from personal boards ("Include pets" toggle). Kept as a data-driven allow-set so it's
+// easy to extend when a new boss pet is added to itemEhb.json.
+export const PET_ITEM_NAMES: ReadonlySet<string> = new Set([
+	'baby mole', 'baron', 'butch', 'callisto cub', 'dom', 'hellpuppy', 'huberte', 'ikkle hydra',
+	'jal-nib-rek', 'kalphite princess', "lil'viathan", 'little nightmare', 'moxi', 'muphin',
+	'nexling', 'nid', 'noon', 'olmlet', 'pet chaos elemental', 'pet dagannoth prime',
+	'pet dagannoth rex', 'pet dagannoth supreme', 'pet dark core', 'pet general graardor',
+	"pet k'ril tsutsaroth", 'pet kraken', "pet kree'arra", 'pet smoke devil', 'pet snakeling',
+	'pet zilyana', 'prince black dragon', "scorpia's offspring", 'scurry', 'skotos', 'smol heredit',
+	'sraracha', 'tangleroot', 'tzrek-jad', 'venenatis spiderling', "vet'ion jr.", 'vorki', 'wisp',
+	'youngllef', 'abyssal orphan', "lil' zik", "tumeken's guardian"
+]);
+
+export const isPetItem = (name: string): boolean =>
+	PET_ITEM_NAMES.has(name.trim().toLowerCase());
+
 // Tunable assumptions (raid purple shares, doom floor/clears-per-hour, efficiency).
 // Defaults mirror the admin tool's initial state.
 export interface EhbAssumptions {
