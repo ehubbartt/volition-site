@@ -175,7 +175,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		.select(
 			'id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, starts_at, ends_at'
 		)
-		.is('owner_user_id', null) // exclude personal boards (kind='personal', owner-scoped)
+		.neq('kind', 'personal') // exclude personal boards (owner-scoped, not public events)
 		.in('status', visibleStatuses)
 		.neq('slug', 'weekly-tasks'); // internal task container, not a real event
 
