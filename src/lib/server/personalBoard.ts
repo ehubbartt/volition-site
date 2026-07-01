@@ -232,6 +232,7 @@ async function creditTile(
 		quantity: 1,
 		status: 'approved',
 		source,
+		test: false, // vs_submissions.test is set on every createSubmission insert (may be NOT NULL)
 		proof_urls: opts?.proofUrls ?? null,
 		submitted_at: now,
 		reviewed_at: now
