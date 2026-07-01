@@ -13,7 +13,7 @@
 
 import { db } from './db';
 import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer, fetchWikiSyncCA } from './rankData';
-import { bestEhbSource, type ItemEhb, type EhbOverrides } from '$lib/ehb';
+import { bestEhbSource, isPetItem, type ItemEhb, type EhbOverrides } from '$lib/ehb';
 import { getEhbOverrides } from './ehbOverrides';
 import { SKILLS, SKILL_EHP_RATES, roundXp, skillTileHours, type Skill } from '$lib/ehp';
 import { CA_TIERS, caTierForDifficulty } from '$lib/ca';
@@ -122,11 +122,12 @@ interface Candidate {
 }
 
 // All PVM clog items the player is MISSING, each costed at its cheapest EHB source
-// (with admin overrides applied), sorted easy→hard.
-function missingCandidates(owned: Set<string>, overrides?: EhbOverrides): Candidate[] {
+// (with admin overrides applied), sorted easy→hard. Pet drops are excluded unless includePets.
+function missingCandidates(owned: Set<string>, overrides?: EhbOverrides, includePets = true): Candidate[] {
 	const out: Candidate[] = [];
 	for (const item of ITEM_EHB) {
 		if (owned.has(item.name.toLowerCase())) continue; // already have it
+		if (!includePets && isPetItem(item.name)) continue; // pets filtered out
 		const best = bestEhbSource(item, undefined, overrides);
 		if (!best) continue; // no computable EHB source
 		out.push({ item_id: item.id, item_name: item.name, ehb: best.ehb, source: best.src.s });
@@ -266,7 +267,8 @@ export async function generatePersonalBoard(
 	size: number,
 	difficulty: number,
 	includeSkilling = false,
-	includeCA = false
+	includeCA = false,
+	includePets = true
 ): Promise<GenerateResult> {
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
 
@@ -305,7 +307,7 @@ export async function generatePersonalBoard(
 	if (owned == null) return { ok: false, reason: 'clog_unavailable' };
 
 	const overrides = await getEhbOverrides();
-	const pool = missingCandidates(owned, overrides);
+	const pool = missingCandidates(owned, overrides, includePets);
 	if (pool.length < itemCount) {
 		return { ok: false, reason: 'too_few', missing: pool.length, need: itemCount };
 	}
