@@ -503,8 +503,9 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 50px;
-		height: 50px;
+		/* Wide enough that a square 40–42px icon's corners clear the circle (needs ≥ side·√2). */
+		width: 64px;
+		height: 64px;
 		border-radius: 50%;
 		background: radial-gradient(circle at 50% 38%, #f1e8cf, #c3b088);
 		box-shadow:
