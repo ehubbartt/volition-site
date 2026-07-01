@@ -48,39 +48,15 @@ create table if not exists vs_event_participants (
 );
 create index if not exists vs_event_participants_event on vs_event_participants (event_id);
 
--- 5) vs_active_tiles (VIEW) — the single index every auto-tracker reads: one row per
---    (participant × not-yet-complete tile × trigger). Build/finalize this WITH the first v2 event
---    so its completion check and event-live/lock predicates match the real vs_events columns. The
---    view is PERMISSIVE (a not-complete tile is creditable); unlock/gating is display/scoring only,
---    handled in the per-kind TS strategy — never split gating across SQL and TS.
---
--- Intended shape (finalize columns against live vs_events / vs_submissions before applying):
---
---   create or replace view vs_active_tiles as
---   select p.user_id, u.rsn, p.team_id, e.id as event_id, e.kind,
---          t.tile_key, t.kind as tile_kind,
---          trig->>'type'                         as type,
---          trig->>'match_key'                    as match_key,
---          coalesce((trig->>'required_qty')::int, 1) as required_qty,
---          trig->>'source_name'                  as source_name,
---          p.activated_at
---   from vs_event_participants p
---   join vs_events e on e.id = p.event_id
---   join vs_users  u on u.id = p.user_id
---   join vs_tiles  t on t.event_id = e.id
---   cross join lateral jsonb_array_elements(t.triggers) as trig
---   where (e.owner_user_id is null and e.status = 'open')          -- shared events: open
---      or (e.owner_user_id is not null and e.locked_at is not null) -- personal boards: locked
---     and not exists (                                              -- tile not already completed
---       select 1 from vs_submissions s
---       where s.event_id = e.id and s.target_id = t.tile_key and s.status = 'approved'
---         and coalesce(s.team_id, s.user_id) = coalesce(p.team_id, p.user_id)
---       group by s.event_id, s.target_id
---       having sum(coalesce(s.quantity, 1)) >= (
---         select coalesce(max((tr->>'required_qty')::int), 1)
---         from jsonb_array_elements(t.triggers) tr)
---     );
---
--- Manual tiles (triggers = []) won't appear (no trigger rows); include a `type='manual'` union if
--- the index should also list proof-only tiles for completeness (as the current
--- vs_active_player_tiles does).
+-- 5) Active-tiles index: rather than a second view, the existing `vs_active_player_tiles`
+--    (db/scripts/active_tiles.sql) is EVOLVED in place — its personal branch now reads
+--    vs_events(kind='personal') + vs_tiles + vs_submissions (see that file). The Dink consumer and
+--    proxy allowlist keep reading the same view/columns. APPLY ORDER: run THIS file first (so
+--    vs_tiles + the `source` column exist), then re-apply active_tiles.sql.
+
+-- Helpful index for the ledger-derived "is this tile complete for this owner" check.
+create index if not exists vs_submissions_event_target on vs_submissions (event_id, target_id, status);
+
+-- 6) The old personal-board tables (vs_personal_boards / vs_personal_board_tiles) are dropped at
+--    the END of active_tiles.sql — i.e. only AFTER the view is recreated to no longer reference
+--    them. APPLY ORDER: this file → active_tiles.sql (which recreates the view and then drops them).

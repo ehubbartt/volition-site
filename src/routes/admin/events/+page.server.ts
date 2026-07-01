@@ -17,6 +17,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			.select(
 				'id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, starts_at, ends_at, team_size, created_at'
 			)
+			.is('owner_user_id', null) // hide personal boards (kind='personal', one per user)
 			.order('created_at', { ascending: false }),
 		// Pack names power the create form's reward <datalist>.
 		db().from('vs_card_packs').select('name').order('name', { ascending: true })

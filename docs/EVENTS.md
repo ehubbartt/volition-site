@@ -98,5 +98,9 @@ and one `vs_active_tiles` accessor + a single "participant key" helper (`coalesc
   No new writes; don't delete.
 - **`vs_team_completions`** — already removed from the DB. Remaining code refs (review queue,
   `events/[slug]/board`, admin pages) are dead branches — clean up when convenient.
-- **`vs_personal_boards` / `vs_personal_board_tiles`** — NOT legacy; the current live personal-bingo
-  feature. They stay until (if ever) a personal-board v2 adopts this spine.
+- **`vs_personal_boards` / `vs_personal_board_tiles`** — REMOVED. Personal boards were migrated onto
+  this spine before release: a board is a `vs_events` row (`kind='personal'`, `owner_user_id` set),
+  its tiles are `vs_tiles` rows, and completion is derived from `vs_submissions` (auto-track sources
+  `dink`/`clog`/`wom`/`wikisync`, manual = `manual`). They're the reference implementation of the
+  standard (see `src/lib/server/personalBoard.ts`). Public/admin event lists filter
+  `owner_user_id is null` to keep personal boards out.
