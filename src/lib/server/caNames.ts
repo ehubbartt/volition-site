@@ -28,7 +28,7 @@ const SEED_MONSTER = new Map<number, string | null | undefined>(SEED.map((t) => 
 const WIKI_BUCKET_URL =
 	'https://oldschool.runescape.wiki/api.php?action=bucket&format=json&query=' +
 	encodeURIComponent(
-		'bucket("combat_achievement").select("id","name","tier").limit(5000).run()'
+		'bucket("combat_achievement").select("id","name","tier","monster").limit(5000).run()'
 	);
 const USER_AGENT = 'Volition-Site personal-bingo (github.com/ehubbartt/volition-site)';
 const REFRESH_TTL_MS = 24 * 60 * 60 * 1000; // re-fetch from the wiki at most once a day on success
@@ -47,12 +47,13 @@ async function refreshFromWiki(): Promise<void> {
 		});
 		if (!res.ok) throw new Error(`wiki bucket ${res.status}`);
 		const json = (await res.json()) as {
-			bucket?: { id?: number; name?: string; tier?: string }[];
+			bucket?: { id?: number; name?: string; tier?: string; monster?: string }[];
 		};
 		if (!json?.bucket?.length) throw new Error('wiki bucket empty');
 		// Seed first so any id the wiki omits still resolves; live rows then supersede + extend.
-		// The bucket query is id/name/tier only (the field set proven by public rank tools), so
-		// the boss image comes from the seed, carried over by id.
+		// The wiki's `monster` field carries the canonical page-name casing (e.g. "Shellbane
+		// gryphon"), which the boss image URL needs; fall back to the seed's monster if a row
+		// omits it.
 		const merged = new Map<number, CaTask>(SEED.map((t) => [t.id, t]));
 		for (const row of json.bucket) {
 			if (typeof row.id !== 'number' || !row.name || !row.tier) continue;
@@ -60,7 +61,7 @@ async function refreshFromWiki(): Promise<void> {
 				id: row.id,
 				name: row.name,
 				tier: String(row.tier).toLowerCase(),
-				monster: SEED_MONSTER.get(row.id) ?? null
+				monster: row.monster || SEED_MONSTER.get(row.id) || null
 			});
 		}
 		cache = merged;

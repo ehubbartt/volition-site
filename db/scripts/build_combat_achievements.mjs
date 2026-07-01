@@ -19,7 +19,7 @@ import fs from 'node:fs';
 
 const WIKI_BUCKET_URL =
 	'https://oldschool.runescape.wiki/api.php?action=bucket&format=json&query=' +
-	encodeURIComponent('bucket("combat_achievement").select("id","name","tier").limit(5000).run()');
+	encodeURIComponent('bucket("combat_achievement").select("id","name","tier","monster").limit(5000).run()');
 const USER_AGENT = 'Volition-Site personal-bingo build (github.com/ehubbartt/volition-site)';
 const OUT_PATH = 'src/lib/server/data/caTasks.json';
 
@@ -34,17 +34,8 @@ if (!Array.isArray(bucket) || !bucket.length) {
 	process.exit(1);
 }
 
-// The bucket query is id/name/tier only (the field set proven by public rank tools). The boss
-// image comes from the committed `monster` field, so preserve it by id across regenerations;
-// brand-new CAs land with monster=null until one is filled in by hand.
-let prevMonster = new Map();
-try {
-	const prev = JSON.parse(fs.readFileSync(OUT_PATH, 'utf8'));
-	prevMonster = new Map(prev.map((t) => [t.id, t.monster ?? null]));
-} catch {
-	/* no existing file — fine */
-}
-
+// The wiki's `monster` field carries the canonical page-name casing (e.g. "Shellbane gryphon"),
+// which the boss image URL needs.
 const out = [];
 for (const row of bucket) {
 	if (typeof row.id !== 'number' || !row.name || !row.tier) continue;
@@ -52,7 +43,7 @@ for (const row of bucket) {
 		id: row.id,
 		name: String(row.name),
 		tier: String(row.tier).toLowerCase(),
-		monster: prevMonster.get(row.id) ?? null
+		monster: row.monster ? String(row.monster) : null
 	});
 }
 out.sort((a, b) => a.id - b.id);
