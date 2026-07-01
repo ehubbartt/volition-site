@@ -8,9 +8,15 @@
 --        vs_active_tiles view.
 
 -- 1) vs_events: personal boards reuse this table (owner_user_id set, kind='personal'). Shared
---    events leave it null. Public/admin event lists must filter `owner_user_id is null`.
+--    events set owner_user_id to the creating admin (so "who to contact" can be shown); only
+--    personal boards are hidden from event lists (filter `kind <> 'personal'`).
 alter table vs_events add column if not exists owner_user_id uuid references vs_users (id) on delete cascade;
 create index if not exists vs_events_owner on vs_events (owner_user_id);
+-- locked_at: personal boards' commitment/activation timestamp (was on the old vs_personal_boards).
+-- Null = draft/never-locked; the active-tiles view uses it as the personal activation time.
+alter table vs_events add column if not exists locked_at timestamptz;
+-- One personal board per user (partial unique — shared events are unconstrained).
+create unique index if not exists vs_events_personal_owner on vs_events (owner_user_id) where kind = 'personal';
 
 -- 2) vs_submissions: mark HOW a credit was made so auto vs manual is distinguishable and auto rows
 --    can be deduped. ('manual' | 'dink' | 'clog' | 'wom' | 'wikisync' | …). Nullable = legacy/manual.

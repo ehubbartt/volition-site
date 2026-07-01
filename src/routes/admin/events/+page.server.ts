@@ -17,7 +17,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			.select(
 				'id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, starts_at, ends_at, team_size, created_at'
 			)
-			.is('owner_user_id', null) // hide personal boards (kind='personal', one per user)
+			.neq('kind', 'personal') // hide personal boards (one per user); shared events still show
 			.order('created_at', { ascending: false }),
 		// Pack names power the create form's reward <datalist>.
 		db().from('vs_card_packs').select('name').order('name', { ascending: true })
@@ -124,6 +124,7 @@ export const actions: Actions = {
 				name: parsed.data.name,
 				description: parsed.data.description,
 				kind: 'custom',
+				owner_user_id: locals.user.id, // the admin who owns/hosts it (shown as "who to contact")
 				team_size: parsed.data.team_size,
 				status: parsed.data.status,
 				signup_opens_at: normalizeDate(form.get('signup_opens_at')),
@@ -159,6 +160,7 @@ export const actions: Actions = {
 				name,
 				description,
 				kind,
+				owner_user_id: locals.user.id, // the admin who owns/hosts it
 				status: 'draft',
 				team_size: 1,
 				starts_at: normalizeDate(form.get('starts_at')),
@@ -208,7 +210,7 @@ export const actions: Actions = {
 		const slug = await uniqueEventSlug(name);
 		const { data: ev, error: insErr } = await db()
 			.from('vs_events')
-			.insert({ slug, name, kind: template.kind, status: 'draft', team_size: 1 })
+			.insert({ slug, name, kind: template.kind, owner_user_id: locals.user.id, status: 'draft', team_size: 1 })
 			.select('id')
 			.single();
 		if (insErr || !ev) return fail(500, { error: insErr?.message ?? 'Could not create event' });

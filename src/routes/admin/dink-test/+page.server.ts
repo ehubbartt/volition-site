@@ -13,7 +13,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
 
 	const [eventsRes, trackedRes, tokens] = await Promise.all([
-		db().from('vs_events').select('id, slug, name, status, starts_at').is('owner_user_id', null).order('created_at', { ascending: false }),
+		db().from('vs_events').select('id, slug, name, status, starts_at').neq('kind', 'personal').order('created_at', { ascending: false }),
 		db().from('vs_event_tracked_items').select('event_id, tile_id, item_id, item_name, source_name'),
 		listActiveTokens()
 	]);
