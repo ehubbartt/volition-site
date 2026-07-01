@@ -468,8 +468,11 @@
 	}
 	.grid {
 		display: grid;
-		grid-template-columns: repeat(var(--n), 1fr);
+		/* minmax(0, 1fr) lets the columns shrink below the tiles' content width so the board
+		   always fits the viewport (tiles scale their icon/text via container queries). */
+		grid-template-columns: repeat(var(--n), minmax(0, 1fr));
 		gap: 0.5rem;
+		max-width: 100%;
 	}
 	/* Individual tiles are the reusable <BingoTile> component ($lib/BingoTile.svelte). */
 	.foot {

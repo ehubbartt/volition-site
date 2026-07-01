@@ -40,14 +40,18 @@
 </div>
 
 <style>
-	/* Tiles wear the same bronze OSRS button frame + tan fill as the site's buttons. */
+	/* Tiles wear the same bronze OSRS button frame + tan fill as the site's buttons. The tile is
+	   a size container (container-type: inline-size) so the disc + text scale with the tile's
+	   own width — the board then shrinks to fit narrow phones instead of overflowing the page. */
 	.tile {
+		container-type: inline-size;
 		position: relative;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: flex-start;
 		gap: 0.3rem;
+		min-width: 0;
 		padding: 0.55rem 0.4rem;
 		min-height: 7rem;
 		text-align: center;
@@ -71,22 +75,31 @@
 			0 0 0 2px var(--accent),
 			0 0 14px -2px var(--accent);
 	}
-	/* Every icon sits on a light parchment disc, wide enough that a square ~40-42px icon's
-	   corners clear the circle (needs ≥ side·√2). */
+	/* Every icon sits on a light parchment disc. Its size scales with the tile width (60cqw),
+	   capped at 64px, so on a narrow phone the disc shrinks with the tile instead of forcing the
+	   board wider than the screen. The disc stays wide enough that a square icon's corners clear
+	   the circle (needs ≥ side·√2). */
 	.icon {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 64px;
-		height: 64px;
+		width: clamp(34px, 60cqw, 64px);
+		height: clamp(34px, 60cqw, 64px);
 		border-radius: 50%;
 		background: radial-gradient(circle at 50% 38%, #f1e8cf, #c3b088);
 		box-shadow:
 			inset 0 0 0 2px rgba(0, 0, 0, 0.45),
 			inset 0 -3px 6px rgba(0, 0, 0, 0.18);
 	}
+	/* The wiki image fits inside the disc regardless of the disc's (responsive) size. */
+	.icon :global(.wiki-img) {
+		max-width: 66%;
+		max-height: 66%;
+		width: auto;
+		height: auto;
+	}
 	.name {
-		font-size: 0.78rem;
+		font-size: clamp(0.62rem, 13cqw, 0.78rem);
 		line-height: 1.1;
 		color: var(--accent);
 		overflow-wrap: anywhere;
@@ -98,7 +111,7 @@
 		overflow: hidden;
 	}
 	.sub {
-		font-size: 0.72rem;
+		font-size: clamp(0.58rem, 12cqw, 0.72rem);
 		color: #cbb78b;
 		font-family: var(--font-heading);
 	}
