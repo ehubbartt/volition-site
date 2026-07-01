@@ -15,7 +15,7 @@ import { db } from './db';
 import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer, fetchWikiSyncCA } from './rankData';
 import { bestEhbSource, isPetItem, type ItemEhb, type EhbOverrides } from '$lib/ehb';
 import { getEhbOverrides } from './ehbOverrides';
-import { TILE_SKILLS, SKILL_EHP_RATES, roundXp, skillTileHours, type Skill } from '$lib/ehp';
+import { TILE_SKILLS, SKILL_EHP_RATES, MAX_SKILL_XP, roundXp, skillTileHours, type Skill } from '$lib/ehp';
 import { CA_TIERS, caTierForDifficulty } from '$lib/ca';
 import { getCATasks, type CaTask } from './caNames';
 import itemEhbData from './data/itemEhb.json';
@@ -114,6 +114,20 @@ async function getCompletedCAs(userId: string, rsn: string, force = false): Prom
 	return done;
 }
 
+// Short-lived per-user cache of the player's per-skill XP (WoM), used only to skip already-99'd
+// skills at generation time. Reads the latest WoM snapshot (no forced re-sync — a slightly stale
+// snapshot is fine for a "is this skill 99?" check) so rerolling a draft doesn't spam WoM.
+const skillXpCache = new Map<string, { at: number; xp: Record<Skill, number> | null }>();
+const SKILL_XP_TTL_MS = 5 * 60 * 1000;
+
+async function getPlayerSkillXpCached(userId: string, rsn: string): Promise<Record<Skill, number> | null> {
+	const hit = skillXpCache.get(userId);
+	if (hit && Date.now() - hit.at < SKILL_XP_TTL_MS) return hit.xp;
+	const xp = await fetchPlayerSkillXp(rsn);
+	skillXpCache.set(userId, { at: Date.now(), xp });
+	return xp;
+}
+
 interface Candidate {
 	item_id: number;
 	item_name: string;
@@ -184,16 +198,19 @@ interface SkillPick {
 	ehb: number; // EHP-hours cost (for the difficulty gradient)
 }
 
-// Pick `count` skilling tiles (distinct skills) as an easy→hard band by difficulty: each
-// tile's EHP-hours → a clean rounded XP goal for a random skill via its EHP rate.
-function selectSkillTiles(count: number, difficulty: number): SkillPick[] {
-	if (count <= 0) return [];
-	const pool = [...TILE_SKILLS]; // Prayer + non-combat skills (combat skills are excluded)
+// Pick up to `count` DISTINCT skilling tiles as an easy→hard band by difficulty: each tile's
+// EHP-hours → a clean rounded XP goal for a random skill via its EHP rate. Drawn from `allowed`
+// (defaults to TILE_SKILLS); returns fewer than `count` if the allowed pool is smaller (e.g.
+// after excluding maxed skills) — the caller backfills the board with item tiles.
+function selectSkillTiles(count: number, difficulty: number, allowed: readonly Skill[] = TILE_SKILLS): SkillPick[] {
+	if (count <= 0 || allowed.length === 0) return [];
+	const pool = [...allowed];
 	shuffle(pool);
+	const n = Math.min(count, pool.length);
 	const picks: SkillPick[] = [];
-	for (let i = 0; i < count; i++) {
-		const skill = pool[i % pool.length];
-		const hours = skillTileHours(difficulty, i, count);
+	for (let i = 0; i < n; i++) {
+		const skill = pool[i];
+		const hours = skillTileHours(difficulty, i, n);
 		picks.push({ skill, target_xp: roundXp(hours * SKILL_EHP_RATES[skill]), ehb: hours });
 	}
 	return picks;
@@ -268,7 +285,8 @@ export async function generatePersonalBoard(
 	difficulty: number,
 	includeSkilling = false,
 	includeCA = false,
-	includePets = true
+	includePets = true,
+	excludeMaxedSkills = false
 ): Promise<GenerateResult> {
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
 
@@ -299,7 +317,15 @@ export async function generatePersonalBoard(
 		caPicks = selectCATiles(caTarget, diff, completed, catalogue);
 	}
 
-	const skills = selectSkillTiles(skillCount, diff);
+	// Optionally drop skills the player has already 99'd. Best-effort: if WoM XP can't be read,
+	// don't exclude anything (fall back to the full pool).
+	let allowedSkills = TILE_SKILLS;
+	if (skillCount > 0 && excludeMaxedSkills) {
+		const xp = await getPlayerSkillXpCached(userId, rsn);
+		if (xp) allowedSkills = TILE_SKILLS.filter((s) => (xp[s] ?? 0) < MAX_SKILL_XP);
+	}
+
+	const skills = selectSkillTiles(skillCount, diff, allowedSkills);
 	const itemCount = tileCount - skills.length - caPicks.length;
 
 	// Cached owned set: rerolling a draft reshuffles without re-hitting Temple each time.

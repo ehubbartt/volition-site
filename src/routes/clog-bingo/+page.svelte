@@ -45,6 +45,7 @@
 	let skilling = $state(data.board?.tiles.some((t) => t.kind === 'skill') ?? false);
 	let ca = $state(data.board?.tiles.some((t) => t.kind === 'ca') ?? false);
 	let pets = $state(true); // pets are included by default; unchecking filters pet drops out
+	let skip99 = $state(false); // skilling sub-option: skip skills already at level 99
 	let generating = $state(false);
 	let refreshing = $state(false);
 	let locking = $state(false);
@@ -184,6 +185,12 @@
 						<input type="checkbox" name="skilling" bind:checked={skilling} />
 						<span>Include skilling goals</span>
 					</label>
+					{#if skilling}
+						<label class="toggle sub">
+							<input type="checkbox" name="skip99" bind:checked={skip99} />
+							<span>Skip skills already at 99</span>
+						</label>
+					{/if}
 					<label class="toggle">
 						<input type="checkbox" name="ca" bind:checked={ca} />
 						<span>Include combat achievements</span>
@@ -465,6 +472,12 @@
 	/* Stacked toggles under the single "Settings" label get a little breathing room. */
 	.toggle + .toggle {
 		margin-top: 0.4rem;
+	}
+	/* Sub-option nested under its parent toggle (e.g. "Skip skills already at 99"). */
+	.toggle.sub {
+		margin-left: 1.5rem;
+		font-size: 0.82rem;
+		color: var(--muted);
 	}
 	.toggle input {
 		width: auto;
