@@ -111,7 +111,7 @@
 	let packSearch = $state('');
 
 	// ── Grant tab ─────────────────────────────────────────────────────────
-	let grantTarget = $state<'one' | 'all'>('one');
+	let grantTarget = $state<'one' | 'all' | 'event'>('one');
 	let granting = $state(false);
 
 	function memberLabel(m: PageData['members'][number]): string {
@@ -120,10 +120,17 @@
 
 	// Confirm before a mass grant; keep the form's typed values after submit.
 	const onGrantSubmit: SubmitFunction = ({ formData, cancel }) => {
-		if (formData.get('target') === 'all') {
-			const qty = formData.get('quantity') ?? '1';
-			const packName = data.packs.find((p) => p.id === formData.get('pack_id'))?.name ?? 'this pack';
+		const target = formData.get('target');
+		const qty = formData.get('quantity') ?? '1';
+		const packName = data.packs.find((p) => p.id === formData.get('pack_id'))?.name ?? 'this pack';
+		if (target === 'all') {
 			if (!confirm(`Give ${qty} × ${packName} to all ${data.members.length} members?`)) {
+				cancel();
+				return;
+			}
+		} else if (target === 'event') {
+			const ev = data.events.find((e) => e.id === formData.get('event_id'));
+			if (!confirm(`Give ${qty} × ${packName} to every clan member who participated in ${ev?.name ?? 'this event'}?`)) {
 				cancel();
 				return;
 			}
@@ -1120,6 +1127,10 @@
 					<input type="radio" name="target" value="all" bind:group={grantTarget} />
 					<span>Everyone ({data.members.length} members)</span>
 				</label>
+				<label class="radio">
+					<input type="radio" name="target" value="event" bind:group={grantTarget} />
+					<span>Event participants (clan members who completed ≥1 tile/task)</span>
+				</label>
 			</fieldset>
 
 			{#if grantTarget === 'one'}
@@ -1132,6 +1143,20 @@
 						{/each}
 					</select>
 				</label>
+			{:else if grantTarget === 'event'}
+				<label>
+					<span>Event</span>
+					<select name="event_id" required>
+						<option value="" disabled selected>Pick an event…</option>
+						{#each data.events as e (e.id)}
+							<option value={e.id}>{e.name}{e.status && e.status !== 'closed' ? ` · ${e.status}` : ''}</option>
+						{/each}
+					</select>
+				</label>
+				<p class="muted small">
+					Grants to every <strong>clan member</strong> who completed at least one tile or task.
+					Team completions credit the whole team. Non-clan participants are skipped.
+				</p>
 			{/if}
 
 			<label>

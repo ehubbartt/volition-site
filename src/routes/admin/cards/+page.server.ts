@@ -11,6 +11,8 @@ import {
 	type UploadedLayer
 } from '$lib/server/cardArt';
 import { grantUserPack } from '$lib/server/gamba';
+import { getEventParticipantIds } from '$lib/server/eventParticipants';
+import { filterClanMembers } from '$lib/server/clan';
 import { isValidRarity, RARITIES, DEFAULT_RARITY, type CardAbility } from '$lib/cards/rarity';
 import { isLayerEffect, type LayerEffect } from '$lib/cards/layerEffects';
 import { MAX_CARD_LAYERS } from '$lib/cards/config';
@@ -26,7 +28,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (!isCardAdmin(locals.user)) throw error(403, 'Not allowed');
 	const canEdit = isCardTester(locals.user);
 
-	const [cardsRes, packsRes, membersRes] = await Promise.all([
+	const [cardsRes, packsRes, membersRes, eventsRes] = await Promise.all([
 		db()
 			.from('vs_cards')
 			.select(
@@ -45,7 +47,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// admin catalog of hundreds — well under the raised max_rows backstop — left as-is.)
 		fetchAllFiltered((f, t) =>
 			db().from('vs_users').select('id, rsn, discord_username').order('rsn', { ascending: true }).range(f, t)
-		)
+		),
+		// Grant tab: events (newest first) power the "event participants" target picker.
+		db().from('vs_events').select('id, name, slug, status').order('created_at', { ascending: false })
 	]);
 
 	if (cardsRes.error) throw error(500, cardsRes.error.message);
@@ -53,7 +57,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (membersRes.error) throw error(500, membersRes.error.message);
 
 	const members = (membersRes.data ?? []) as { id: string; rsn: string | null; discord_username: string | null }[];
-	return { cards: cardsRes.data ?? [], packs: packsRes.data ?? [], members, canEdit };
+	const events = (eventsRes.data ?? []) as { id: string; name: string; slug: string; status: string }[];
+	return { cards: cardsRes.data ?? [], packs: packsRes.data ?? [], members, events, canEdit };
 };
 
 /* ------------------------------- Cards ------------------------------- */
@@ -146,6 +151,31 @@ function releaseFlagsFromStatus(status: string | null | undefined): { released: 
 	if (status === 'released') return { released: true, teaser: false };
 	if (status === 'coming_soon') return { released: false, teaser: true };
 	return { released: false, teaser: false };
+}
+
+// Add `qty` packs to each user's unopened inventory in one upsert. Reads current
+// quantities first so the upsert (which SETS quantity) ADDS to what each member already
+// holds rather than overwriting it. Shared by the "everyone" and "event participants"
+// grants. Paginates both reads/writes past the 1000-row cap.
+async function bulkGrantPacks(packId: string, userIds: string[], qty: number): Promise<{ error?: string }> {
+	if (userIds.length === 0) return {};
+
+	const { data: existing, error: eErr } = await fetchAllFiltered((f, t) =>
+		db().from('vs_user_packs').select('user_id, quantity').eq('pack_id', packId).range(f, t)
+	);
+	if (eErr) return { error: eErr.message };
+	const have = new Map<string, number>();
+	for (const r of (existing ?? []) as { user_id: string; quantity: number }[]) have.set(r.user_id, r.quantity ?? 0);
+
+	const now = new Date().toISOString();
+	const rows = userIds.map((id) => ({
+		user_id: id,
+		pack_id: packId,
+		quantity: (have.get(id) ?? 0) + qty,
+		updated_at: now
+	}));
+	const { error: upErr } = await db().from('vs_user_packs').upsert(rows, { onConflict: 'user_id,pack_id' });
+	return upErr ? { error: upErr.message } : {};
 }
 
 export const actions: Actions = {
@@ -793,7 +823,7 @@ export const actions: Actions = {
 
 		const form = await request.formData();
 		const packId = form.get('pack_id')?.toString();
-		const target = form.get('target')?.toString(); // 'one' | 'all'
+		const target = form.get('target')?.toString(); // 'one' | 'all' | 'event'
 		const userId = form.get('user_id')?.toString();
 		const qty = Math.floor(Number(form.get('quantity') ?? 1));
 
@@ -814,7 +844,7 @@ export const actions: Actions = {
 		const plural = qty === 1 ? 'pack' : 'packs';
 
 		// ── Award to ONE member ──────────────────────────────────────────────
-		if (target !== 'all') {
+		if (target === 'one') {
 			if (!userId) return fail(400, { error: 'Pick a member (or choose Everyone).' });
 			const { data: member, error: mErr } = await db()
 				.from('vs_users')
@@ -831,8 +861,50 @@ export const actions: Actions = {
 			return { ok: true, message: `Awarded ${qty} ${pack.name} ${plural} to ${who}.` };
 		}
 
+		// ── Award to EVENT PARTICIPANTS (clan members only) ──────────────────
+		// Anyone who completed ≥1 tile/task in the event (team completions credit the
+		// whole team). Only clan members actually receive a pack.
+		if (target === 'event') {
+			const eventId = form.get('event_id')?.toString();
+			if (!eventId) return fail(400, { error: 'Pick an event.' });
+			const { data: ev, error: evErr } = await db()
+				.from('vs_events')
+				.select('id, name')
+				.eq('id', eventId)
+				.maybeSingle();
+			if (evErr) return fail(500, { error: evErr.message });
+			if (!ev) return fail(404, { error: 'That event no longer exists.' });
+
+			const participantIds = await getEventParticipantIds(eventId);
+			if (participantIds.length === 0) {
+				return fail(400, { error: 'No one has completed a tile or task in that event yet.' });
+			}
+
+			// Keep only clan members: load the participants' identity keys, then filter.
+			const { data: pUsers, error: puErr } = await fetchAllFiltered((f, t) =>
+				db().from('vs_users').select('id, discord_id, rsn').in('id', participantIds).order('id', { ascending: true }).range(f, t)
+			);
+			if (puErr) return fail(500, { error: puErr.message });
+			const clan = await filterClanMembers(
+				(pUsers ?? []) as { id: string; discord_id: string | null; rsn: string | null }[]
+			);
+			const ids = participantIds.filter((id) => clan.has(id));
+			if (ids.length === 0) {
+				return fail(400, { error: 'None of that event’s participants are current clan members.' });
+			}
+
+			const res = await bulkGrantPacks(packId, ids, qty);
+			if (res.error) return fail(500, { error: res.error });
+
+			const who = ids.length === 1 ? 'clan participant' : 'clan participants';
+			return {
+				ok: true,
+				message: `Awarded ${qty} ${pack.name} ${plural} to ${ids.length} ${who} of ${ev.name}.`
+			};
+		}
+
 		// ── Award to EVERYONE (all site members) ─────────────────────────────
-		// Paginate: both vs_users and (per-pack) vs_user_packs can exceed the 1000-row cap.
+		if (target !== 'all') return fail(400, { error: 'Pick who to award to.' });
 		const { data: users, error: uErr } = await fetchAllFiltered((f, t) =>
 			db().from('vs_users').select('id').range(f, t)
 		);
@@ -840,27 +912,8 @@ export const actions: Actions = {
 		const ids = (users ?? []).map((u) => (u as { id: string }).id);
 		if (ids.length === 0) return fail(400, { error: 'There are no site members to award to.' });
 
-		// Read existing quantities for this pack so the upsert (which SETS quantity)
-		// adds to what each member already has instead of overwriting it.
-		const { data: existing, error: eErr } = await fetchAllFiltered((f, t) =>
-			db().from('vs_user_packs').select('user_id, quantity').eq('pack_id', packId).range(f, t)
-		);
-		if (eErr) return fail(500, { error: eErr.message });
-		const have = new Map<string, number>();
-		for (const r of (existing ?? []) as { user_id: string; quantity: number }[])
-			have.set(r.user_id, r.quantity ?? 0);
-
-		const now = new Date().toISOString();
-		const rows = ids.map((id) => ({
-			user_id: id,
-			pack_id: packId,
-			quantity: (have.get(id) ?? 0) + qty,
-			updated_at: now
-		}));
-		const { error: upErr } = await db()
-			.from('vs_user_packs')
-			.upsert(rows, { onConflict: 'user_id,pack_id' });
-		if (upErr) return fail(500, { error: upErr.message });
+		const res = await bulkGrantPacks(packId, ids, qty);
+		if (res.error) return fail(500, { error: res.error });
 
 		return { ok: true, message: `Awarded ${qty} ${pack.name} ${plural} to all ${ids.length} members.` };
 	}
