@@ -68,6 +68,9 @@
 			.map(([id, hours]) => ({ id: Number(id), name: itemsById.get(Number(id)) ?? `#${id}`, hours }))
 			.sort((a, b) => a.name.localeCompare(b.name))
 	);
+	// Items an admin has pulled out of the personal-board draw pool.
+	const excludedItems = $derived(data.excludedItems);
+	const excludedIds = $derived(new Set(excludedItems.map((i) => i.id)));
 
 	// Boss-rate editor state.
 	let bossPick = $state('');
@@ -229,6 +232,32 @@
 					<p class="muted small">No item overrides yet.</p>
 				{/if}
 			</div>
+
+			<!-- Excluded from the draw pool -->
+			<div class="ov-col">
+				<h3>Excluded items</h3>
+				<p class="muted small">Removed from the personal-board draw pool (never generated as a tile). Exclude an item from the <strong>Item lookup</strong> below (Override column).</p>
+				{#if excludedItems.length}
+					<table>
+						<thead><tr><th>Item</th><th></th></tr></thead>
+						<tbody>
+							{#each excludedItems as x (x.id)}
+								<tr>
+									<td>{x.name}</td>
+									<td>
+										<form method="POST" action="?/unexcludeItem" use:enhance>
+											<input type="hidden" name="item_id" value={x.id} />
+											<button class="link-btn" type="submit">restore</button>
+										</form>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				{:else}
+					<p class="muted small">No excluded items.</p>
+				{/if}
+			</div>
 		</div>
 	</details>
 
@@ -255,11 +284,25 @@
 										<td class="ehb">{fmt(c.ehb)}{#if idx === 0 && ov != null} <span class="muted small">→ {fmt(ov)}</span>{/if}</td>
 										<td>
 											{#if idx === 0}
-												<form method="POST" action="?/saveItemOverride" use:enhance class="ov-inline">
-													<input type="hidden" name="item_id" value={i.id} />
-													<input type="number" min="0" step="0.5" name="ehb_hours" placeholder="h" value={ov ?? ''} />
-													<button type="submit" class="link-btn">set</button>
-												</form>
+												<div class="ov-actions">
+													{#if excludedIds.has(i.id)}
+														<span class="excluded-tag">excluded</span>
+														<form method="POST" action="?/unexcludeItem" use:enhance class="ov-inline">
+															<input type="hidden" name="item_id" value={i.id} />
+															<button type="submit" class="link-btn">restore</button>
+														</form>
+													{:else}
+														<form method="POST" action="?/saveItemOverride" use:enhance class="ov-inline">
+															<input type="hidden" name="item_id" value={i.id} />
+															<input type="number" min="0" step="0.5" name="ehb_hours" placeholder="h" value={ov ?? ''} />
+															<button type="submit" class="link-btn">set</button>
+														</form>
+														<form method="POST" action="?/excludeItem" use:enhance class="ov-inline">
+															<input type="hidden" name="item_id" value={i.id} />
+															<button type="submit" class="link-btn">exclude</button>
+														</form>
+													{/if}
+												</div>
 											{/if}
 										</td>
 									</tr>
@@ -323,12 +366,13 @@
 
 	/* Manual overrides */
 	h3 { margin: 0.6rem 0 0.2rem; font-size: 0.95rem; color: var(--accent); }
-	.ov-grid { display: grid; gap: 1.1rem; grid-template-columns: 1fr; margin-top: 0.6rem; }
-	@media (min-width: 56rem) { .ov-grid { grid-template-columns: 1fr 1fr; align-items: start; } }
+	.ov-grid { display: grid; gap: 1.1rem; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); align-items: start; margin-top: 0.6rem; }
 	.ov-edit { display: flex; gap: 0.6rem; align-items: flex-end; flex-wrap: wrap; margin: 0.5rem 0; }
 	.ov-edit label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; color: var(--muted); }
 	.ov-inline { display: flex; gap: 0.3rem; align-items: center; }
 	.ov-inline input { width: 4.5rem; }
+	.ov-actions { display: flex; flex-direction: column; gap: 0.15rem; align-items: flex-start; }
+	.excluded-tag { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 	.ov-row td { background: rgba(95, 195, 95, 0.08); }
 	.err { color: var(--danger); background: var(--danger-bg); border: 1px solid var(--danger); padding: 0.4rem 0.7rem; border-radius: var(--radius); margin: 0.5rem 0; }
 	.ok { color: var(--success); margin: 0.5rem 0; }

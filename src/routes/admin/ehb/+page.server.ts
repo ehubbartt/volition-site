@@ -7,7 +7,10 @@ import {
 	setBossOverride,
 	clearBossOverride,
 	setItemOverride,
-	clearItemOverride
+	clearItemOverride,
+	getExcludedItemIds,
+	setItemExclusion,
+	clearItemExclusion
 } from '$lib/server/ehbOverrides';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -35,10 +38,16 @@ function bossSources() {
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
 	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
+	const excludedIds = await getExcludedItemIds(true);
+	const nameById = new Map(ITEMS.map((i) => [i.id, i.name]));
+	const excludedItems = [...excludedIds]
+		.map((id) => ({ id, name: nameById.get(id) ?? `#${id}` }))
+		.sort((a, b) => a.name.localeCompare(b.name));
 	return {
 		items: ITEMS,
 		bossSources: bossSources(),
-		overrides: await getEhbOverrides(true)
+		overrides: await getEhbOverrides(true),
+		excludedItems
 	};
 };
 
@@ -84,6 +93,23 @@ export const actions: Actions = {
 		if (!Number.isFinite(itemId)) return fail(400, { error: 'Missing item' });
 		const res = await clearItemOverride(itemId);
 		return res.ok ? { ok: true, cleared: 'item' as const } : fail(500, { error: res.error });
+	},
+
+	// Remove an item from the personal-board draw pool.
+	excludeItem: async ({ locals, request }) => {
+		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+		const itemId = Number((await request.formData()).get('item_id'));
+		if (!Number.isFinite(itemId)) return fail(400, { error: 'Missing item' });
+		const res = await setItemExclusion(itemId, locals.user.discord_id);
+		return res.ok ? { ok: true, saved: 'exclude' as const } : fail(500, { error: res.error });
+	},
+
+	unexcludeItem: async ({ locals, request }) => {
+		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+		const itemId = Number((await request.formData()).get('item_id'));
+		if (!Number.isFinite(itemId)) return fail(400, { error: 'Missing item' });
+		const res = await clearItemExclusion(itemId);
+		return res.ok ? { ok: true, cleared: 'exclude' as const } : fail(500, { error: res.error });
 	}
 };
 
