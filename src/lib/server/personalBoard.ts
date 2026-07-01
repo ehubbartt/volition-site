@@ -15,7 +15,7 @@ import { db } from './db';
 import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer, fetchWikiSyncCA } from './rankData';
 import { bestEhbSource, isPetItem, type ItemEhb, type EhbOverrides } from '$lib/ehb';
 import { getEhbOverrides } from './ehbOverrides';
-import { SKILLS, SKILL_EHP_RATES, roundXp, skillTileHours, type Skill } from '$lib/ehp';
+import { TILE_SKILLS, SKILL_EHP_RATES, roundXp, skillTileHours, type Skill } from '$lib/ehp';
 import { CA_TIERS, caTierForDifficulty } from '$lib/ca';
 import { getCATasks, type CaTask } from './caNames';
 import itemEhbData from './data/itemEhb.json';
@@ -188,7 +188,7 @@ interface SkillPick {
 // tile's EHP-hours → a clean rounded XP goal for a random skill via its EHP rate.
 function selectSkillTiles(count: number, difficulty: number): SkillPick[] {
 	if (count <= 0) return [];
-	const pool = [...SKILLS];
+	const pool = [...TILE_SKILLS]; // Prayer + non-combat skills (combat skills are excluded)
 	shuffle(pool);
 	const picks: SkillPick[] = [];
 	for (let i = 0; i < count; i++) {
