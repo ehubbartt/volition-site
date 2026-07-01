@@ -515,7 +515,10 @@ export async function generatePersonalBoard(
 			kind: PERSONAL_KIND,
 			owner_user_id: userId,
 			team_size: 1,
-			status: 'open', // personal boards are gated by locked_at, not status; filtered from public lists by owner_user_id
+			// NOT 'open': personal boards are gated by locked_at, not status, and site lists filter
+			// them by kind='personal'. Keeping status out of 'open' also stops the bot's
+			// event-announce poller (which reads status='open') from posting them to Discord.
+			status: 'draft',
 			structure: { size: n, difficulty: diff, rsn }
 		})
 		.select('id, structure, created_at, locked_at')
