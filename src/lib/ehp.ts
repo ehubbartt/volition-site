@@ -19,6 +19,9 @@ export const NON_TILE_SKILLS: ReadonlySet<Skill> = new Set([
 // skills above, i.e. Prayer + all non-combat skills).
 export const TILE_SKILLS: readonly Skill[] = SKILLS.filter((s) => !NON_TILE_SKILLS.has(s));
 
+// XP for level 99 — used to optionally skip already-maxed skills when generating skill tiles.
+export const MAX_SKILL_XP = 13_034_431;
+
 // WiseOldMan metric key per skill (lowercase; the only odd one is Runecraft → 'runecrafting').
 export const SKILL_WOM_KEY: Record<Skill, string> = Object.fromEntries(
 	SKILLS.map((s) => [s, s === 'Runecraft' ? 'runecrafting' : s.toLowerCase()])

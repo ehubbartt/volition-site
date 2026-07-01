@@ -65,8 +65,10 @@ export const actions: Actions = {
 		const ca = form.get('ca') === 'on' || form.get('ca') === 'true';
 		// "Include pets" is a checkbox — absent from the form data means unchecked (exclude pets).
 		const pets = form.get('pets') === 'on' || form.get('pets') === 'true';
+		// Skilling sub-option: skip skills the player has already 99'd.
+		const skip99 = form.get('skip99') === 'on' || form.get('skip99') === 'true';
 
-		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty, skilling, ca, pets);
+		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty, skilling, ca, pets, skip99);
 
 		if (!result.ok) {
 			const msg =
