@@ -84,6 +84,9 @@ Every request passes through the handle hook, in order:
   (completions, swaps, path choices) and `vs_duo_tiles`. Postgres function
   `vs_accept_invite(...)` atomically forms a team on invite accept (`db/functions/`).
 - **Bingo:** `vs_bingo_completions` (+ admin tile management).
+- **Gielinor Catan:** `vs_catan_teams`, `vs_catan_pieces`, `vs_catan_dev_cards`,
+  `vs_catan_tasks`, `vs_catan_log` — per-team state for the Catan-style board event
+  (container = a `vs_events` row, `kind='catan'`). See `docs/GIELINOR-CATAN.md`.
 - **Cards ("gamba"):** `vs_cards`, `vs_card_packs`, `vs_user_cards`, `vs_user_packs`,
   `vs_pack_opens` (+ pulled-card records).
 - **Home/calendar:** `vs_calendar_events`.
@@ -112,6 +115,9 @@ Filesystem routing under `src/routes/`; pages pair a `+page.svelte` with a
 - **Cards:** `/gamba` (3D pack opener + simulator), `/admin/cards`, `/admin/pack-tester`,
   `/admin/pack-sim`, `/admin/pack-stats`, `/admin/crate-sim`.
 - **Tasks:** `/tasks/*` (submit proof), `/admin/tasks`, `/admin/submissions` (review).
+- **Gielinor Catan (tester):** `/admin/catan` (create/list test games),
+  `/admin/catan/[slug]` (play the async Catan-style bingo as every team) — ruleset +
+  implementation map in `docs/GIELINOR-CATAN.md`.
 - **Admin hub** (`/admin`, role-gated, links shown per role): `events`, `moderation`,
   `wallets`, `stats`, `audit`, `guides`, `admins` (owner role management),
   `overview` (read-only config/roster snapshot); **super-admin only:** `config`

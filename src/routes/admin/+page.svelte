@@ -13,6 +13,12 @@
 			show: data.admin
 		},
 		{
+			href: '/admin/catan',
+			title: 'Gielinor Catan tester',
+			desc: 'Create test boards and play the Catan-style bingo ruleset through as every team.',
+			show: data.admin
+		},
+		{
 			href: '/admin/cards',
 			title: 'Cards & Packs',
 			desc: data.cardTester
