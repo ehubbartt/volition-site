@@ -85,8 +85,9 @@ Every request passes through the handle hook, in order:
   `vs_accept_invite(...)` atomically forms a team on invite accept (`db/functions/`).
 - **Bingo:** `vs_bingo_completions` (+ admin tile management).
 - **Gielinor Catan:** `vs_catan_teams` (wallet + dev-card hand + tasks jsonb),
-  `vs_catan_pieces` (occupancy via `unique (event_id, loc)`) — container = a `vs_events`
-  row (`kind='catan'`, board/deck/log in `structure`). See `docs/GIELINOR-CATAN.md`.
+  `vs_catan_pieces` (occupancy via `unique (event_id, loc)`), `vs_catan_config`
+  (admin-edited task pools/tuning) — container = a `vs_events` row (`kind='catan'`,
+  board/deck/log in `structure`). See `docs/GIELINOR-CATAN.md`.
 - **Cards ("gamba"):** `vs_cards`, `vs_card_packs`, `vs_user_cards`, `vs_user_packs`,
   `vs_pack_opens` (+ pulled-card records).
 - **Home/calendar:** `vs_calendar_events`.

@@ -13,7 +13,13 @@
 // read-modify-write is fine; revisit concurrency when real teams act simultaneously.
 
 import { db } from './db';
-import { generateBoard, type Board, type TileType } from '$lib/catan/board';
+import {
+	DEFAULT_TASK_POOLS,
+	generateBoard,
+	type Board,
+	type TaskPools,
+	type TileType
+} from '$lib/catan/board';
 import {
 	armySize,
 	canPlaceRoad,
@@ -32,6 +38,7 @@ import {
 	PKER_FREEZE_HOURS,
 	rollableCorners,
 	setupRemaining,
+	setupState,
 	subtractCost,
 	taskPayout,
 	teamVP,
@@ -133,6 +140,33 @@ function shuffleInPlace<T>(a: T[]): T[] {
 	return a;
 }
 
+// ---- config (task pools) ----
+
+const TILE_TYPES: TileType[] = ['boss', 'skilling', 'raids', 'custom'];
+
+/** The admin-edited task pools boards are generated from; code defaults until saved. */
+export async function getTaskPools(): Promise<TaskPools> {
+	const { data } = await db().from('vs_catan_config').select('value').eq('key', 'task_pools').maybeSingle();
+	const saved = (data?.value ?? null) as Partial<TaskPools> | null;
+	if (!saved) return DEFAULT_TASK_POOLS;
+	const pools = {} as TaskPools;
+	for (const t of TILE_TYPES) {
+		const list = Array.isArray(saved[t]) ? saved[t]! : [];
+		const clean = list.filter(
+			(x) => x && typeof x.label === 'string' && x.label.trim() && typeof x.perRating === 'number' && x.perRating > 0
+		);
+		pools[t] = clean.length ? clean : DEFAULT_TASK_POOLS[t];
+	}
+	return pools;
+}
+
+export async function saveTaskPools(pools: TaskPools): Promise<ActionResult> {
+	const { error } = await db()
+		.from('vs_catan_config')
+		.upsert({ key: 'task_pools', value: pools, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+	return error ? { ok: false, error: error.message } : { ok: true };
+}
+
 // ---- game lifecycle ----
 
 export async function listGames(): Promise<
@@ -152,7 +186,7 @@ export async function createGame(
 	seed?: number
 ): Promise<{ ok: true; slug: string } | { ok: false; error: string }> {
 	const boardSeed = seed ?? Math.floor(Math.random() * 2 ** 31);
-	const board = generateBoard(boardSeed);
+	const board = generateBoard(boardSeed, await getTaskPools());
 	const structure: { catan: CatanStructure } = {
 		catan: {
 			board,
@@ -232,6 +266,8 @@ export interface GameView {
 	log: LogEntry[];
 	freezes: Freeze[];
 	winner: { teamId: string; name: string } | null;
+	/** Non-null while the setup snake draft is running: whose pick, and which piece. */
+	draft: { teamId: string; teamName: string; expect: 'settlement' | 'road'; round: 1 | 2; pick: number } | null;
 }
 
 async function loadRows(slug: string) {
@@ -311,6 +347,7 @@ export async function loadGame(slug: string): Promise<GameView | null> {
 		};
 	});
 	const winnerTeam = teamViews.find((t) => t.vp.total >= WINNING_VP) ?? null;
+	const draftState = setupState(snap);
 
 	const allTasks = teams.flatMap((t) => t.tasks.map((task) => ({ ...task, team_id: t.id })));
 	allTasks.sort((a, b) => (a.rolled_at < b.rolled_at ? 1 : -1));
@@ -329,17 +366,45 @@ export async function loadGame(slug: string): Promise<GameView | null> {
 		recentTasks: allTasks.filter((t) => t.status !== 'active').slice(0, 20),
 		log: [...(cat.log ?? [])].reverse().slice(0, 60),
 		freezes: cat.freezes.filter((f) => new Date(f.until) > now),
-		winner: winnerTeam ? { teamId: winnerTeam.id, name: winnerTeam.name } : null
+		winner: winnerTeam ? { teamId: winnerTeam.id, name: winnerTeam.name } : null,
+		draft: draftState
+			? {
+					...draftState,
+					teamName: teams.find((t) => t.id === draftState.teamId)?.name ?? '?'
+				}
+			: null
 	};
 }
 
 // ---- shared write helpers ----
 
+function logEntry(teamId: string | null, action: string, detail: Record<string, unknown>): LogEntry {
+	return { team_id: teamId, action, detail, created_at: new Date().toISOString() };
+}
+
 /** Append to the capped action log in structure and persist the whole structure. */
 async function logAndSave(ev: EventRow, teamId: string | null, action: string, detail: Record<string, unknown>): Promise<ActionResult> {
 	const cat = ev.structure.catan;
-	cat.log = [...(cat.log ?? []), { team_id: teamId, action, detail, created_at: new Date().toISOString() }].slice(-LOG_CAP);
+	cat.log = [...(cat.log ?? []), logEntry(teamId, action, detail)].slice(-LOG_CAP);
 	return saveStructure(ev);
+}
+
+/**
+ * Recompute the stealable-bonus holders against an (already mutated) snapshot and stage
+ * any change as log entries + holder update on the event row — no extra reload; the
+ * caller's logAndSave persists everything in one structure write.
+ */
+function stageHolderChanges(ev: EventRow, snap: GameSnapshot): void {
+	const cat = ev.structure.catan;
+	const prev = cat.holders;
+	const next = updateHolders(snap);
+	const entries: LogEntry[] = [];
+	if (next.longestRoad !== prev.longestRoad)
+		entries.push(logEntry(next.longestRoad, 'longest_road', { from: prev.longestRoad, to: next.longestRoad }));
+	if (next.largestArmy !== prev.largestArmy)
+		entries.push(logEntry(next.largestArmy, 'largest_army', { from: prev.largestArmy, to: next.largestArmy }));
+	cat.holders = next;
+	if (entries.length) cat.log = [...(cat.log ?? []), ...entries].slice(-LOG_CAP);
 }
 
 async function saveStructure(ev: EventRow): Promise<ActionResult> {
@@ -359,17 +424,9 @@ function trimTasks(tasks: TeamTask[]): TeamTask[] {
 	return [...done, ...active];
 }
 
-async function refreshHolders(ev: EventRow): Promise<ActionResult> {
-	const rows = await loadRows(ev.slug);
-	if (!rows) return { ok: false, error: 'Game vanished' };
-	const snap = buildSnapshot(rows.ev, rows.teams, rows.pieces);
-	const holders = updateHolders(snap);
-	const prev = rows.ev.structure.catan.holders;
-	if (holders.longestRoad === prev.longestRoad && holders.largestArmy === prev.largestArmy) return { ok: true };
-	rows.ev.structure.catan.holders = holders;
-	if (holders.longestRoad !== prev.longestRoad)
-		return logAndSave(rows.ev, holders.longestRoad, 'longest_road', { from: prev.longestRoad, to: holders.longestRoad });
-	return logAndSave(rows.ev, holders.largestArmy, 'largest_army', { from: prev.largestArmy, to: holders.largestArmy });
+/** Reject non-placement actions while the setup snake draft is still running. */
+function duringDraft(snap: GameSnapshot): string | null {
+	return setupState(snap) ? 'Setup draft in progress — finish all placements first.' : null;
 }
 
 interface Ctx {
@@ -410,9 +467,10 @@ export async function placeSettlement(slug: string, teamId: string, vertex: stri
 		const r = await saveTeam(teamId, { tokens: subtractCost(tokensOf(ctx.team), COSTS.settlement) });
 		if (!r.ok) return r;
 	}
-	const rl = await logAndSave(ctx.ev, teamId, 'settlement', { vertex, free: verdict.free });
-	if (!rl.ok) return rl;
-	return refreshHolders(ctx.ev); // a new settlement can cut a rival's longest road
+	// A new settlement can cut a rival's longest road — recompute against the updated snapshot.
+	ctx.snap.pieces.push({ teamId, kind: 'settlement', loc: vertex });
+	stageHolderChanges(ctx.ev, ctx.snap);
+	return logAndSave(ctx.ev, teamId, 'settlement', { vertex, free: verdict.free });
 }
 
 export async function placeRoad(slug: string, teamId: string, edge: string): Promise<ActionResult> {
@@ -421,27 +479,29 @@ export async function placeRoad(slug: string, teamId: string, edge: string): Pro
 	const verdict = canPlaceRoad(ctx.snap, teamId, edge);
 	if (!verdict.ok) return { ok: false, error: verdict.reason };
 
+	const inSetup = setupState(ctx.snap) !== null;
 	const { error } = await db()
 		.from('vs_catan_pieces')
 		.insert({ event_id: ctx.ev.id, team_id: teamId, kind: 'road', loc: edge });
 	if (error) return { ok: false, error: error.message };
 
-	const setupFree = setupRemaining(ctx.snap, teamId).roads > 0;
-	if (!setupFree && ctx.team.free_roads > 0) {
+	if (!inSetup && ctx.team.free_roads > 0) {
 		const r = await saveTeam(teamId, { free_roads: ctx.team.free_roads - 1 });
 		if (!r.ok) return r;
-	} else if (!setupFree) {
+	} else if (!inSetup) {
 		const r = await saveTeam(teamId, { tokens: subtractCost(tokensOf(ctx.team), COSTS.road) });
 		if (!r.ok) return r;
 	}
-	const rl = await logAndSave(ctx.ev, teamId, 'road', { edge, free: verdict.free });
-	if (!rl.ok) return rl;
-	return refreshHolders(ctx.ev);
+	ctx.snap.pieces.push({ teamId, kind: 'road', loc: edge });
+	stageHolderChanges(ctx.ev, ctx.snap);
+	return logAndSave(ctx.ev, teamId, 'road', { edge, free: verdict.free });
 }
 
 export async function upgradeCity(slug: string, teamId: string, vertex: string): Promise<ActionResult> {
 	const ctx = await withTeam(slug, teamId);
 	if ('error' in ctx) return { ok: false, error: ctx.error };
+	const blocked = duringDraft(ctx.snap);
+	if (blocked) return { ok: false, error: blocked };
 	const verdict = canUpgradeCity(ctx.snap, teamId, vertex);
 	if (!verdict.ok) return { ok: false, error: verdict.reason };
 
@@ -462,12 +522,15 @@ export async function upgradeCity(slug: string, teamId: string, vertex: string):
 export async function rollTask(slug: string, teamId: string, vertex: string): Promise<ActionResult> {
 	const ctx = await withTeam(slug, teamId);
 	if ('error' in ctx) return { ok: false, error: ctx.error };
+	const blocked = duringDraft(ctx.snap);
+	if (blocked) return { ok: false, error: blocked };
 	if (!rollableCorners(ctx.snap, teamId, new Date()).includes(vertex))
 		return { ok: false, error: 'Not one of your (unfrozen) corners.' };
 
 	const tiles = cornerTiles(ctx.snap.board, vertex);
 	const hex = tiles[Math.floor(Math.random() * tiles.length)];
 	const tile = ctx.snap.board.tiles[hex];
+	if (tile.tasks.length === 0) return { ok: false, error: 'That tile has no tasks configured.' };
 	const task = tile.tasks[Math.floor(Math.random() * tile.tasks.length)];
 
 	const entry: TeamTask = {
@@ -537,6 +600,8 @@ export async function exchangeGold(slug: string, teamId: string, get: TileType, 
 	if (count < 1) return { ok: false, error: 'Count must be positive' };
 	const ctx = await withTeam(slug, teamId);
 	if ('error' in ctx) return { ok: false, error: ctx.error };
+	const blocked = duringDraft(ctx.snap);
+	if (blocked) return { ok: false, error: blocked };
 	const tokens = tokensOf(ctx.team);
 	const cost = GOLD_RATE * count;
 	if (tokens.gold < cost) return { ok: false, error: `Needs ${cost} gold` };
@@ -553,6 +618,8 @@ export async function bankTrade(slug: string, teamId: string, give: TileType, ge
 	if (give === get) return { ok: false, error: 'Pick two different token types' };
 	const ctx = await withTeam(slug, teamId);
 	if ('error' in ctx) return { ok: false, error: ctx.error };
+	const blocked = duringDraft(ctx.snap);
+	if (blocked) return { ok: false, error: blocked };
 	const rate = tradeRates(ctx.snap, teamId)[give];
 	const tokens = tokensOf(ctx.team);
 	const cost = rate * count;
@@ -569,6 +636,8 @@ export async function bankTrade(slug: string, teamId: string, give: TileType, ge
 export async function drawDevCard(slug: string, teamId: string): Promise<ActionResult> {
 	const ctx = await withTeam(slug, teamId);
 	if ('error' in ctx) return { ok: false, error: ctx.error };
+	const blocked = duringDraft(ctx.snap);
+	if (blocked) return { ok: false, error: blocked };
 	const cat = ctx.ev.structure.catan;
 	if (cat.deck.length === 0) return { ok: false, error: 'The development deck is empty' };
 	const tokens = tokensOf(ctx.team);
@@ -602,6 +671,8 @@ export async function playDevCard(
 ): Promise<ActionResult> {
 	const ctx = await withTeam(slug, teamId);
 	if ('error' in ctx) return { ok: false, error: ctx.error };
+	const blocked = duringDraft(ctx.snap);
+	if (blocked) return { ok: false, error: blocked };
 	const card = ctx.team.hand.find((c) => c.id === cardId);
 	if (!card) return { ok: false, error: 'Card not found' };
 	if (card.played_at) return { ok: false, error: 'Card already played' };
@@ -674,8 +745,11 @@ export async function playDevCard(
 	patch.hand = ctx.team.hand;
 	const r = await saveTeam(teamId, patch);
 	if (!r.ok) return r;
-	const rl = await logAndSave(ctx.ev, teamId, 'dev_played', { card: card.card, ...meta });
-	if (!rl.ok) return rl;
-	if (card.card === 'pker') return refreshHolders(ctx.ev); // army race
-	return { ok: true };
+	if (card.card === 'pker') {
+		// The army race: reflect the play in the snapshot, then restage the holders.
+		const snapCard = ctx.snap.devCards.find((c) => c.id === card.id);
+		if (snapCard) snapCard.playedAt = card.played_at;
+		stageHolderChanges(ctx.ev, ctx.snap);
+	}
+	return logAndSave(ctx.ev, teamId, 'dev_played', { card: card.card, ...meta });
 }

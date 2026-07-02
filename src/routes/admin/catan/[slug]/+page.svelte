@@ -26,6 +26,18 @@
 	const frozenVerts = $derived(game.freezes.map((f) => f.loc));
 	const frozenSet = $derived(new Set(frozenVerts));
 
+	// Optimistic pieces: rendered immediately on click, cleared once the server round-trip
+	// lands (the invalidated load then carries the real piece — or the error banner shows).
+	let optimistic = $state<{ teamId: string; kind: 'road' | 'settlement' | 'city'; loc: string }[]>([]);
+	const shownPieces = $derived([...game.snapshot.pieces, ...optimistic]);
+
+	function actAsDrafter() {
+		const d = game.draft;
+		if (!d) return;
+		actingId = d.teamId;
+		mode = d.expect === 'settlement' ? 'settle' : 'road';
+	}
+
 	const ownSettlements = $derived(
 		game.pieces.filter((p) => p.kind === 'settlement' && p.team_id === acting.id).map((p) => p.loc)
 	);
@@ -61,14 +73,19 @@
 	}
 
 	function clickVertex(v: string) {
-		if (mode === 'settle') submitBoard('settle', v);
-		else if (mode === 'city') submitBoard('city', v);
+		if (mode === 'settle') {
+			optimistic = [...optimistic, { teamId: acting.id, kind: 'settlement', loc: v }];
+			submitBoard('settle', v);
+		} else if (mode === 'city') submitBoard('city', v);
 		else if (mode === 'roll') submitBoard('roll', v);
 		else if (mode === 'pker') submitBoard('play', v);
 	}
 
 	function clickEdge(e: string) {
-		if (mode === 'road') submitBoard('road', e);
+		if (mode === 'road') {
+			optimistic = [...optimistic, { teamId: acting.id, kind: 'road', loc: e }];
+			submitBoard('road', e);
+		}
 	}
 
 	function hand(teamId: string) {
@@ -112,6 +129,17 @@
 		<p class="error">{form.error}</p>
 	{/if}
 
+	{#if game.draft}
+		<p class="draft">
+			Setup draft — <b style="color: {teamColors[game.draft.teamId]}">{game.draft.teamName}</b>
+			places a <b>{game.draft.expect}</b>
+			(round {game.draft.round} of 2, pick {game.draft.pick + 1}/{game.teams.length * 2})
+			{#if acting.id !== game.draft.teamId || !mode}
+				<button onclick={actAsDrafter}>Place as {game.draft.teamName}</button>
+			{/if}
+		</p>
+	{/if}
+
 	<!-- act-as-team selector -->
 	<nav class="teams">
 		{#each game.teams as t (t.id)}
@@ -136,7 +164,7 @@
 		<section class="board-wrap">
 			<BoardMap
 				board={game.board}
-				pieces={game.snapshot.pieces}
+				pieces={shownPieces}
 				{teamColors}
 				{highlightVertices}
 				{highlightEdges}
@@ -183,15 +211,21 @@
 				<button class:on={mode === 'road'} onclick={() => setMode('road')}>
 					Road <small>{acting.setup.roads > 0 || acting.freeRoads > 0 ? 'FREE' : '1S 1C'}</small>
 				</button>
-				<button class:on={mode === 'city'} onclick={() => setMode('city')}>
+				<button class:on={mode === 'city'} onclick={() => setMode('city')} disabled={!!game.draft}>
 					City <small>2R 2S</small>
 				</button>
-				<button class:on={mode === 'roll'} onclick={() => setMode('roll')} disabled={acting.rollable.length === 0}>
+				<button
+					class:on={mode === 'roll'}
+					onclick={() => setMode('roll')}
+					disabled={!!game.draft || acting.rollable.length === 0}
+				>
 					Roll task
 				</button>
 				<form method="POST" action="?/draw" use:enhance>
 					<input type="hidden" name="team" value={acting.id} />
-					<button type="submit" disabled={game.deckRemaining === 0}>Draw dev card <small>1B 1S 1C</small></button>
+					<button type="submit" disabled={!!game.draft || game.deckRemaining === 0}>
+						Draw dev card <small>1B 1S 1C</small>
+					</button>
 				</form>
 			</div>
 
@@ -377,7 +411,11 @@
 		use:enhance={() =>
 			async ({ update }) => {
 				await update();
-				if (mode === 'pker' || mode === 'city') {
+				optimistic = [];
+				if (game.draft) {
+					// Keep the snake moving: jump to the next drafter with the right mode armed.
+					actAsDrafter();
+				} else if (mode === 'pker' || mode === 'city') {
 					mode = null;
 					pendingCard = '';
 				}
@@ -429,6 +467,17 @@
 		border-radius: var(--radius);
 		padding: 0.6rem 0.9rem;
 		font-family: var(--font-heading);
+	}
+	.draft {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		color: var(--yellow);
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		border-radius: var(--radius);
+		padding: 0.5rem 0.75rem;
 	}
 
 	.teams {

@@ -52,8 +52,11 @@ Rating distribution over 37 tiles (inverted pyramid — good tiles scarce):
 - All tasks are expressed in **KC / EHB / EHP** — no drop-count tasks, so every task is
   continuously scalable and low-variance. The tile's **rating sets the size of the
   grind** (linear: rating 5 ≈ 5× rating 1 for the same token).
-- Each tile carries 3 candidate tasks (generated with the board; placeholder pools in the
-  MVP — real task lists come later).
+- Each tile carries 3 candidate tasks, sampled at board creation from the
+  **admin-editable task pools** (`/admin/catan/tasks` — one list per tile type, each
+  entry = task name + unit + per-rating amount; stored in `vs_catan_config` under
+  `task_pools`, with code defaults in `src/lib/catan/board.ts` until first saved).
+  Existing games keep the tasks their board was generated with.
 
 **Rolling (asynchronous).** On your own cadence: roll one of your corners → randomly
 selects one of its 2–3 tiles → randomly selects a task on that tile → complete it → earn
@@ -84,9 +87,13 @@ over its life). Gold trades **2:1 for any tile token**, and never buys VP direct
 | **City** (upgrade) | **2 R + 2 S** | **+1 VP** (2 total); doubles that corner's output |
 | **Dev card** | 1 B + 1 S + 1 C | Random draw from the development deck |
 
-**Setup:** each team places **2 free settlements + 2 free roads** (Catan standard). Free
-settlements obey only the distance rule; free roads must connect to the team's network.
-In the tester you place them by hand; the live event will run a scheduled draft.
+**Setup — snake draft (Catan standard):** in team order each team places 1 free
+settlement + 1 free road, then the order **reverses** for the second placement
+(1→8 then 8→1; 16 turns total). A setup settlement obeys only the distance rule; the
+setup road must attach to the settlement just placed. Until the draft finishes, all
+other actions (rolling, buying, trading, dev cards) are locked. The turn is derived
+statelessly from the board (completed turns = roads placed), so there is no draft
+bookkeeping to corrupt.
 
 ### Trading
 
@@ -180,6 +187,11 @@ Deliberately table-light — only state that needs a database-level guarantee ge
   with their snapshot + payout; finished history capped at 30, active always kept).
 - `vs_catan_pieces` — one row per road/settlement/city; `unique (event_id, loc)` doubles
   as the occupancy rule (vertex and edge ids never collide).
+- `vs_catan_config` — key/value tuning knobs (`task_pools` today; cost dials later).
+
+Every action is a single structure write: holders are recomputed against the in-memory
+snapshot (`stageHolderChanges`), not via a reload, keeping placement latency to
+insert + one jsonb update.
 
 Live-event follow-up: task completions mirror into the `vs_submissions` ledger
 (per `docs/EVENTS.md`) once real players submit proof.
@@ -187,10 +199,13 @@ Live-event follow-up: task completions mirror into the `vs_submissions` ledger
 ### How to test a game
 
 1. Apply `db/scripts/gielinor_catan.sql` (once).
-2. `/admin/catan` → **Create test game** (optionally pin a seed for a reproducible board).
-3. For each of the 8 teams: select the team tab, place its 2 free settlements + 2 free
-   roads (Settlement/Road modes highlight legal spots).
-4. Play: **Roll task** on a corner → **Complete** it (pays the same-type multiplier) —
+2. Optionally curate the task lists at `/admin/catan/tasks` first.
+3. `/admin/catan` → **Create test game** (optionally pin a seed for a reproducible board).
+4. Run the setup snake draft: the banner names whose pick it is; the **Place as …**
+   button (and each placement's auto-advance) keeps you on the right team with the right
+   mode armed, so the 16 turns are just clicks around the map. Placed pieces render
+   optimistically — instantly on click, confirmed when the server round-trip lands.
+5. Play: **Roll task** on a corner → **Complete** it (pays the same-type multiplier) —
    or use the **Grant** cheat to simulate income (e.g. +2 gold for a raids purple)
    without the grind. Build, trade at bank/port rates, exchange gold, draw and play dev
    cards. Standings show public VP vs true VP (hidden VP included); the winner banner

@@ -26,6 +26,15 @@ create table if not exists vs_catan_teams (
 );
 create index if not exists vs_catan_teams_event on vs_catan_teams (event_id);
 
+-- Tuning knobs, admin-edited (task pools now; costs/dials later). One row per key.
+-- 'task_pools' holds the boss/skilling/raids/custom task lists boards are generated from
+-- (edited at /admin/catan/tasks; code defaults are used until a row exists).
+create table if not exists vs_catan_config (
+	key        text primary key,
+	value      jsonb not null,
+	updated_at timestamptz not null default now()
+);
+
 -- Board pieces. loc is a geometry id: vertex ("q,r,N|S") for settlements/cities, edge
 -- ("vid|vid") for roads. Vertex and edge ids never collide, so one uniqueness constraint
 -- doubles as the occupancy rule for both corners and edges.

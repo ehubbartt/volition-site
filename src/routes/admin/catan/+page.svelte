@@ -12,7 +12,8 @@
 	<h1>Gielinor Catan — test games</h1>
 	<p class="hint">
 		Single-admin tester: create a game, then act as each of the 8 teams and play the ruleset
-		through by hand. See <code>docs/GIELINOR-CATAN.md</code>.
+		through by hand. See <code>docs/GIELINOR-CATAN.md</code>. Boards draw their tasks from the
+		<a href="/admin/catan/tasks">task pools</a> (boss / skilling / raids / custom lists).
 	</p>
 
 	{#if form?.error}

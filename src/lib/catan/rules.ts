@@ -143,6 +143,46 @@ export function setupRemaining(snap: GameSnapshot, teamId: string) {
 	};
 }
 
+export interface SetupState {
+	teamId: string;
+	expect: 'settlement' | 'road';
+	round: 1 | 2;
+	pick: number; // 0-based completed-turn count (turn = settlement + road)
+}
+
+/**
+ * The setup snake draft (Catan standard): in team order each team places 1 settlement +
+ * 1 road, then the order REVERSES for the second placement. Null once every team has its
+ * 2 + 2. Derived statelessly from the pieces: during setup every road on the board is a
+ * setup road, so completed turns = total roads.
+ */
+export function setupState(snap: GameSnapshot): SetupState | null {
+	const n = snap.teams.length;
+	const allDone = snap.teams.every((t) => {
+		const rem = setupRemaining(snap, t.id);
+		return rem.settlements === 0 && rem.roads === 0;
+	});
+	if (allDone) return null;
+	const k = snap.pieces.filter((p) => p.kind === 'road').length;
+	const round: 1 | 2 = k < n ? 1 : 2;
+	const team = snap.teams[k < n ? k : 2 * n - 1 - k];
+	const settlements = teamBuildings(snap, team.id).length;
+	const expect = settlements <= (round === 1 ? 0 : 1) ? 'settlement' : 'road';
+	return { teamId: team.id, expect, round, pick: k };
+}
+
+/**
+ * During setup, a team's road must attach to the settlement it just placed — i.e. its
+ * settlement that has no road of theirs next to it yet (Catan's second-road rule).
+ */
+function freshSettlementVertex(snap: GameSnapshot, teamId: string): VertexId | null {
+	for (const b of teamBuildings(snap, teamId)) {
+		if (b.kind !== 'settlement') continue;
+		if (vertexEdges(b.loc).every((e) => roadAt(snap, e)?.teamId !== teamId)) return b.loc;
+	}
+	return null;
+}
+
 // ---- placement validation ----
 
 const onBoardVertex = (board: Board, v: VertexId) =>
@@ -168,16 +208,24 @@ export function canPlaceSettlement(
 	if (vertexNeighbors(vertex).some((n) => buildingAt(snap, n)))
 		return { ok: false, reason: 'Too close to another settlement (distance rule).' };
 
-	const free = setupRemaining(snap, teamId).settlements > 0;
-	if (!free) {
-		// Post-setup: must sit on your own road network.
-		const touchesOwnRoad = vertexEdges(vertex).some((e) => roadAt(snap, e)?.teamId === teamId);
-		if (!touchesOwnRoad) return { ok: false, reason: 'Must connect to your road network.' };
-		const team = snap.teams.find((t) => t.id === teamId);
-		if (!team || !canAfford(team.tokens, COSTS.settlement))
-			return { ok: false, reason: 'Cannot afford a settlement (1B + 1S + 1C).' };
+	const setup = setupState(snap);
+	if (setup) {
+		if (setup.teamId !== teamId) {
+			const name = snap.teams.find((t) => t.id === setup.teamId)?.name ?? 'another team';
+			return { ok: false, reason: `Setup draft: it's ${name}'s turn.` };
+		}
+		if (setup.expect !== 'settlement')
+			return { ok: false, reason: 'Setup draft: place your road first.' };
+		return { ok: true, free: true };
 	}
-	return { ok: true, free };
+
+	// Post-setup: must sit on your own road network, and costs 1B + 1S + 1C.
+	const touchesOwnRoad = vertexEdges(vertex).some((e) => roadAt(snap, e)?.teamId === teamId);
+	if (!touchesOwnRoad) return { ok: false, reason: 'Must connect to your road network.' };
+	const team = snap.teams.find((t) => t.id === teamId);
+	if (!team || !canAfford(team.tokens, COSTS.settlement))
+		return { ok: false, reason: 'Cannot afford a settlement (1B + 1S + 1C).' };
+	return { ok: true, free: false };
 }
 
 export function canPlaceRoad(
@@ -187,6 +235,20 @@ export function canPlaceRoad(
 ): { ok: true; free: boolean } | { ok: false; reason: string } {
 	if (!onBoardEdge(snap.board, edge)) return { ok: false, reason: 'Not a board edge.' };
 	if (roadAt(snap, edge)) return { ok: false, reason: 'Edge already has a road.' };
+
+	const setup = setupState(snap);
+	if (setup) {
+		if (setup.teamId !== teamId) {
+			const name = snap.teams.find((t) => t.id === setup.teamId)?.name ?? 'another team';
+			return { ok: false, reason: `Setup draft: it's ${name}'s turn.` };
+		}
+		if (setup.expect !== 'road')
+			return { ok: false, reason: 'Setup draft: place your settlement first.' };
+		const fresh = freshSettlementVertex(snap, teamId);
+		if (!fresh || !edgeEndpoints(edge).includes(fresh))
+			return { ok: false, reason: 'Setup road must connect to the settlement you just placed.' };
+		return { ok: true, free: true };
+	}
 
 	// Must connect to your network: an endpoint with your building, or an endpoint reached
 	// by one of your roads — but a rival building on the shared corner blocks pass-through.
@@ -199,13 +261,12 @@ export function canPlaceRoad(
 	if (!connects) return { ok: false, reason: 'Must connect to your road network.' };
 
 	const team = snap.teams.find((t) => t.id === teamId);
-	const setupFree = setupRemaining(snap, teamId).roads > 0;
 	const cardFree = (team?.freeRoads ?? 0) > 0;
-	if (!setupFree && !cardFree) {
+	if (!cardFree) {
 		if (!team || !canAfford(team.tokens, COSTS.road))
 			return { ok: false, reason: 'Cannot afford a road (1S + 1C).' };
 	}
-	return { ok: true, free: setupFree || cardFree };
+	return { ok: true, free: cardFree };
 }
 
 export function canUpgradeCity(

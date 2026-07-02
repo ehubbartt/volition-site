@@ -58,9 +58,18 @@ const TYPE_COUNTS: Record<TileType, number> = { raids: 4, boss: 12, skilling: 12
 /** Raids tiles must sit at least this far apart so 3-raids networks stay a rare feat. */
 const RAIDS_MIN_DISTANCE = 3;
 
-// Placeholder task pools for the MVP tester — real task lists come later. `perRating`
-// scales linearly with the tile rating (§2: rating 5 ≈ 5× the grind of rating 1).
-const TASK_POOLS: Record<TileType, { label: string; unit: string; perRating: number }[]> = {
+export interface TaskTemplate {
+	label: string;
+	unit: string;
+	perRating: number; // task amount = perRating × tile rating (§2: linear scaling)
+}
+
+export type TaskPools = Record<TileType, TaskTemplate[]>;
+
+// Default task pools — the starting point for the admin-editable pools (edited copies
+// live in vs_catan_config under 'task_pools' and are what new boards actually draw from;
+// see /admin/catan/tasks).
+export const DEFAULT_TASK_POOLS: TaskPools = {
 	boss: [
 		{ label: 'Zulrah', unit: 'KC', perRating: 35 },
 		{ label: 'Vorkath', unit: 'KC', perRating: 32 },
@@ -120,7 +129,7 @@ function shuffle<T>(arr: T[], rand: () => number): T[] {
 	return a;
 }
 
-export function generateBoard(seed: number): Board {
+export function generateBoard(seed: number, pools: TaskPools = DEFAULT_TASK_POOLS): Board {
 	const rand = rng(seed);
 	const hexes = boardHexes(BOARD_RADIUS);
 
@@ -159,7 +168,7 @@ export function generateBoard(seed: number): Board {
 		const id = hexId(h.q, h.r);
 		const type = raidsIds.has(id) ? 'raids' : restTypes[ri++];
 		const rating = ratings[Object.keys(tiles).length] as Rating;
-		const pool = shuffle(TASK_POOLS[type], rand).slice(0, TASKS_PER_TILE);
+		const pool = shuffle(pools[type] ?? [], rand).slice(0, TASKS_PER_TILE);
 		tiles[id] = {
 			hex: id,
 			type,
