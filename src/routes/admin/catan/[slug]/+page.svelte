@@ -166,17 +166,19 @@
 		mode = draft.expect === 'settlement' ? 'settle' : 'road';
 	}
 
-	/** After a local placement: keep the snake draft moving without waiting on the server. */
+	/**
+	 * After a local placement: keep the snake draft moving without waiting on the server,
+	 * or drop the placement mode entirely so stale target markers never linger. Reads the
+	 * draft state directly off the just-mutated snapshot (not the cached derived).
+	 */
 	function afterPlacement() {
-		if (draft) {
-			actingId = draft.teamId;
-			mode = draft.expect === 'settlement' ? 'settle' : 'road';
-		} else if (mode === 'city' || (mode === 'road' && draftJustEnded())) {
+		const d = setupState(localSnap);
+		if (d) {
+			actingId = d.teamId;
+			mode = d.expect === 'settlement' ? 'settle' : 'road';
+		} else {
 			mode = null;
 		}
-	}
-	function draftJustEnded() {
-		return localSnap.pieces.filter((p) => p.kind === 'road').length === localSnap.teams.length * 2;
 	}
 
 	function pay(teamId: string, cost: Partial<Tokens>) {
@@ -220,7 +222,7 @@
 		const verdict = canPlaceRoad(localSnap, acting.id, e);
 		if (!verdict.ok) return void (localError = verdict.reason);
 		const team = localSnap.teams.find((t) => t.id === acting.id);
-		const inSetup = draft !== null;
+		const inSetup = setupState(localSnap) !== null;
 		if (!inSetup && team && team.freeRoads > 0) team.freeRoads -= 1;
 		else if (!inSetup) pay(acting.id, COSTS.road);
 		localSnap.pieces.push({ teamId: acting.id, kind: 'road', loc: e });
