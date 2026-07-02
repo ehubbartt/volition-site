@@ -356,7 +356,7 @@
 	<section class="wide">
 		<h2>Action log</h2>
 		<ul class="log">
-			{#each game.log as row (row.id)}
+			{#each game.log as row, i (i)}
 				<li>
 					<span class="when">{new Date(row.created_at).toLocaleTimeString()}</span>
 					<span class="dot" style="--team: {teamColors[row.team_id ?? ''] ?? 'transparent'}"></span>

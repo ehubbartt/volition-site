@@ -1,10 +1,12 @@
 // Gielinor Catan — server store + actions for the MVP tester (docs/GIELINOR-CATAN.md).
 //
 // The game container is a vs_events row (kind='catan', status='draft' so the bot's
-// event-announce poller and public lists ignore it). The generated board, remaining dev
-// deck, stealable-bonus holders and PKer freezes live in vs_events.structure.catan;
-// per-team state lives in vs_catan_teams / vs_catan_pieces / vs_catan_dev_cards /
-// vs_catan_tasks, with every action appended to vs_catan_log.
+// event-announce poller and public lists ignore it). Deliberately table-light: only state
+// needing a DB-level guarantee gets a table — vs_catan_teams (wallet row atomicity; also
+// carries each team's dev-card hand + rolled tasks as jsonb) and vs_catan_pieces (the
+// unique (event_id, loc) constraint IS the occupancy rule). The generated board, remaining
+// dev deck, stealable-bonus holders, PKer freezes and a capped action log live in
+// vs_events.structure.catan.
 //
 // Rules live in src/lib/catan/rules.ts (pure); this module loads rows, builds a
 // GameSnapshot, validates through the rules, then writes. Single-admin tester → plain
@@ -46,11 +48,38 @@ import {
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
+export interface HandCard {
+	id: string;
+	card: DevCardType;
+	drawn_at: string;
+	played_at: string | null;
+	meta: Record<string, unknown>;
+}
+
+export interface TeamTask {
+	id: string;
+	vertex: string;
+	hex: string;
+	task: { label: string; unit: string; amount: number; type: TileType; rating: number };
+	status: 'active' | 'completed' | 'abandoned';
+	payout: Record<string, number> | null;
+	rolled_at: string;
+	completed_at: string | null;
+}
+
+export interface LogEntry {
+	team_id: string | null;
+	action: string;
+	detail: Record<string, unknown>;
+	created_at: string;
+}
+
 interface CatanStructure {
 	board: Board;
 	deck: DevCardType[];
 	holders: { longestRoad: string | null; largestArmy: string | null };
 	freezes: Freeze[];
+	log: LogEntry[];
 }
 
 interface EventRow {
@@ -70,6 +99,8 @@ interface TeamRow {
 	color: string;
 	tokens: Tokens;
 	free_roads: number;
+	hand: HandCard[];
+	tasks: TeamTask[];
 }
 
 interface PieceRow {
@@ -77,35 +108,6 @@ interface PieceRow {
 	team_id: string;
 	kind: 'road' | 'settlement' | 'city';
 	loc: string;
-}
-
-interface DevCardRow {
-	id: string;
-	team_id: string;
-	card: DevCardType;
-	drawn_at: string;
-	played_at: string | null;
-	meta: Record<string, unknown>;
-}
-
-export interface TaskRow {
-	id: string;
-	team_id: string;
-	vertex: string;
-	hex: string;
-	task: { label: string; unit: string; amount: number; type: TileType; rating: number };
-	status: 'active' | 'completed' | 'abandoned';
-	payout: Record<string, number> | null;
-	rolled_at: string;
-	completed_at: string | null;
-}
-
-export interface LogRow {
-	id: string;
-	team_id: string | null;
-	action: string;
-	detail: Record<string, unknown>;
-	created_at: string;
 }
 
 const TEAM_PRESETS: { name: string; color: string }[] = [
@@ -120,6 +122,8 @@ const TEAM_PRESETS: { name: string; color: string }[] = [
 ];
 
 const TEAM_COUNT = 8;
+const LOG_CAP = 200; // structure.catan.log keeps the newest LOG_CAP entries
+const TASK_HISTORY_CAP = 30; // finished tasks kept per team (active ones always kept)
 
 function shuffleInPlace<T>(a: T[]): T[] {
 	for (let i = a.length - 1; i > 0; i--) {
@@ -154,7 +158,10 @@ export async function createGame(
 			board,
 			deck: shuffleInPlace(freshDeck()),
 			holders: { longestRoad: null, largestArmy: null },
-			freezes: []
+			freezes: [],
+			log: [
+				{ team_id: null, action: 'game_created', detail: { seed: boardSeed, teams: TEAM_COUNT }, created_at: new Date().toISOString() }
+			]
 		}
 	};
 	const slug = `catan-${Date.now().toString(36)}`;
@@ -187,7 +194,6 @@ export async function createGame(
 		await db().from('vs_events').delete().eq('id', ev.id); // roll back the orphan
 		return { ok: false, error: teamErr.message };
 	}
-	await log(ev.id, null, 'game_created', { seed: boardSeed, teams: TEAM_COUNT });
 	return { ok: true, slug };
 }
 
@@ -218,12 +224,12 @@ export interface GameView {
 		rollable: string[];
 		legalSettlements: string[];
 		legalRoads: string[];
-		devCards: DevCardRow[];
+		devCards: HandCard[];
 	})[];
 	pieces: PieceRow[];
-	activeTasks: TaskRow[];
-	recentTasks: TaskRow[];
-	log: LogRow[];
+	activeTasks: (TeamTask & { team_id: string })[];
+	recentTasks: (TeamTask & { team_id: string })[];
+	log: LogEntry[];
 	freezes: Freeze[];
 	winner: { teamId: string; name: string } | null;
 }
@@ -237,34 +243,23 @@ async function loadRows(slug: string) {
 		.maybeSingle();
 	if (!ev?.structure?.catan) return null;
 	const eventId = (ev as EventRow).id;
-	const [teams, pieces, cards, tasks, logs] = await Promise.all([
+	const [teams, pieces] = await Promise.all([
 		db().from('vs_catan_teams').select('*').eq('event_id', eventId).order('position'),
-		db().from('vs_catan_pieces').select('id, team_id, kind, loc').eq('event_id', eventId),
-		db().from('vs_catan_dev_cards').select('id, team_id, card, drawn_at, played_at, meta').eq('event_id', eventId),
-		db()
-			.from('vs_catan_tasks')
-			.select('id, team_id, vertex, hex, task, status, payout, rolled_at, completed_at')
-			.eq('event_id', eventId)
-			.order('rolled_at', { ascending: false })
-			.limit(200),
-		db()
-			.from('vs_catan_log')
-			.select('id, team_id, action, detail, created_at')
-			.eq('event_id', eventId)
-			.order('created_at', { ascending: false })
-			.limit(60)
+		db().from('vs_catan_pieces').select('id, team_id, kind, loc').eq('event_id', eventId)
 	]);
+	const teamRows = ((teams.data ?? []) as TeamRow[]).map((t) => ({
+		...t,
+		hand: t.hand ?? [],
+		tasks: t.tasks ?? []
+	}));
 	return {
 		ev: ev as EventRow,
-		teams: (teams.data ?? []) as TeamRow[],
-		pieces: (pieces.data ?? []) as PieceRow[],
-		cards: (cards.data ?? []) as DevCardRow[],
-		tasks: (tasks.data ?? []) as TaskRow[],
-		logs: (logs.data ?? []) as LogRow[]
+		teams: teamRows,
+		pieces: (pieces.data ?? []) as PieceRow[]
 	};
 }
 
-function buildSnapshot(ev: EventRow, teams: TeamRow[], pieces: PieceRow[], cards: DevCardRow[]): GameSnapshot {
+function buildSnapshot(ev: EventRow, teams: TeamRow[], pieces: PieceRow[]): GameSnapshot {
 	const cat = ev.structure.catan;
 	return {
 		board: cat.board,
@@ -276,7 +271,9 @@ function buildSnapshot(ev: EventRow, teams: TeamRow[], pieces: PieceRow[], cards
 			freeRoads: t.free_roads
 		})),
 		pieces: pieces.map((p) => ({ teamId: p.team_id, kind: p.kind, loc: p.loc })),
-		devCards: cards.map((c) => ({ id: c.id, teamId: c.team_id, card: c.card, playedAt: c.played_at })),
+		devCards: teams.flatMap((t) =>
+			t.hand.map((c) => ({ id: c.id, teamId: t.id, card: c.card, playedAt: c.played_at }))
+		),
 		holders: cat.holders,
 		freezes: cat.freezes
 	};
@@ -286,8 +283,8 @@ function buildSnapshot(ev: EventRow, teams: TeamRow[], pieces: PieceRow[], cards
 export async function loadGame(slug: string): Promise<GameView | null> {
 	const rows = await loadRows(slug);
 	if (!rows) return null;
-	const { ev, teams, pieces, cards, tasks, logs } = rows;
-	const snap = buildSnapshot(ev, teams, pieces, cards);
+	const { ev, teams, pieces } = rows;
+	const snap = buildSnapshot(ev, teams, pieces);
 	const now = new Date();
 	const cat = ev.structure.catan;
 
@@ -310,10 +307,13 @@ export async function loadGame(slug: string): Promise<GameView | null> {
 			rollable: rollableCorners(snap, t.id, now),
 			legalSettlements: legalSettlementSpots(snap, t.id),
 			legalRoads: legalRoadSpots(snap, t.id),
-			devCards: cards.filter((c) => c.team_id === t.id)
+			devCards: t.hand
 		};
 	});
 	const winnerTeam = teamViews.find((t) => t.vp.total >= WINNING_VP) ?? null;
+
+	const allTasks = teams.flatMap((t) => t.tasks.map((task) => ({ ...task, team_id: t.id })));
+	allTasks.sort((a, b) => (a.rolled_at < b.rolled_at ? 1 : -1));
 
 	return {
 		eventId: ev.id,
@@ -325,9 +325,9 @@ export async function loadGame(slug: string): Promise<GameView | null> {
 		snapshot: snap,
 		teams: teamViews,
 		pieces,
-		activeTasks: tasks.filter((t) => t.status === 'active'),
-		recentTasks: tasks.filter((t) => t.status !== 'active').slice(0, 20),
-		log: logs,
+		activeTasks: allTasks.filter((t) => t.status === 'active'),
+		recentTasks: allTasks.filter((t) => t.status !== 'active').slice(0, 20),
+		log: [...(cat.log ?? [])].reverse().slice(0, 60),
 		freezes: cat.freezes.filter((f) => new Date(f.until) > now),
 		winner: winnerTeam ? { teamId: winnerTeam.id, name: winnerTeam.name } : null
 	};
@@ -335,13 +335,11 @@ export async function loadGame(slug: string): Promise<GameView | null> {
 
 // ---- shared write helpers ----
 
-async function log(eventId: string, teamId: string | null, action: string, detail: Record<string, unknown>) {
-	await db().from('vs_catan_log').insert({ event_id: eventId, team_id: teamId, action, detail });
-}
-
-async function saveTokens(teamId: string, tokens: Tokens): Promise<ActionResult> {
-	const { error } = await db().from('vs_catan_teams').update({ tokens }).eq('id', teamId);
-	return error ? { ok: false, error: error.message } : { ok: true };
+/** Append to the capped action log in structure and persist the whole structure. */
+async function logAndSave(ev: EventRow, teamId: string | null, action: string, detail: Record<string, unknown>): Promise<ActionResult> {
+	const cat = ev.structure.catan;
+	cat.log = [...(cat.log ?? []), { team_id: teamId, action, detail, created_at: new Date().toISOString() }].slice(-LOG_CAP);
+	return saveStructure(ev);
 }
 
 async function saveStructure(ev: EventRow): Promise<ActionResult> {
@@ -349,19 +347,29 @@ async function saveStructure(ev: EventRow): Promise<ActionResult> {
 	return error ? { ok: false, error: error.message } : { ok: true };
 }
 
+async function saveTeam(teamId: string, patch: Partial<Pick<TeamRow, 'tokens' | 'free_roads' | 'hand' | 'tasks'>>): Promise<ActionResult> {
+	const { error } = await db().from('vs_catan_teams').update(patch).eq('id', teamId);
+	return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+/** Trim a team's finished tasks to the newest TASK_HISTORY_CAP (active always kept). */
+function trimTasks(tasks: TeamTask[]): TeamTask[] {
+	const active = tasks.filter((t) => t.status === 'active');
+	const done = tasks.filter((t) => t.status !== 'active').slice(-TASK_HISTORY_CAP);
+	return [...done, ...active];
+}
+
 async function refreshHolders(ev: EventRow): Promise<ActionResult> {
 	const rows = await loadRows(ev.slug);
 	if (!rows) return { ok: false, error: 'Game vanished' };
-	const snap = buildSnapshot(rows.ev, rows.teams, rows.pieces, rows.cards);
+	const snap = buildSnapshot(rows.ev, rows.teams, rows.pieces);
 	const holders = updateHolders(snap);
 	const prev = rows.ev.structure.catan.holders;
 	if (holders.longestRoad === prev.longestRoad && holders.largestArmy === prev.largestArmy) return { ok: true };
 	rows.ev.structure.catan.holders = holders;
 	if (holders.longestRoad !== prev.longestRoad)
-		await log(ev.id, holders.longestRoad, 'longest_road', { from: prev.longestRoad, to: holders.longestRoad });
-	if (holders.largestArmy !== prev.largestArmy)
-		await log(ev.id, holders.largestArmy, 'largest_army', { from: prev.largestArmy, to: holders.largestArmy });
-	return saveStructure(rows.ev);
+		return logAndSave(rows.ev, holders.longestRoad, 'longest_road', { from: prev.longestRoad, to: holders.longestRoad });
+	return logAndSave(rows.ev, holders.largestArmy, 'largest_army', { from: prev.largestArmy, to: holders.largestArmy });
 }
 
 interface Ctx {
@@ -379,7 +387,7 @@ async function withTeam(slug: string, teamId: string): Promise<Ctx | { error: st
 	return {
 		ev: rows.ev,
 		teams: rows.teams,
-		snap: buildSnapshot(rows.ev, rows.teams, rows.pieces, rows.cards),
+		snap: buildSnapshot(rows.ev, rows.teams, rows.pieces),
 		team
 	};
 }
@@ -399,10 +407,11 @@ export async function placeSettlement(slug: string, teamId: string, vertex: stri
 		.insert({ event_id: ctx.ev.id, team_id: teamId, kind: 'settlement', loc: vertex });
 	if (error) return { ok: false, error: error.message };
 	if (!verdict.free) {
-		const r = await saveTokens(teamId, subtractCost(tokensOf(ctx.team), COSTS.settlement));
+		const r = await saveTeam(teamId, { tokens: subtractCost(tokensOf(ctx.team), COSTS.settlement) });
 		if (!r.ok) return r;
 	}
-	await log(ctx.ev.id, teamId, 'settlement', { vertex, free: verdict.free });
+	const rl = await logAndSave(ctx.ev, teamId, 'settlement', { vertex, free: verdict.free });
+	if (!rl.ok) return rl;
 	return refreshHolders(ctx.ev); // a new settlement can cut a rival's longest road
 }
 
@@ -419,12 +428,14 @@ export async function placeRoad(slug: string, teamId: string, edge: string): Pro
 
 	const setupFree = setupRemaining(ctx.snap, teamId).roads > 0;
 	if (!setupFree && ctx.team.free_roads > 0) {
-		await db().from('vs_catan_teams').update({ free_roads: ctx.team.free_roads - 1 }).eq('id', teamId);
+		const r = await saveTeam(teamId, { free_roads: ctx.team.free_roads - 1 });
+		if (!r.ok) return r;
 	} else if (!setupFree) {
-		const r = await saveTokens(teamId, subtractCost(tokensOf(ctx.team), COSTS.road));
+		const r = await saveTeam(teamId, { tokens: subtractCost(tokensOf(ctx.team), COSTS.road) });
 		if (!r.ok) return r;
 	}
-	await log(ctx.ev.id, teamId, 'road', { edge, free: verdict.free });
+	const rl = await logAndSave(ctx.ev, teamId, 'road', { edge, free: verdict.free });
+	if (!rl.ok) return rl;
 	return refreshHolders(ctx.ev);
 }
 
@@ -441,10 +452,9 @@ export async function upgradeCity(slug: string, teamId: string, vertex: string):
 		.eq('team_id', teamId)
 		.eq('loc', vertex);
 	if (error) return { ok: false, error: error.message };
-	const r = await saveTokens(teamId, subtractCost(tokensOf(ctx.team), COSTS.city));
+	const r = await saveTeam(teamId, { tokens: subtractCost(tokensOf(ctx.team), COSTS.city) });
 	if (!r.ok) return r;
-	await log(ctx.ev.id, teamId, 'city', { vertex });
-	return { ok: true };
+	return logAndSave(ctx.ev, teamId, 'city', { vertex });
 }
 
 // ---- tasks (§3 rolling) ----
@@ -460,63 +470,51 @@ export async function rollTask(slug: string, teamId: string, vertex: string): Pr
 	const tile = ctx.snap.board.tiles[hex];
 	const task = tile.tasks[Math.floor(Math.random() * tile.tasks.length)];
 
-	const { error } = await db().from('vs_catan_tasks').insert({
-		event_id: ctx.ev.id,
-		team_id: teamId,
+	const entry: TeamTask = {
+		id: crypto.randomUUID(),
 		vertex,
 		hex,
-		task: { ...task, type: tile.type, rating: tile.rating }
-	});
-	if (error) return { ok: false, error: error.message };
-	await log(ctx.ev.id, teamId, 'task_rolled', { vertex, hex, type: tile.type, rating: tile.rating, task: task.label });
-	return { ok: true };
+		task: { ...task, type: tile.type, rating: tile.rating },
+		status: 'active',
+		payout: null,
+		rolled_at: new Date().toISOString(),
+		completed_at: null
+	};
+	const r = await saveTeam(teamId, { tasks: trimTasks([...ctx.team.tasks, entry]) });
+	if (!r.ok) return r;
+	return logAndSave(ctx.ev, teamId, 'task_rolled', { vertex, hex, type: tile.type, rating: tile.rating, task: task.label });
 }
 
 export async function completeTask(slug: string, teamId: string, taskId: string): Promise<ActionResult> {
 	const ctx = await withTeam(slug, teamId);
 	if ('error' in ctx) return { ok: false, error: ctx.error };
-	const { data: task } = await db()
-		.from('vs_catan_tasks')
-		.select('id, team_id, task, status')
-		.eq('id', taskId)
-		.eq('event_id', ctx.ev.id)
-		.maybeSingle();
-	if (!task || task.team_id !== teamId) return { ok: false, error: 'Task not found' };
+	const task = ctx.team.tasks.find((t) => t.id === taskId);
+	if (!task) return { ok: false, error: 'Task not found' };
 	if (task.status !== 'active') return { ok: false, error: 'Task is not active' };
 
-	const type = (task.task as TaskRow['task']).type;
 	// §3 same-type multiplier, computed at completion time against the current network.
+	const type = task.task.type;
 	const amount = Math.max(1, taskPayout(ctx.snap, teamId, type));
-	const payout = { [type]: amount };
-
-	const { error } = await db()
-		.from('vs_catan_tasks')
-		.update({ status: 'completed', payout, completed_at: new Date().toISOString() })
-		.eq('id', taskId)
-		.eq('status', 'active');
-	if (error) return { ok: false, error: error.message };
+	task.status = 'completed';
+	task.payout = { [type]: amount };
+	task.completed_at = new Date().toISOString();
 
 	const tokens = tokensOf(ctx.team);
 	tokens[type] += amount;
-	const r = await saveTokens(teamId, tokens);
+	const r = await saveTeam(teamId, { tokens, tasks: trimTasks(ctx.team.tasks) });
 	if (!r.ok) return r;
-	await log(ctx.ev.id, teamId, 'task_completed', { taskId, type, amount });
-	return { ok: true };
+	return logAndSave(ctx.ev, teamId, 'task_completed', { taskId, type, amount });
 }
 
 export async function abandonTask(slug: string, teamId: string, taskId: string): Promise<ActionResult> {
 	const ctx = await withTeam(slug, teamId);
 	if ('error' in ctx) return { ok: false, error: ctx.error };
-	const { error } = await db()
-		.from('vs_catan_tasks')
-		.update({ status: 'abandoned' })
-		.eq('id', taskId)
-		.eq('event_id', ctx.ev.id)
-		.eq('team_id', teamId)
-		.eq('status', 'active');
-	if (error) return { ok: false, error: error.message };
-	await log(ctx.ev.id, teamId, 'task_abandoned', { taskId });
-	return { ok: true };
+	const task = ctx.team.tasks.find((t) => t.id === taskId);
+	if (!task || task.status !== 'active') return { ok: false, error: 'Task is not active' };
+	task.status = 'abandoned';
+	const r = await saveTeam(teamId, { tasks: trimTasks(ctx.team.tasks) });
+	if (!r.ok) return r;
+	return logAndSave(ctx.ev, teamId, 'task_abandoned', { taskId });
 }
 
 // ---- economy ----
@@ -529,10 +527,9 @@ export async function grantTokens(slug: string, teamId: string, grant: Partial<T
 	for (const [k, v] of Object.entries(grant) as [keyof Tokens, number][]) {
 		tokens[k] = Math.max(0, tokens[k] + v);
 	}
-	const r = await saveTokens(teamId, tokens);
+	const r = await saveTeam(teamId, { tokens });
 	if (!r.ok) return r;
-	await log(ctx.ev.id, teamId, 'grant', { ...grant });
-	return { ok: true };
+	return logAndSave(ctx.ev, teamId, 'grant', { ...grant });
 }
 
 /** Gold exchange (§5): 2 gold → 1 token of any type. */
@@ -545,10 +542,9 @@ export async function exchangeGold(slug: string, teamId: string, get: TileType, 
 	if (tokens.gold < cost) return { ok: false, error: `Needs ${cost} gold` };
 	tokens.gold -= cost;
 	tokens[get] += count;
-	const r = await saveTokens(teamId, tokens);
+	const r = await saveTeam(teamId, { tokens });
 	if (!r.ok) return r;
-	await log(ctx.ev.id, teamId, 'gold_exchange', { get, count, gold: cost });
-	return { ok: true };
+	return logAndSave(ctx.ev, teamId, 'gold_exchange', { get, count, gold: cost });
 }
 
 /** Bank/port trade (§7): N identical → 1 any, at the team's best available rate. */
@@ -563,10 +559,9 @@ export async function bankTrade(slug: string, teamId: string, give: TileType, ge
 	if (tokens[give] < cost) return { ok: false, error: `Needs ${cost} ${give} (rate ${rate}:1)` };
 	tokens[give] -= cost;
 	tokens[get] += count;
-	const r = await saveTokens(teamId, tokens);
+	const r = await saveTeam(teamId, { tokens });
 	if (!r.ok) return r;
-	await log(ctx.ev.id, teamId, 'bank_trade', { give, get, count, rate });
-	return { ok: true };
+	return logAndSave(ctx.ev, teamId, 'bank_trade', { give, get, count, rate });
 }
 
 // ---- development cards (§9) ----
@@ -582,18 +577,21 @@ export async function drawDevCard(slug: string, teamId: string): Promise<ActionR
 	const card = cat.deck[Math.floor(Math.random() * cat.deck.length)];
 	cat.deck.splice(cat.deck.indexOf(card), 1);
 
-	const { error } = await db()
-		.from('vs_catan_dev_cards')
-		.insert({ event_id: ctx.ev.id, team_id: teamId, card });
-	if (error) return { ok: false, error: error.message };
-	const rs = await saveStructure(ctx.ev);
-	if (!rs.ok) return rs;
-	const rt = await saveTokens(teamId, subtractCost(tokens, COSTS.dev));
-	if (!rt.ok) return rt;
+	const drawn: HandCard = {
+		id: crypto.randomUUID(),
+		card,
+		drawn_at: new Date().toISOString(),
+		played_at: null,
+		meta: {}
+	};
+	const r = await saveTeam(teamId, {
+		hand: [...ctx.team.hand, drawn],
+		tokens: subtractCost(tokens, COSTS.dev)
+	});
+	if (!r.ok) return r;
 	// The drawn card is logged without naming it — hidden information stays hidden in the
 	// log; the tester sees each team's hand in that team's own panel.
-	await log(ctx.ev.id, teamId, 'dev_drawn', { remaining: cat.deck.length });
-	return { ok: true };
+	return logAndSave(ctx.ev, teamId, 'dev_drawn', { remaining: cat.deck.length });
 }
 
 export async function playDevCard(
@@ -604,19 +602,15 @@ export async function playDevCard(
 ): Promise<ActionResult> {
 	const ctx = await withTeam(slug, teamId);
 	if ('error' in ctx) return { ok: false, error: ctx.error };
-	const { data: card } = await db()
-		.from('vs_catan_dev_cards')
-		.select('id, team_id, card, played_at')
-		.eq('id', cardId)
-		.eq('event_id', ctx.ev.id)
-		.maybeSingle();
-	if (!card || card.team_id !== teamId) return { ok: false, error: 'Card not found' };
+	const card = ctx.team.hand.find((c) => c.id === cardId);
+	if (!card) return { ok: false, error: 'Card not found' };
 	if (card.played_at) return { ok: false, error: 'Card already played' };
 
 	const meta: Record<string, unknown> = {};
 	const cat = ctx.ev.structure.catan;
+	const patch: Parameters<typeof saveTeam>[1] = {};
 
-	switch (card.card as DevCardType) {
+	switch (card.card) {
 		case 'vp':
 			return { ok: false, error: 'Hidden VP cards are revealed at game end, not played.' };
 
@@ -646,13 +640,12 @@ export async function playDevCard(
 				if (theirs[type] <= 0) continue;
 				collected += theirs[type];
 				theirs[type] = 0;
-				const r = await saveTokens(other.id, theirs);
+				const r = await saveTeam(other.id, { tokens: theirs });
 				if (!r.ok) return r;
 			}
 			const mine = tokensOf(ctx.team);
 			mine[type] += collected;
-			const r = await saveTokens(teamId, mine);
-			if (!r.ok) return r;
+			patch.tokens = mine;
 			meta.tokenType = type;
 			meta.collected = collected;
 			break;
@@ -664,31 +657,25 @@ export async function playDevCard(
 			if (take.length !== 2) return { ok: false, error: 'Pick exactly two tokens.' };
 			const mine = tokensOf(ctx.team);
 			for (const t of take) mine[t] += 1;
-			const r = await saveTokens(teamId, mine);
-			if (!r.ok) return r;
+			patch.tokens = mine;
 			meta.take = take;
 			break;
 		}
 
 		case 'shortcut': {
 			// Road Building: the next 2 roads are free (§9).
-			const { error } = await db()
-				.from('vs_catan_teams')
-				.update({ free_roads: ctx.team.free_roads + 2 })
-				.eq('id', teamId);
-			if (error) return { ok: false, error: error.message };
+			patch.free_roads = ctx.team.free_roads + 2;
 			break;
 		}
 	}
 
-	const { error } = await db()
-		.from('vs_catan_dev_cards')
-		.update({ played_at: new Date().toISOString(), meta })
-		.eq('id', cardId);
-	if (error) return { ok: false, error: error.message };
-	const rs = await saveStructure(ctx.ev);
-	if (!rs.ok) return rs;
-	await log(ctx.ev.id, teamId, 'dev_played', { card: card.card, ...meta });
+	card.played_at = new Date().toISOString();
+	card.meta = meta;
+	patch.hand = ctx.team.hand;
+	const r = await saveTeam(teamId, patch);
+	if (!r.ok) return r;
+	const rl = await logAndSave(ctx.ev, teamId, 'dev_played', { card: card.card, ...meta });
+	if (!rl.ok) return rl;
 	if (card.card === 'pker') return refreshHolders(ctx.ev); // army race
 	return { ok: true };
 }

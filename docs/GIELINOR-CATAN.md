@@ -167,20 +167,22 @@ The tester lets **one admin play every team** and drive a full game by hand at
 
 The game container is a **`vs_events` row** (`kind='catan'`, `status='draft'` so test
 games stay out of public lists and the bot's announce poller). `structure.catan` holds
-the generated `board`, the remaining shuffled `deck`, the stealable-bonus `holders`, and
-active PKer `freezes`.
+the generated `board`, the remaining shuffled `deck`, the stealable-bonus `holders`,
+active PKer `freezes`, and a capped action `log` (newest 200; the tester's debug feed —
+admin POSTs are additionally captured by the standard `vs_audit_log` hook).
 
-Per-team state (all `on delete cascade` from the event):
+Deliberately table-light — only state that needs a database-level guarantee gets a table
+(both `on delete cascade` from the event):
 
 - `vs_catan_teams` — 8 rows/game: name, color, `tokens` jsonb (B/S/R/C/gold),
-  `free_roads` (pending Agility Shortcuts).
+  `free_roads`, plus two jsonb columns that ride on the team row's write atomicity:
+  `hand` (dev cards: `{id, card, drawn_at, played_at, meta}`) and `tasks` (rolled tasks
+  with their snapshot + payout; finished history capped at 30, active always kept).
 - `vs_catan_pieces` — one row per road/settlement/city; `unique (event_id, loc)` doubles
   as the occupancy rule (vertex and edge ids never collide).
-- `vs_catan_dev_cards` — drawn cards; `played_at` null = in hand; `meta` records play
-  details (PKer target, Bond type, …).
-- `vs_catan_tasks` — rolled tasks with a task snapshot; payout (multiplier applied at
-  completion time) recorded on completion.
-- `vs_catan_log` — append-only action trail (also the tester's debug view).
+
+Live-event follow-up: task completions mirror into the `vs_submissions` ledger
+(per `docs/EVENTS.md`) once real players submit proof.
 
 ### How to test a game
 

@@ -84,9 +84,9 @@ Every request passes through the handle hook, in order:
   (completions, swaps, path choices) and `vs_duo_tiles`. Postgres function
   `vs_accept_invite(...)` atomically forms a team on invite accept (`db/functions/`).
 - **Bingo:** `vs_bingo_completions` (+ admin tile management).
-- **Gielinor Catan:** `vs_catan_teams`, `vs_catan_pieces`, `vs_catan_dev_cards`,
-  `vs_catan_tasks`, `vs_catan_log` — per-team state for the Catan-style board event
-  (container = a `vs_events` row, `kind='catan'`). See `docs/GIELINOR-CATAN.md`.
+- **Gielinor Catan:** `vs_catan_teams` (wallet + dev-card hand + tasks jsonb),
+  `vs_catan_pieces` (occupancy via `unique (event_id, loc)`) — container = a `vs_events`
+  row (`kind='catan'`, board/deck/log in `structure`). See `docs/GIELINOR-CATAN.md`.
 - **Cards ("gamba"):** `vs_cards`, `vs_card_packs`, `vs_user_cards`, `vs_user_packs`,
   `vs_pack_opens` (+ pulled-card records).
 - **Home/calendar:** `vs_calendar_events`.
