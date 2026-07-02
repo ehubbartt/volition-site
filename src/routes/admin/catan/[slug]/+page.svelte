@@ -1,9 +1,31 @@
 <script lang="ts">
-	import { tick } from 'svelte';
-	import { enhance } from '$app/forms';
+	import { enhance, deserialize } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import BoardMap from '$lib/catan/BoardMap.svelte';
 	import { TILE_TYPE_LABEL, type TileType } from '$lib/catan/board';
-	import { DEV_CARD_LABEL, WINNING_VP, type DevCardType } from '$lib/catan/rules';
+	import {
+		armySize,
+		canPlaceRoad,
+		canPlaceSettlement,
+		canUpgradeCity,
+		COSTS,
+		DEV_CARD_LABEL,
+		legalRoadSpots,
+		legalSettlementSpots,
+		longestRoadLength,
+		networkTileCounts,
+		rollableCorners,
+		setupState,
+		subtractCost,
+		teamVP,
+		tradeRates,
+		updateHolders,
+		WINNING_VP,
+		type DevCardType,
+		type GameSnapshot,
+		type Tokens,
+		type VPBreakdown
+	} from '$lib/catan/rules';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -12,89 +34,203 @@
 	const TOKEN_TYPES: TileType[] = ['boss', 'skilling', 'raids', 'custom'];
 	const TOKEN_SHORT: Record<string, string> = { boss: 'B', skilling: 'S', raids: 'R', custom: 'C', gold: 'G' };
 
+	// ---- local game state: the page IS the game client ----
+	// The pure rules run in the browser against this snapshot, so placements validate,
+	// render, and advance the draft instantly; the server POST trails behind as the
+	// authority (queued so requests can't race each other) and any rejection resyncs.
+	// svelte-ignore state_referenced_locally
+	let localSnap = $state<GameSnapshot>(structuredClone(data.game.snapshot));
+	$effect(() => {
+		localSnap = structuredClone(data.game.snapshot);
+	});
+
 	let actingId = $state('');
-	const acting = $derived(game.teams.find((t) => t.id === actingId) ?? game.teams[0]);
+	const acting = $derived(localSnap.teams.find((t) => t.id === actingId) ?? localSnap.teams[0]);
+	const actingCards = $derived(game.teams.find((t) => t.id === acting.id)?.devCards ?? []);
+	const hand = $derived(actingCards.filter((c) => !c.played_at));
 
 	type Mode = 'settle' | 'road' | 'city' | 'roll' | 'pker' | null;
 	let mode = $state<Mode>(null);
 	let pendingCard = $state('');
-	let pendingLoc = $state('');
-	let boardAction = $state('settle');
-	let boardForm: HTMLFormElement | null = $state(null);
+	let localError = $state('');
 
-	const teamColors = $derived(Object.fromEntries(game.teams.map((t) => [t.id, t.color])));
+	interface TeamView {
+		vp: VPBreakdown;
+		publicVP: number;
+		network: Record<TileType, number>;
+		rates: Record<TileType, number>;
+		longestRoad: number;
+		army: number;
+		rollable: string[];
+	}
+
+	function computeView(id: string): TeamView {
+		const vp = teamVP(localSnap, id, { includeHidden: true });
+		return {
+			vp,
+			publicVP: vp.total - vp.hiddenVP,
+			network: networkTileCounts(localSnap, id),
+			rates: tradeRates(localSnap, id),
+			longestRoad: longestRoadLength(localSnap, id),
+			army: armySize(localSnap, id),
+			rollable: rollableCorners(localSnap, id, new Date())
+		};
+	}
+	const views = $derived(new Map(localSnap.teams.map((t) => [t.id, computeView(t.id)])));
+	function view(id: string): TeamView {
+		return views.get(id) ?? computeView(id);
+	}
+
+	const draft = $derived(setupState(localSnap));
+	const draftTeam = $derived(draft ? localSnap.teams.find((t) => t.id === draft.teamId) : null);
+	const winner = $derived(localSnap.teams.find((t) => view(t.id).vp.total >= WINNING_VP) ?? null);
+
+	const teamColors = $derived(Object.fromEntries(localSnap.teams.map((t) => [t.id, t.color])));
 	const frozenVerts = $derived(game.freezes.map((f) => f.loc));
 	const frozenSet = $derived(new Set(frozenVerts));
 
-	// Optimistic pieces: rendered immediately on click, cleared once the server round-trip
-	// lands (the invalidated load then carries the real piece — or the error banner shows).
-	let optimistic = $state<{ teamId: string; kind: 'road' | 'settlement' | 'city'; loc: string }[]>([]);
-	const shownPieces = $derived([...game.snapshot.pieces, ...optimistic]);
-
-	function actAsDrafter() {
-		const d = game.draft;
-		if (!d) return;
-		actingId = d.teamId;
-		mode = d.expect === 'settlement' ? 'settle' : 'road';
-	}
-
 	const ownSettlements = $derived(
-		game.pieces.filter((p) => p.kind === 'settlement' && p.team_id === acting.id).map((p) => p.loc)
+		localSnap.pieces.filter((p) => p.kind === 'settlement' && p.teamId === acting.id).map((p) => p.loc)
 	);
 	const rivalBuildings = $derived(
-		game.pieces
-			.filter((p) => p.kind !== 'road' && p.team_id !== acting.id && !frozenSet.has(p.loc))
+		localSnap.pieces
+			.filter((p) => p.kind !== 'road' && p.teamId !== acting.id && !frozenSet.has(p.loc))
 			.map((p) => p.loc)
 	);
-
 	const highlightVertices = $derived(
 		mode === 'settle'
-			? acting.legalSettlements
+			? legalSettlementSpots(localSnap, acting.id)
 			: mode === 'city'
 				? ownSettlements
 				: mode === 'roll'
-					? acting.rollable
+					? view(acting.id).rollable
 					: mode === 'pker'
 						? rivalBuildings
 						: []
 	);
-	const highlightEdges = $derived(mode === 'road' ? acting.legalRoads : []);
+	const highlightEdges = $derived(mode === 'road' ? legalRoadSpots(localSnap, acting.id) : []);
+
+	// ---- background submission queue ----
+	let pending = $state(0);
+	let dirty = false; // fast-path posts happened; reconcile with one invalidate when idle
+	let queue: Promise<void> = Promise.resolve();
+
+	function post(action: string, fields: Record<string, string>, opts: { refresh?: boolean } = {}) {
+		pending++;
+		queue = queue.then(async () => {
+			try {
+				const body = new FormData();
+				for (const [k, v] of Object.entries(fields)) body.append(k, v);
+				const res = await fetch(`?/${action}`, {
+					method: 'POST',
+					body,
+					headers: { 'x-sveltekit-action': 'true' }
+				});
+				const result = deserialize(await res.text());
+				if (result.type === 'failure' || result.type === 'error') {
+					localError =
+						result.type === 'failure'
+							? ((result.data as { error?: string })?.error ?? 'Action failed')
+							: 'Action failed';
+					dirty = false;
+					await invalidateAll(); // resync the local snapshot from server truth
+				} else if (opts.refresh) {
+					dirty = false;
+					await invalidateAll();
+				} else {
+					dirty = true;
+				}
+			} catch {
+				localError = 'Network error — resyncing…';
+				dirty = false;
+				await invalidateAll();
+			} finally {
+				pending--;
+				if (pending === 0 && dirty) {
+					dirty = false;
+					void invalidateAll(); // one coalesced reconcile after a burst of placements
+				}
+			}
+		});
+	}
 
 	function setMode(m: Mode) {
 		mode = mode === m ? null : m;
+		localError = '';
 		if (mode !== 'pker') pendingCard = '';
 	}
 
-	async function submitBoard(action: string, loc: string) {
-		boardAction = action;
-		pendingLoc = loc;
-		await tick();
-		boardForm?.requestSubmit();
+	function actAsDrafter() {
+		if (!draft) return;
+		actingId = draft.teamId;
+		mode = draft.expect === 'settlement' ? 'settle' : 'road';
+	}
+
+	/** After a local placement: keep the snake draft moving without waiting on the server. */
+	function afterPlacement() {
+		if (draft) {
+			actingId = draft.teamId;
+			mode = draft.expect === 'settlement' ? 'settle' : 'road';
+		} else if (mode === 'city' || (mode === 'road' && draftJustEnded())) {
+			mode = null;
+		}
+	}
+	function draftJustEnded() {
+		return localSnap.pieces.filter((p) => p.kind === 'road').length === localSnap.teams.length * 2;
+	}
+
+	function pay(teamId: string, cost: Partial<Tokens>) {
+		const t = localSnap.teams.find((x) => x.id === teamId);
+		if (t) t.tokens = subtractCost(t.tokens, cost);
 	}
 
 	function clickVertex(v: string) {
+		localError = '';
 		if (mode === 'settle') {
-			optimistic = [...optimistic, { teamId: acting.id, kind: 'settlement', loc: v }];
-			submitBoard('settle', v);
-		} else if (mode === 'city') submitBoard('city', v);
-		else if (mode === 'roll') submitBoard('roll', v);
-		else if (mode === 'pker') submitBoard('play', v);
-	}
-
-	function clickEdge(e: string) {
-		if (mode === 'road') {
-			optimistic = [...optimistic, { teamId: acting.id, kind: 'road', loc: e }];
-			submitBoard('road', e);
+			const verdict = canPlaceSettlement(localSnap, acting.id, v);
+			if (!verdict.ok) return void (localError = verdict.reason);
+			if (!verdict.free) pay(acting.id, COSTS.settlement);
+			localSnap.pieces.push({ teamId: acting.id, kind: 'settlement', loc: v });
+			localSnap.holders = updateHolders(localSnap);
+			post('settle', { team: acting.id, loc: v });
+			afterPlacement();
+		} else if (mode === 'city') {
+			const verdict = canUpgradeCity(localSnap, acting.id, v);
+			if (!verdict.ok) return void (localError = verdict.reason);
+			const piece = localSnap.pieces.find((p) => p.loc === v && p.kind === 'settlement');
+			if (!piece) return;
+			piece.kind = 'city';
+			pay(acting.id, COSTS.city);
+			post('city', { team: acting.id, loc: v });
+			mode = null;
+		} else if (mode === 'roll') {
+			if (!view(acting.id).rollable.includes(v)) return void (localError = 'Not one of your (unfrozen) corners.');
+			post('roll', { team: acting.id, loc: v }, { refresh: true });
+			mode = null;
+		} else if (mode === 'pker') {
+			post('play', { team: acting.id, card: pendingCard, loc: v }, { refresh: true });
+			mode = null;
+			pendingCard = '';
 		}
 	}
 
-	function hand(teamId: string) {
-		const t = game.teams.find((x) => x.id === teamId);
-		return (t?.devCards ?? []).filter((c) => !c.played_at);
+	function clickEdge(e: string) {
+		if (mode !== 'road') return;
+		localError = '';
+		const verdict = canPlaceRoad(localSnap, acting.id, e);
+		if (!verdict.ok) return void (localError = verdict.reason);
+		const team = localSnap.teams.find((t) => t.id === acting.id);
+		const inSetup = draft !== null;
+		if (!inSetup && team && team.freeRoads > 0) team.freeRoads -= 1;
+		else if (!inSetup) pay(acting.id, COSTS.road);
+		localSnap.pieces.push({ teamId: acting.id, kind: 'road', loc: e });
+		localSnap.holders = updateHolders(localSnap);
+		post('road', { team: acting.id, loc: e });
+		afterPlacement();
 	}
 
 	function teamName(id: string | null) {
-		return game.teams.find((t) => t.id === id)?.name ?? '—';
+		return localSnap.teams.find((t) => t.id === id)?.name ?? '—';
 	}
 
 	function fmtDetail(detail: Record<string, unknown>) {
@@ -102,8 +238,6 @@
 			.map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
 			.join(' · ');
 	}
-
-	const setupDone = $derived(acting.setup.settlements === 0 && acting.setup.roads === 0);
 </script>
 
 <svelte:head>
@@ -117,32 +251,33 @@
 			<h1>{game.name}</h1>
 			<p class="hint">
 				Dev deck: {game.deckRemaining} cards left · first to {WINNING_VP} VP wins
+				{#if pending > 0}<span class="sync">· syncing…</span>{/if}
 			</p>
 		</div>
 	</header>
 
-	{#if game.winner}
-		<p class="winner">🏆 {game.winner.name} has reached {WINNING_VP} VP (hidden VP included)!</p>
+	{#if winner}
+		<p class="winner">🏆 {winner.name} has reached {WINNING_VP} VP (hidden VP included)!</p>
 	{/if}
 
-	{#if form?.error}
-		<p class="error">{form.error}</p>
+	{#if localError || form?.error}
+		<p class="error">{localError || form?.error}</p>
 	{/if}
 
-	{#if game.draft}
+	{#if draft && draftTeam}
 		<p class="draft">
-			Setup draft — <b style="color: {teamColors[game.draft.teamId]}">{game.draft.teamName}</b>
-			places a <b>{game.draft.expect}</b>
-			(round {game.draft.round} of 2, pick {game.draft.pick + 1}/{game.teams.length * 2})
-			{#if acting.id !== game.draft.teamId || !mode}
-				<button onclick={actAsDrafter}>Place as {game.draft.teamName}</button>
+			Setup draft — <b style="color: {draftTeam.color}">{draftTeam.name}</b>
+			places a <b>{draft.expect}</b>
+			(round {draft.round} of 2, pick {draft.pick + 1}/{localSnap.teams.length * 2})
+			{#if acting.id !== draft.teamId || !mode}
+				<button onclick={actAsDrafter}>Place as {draftTeam.name}</button>
 			{/if}
 		</p>
 	{/if}
 
 	<!-- act-as-team selector -->
 	<nav class="teams">
-		{#each game.teams as t (t.id)}
+		{#each localSnap.teams as t (t.id)}
 			<button
 				class="team-tab"
 				class:active={t.id === acting.id}
@@ -151,11 +286,12 @@
 					actingId = t.id;
 					mode = null;
 					pendingCard = '';
+					localError = '';
 				}}
 			>
 				<span class="dot"></span>
 				{t.name}
-				<span class="vp-badge">{t.vp.total}</span>
+				<span class="vp-badge">{view(t.id).vp.total}</span>
 			</button>
 		{/each}
 	</nav>
@@ -164,7 +300,7 @@
 		<section class="board-wrap">
 			<BoardMap
 				board={game.board}
-				pieces={shownPieces}
+				pieces={localSnap.pieces}
 				{teamColors}
 				{highlightVertices}
 				{highlightEdges}
@@ -190,40 +326,33 @@
 
 			<div class="tokens">
 				{#each ['boss', 'skilling', 'raids', 'custom', 'gold'] as t (t)}
-					<span class="token {t}" title={t}>{TOKEN_SHORT[t]} {acting.tokens[t as keyof typeof acting.tokens]}</span>
+					<span class="token {t}" title={t}>{TOKEN_SHORT[t]} {acting.tokens[t as keyof Tokens]}</span>
 				{/each}
 				{#if acting.freeRoads > 0}
 					<span class="token free">🛤 {acting.freeRoads} free</span>
 				{/if}
 			</div>
 
-			{#if !setupDone}
-				<p class="setup">
-					Setup: {acting.setup.settlements} free settlement{acting.setup.settlements === 1 ? '' : 's'} +
-					{acting.setup.roads} free road{acting.setup.roads === 1 ? '' : 's'} remaining
-				</p>
-			{/if}
-
 			<div class="actions">
 				<button class:on={mode === 'settle'} onclick={() => setMode('settle')}>
-					Settlement <small>{acting.setup.settlements > 0 ? 'FREE' : '1B 1S 1C'}</small>
+					Settlement <small>{draft ? 'FREE' : '1B 1S 1C'}</small>
 				</button>
 				<button class:on={mode === 'road'} onclick={() => setMode('road')}>
-					Road <small>{acting.setup.roads > 0 || acting.freeRoads > 0 ? 'FREE' : '1S 1C'}</small>
+					Road <small>{draft || acting.freeRoads > 0 ? 'FREE' : '1S 1C'}</small>
 				</button>
-				<button class:on={mode === 'city'} onclick={() => setMode('city')} disabled={!!game.draft}>
+				<button class:on={mode === 'city'} onclick={() => setMode('city')} disabled={!!draft}>
 					City <small>2R 2S</small>
 				</button>
 				<button
 					class:on={mode === 'roll'}
 					onclick={() => setMode('roll')}
-					disabled={!!game.draft || acting.rollable.length === 0}
+					disabled={!!draft || view(acting.id).rollable.length === 0}
 				>
 					Roll task
 				</button>
 				<form method="POST" action="?/draw" use:enhance>
 					<input type="hidden" name="team" value={acting.id} />
-					<button type="submit" disabled={!!game.draft || game.deckRemaining === 0}>
+					<button type="submit" disabled={!!draft || game.deckRemaining === 0}>
 						Draw dev card <small>1B 1S 1C</small>
 					</button>
 				</form>
@@ -231,9 +360,9 @@
 
 			<h3>Engine</h3>
 			<p class="hint">
-				Adjacent tiles: {TOKEN_TYPES.map((t) => `${TOKEN_SHORT[t]}×${acting.network[t]}`).join(' · ')}
+				Adjacent tiles: {TOKEN_TYPES.map((t) => `${TOKEN_SHORT[t]}×${view(acting.id).network[t]}`).join(' · ')}
 				<br />
-				Trade rates: {TOKEN_TYPES.map((t) => `${TOKEN_SHORT[t]} ${acting.rates[t]}:1`).join(' · ')}
+				Trade rates: {TOKEN_TYPES.map((t) => `${TOKEN_SHORT[t]} ${view(acting.id).rates[t]}:1`).join(' · ')}
 				· Gold 2:1
 			</p>
 
@@ -243,7 +372,12 @@
 					<li>
 						<span class="task-desc">
 							<b>{task.task.amount} {task.task.unit}</b> — {task.task.label}
-							<small>({TILE_TYPE_LABEL[task.task.type]} {task.task.rating}, pays ≥{Math.max(1, acting.network[task.task.type])} {TOKEN_SHORT[task.task.type]})</small>
+							<small
+								>({TILE_TYPE_LABEL[task.task.type]} {task.task.rating}, pays ≥{Math.max(
+									1,
+									view(acting.id).network[task.task.type]
+								)} {TOKEN_SHORT[task.task.type]})</small
+							>
 						</span>
 						<form method="POST" action="?/complete" use:enhance>
 							<input type="hidden" name="team" value={acting.id} />
@@ -261,9 +395,9 @@
 				{/each}
 			</ul>
 
-			<h3>Dev cards in hand ({hand(acting.id).length})</h3>
+			<h3>Dev cards in hand ({hand.length})</h3>
 			<ul class="cards">
-				{#each hand(acting.id) as card (card.id)}
+				{#each hand as card (card.id)}
 					<li>
 						<b>{DEV_CARD_LABEL[card.card as DevCardType]}</b>
 						{#if card.card === 'vp'}
@@ -316,7 +450,7 @@
 			<form method="POST" action="?/trade" use:enhance class="inline econ">
 				<span>Bank/port:</span>
 				<select name="give">
-					{#each TOKEN_TYPES as t (t)}<option value={t}>{acting.rates[t]}× {TILE_TYPE_LABEL[t]}</option>{/each}
+					{#each TOKEN_TYPES as t (t)}<option value={t}>{view(acting.id).rates[t]}× {TILE_TYPE_LABEL[t]}</option>{/each}
 				</select>
 				<span>→</span>
 				<select name="get">
@@ -367,18 +501,19 @@
 				</tr>
 			</thead>
 			<tbody>
-				{#each [...game.teams].sort((a, b) => b.vp.total - a.vp.total) as t (t.id)}
+				{#each [...localSnap.teams].sort((a, b) => view(b.id).vp.total - view(a.id).vp.total) as t (t.id)}
+					{@const v = view(t.id)}
 					<tr class:me={t.id === acting.id}>
 						<td><span class="dot" style="--team: {t.color}"></span> {t.name}</td>
-						<td>{t.publicVP}</td>
-						<td><b>{t.vp.total}</b>{#if t.vp.hiddenVP}<small> ({t.vp.hiddenVP} hidden)</small>{/if}</td>
-						<td>{t.vp.settlements}</td>
-						<td>{t.vp.cities}</td>
-						<td>{t.longestRoad}{#if t.vp.longestRoad}<span title="Longest Road (+2)"> 👑</span>{/if}</td>
-						<td>{t.army}{#if t.vp.largestArmy}<span title="Bounty Hunter (+2)"> 👑</span>{/if}</td>
+						<td>{v.publicVP}</td>
+						<td><b>{v.vp.total}</b>{#if v.vp.hiddenVP}<small> ({v.vp.hiddenVP} hidden)</small>{/if}</td>
+						<td>{v.vp.settlements}</td>
+						<td>{v.vp.cities}</td>
+						<td>{v.longestRoad}{#if v.vp.longestRoad}<span title="Longest Road (+2)"> 👑</span>{/if}</td>
+						<td>{v.army}{#if v.vp.largestArmy}<span title="Bounty Hunter (+2)"> 👑</span>{/if}</td>
 						<td class="hint">
 							{['boss', 'skilling', 'raids', 'custom', 'gold']
-								.map((k) => `${TOKEN_SHORT[k]}${t.tokens[k as keyof typeof t.tokens]}`)
+								.map((k) => `${TOKEN_SHORT[k]}${t.tokens[k as keyof Tokens]}`)
 								.join(' ')}
 						</td>
 					</tr>
@@ -403,30 +538,6 @@
 			{/each}
 		</ul>
 	</section>
-
-	<!-- hidden form the board clicks submit through -->
-	<form
-		method="POST"
-		action="?/{boardAction}"
-		use:enhance={() =>
-			async ({ update }) => {
-				await update();
-				optimistic = [];
-				if (game.draft) {
-					// Keep the snake moving: jump to the next drafter with the right mode armed.
-					actAsDrafter();
-				} else if (mode === 'pker' || mode === 'city') {
-					mode = null;
-					pendingCard = '';
-				}
-			}}
-		bind:this={boardForm}
-		class="visually-hidden"
-	>
-		<input type="hidden" name="team" value={acting.id} />
-		<input type="hidden" name="loc" value={pendingLoc} />
-		<input type="hidden" name="card" value={pendingCard} />
-	</form>
 </main>
 
 <style>
@@ -452,6 +563,9 @@
 	.hint {
 		color: var(--muted);
 		font-size: 0.9rem;
+	}
+	.sync {
+		color: var(--yellow);
 	}
 	.error {
 		color: var(--danger);
@@ -581,9 +695,6 @@
 	.token.free {
 		border-color: var(--success);
 	}
-	.setup {
-		color: var(--yellow);
-	}
 	.actions {
 		display: flex;
 		flex-wrap: wrap;
@@ -712,13 +823,5 @@
 	}
 	.log .what {
 		color: var(--accent);
-	}
-
-	.visually-hidden {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		overflow: hidden;
-		clip: rect(0 0 0 0);
 	}
 </style>

@@ -193,6 +193,14 @@ Every action is a single structure write: holders are recomputed against the in-
 snapshot (`stageHolderChanges`), not via a reload, keeping placement latency to
 insert + one jsonb update.
 
+**Client-side prediction.** Because the rules engine is pure and shared, the tester page
+runs it in the browser against a local copy of the snapshot: placements validate, render,
+pay costs, update holders, and advance the draft **instantly**; the POST trails behind on
+a serialized background queue (so requests can't race), with one coalesced refresh after
+a burst. The server stays authoritative — any rejection or network error surfaces the
+message and resyncs the local state from a full reload. Actions the client doesn't model
+(rolling, dev cards, trades) still use the normal submit-and-reload flow.
+
 Live-event follow-up: task completions mirror into the `vs_submissions` ledger
 (per `docs/EVENTS.md`) once real players submit proof.
 
@@ -203,8 +211,7 @@ Live-event follow-up: task completions mirror into the `vs_submissions` ledger
 3. `/admin/catan` → **Create test game** (optionally pin a seed for a reproducible board).
 4. Run the setup snake draft: the banner names whose pick it is; the **Place as …**
    button (and each placement's auto-advance) keeps you on the right team with the right
-   mode armed, so the 16 turns are just clicks around the map. Placed pieces render
-   optimistically — instantly on click, confirmed when the server round-trip lands.
+   mode armed, so the 16 turns are just clicks around the map.
 5. Play: **Roll task** on a corner → **Complete** it (pays the same-type multiplier) —
    or use the **Grant** cheat to simulate income (e.g. +2 gold for a raids purple)
    without the grind. Build, trade at bank/port rates, exchange gold, draw and play dev
