@@ -7,8 +7,23 @@
 	import TileCell from '$lib/bingo/TileCell.svelte';
 	import SubmitModal from '$lib/bingo/SubmitModal.svelte';
 	import Lightbox from '$lib/Lightbox.svelte';
+	import Skeleton from '$lib/Skeleton.svelte';
 
 	let { data }: { data: PageData } = $props();
+
+	// Completion-derived data (community lists, counts, my submissions, leaderboard)
+	// is STREAMED from the load so the board renders instantly. Resolve into state,
+	// keeping the previous value while a submit/refresh revalidation is in flight.
+	let live = $state<Awaited<PageData['live']> | null>(null);
+	$effect(() => {
+		let current = true;
+		data.live.then((l) => {
+			if (current) live = l;
+		});
+		return () => {
+			current = false;
+		};
+	});
 
 	// Columns are data-driven: name, points, colour and count come from the event.
 	const columns = $derived(data.columns);
@@ -72,15 +87,15 @@
 	}
 
 	function communityFor(tileId: string) {
-		return data.completionsByTile[tileId] ?? [];
+		return live?.completionsByTile[tileId] ?? [];
 	}
 
 	function communityCountFor(tileId: string): number {
-		return data.completionCountByTile[tileId] ?? 0;
+		return live?.completionCountByTile[tileId] ?? 0;
 	}
 
 	function mineFor(tileId: string) {
-		return data.mySubmissions[tileId] ?? [];
+		return live?.mySubmissions[tileId] ?? [];
 	}
 
 	function myStatusFor(tileId: string): 'approved' | 'pending' | 'rejected' | null {
@@ -217,11 +232,17 @@
 	<aside class="sidebar">
 		<div class="card">
 			<h2>Leaderboard</h2>
-			{#if data.leaderboard.length === 0}
+			{#if !live}
+				<div class="lb-skeleton">
+					{#each { length: 6 }, i (i)}
+						<Skeleton height="1.6rem" />
+					{/each}
+				</div>
+			{:else if live.leaderboard.length === 0}
 				<p class="muted">No submissions yet.</p>
 			{:else}
 				<ol class="lb">
-					{#each data.leaderboard as p, i (p.user_id)}
+					{#each live.leaderboard as p, i (p.user_id)}
 						{@const isMe = p.user_id === data.user?.id}
 						<li class:me={isMe}>
 							{#if data.isAdmin}
@@ -506,6 +527,12 @@
 		list-style: none;
 		padding: 0;
 		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+	}
+
+	.lb-skeleton {
 		display: flex;
 		flex-direction: column;
 		gap: 0.3rem;

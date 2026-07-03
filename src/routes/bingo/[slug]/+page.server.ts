@@ -82,27 +82,27 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		throw error(404, 'Not found');
 	}
 
-	// Board + (when the full view will render) the whole completions history fetch
-	// together — both need only the event row. The redacted draft/preview path never
-	// pays for completions, same as before.
+	// Kick off the whole completions history WITHOUT awaiting it — it's the slow,
+	// unbounded read (grows with event activity), so it streams to the client while
+	// the board renders immediately. The redacted draft/preview path never pays for
+	// it, same as before.
 	const redacted = event.status === 'draft' || (event.status === 'preview' && !admin);
-	const [board, completionsRes] = await Promise.all([
-		loadEventBoard(event) as Promise<EventBoard>,
-		redacted
-			? Promise.resolve(null)
-			: // Paginate: once an event passes 1000 tile submissions an un-paged read drops
-				// the newest rows (oldest-first order) → an incomplete leaderboard.
-				fetchAllFiltered((f, t) =>
-					db()
-						.from('vs_bingo_completions')
-						.select(
-							'id, user_id, tile_id, proof_urls, proof_paths, submitted_at, status, vs_users!user_id(id, rsn, discord_username, clan_allegiance, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username)'
-						)
-						.eq('event_id', event.id)
-						.order('submitted_at', { ascending: true })
-						.range(f, t)
-				)
-	]);
+	const completionsPromise = redacted
+		? null
+		: // Paginate: once an event passes 1000 tile submissions an un-paged read drops
+			// the newest rows (oldest-first order) → an incomplete leaderboard.
+			fetchAllFiltered((f, t) =>
+				db()
+					.from('vs_bingo_completions')
+					.select(
+						'id, user_id, tile_id, proof_urls, proof_paths, submitted_at, status, vs_users!user_id(id, rsn, discord_username, clan_allegiance, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username)'
+					)
+					.eq('event_id', event.id)
+					.order('submitted_at', { ascending: true })
+					.range(f, t)
+			);
+
+	const board: EventBoard = await loadEventBoard(event);
 	if (board.tiles.length === 0) throw error(404, 'Not found');
 	const tileById = new Map(board.tiles.map((t) => [t.id, t]));
 
@@ -146,10 +146,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			bonus,
 			bonusEnabled: board.structure.bonusEnabled,
 			isClanMember: memberOfClan,
-			completionsByTile: {} as Record<string, never>,
-			completionCountByTile: {} as Record<string, never>,
-			mySubmissions: {} as Record<string, never>,
-			leaderboard: [] as never[]
+			live: Promise.resolve(EMPTY_LIVE)
 		};
 	}
 
@@ -161,114 +158,98 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const baseState = getBingoState((event.starts_at ?? event.signup_opens_at), new Date(), board.structure);
 	const state = archived ? { ...baseState, status: 'ended' as const } : baseState;
 
-	// Completions were prefetched above alongside the board.
-	const { data: completionsRaw, error: cErr } = completionsRes ?? { data: [], error: null };
+	// STREAMED: everything derived from the completions history (community lists,
+	// per-tile counts, the caller's own submissions, the leaderboard) resolves after
+	// the page has already rendered its board.
+	const myUserId = locals.user.id;
+	const live: Promise<LiveData> = (async () => {
+		const { data: completionsRaw, error: cErr } = (await completionsPromise) ?? {
+			data: [],
+			error: null
+		};
+		if (cErr) throw new Error(cErr.message);
 
-	if (cErr) throw new Error(cErr.message);
+		const completions = (completionsRaw ?? []) as unknown as CompletionRow[];
 
-	const completions = (completionsRaw ?? []) as unknown as CompletionRow[];
+		const completionsByTile: LiveData['completionsByTile'] = {};
+		const completionCountByTile: Record<string, number> = {};
+		const mySubmissions: LiveData['mySubmissions'] = {};
 
-	const completionsByTile: Record<
-		string,
-		Array<{
-			id: string;
-			user_id: string;
-			rsn: string | null;
-			discord_username: string;
-			account_type: string | null;
-			submitted_at: string;
-			proof_urls: string[];
-			reviewed_by_name: string | null;
-			isMe: boolean;
-		}>
-	> = {};
+		const scoredPairs = new Set<string>();
+		const userPoints = new Map<string, LiveData['leaderboard'][number]>();
 
-	const completionCountByTile: Record<string, number> = {};
+		for (const c of completions) {
+			const tile = tileById.get(c.tile_id);
+			if (!tile) continue;
 
-	const mySubmissions: Record<
-		string,
-		Array<{
-			id: string;
-			proof_urls: string[];
-			submitted_at: string;
-			status: SubmissionStatus;
-			reviewed_by_name: string | null;
-		}>
-	> = {};
+			const proofUrls = c.proof_urls ?? [];
+			const reviewerName = c.reviewer ? (c.reviewer.rsn ?? c.reviewer.discord_username) : null;
 
-	const scoredPairs = new Set<string>();
-	const userPoints = new Map<
-		string,
-		{
-			user_id: string;
-			rsn: string | null;
-			discord_username: string;
-			account_type: string | null;
-			points: number;
-			count: number;
-		}
-	>();
+			// Community list + leaderboard only count approved submissions.
+			if (c.status === 'approved') {
+				const arr = completionsByTile[c.tile_id] ?? [];
+				arr.push({
+					id: c.id,
+					user_id: c.user_id,
+					rsn: c.vs_users.rsn,
+					discord_username: c.vs_users.discord_username,
+					account_type: c.vs_users.account_type,
+					submitted_at: c.submitted_at,
+					proof_urls: proofUrls,
+					reviewed_by_name: reviewerName,
+					isMe: c.user_id === myUserId
+				});
+				completionsByTile[c.tile_id] = arr;
 
-	for (const c of completions) {
-		const tile = tileById.get(c.tile_id);
-		if (!tile) continue;
+				completionCountByTile[c.tile_id] = (completionCountByTile[c.tile_id] ?? 0) + 1;
 
-		const proofUrls = c.proof_urls ?? [];
-		const reviewerName = c.reviewer ? (c.reviewer.rsn ?? c.reviewer.discord_username) : null;
-
-		// Community list + leaderboard only count approved submissions.
-		if (c.status === 'approved') {
-			const arr = completionsByTile[c.tile_id] ?? [];
-			arr.push({
-				id: c.id,
-				user_id: c.user_id,
-				rsn: c.vs_users.rsn,
-				discord_username: c.vs_users.discord_username,
-				account_type: c.vs_users.account_type,
-				submitted_at: c.submitted_at,
-				proof_urls: proofUrls,
-				reviewed_by_name: reviewerName,
-				isMe: c.user_id === locals.user!.id
-			});
-			completionsByTile[c.tile_id] = arr;
-
-			completionCountByTile[c.tile_id] = (completionCountByTile[c.tile_id] ?? 0) + 1;
-
-			const pairKey = `${c.user_id}|${c.tile_id}`;
-			const existing = userPoints.get(c.user_id) ?? {
-				user_id: c.user_id,
-				rsn: c.vs_users.rsn,
-				discord_username: c.vs_users.discord_username,
-				account_type: c.vs_users.account_type,
-				points: 0,
-				count: 0
-			};
-			if (!scoredPairs.has(pairKey)) {
-				scoredPairs.add(pairKey);
-				existing.points += tile.points;
-				existing.count += 1;
+				const pairKey = `${c.user_id}|${c.tile_id}`;
+				const existing = userPoints.get(c.user_id) ?? {
+					user_id: c.user_id,
+					rsn: c.vs_users.rsn,
+					discord_username: c.vs_users.discord_username,
+					account_type: c.vs_users.account_type,
+					points: 0,
+					count: 0
+				};
+				if (!scoredPairs.has(pairKey)) {
+					scoredPairs.add(pairKey);
+					existing.points += tile.points;
+					existing.count += 1;
+				}
+				userPoints.set(c.user_id, existing);
 			}
-			userPoints.set(c.user_id, existing);
+
+			// Submitter always sees their own submissions, including pending + rejected ones.
+			if (c.user_id === myUserId) {
+				const mine = mySubmissions[c.tile_id] ?? [];
+				mine.push({
+					id: c.id,
+					proof_urls: proofUrls,
+					submitted_at: c.submitted_at,
+					status: c.status,
+					reviewed_by_name: reviewerName
+				});
+				mySubmissions[c.tile_id] = mine;
+			}
 		}
 
-		// Submitter always sees their own submissions, including pending + rejected ones.
-		if (c.user_id === locals.user!.id) {
-			const mine = mySubmissions[c.tile_id] ?? [];
-			mine.push({
-				id: c.id,
-				proof_urls: proofUrls,
-				submitted_at: c.submitted_at,
-				status: c.status,
-				reviewed_by_name: reviewerName
-			});
-			mySubmissions[c.tile_id] = mine;
-		}
-	}
+		const leaderboard = Array.from(userPoints.values()).sort((a, b) => {
+			if (b.points !== a.points) return b.points - a.points;
+			return b.count - a.count;
+		});
 
-	const leaderboard = Array.from(userPoints.values()).sort((a, b) => {
-		if (b.points !== a.points) return b.points - a.points;
-		return b.count - a.count;
-	});
+		// Detailed community list (proofs + names) is admin-only while the event runs.
+		// Once it's archived, the whole board is opened up so everyone can look back.
+		// Regular users on a running event still get the count so the modal can show
+		// "N completed".
+		return {
+			completionsByTile: admin || archived ? completionsByTile : {},
+			completionCountByTile,
+			mySubmissions,
+			leaderboard
+		};
+	})().catch(() => EMPTY_LIVE);
 
 	const tiles: BingoTile[] = board.tiles.map((t) => {
 		const color = tileColor(t);
@@ -278,11 +259,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		const md = board.getDetails(t.id);
 		return { ...t, details_html: md ? renderMarkdown(md) : null, color };
 	});
-
-	// Detailed community list (proofs + names) is admin-only while the event runs.
-	// Once it's archived, the whole board is opened up so everyone can look back.
-	// Regular users on a running event still get the count so the modal can show "N completed".
-	const communityForClient = admin || archived ? completionsByTile : {};
 
 	return {
 		event: {
@@ -301,11 +277,52 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		bonus,
 		bonusEnabled: board.structure.bonusEnabled,
 		isClanMember: memberOfClan,
-		completionsByTile: communityForClient,
-		completionCountByTile,
-		mySubmissions,
-		leaderboard
+		live
 	};
+};
+
+// Completion-derived page data, streamed after the board renders.
+type LiveData = {
+	completionsByTile: Record<
+		string,
+		Array<{
+			id: string;
+			user_id: string;
+			rsn: string | null;
+			discord_username: string;
+			account_type: string | null;
+			submitted_at: string;
+			proof_urls: string[];
+			reviewed_by_name: string | null;
+			isMe: boolean;
+		}>
+	>;
+	completionCountByTile: Record<string, number>;
+	mySubmissions: Record<
+		string,
+		Array<{
+			id: string;
+			proof_urls: string[];
+			submitted_at: string;
+			status: SubmissionStatus;
+			reviewed_by_name: string | null;
+		}>
+	>;
+	leaderboard: Array<{
+		user_id: string;
+		rsn: string | null;
+		discord_username: string;
+		account_type: string | null;
+		points: number;
+		count: number;
+	}>;
+};
+
+const EMPTY_LIVE: LiveData = {
+	completionsByTile: {},
+	completionCountByTile: {},
+	mySubmissions: {},
+	leaderboard: []
 };
 
 async function tileIsSubmittable(

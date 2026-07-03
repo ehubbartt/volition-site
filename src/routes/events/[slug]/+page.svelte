@@ -5,6 +5,7 @@
 	import BoardLeaderboard from '$lib/board/BoardLeaderboard.svelte';
 	import { CLAN_OPTIONS } from '$lib/clans';
 	import { createBusy } from '$lib/busy.svelte';
+	import Skeleton from '$lib/Skeleton.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -12,6 +13,25 @@
 	// in-flight action disables the whole group (no double-submits) and swaps the
 	// clicked button's label so the round-trip is visible.
 	const busy = createBusy();
+
+	// Standings are STREAMED from the load (live events only) so navigation lands
+	// instantly. Resolve into state, keeping the previous table while an action's
+	// revalidation is in flight.
+	type Standings = Awaited<NonNullable<PageData['standings']>>;
+	let standings = $state<Standings>(null);
+	$effect(() => {
+		let current = true;
+		if (!data.standings) {
+			standings = null;
+			return;
+		}
+		Promise.resolve(data.standings).then((s) => {
+			if (current) standings = s;
+		});
+		return () => {
+			current = false;
+		};
+	});
 
 	let signedUp = $derived(!!data.mySignup);
 	let onTeam = $derived(!!data.mySignup?.team_id);
@@ -240,14 +260,14 @@
 			<div class="teams-view-head">
 				<div>
 					<h2>Teams &amp; progress</h2>
-					{#if data.standings?.myEntry}
+					{#if standings?.myEntry}
 						<p class="muted">
-							Your team <strong>{data.standings.myEntry.name}</strong> —
+							Your team <strong>{standings.myEntry.name}</strong> —
 							<strong class="my-stage"
-								>{data.standings.myEntry.finished
+								>{standings.myEntry.finished
 									? '🏁 Finished'
-									: data.standings.myEntry.stageLabel}</strong
-							> (rank #{data.standings.myEntry.rank} of {data.standings.teamCount})
+									: standings.myEntry.stageLabel}</strong
+							> (rank #{standings.myEntry.rank} of {standings.teamCount})
 						</p>
 					{/if}
 				</div>
@@ -255,13 +275,20 @@
 					<a class="board-open" href="/events/{data.event.slug}/board">Go to board →</a>
 				{/if}
 			</div>
-			{#if data.standings}
+			{#if standings}
 				<BoardLeaderboard
-					leaderboard={data.standings.leaderboard}
-					byClan={data.standings.byClan}
-					teamCount={data.standings.teamCount}
+					leaderboard={standings.leaderboard}
+					byClan={standings.byClan}
+					teamCount={standings.teamCount}
 					maxHeight="40rem"
 				/>
+			{:else if data.standings}
+				<!-- Standings still streaming in -->
+				<div class="standings-skeleton">
+					{#each { length: 6 }, i (i)}
+						<Skeleton height="2.2rem" />
+					{/each}
+				</div>
 			{/if}
 		{/if}
 
@@ -1173,6 +1200,12 @@
 		gap: 0.75rem;
 		flex-wrap: wrap;
 		margin-bottom: 0.75rem;
+	}
+
+	.standings-skeleton {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
 	}
 
 	.teams-view-head h2 {

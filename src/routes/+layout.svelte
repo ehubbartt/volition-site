@@ -1,6 +1,6 @@
 <script lang="ts">
 	import '../app.css';
-	import { page } from '$app/state';
+	import { page, navigating } from '$app/state';
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import type { LayoutData } from './$types';
 
@@ -15,6 +15,12 @@
 		menuOpen = false;
 	});
 </script>
+
+<!-- Instant feedback the moment a navigation starts: a thin indeterminate bar under
+     the header while the destination page's data is in flight. -->
+{#if navigating.to}
+	<div class="nav-progress" aria-hidden="true"></div>
+{/if}
 
 <header>
 	<div class="container nav">
@@ -256,6 +262,28 @@
 	main.page {
 		padding: 2rem 1rem 4rem;
 		min-height: calc(100vh - 8rem);
+	}
+
+	.nav-progress {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 3px;
+		z-index: 1000;
+		background: linear-gradient(90deg, transparent, #d9b65e, transparent);
+		background-size: 40% 100%;
+		background-repeat: no-repeat;
+		animation: nav-progress-slide 1s ease-in-out infinite;
+	}
+
+	@keyframes nav-progress-slide {
+		from {
+			background-position: -40% 0;
+		}
+		to {
+			background-position: 140% 0;
+		}
 	}
 
 	footer {

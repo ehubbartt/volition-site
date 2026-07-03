@@ -299,20 +299,22 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 	// Standings (all teams + how far they've climbed, with clan tabs). Served whenever the
 	// climb is live (the live event page = the solo landing + standings).
-	let standings: DuoStandings | null = null;
-	if (eventLive) {
-		// Hand over the roster/teams this load already fetched so standings doesn't
-		// re-issue the same two event-wide paginated reads.
-		standings = await loadDuoStandings(
-			event.id,
-			mySignup?.team_id ?? null,
-			{ topN: 9999, perClanCap: 9999, markersTopN: 0 },
-			{
-				teams: ((teamsRaw ?? []) as { id: string; name: string | null }[]),
-				signups: signups.map((s) => ({ team_id: s.team_id, vs_users: s.vs_users }))
-			}
-		);
-	}
+	// STREAMED (not awaited): the standings crunch the whole event's submissions, so
+	// blocking navigation on them made every visit to a live event feel slow. The
+	// page renders immediately and the leaderboard fills in when this resolves.
+	// Hand over the roster/teams this load already fetched so standings doesn't
+	// re-issue the same two event-wide paginated reads.
+	const standings: Promise<DuoStandings | null> | null = eventLive
+		? loadDuoStandings(
+				event.id,
+				mySignup?.team_id ?? null,
+				{ topN: 9999, perClanCap: 9999, markersTopN: 0 },
+				{
+					teams: ((teamsRaw ?? []) as { id: string; name: string | null }[]),
+					signups: signups.map((s) => ({ team_id: s.team_id, vs_users: s.vs_users }))
+				}
+			).catch(() => null)
+		: null;
 
 	return {
 		isAdmin: admin,

@@ -71,11 +71,15 @@ export const load: PageServerLoad = async ({ parent }) => {
 		const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
 		return {
 			calendar,
-			members: [] as never[],
-			rankBreakdown: [] as never[],
-			recentMembers: [] as never[],
-			stats: { members: playersRes.count ?? 0, activeEvents: active, totalEvents: total, packsOpened: 0 },
-			taskSummary: null,
+			stats: { activeEvents: active, totalEvents: total, packsOpened: 0 },
+			// Same streamed shape as the logged-in path (already resolved — no wait).
+			directory: Promise.resolve({
+				members: [] as Member[],
+				rankBreakdown: [] as RankBucket[],
+				recentMembers: [] as Member[],
+				memberCount: playersRes.count ?? 0
+			}),
+			taskSummary: Promise.resolve(null as TaskSummary | null),
 			categoryOptions: CATEGORY_OPTIONS
 		};
 	}
@@ -87,27 +91,83 @@ export const load: PageServerLoad = async ({ parent }) => {
 
 	const admin = isAdmin(user);
 
-	const [calendar, playersRes, siteUsersRes, eventsRes, packsRes, tasks] = await Promise.all([
+	// Await only the light queries — the page can render its shell from these. The
+	// heavy parts (full roster + site users, and the multi-query to-do aggregation)
+	// are returned as PROMISES so SvelteKit streams them: navigation switches
+	// immediately and the member directory / to-do card fill in when ready.
+	const [calendar, eventsRes, packsRes] = await Promise.all([
 		loadCalendarItems(admin),
+		sb.from('vs_events').select('status, ends_at').neq('kind', 'personal').in('status', ['draft', 'preview', 'open', 'locked', 'closed']),
+		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true })
+	]);
+
+	const directory = buildDirectory(user).catch((): Directory => {
+		// A streamed promise that rejects kills the whole response — degrade to an
+		// empty directory instead (the panel just shows no members this render).
+		return { members: [], rankBreakdown: [], recentMembers: [], memberCount: 0 };
+	});
+
+	// To-do surface is open to all onboarded users — always aggregate it. Ship a
+	// light summary (not the full array) for the home "Your to-do" card.
+	const taskSummary: Promise<TaskSummary | null> = loadPlayerTasks(user)
+		.then((tasks) =>
+			tasks
+				? {
+						todoCount: tasks.filter((t) => t.status === 'todo').length,
+						total: tasks.length,
+						hasActive: tasks.some((t) => t.status === 'active')
+					}
+				: null
+		)
+		.catch(() => null);
+
+	const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
+
+	return {
+		calendar,
+		directory,
+		taskSummary,
+		stats: {
+			activeEvents: active,
+			totalEvents: total,
+			packsOpened: packsRes.count ?? 0
+		},
+		categoryOptions: CATEGORY_OPTIONS
+	};
+};
+
+type Member = {
+	rsn: string;
+	rank: string | null;
+	points: number;
+	joinedAt: string | null;
+	hasProfile: boolean;
+};
+type RankBucket = { value: string; label: string; color: string; count: number };
+type TaskSummary = { todoCount: number; total: number; hasActive: boolean };
+type Directory = {
+	members: Member[];
+	rankBreakdown: RankBucket[];
+	recentMembers: Member[];
+	memberCount: number;
+};
+
+// The heavy half of the homepage: the full clan roster + site-user matching, the
+// rank breakdown, and the welcome-pack backstop. Runs as a streamed promise.
+async function buildDirectory(user: {
+	id: string;
+	discord_id: string;
+	rsn: string | null;
+	welcome_pack_granted: boolean;
+}): Promise<Directory> {
+	const sb = db();
+	const [playersRes, siteUsersRes] = await Promise.all([
 		// Paginate: the full clan roster + all site users can exceed the 1000-row cap.
 		fetchAllFiltered((f, t) =>
 			sb.from('players').select('id, rsn, discord_id, rank, points, clan_joined_at, created_at').range(f, t)
 		),
-		fetchAllFiltered((f, t) => sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null).range(f, t)),
-		sb.from('vs_events').select('status, ends_at').neq('kind', 'personal').in('status', ['draft', 'preview', 'open', 'locked', 'closed']),
-		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true }),
-		// To-do surface is open to all onboarded users — always aggregate it.
-		loadPlayerTasks(user)
+		fetchAllFiltered((f, t) => sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null).range(f, t))
 	]);
-
-	// Ship a light summary (not the full array) for the home "Your to-do" card.
-	const taskSummary = tasks
-		? {
-				todoCount: tasks.filter((t) => t.status === 'todo').length,
-				total: tasks.length,
-				hasActive: tasks.some((t) => t.status === 'active')
-			}
-		: null;
 
 	const playerRows = (playersRes.data ?? []) as PlayerRow[];
 	const siteUsers = (siteUsersRes.data ?? []) as SiteUserRow[];
@@ -157,7 +217,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 		if (rankIndex(p.rank) === -1) unranked += 1;
 		else rankCounts.set(p.rank as string, (rankCounts.get(p.rank as string) ?? 0) + 1);
 	}
-	const rankBreakdown = RANK_ORDER.filter((r) => (rankCounts.get(r) ?? 0) > 0)
+	const rankBreakdown: RankBucket[] = RANK_ORDER.filter((r) => (rankCounts.get(r) ?? 0) > 0)
 		.map((r) => ({ value: r as string, label: RANK_LABEL[r], color: RANK_COLOR[r], count: rankCounts.get(r) ?? 0 }));
 	if (unranked > 0) {
 		rankBreakdown.push({ value: 'unranked', label: 'Unranked', color: '#9aa0a6', count: unranked });
@@ -168,23 +228,8 @@ export const load: PageServerLoad = async ({ parent }) => {
 		.sort((a, b) => new Date(b.joinedAt!).getTime() - new Date(a.joinedAt!).getTime())
 		.slice(0, 5);
 
-	const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
-
-	return {
-		calendar,
-		members,
-		rankBreakdown,
-		recentMembers,
-		stats: {
-			members: playerRows.length,
-			activeEvents: active,
-			totalEvents: total,
-			packsOpened: packsRes.count ?? 0
-		},
-		taskSummary,
-		categoryOptions: CATEGORY_OPTIONS
-	};
-};
+	return { members, rankBreakdown, recentMembers, memberCount: playerRows.length };
+}
 
 const CATEGORY_VALUES = CATEGORY_OPTIONS.map((c) => c.value) as [string, ...string[]];
 

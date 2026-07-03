@@ -7,9 +7,35 @@
 	import { rankLabel, rankColor, rankIndex, rankImg } from '$lib/ranks';
 	import { rsnToSlug } from '$lib/rsn';
 	import StatCard from '$lib/StatCard.svelte';
+	import Skeleton from '$lib/Skeleton.svelte';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	// The heavy halves of the page data (member directory, to-do summary) are
+	// STREAMED promises (see +page.server.ts) so navigation lands instantly.
+	// Resolve them into state — keeping the previous value while a revalidation
+	// is in flight, so sections don't flash back to skeletons after form actions.
+	let directory = $state<Awaited<PageData['directory']> | null>(null);
+	let taskSummary = $state<Awaited<PageData['taskSummary']>>(null);
+	$effect(() => {
+		let current = true;
+		data.directory.then((d) => {
+			if (current) directory = d;
+		});
+		return () => {
+			current = false;
+		};
+	});
+	$effect(() => {
+		let current = true;
+		data.taskSummary.then((t) => {
+			if (current) taskSummary = t;
+		});
+		return () => {
+			current = false;
+		};
+	});
 
 	const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 	const MONTHS = [
@@ -108,7 +134,7 @@
 
 	const filteredMembers = $derived.by(() => {
 		const q = search.trim().toLowerCase();
-		const list = data.members.filter((m) => !q || m.rsn.toLowerCase().includes(q));
+		const list = (directory?.members ?? []).filter((m) => !q || m.rsn.toLowerCase().includes(q));
 		const sorted = [...list];
 		if (sortBy === 'vp') {
 			sorted.sort((a, b) => b.points - a.points || a.rsn.localeCompare(b.rsn, undefined, { sensitivity: 'base' }));
@@ -120,7 +146,7 @@
 		return sorted;
 	});
 
-	const maxRankCount = $derived(Math.max(1, ...data.rankBreakdown.map((r) => r.count)));
+	const maxRankCount = $derived(Math.max(1, ...(directory?.rankBreakdown ?? []).map((r) => r.count)));
 
 	function prevMonth() {
 		if (viewMonth === 0) {
@@ -266,7 +292,7 @@
 	</section>
 
 	<div class="public-stats">
-		<StatCard value={data.stats.members} label="Members" />
+		<StatCard value={directory ? directory.memberCount : '—'} label="Members" />
 		<StatCard value={data.stats.activeEvents} label="Active events" />
 		<StatCard value={data.stats.totalEvents} label="Events all-time" />
 	</div>
@@ -313,20 +339,20 @@
 	</section>
 
 	<div class="stat-strip">
-		<StatCard value={data.stats.members} label="Members" />
+		<StatCard value={directory ? directory.memberCount : '—'} label="Members" />
 		<StatCard value={data.stats.activeEvents} label="Active events" />
 		<StatCard value={data.stats.totalEvents} label="Events all-time" />
 		<StatCard value={data.stats.packsOpened} label="Packs opened" />
 	</div>
 
-	{#if data.taskSummary}
+	{#if taskSummary}
 		<a class="todo-card" href="/tasks">
 			<div class="todo-text">
 				<span class="todo-label">Your to-do</span>
 				<span class="todo-line">
-					{#if data.taskSummary.todoCount > 0}
-						<strong>{data.taskSummary.todoCount}</strong>
-						{data.taskSummary.todoCount === 1 ? 'thing' : 'things'} to do
+					{#if taskSummary.todoCount > 0}
+						<strong>{taskSummary.todoCount}</strong>
+						{taskSummary.todoCount === 1 ? 'thing' : 'things'} to do
 					{:else}
 						All caught up
 					{/if}
@@ -442,11 +468,17 @@
 		<aside class="side">
 			<section class="panel">
 				<h2>Rank breakdown</h2>
-				{#if data.rankBreakdown.length === 0}
+				{#if !directory}
+					<div class="bars">
+						{#each { length: 5 }, i (i)}
+							<Skeleton height="1.1rem" />
+						{/each}
+					</div>
+				{:else if directory.rankBreakdown.length === 0}
 					<p class="muted small">No ranked members yet.</p>
 				{:else}
 					<div class="bars">
-						{#each data.rankBreakdown as r (r.value)}
+						{#each directory.rankBreakdown as r (r.value)}
 							<div class="bar-row">
 								<span class="bar-label">{@render rankBadge(r.value, r.color, r.label)}{r.label}</span>
 								<div class="bar-track">
@@ -461,11 +493,17 @@
 
 			<section class="panel">
 				<h2>Recently joined</h2>
-				{#if data.recentMembers.length === 0}
+				{#if !directory}
+					<ul class="recent">
+						{#each { length: 5 }, i (i)}
+							<li><Skeleton height="1.1rem" /></li>
+						{/each}
+					</ul>
+				{:else if directory.recentMembers.length === 0}
 					<p class="muted small">No members yet.</p>
 				{:else}
 					<ul class="recent">
-						{#each data.recentMembers as m (m.rsn)}
+						{#each directory.recentMembers as m (m.rsn)}
 							<li>
 								{@render rankBadge(m.rank, rankColor(m.rank), rankLabel(m.rank))}
 								{#if canViewProfiles && m.hasProfile}
@@ -495,7 +533,9 @@
 				</select>
 			</div>
 		</div>
-		<p class="muted small">{filteredMembers.length} of {data.members.length} members</p>
+		<p class="muted small">
+			{directory ? `${filteredMembers.length} of ${directory.members.length} members` : 'Loading members…'}
+		</p>
 
 		<div class="table-wrap">
 			<table>
@@ -507,6 +547,13 @@
 					</tr>
 				</thead>
 				<tbody>
+					{#if !directory}
+						{#each { length: 8 }, i (i)}
+							<tr>
+								<td colspan="3"><Skeleton height="1.2rem" /></td>
+							</tr>
+						{/each}
+					{/if}
 					{#each filteredMembers as m (m.rsn)}
 						<tr>
 							<td class="rsn-cell">
@@ -525,7 +572,7 @@
 							<td class="vp-col value">{m.points.toLocaleString()}</td>
 						</tr>
 					{/each}
-					{#if filteredMembers.length === 0}
+					{#if directory && filteredMembers.length === 0}
 						<tr><td colspan="3" class="muted empty-row">No members match.</td></tr>
 					{/if}
 				</tbody>
