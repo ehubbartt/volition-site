@@ -40,4 +40,7 @@ jobs:
       - name: Deploy to volition-site
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN_PROD }}
-        run: flyctl deploy --remote-only
+        # Build on Fly's classic remote builder, NOT Depot: Depot has been dropping the
+        # build connection mid-way (rpc "Unavailable … EOF"), failing deploys in CI and
+        # locally. --depot=false uses the legacy builder, which is more reliable here.
+        run: flyctl deploy --remote-only --depot=false
