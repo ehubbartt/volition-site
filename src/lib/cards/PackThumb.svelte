@@ -15,10 +15,10 @@
 	<div class="art">
 		<div class="flip">
 			<div class="face front">
-				<img src={front} alt={pack.name} loading="lazy" />
+				<img src={front} alt={pack.name} loading="lazy" decoding="async" />
 			</div>
 			<div class="face back">
-				<img src={back} alt="" loading="lazy" />
+				<img src={back} alt="" loading="lazy" decoding="async" />
 			</div>
 		</div>
 		{#if quantity && quantity > 1}

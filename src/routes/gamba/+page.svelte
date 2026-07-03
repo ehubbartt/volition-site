@@ -1208,7 +1208,7 @@
               style="--cc:{cell.colorHex}"
             >
               {#if cell.image}
-                <img src={cell.image} alt="" loading="lazy" />
+                <img src={cell.image} alt="" loading="lazy" decoding="async" />
               {:else}
                 <span class="reel-text">{cell.label}</span>
               {/if}
