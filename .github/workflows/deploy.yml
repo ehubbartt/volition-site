@@ -40,7 +40,9 @@ jobs:
       - name: Deploy to volition-site
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN_PROD }}
-        # Build on Fly's classic remote builder, NOT Depot: Depot has been dropping the
-        # build connection mid-way (rpc "Unavailable … EOF"), failing deploys in CI and
-        # locally. --depot=false uses the legacy builder, which is more reliable here.
-        run: flyctl deploy --remote-only --depot=false
+        # Build the image on the runner's own Docker and push it, instead of Fly's remote
+        # builders. Fly's Depot builder has been unstable (rpc "Unavailable … EOF"), and
+        # the classic remote builder needs org-level perms the per-app deploy token lacks
+        # ("unauthorized"). A local build needs neither — the deploy token can push the
+        # image to the app registry and release it. GitHub runners ship Docker.
+        run: flyctl deploy --local-only
