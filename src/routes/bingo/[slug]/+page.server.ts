@@ -69,17 +69,40 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	// best-effort) so the board is current even if the cron processor lags.
 	maybeProcessDinkDrops();
 
-	const event = await fetchBingoEvent(params.slug);
+	// The event row and the caller's clan-membership check are independent.
+	const [event, memberOfClan] = await Promise.all([
+		fetchBingoEvent(params.slug),
+		isClanMember(locals.user.discord_id, locals.user.rsn)
+	]);
 	if (!event) throw error(404, 'Not found');
 
-	const memberOfClan = await isClanMember(locals.user.discord_id, locals.user.rsn);
 	const admin = isAdmin(locals.user);
 
 	if (event.status === 'preview' && !admin) {
 		throw error(404, 'Not found');
 	}
 
-	const board: EventBoard = await loadEventBoard(event);
+	// Board + (when the full view will render) the whole completions history fetch
+	// together — both need only the event row. The redacted draft/preview path never
+	// pays for completions, same as before.
+	const redacted = event.status === 'draft' || (event.status === 'preview' && !admin);
+	const [board, completionsRes] = await Promise.all([
+		loadEventBoard(event) as Promise<EventBoard>,
+		redacted
+			? Promise.resolve(null)
+			: // Paginate: once an event passes 1000 tile submissions an un-paged read drops
+				// the newest rows (oldest-first order) → an incomplete leaderboard.
+				fetchAllFiltered((f, t) =>
+					db()
+						.from('vs_bingo_completions')
+						.select(
+							'id, user_id, tile_id, proof_urls, proof_paths, submitted_at, status, vs_users!user_id(id, rsn, discord_username, clan_allegiance, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username)'
+						)
+						.eq('event_id', event.id)
+						.order('submitted_at', { ascending: true })
+						.range(f, t)
+				)
+	]);
 	if (board.tiles.length === 0) throw error(404, 'Not found');
 	const tileById = new Map(board.tiles.map((t) => [t.id, t]));
 
@@ -102,7 +125,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const tileColor = (t: BingoTile): string =>
 		t.tier === 'bonus' ? bonus.color : colorByKey.get(t.tier) ?? BONUS_COLOR;
 
-	if (event.status === 'draft' || (event.status === 'preview' && !admin)) {
+	if (redacted) {
 		const redactedTiles: BingoTile[] = board.tiles.map((t) => ({
 			...t,
 			name: 'nice try',
@@ -138,18 +161,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const baseState = getBingoState((event.starts_at ?? event.signup_opens_at), new Date(), board.structure);
 	const state = archived ? { ...baseState, status: 'ended' as const } : baseState;
 
-	// Paginate: once an event passes 1000 tile submissions an un-paged read drops the
-	// newest rows (oldest-first order) → an incomplete leaderboard.
-	const { data: completionsRaw, error: cErr } = await fetchAllFiltered((f, t) =>
-		db()
-			.from('vs_bingo_completions')
-			.select(
-				'id, user_id, tile_id, proof_urls, proof_paths, submitted_at, status, vs_users!user_id(id, rsn, discord_username, clan_allegiance, account_type), reviewer:vs_users!reviewed_by(rsn, discord_username)'
-			)
-			.eq('event_id', event.id)
-			.order('submitted_at', { ascending: true })
-			.range(f, t)
-	);
+	// Completions were prefetched above alongside the board.
+	const { data: completionsRaw, error: cErr } = completionsRes ?? { data: [], error: null };
 
 	if (cErr) throw new Error(cErr.message);
 
