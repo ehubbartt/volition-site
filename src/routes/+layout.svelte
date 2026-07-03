@@ -54,11 +54,7 @@
 </header>
 
 <main class="container page">
-	{#key path}
-		<div class="page-fade">
-			{@render children()}
-		</div>
-	{/key}
+	{@render children()}
 </main>
 
 <footer>
@@ -260,21 +256,6 @@
 	main.page {
 		padding: 2rem 1rem 4rem;
 		min-height: calc(100vh - 8rem);
-	}
-
-	.page-fade {
-		animation: fade-in 0.25s ease-out;
-	}
-
-	@keyframes fade-in {
-		from {
-			opacity: 0;
-			transform: translateY(4px);
-		}
-		to {
-			opacity: 1;
-			transform: none;
-		}
 	}
 
 	footer {

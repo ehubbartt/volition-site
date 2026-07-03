@@ -4,8 +4,14 @@
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import BoardLeaderboard from '$lib/board/BoardLeaderboard.svelte';
 	import { CLAN_OPTIONS } from '$lib/clans';
+	import { createBusy } from '$lib/busy.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	// One shared pending-state for all the plain signup/team/invite forms below: any
+	// in-flight action disables the whole group (no double-submits) and swaps the
+	// clicked button's label so the round-trip is visible.
+	const busy = createBusy();
 
 	let signedUp = $derived(!!data.mySignup);
 	let onTeam = $derived(!!data.mySignup?.team_id);
@@ -218,8 +224,10 @@
 							Signups are closed and you didn't pair into a duo — no problem. Join the climb as a
 							team of one and play solo.
 						</p>
-						<form method="POST" action="?/goSolo" use:enhance>
-							<button type="submit" class="primary">Play solo (team of one)</button>
+						<form method="POST" action="?/goSolo" use:enhance={busy.submit('solo')}>
+							<button type="submit" class="primary" disabled={busy.active}>
+								{busy.is('solo') ? 'Joining…' : 'Play solo (team of one)'}
+							</button>
 						</form>
 					{:else}
 						<p class="muted">
@@ -265,8 +273,10 @@
 						Once you join, you'll show up in the player pool. Other players can invite you to
 						duo, or you can invite them.
 					</p>
-					<form method="POST" action="?/joinEvent" use:enhance>
-						<button type="submit" class="primary">Join event</button>
+					<form method="POST" action="?/joinEvent" use:enhance={busy.submit('join')}>
+						<button type="submit" class="primary" disabled={busy.active}>
+							{busy.is('join') ? 'Joining…' : 'Join event'}
+						</button>
 					</form>
 				</div>
 			{/if}
@@ -330,8 +340,10 @@
 						</li>
 					{/each}
 				</ul>
-				<form method="POST" action="?/leaveTeam" use:enhance>
-					<button type="submit" class="danger">Leave team</button>
+				<form method="POST" action="?/leaveTeam" use:enhance={busy.submit('leaveTeam')}>
+					<button type="submit" class="danger" disabled={busy.active}>
+						{busy.is('leaveTeam') ? 'Leaving…' : 'Leave team'}
+					</button>
 				</form>
 			</div>
 		{:else if !data.eventLive}
@@ -345,11 +357,15 @@
 						</p>
 					</div>
 					<div class="signup-actions">
-						<form method="POST" action="?/goSolo" use:enhance>
-							<button type="submit" class="primary">Play solo</button>
+						<form method="POST" action="?/goSolo" use:enhance={busy.submit('solo')}>
+							<button type="submit" class="primary" disabled={busy.active}>
+								{busy.is('solo') ? 'Joining…' : 'Play solo'}
+							</button>
 						</form>
-						<form method="POST" action="?/leaveEvent" use:enhance>
-							<button type="submit" class="danger">Leave event</button>
+						<form method="POST" action="?/leaveEvent" use:enhance={busy.submit('leaveEvent')}>
+							<button type="submit" class="danger" disabled={busy.active}>
+								{busy.is('leaveEvent') ? 'Leaving…' : 'Leave event'}
+							</button>
 						</form>
 					</div>
 				</div>
@@ -369,13 +385,17 @@
 									{/if}
 								</div>
 								<div class="actions">
-									<form method="POST" action="?/acceptInvite" use:enhance>
+									<form method="POST" action="?/acceptInvite" use:enhance={busy.submit(`accept:${inv.id}`)}>
 										<input type="hidden" name="invite_id" value={inv.id} />
-										<button type="submit" class="primary">Accept</button>
+										<button type="submit" class="primary" disabled={busy.active}>
+											{busy.is(`accept:${inv.id}`) ? 'Accepting…' : 'Accept'}
+										</button>
 									</form>
-									<form method="POST" action="?/declineInvite" use:enhance>
+									<form method="POST" action="?/declineInvite" use:enhance={busy.submit(`decline:${inv.id}`)}>
 										<input type="hidden" name="invite_id" value={inv.id} />
-										<button type="submit">Decline</button>
+										<button type="submit" disabled={busy.active}>
+											{busy.is(`decline:${inv.id}`) ? 'Declining…' : 'Decline'}
+										</button>
 									</form>
 								</div>
 							</li>
@@ -395,9 +415,11 @@
 									<AccountIcon type={inv.to?.account_type} />
 									<strong>{inv.to?.rsn ?? inv.to?.discord_username ?? 'Unknown'}</strong>
 								</div>
-								<form method="POST" action="?/cancelInvite" use:enhance>
+								<form method="POST" action="?/cancelInvite" use:enhance={busy.submit(`cancel:${inv.id}`)}>
 									<input type="hidden" name="invite_id" value={inv.id} />
-									<button type="submit">Cancel</button>
+									<button type="submit" disabled={busy.active}>
+										{busy.is(`cancel:${inv.id}`) ? 'Cancelling…' : 'Cancel'}
+									</button>
 								</form>
 							</li>
 						{/each}
@@ -445,9 +467,11 @@
 											<span class="muted">— {p.discord_username}</span>
 										</div>
 										{#if !onTeam}
-											<form method="POST" action="?/inviteUser" use:enhance>
+											<form method="POST" action="?/inviteUser" use:enhance={busy.submit(`invite:${p.user_id}`)}>
 												<input type="hidden" name="user_id" value={p.user_id} />
-												<button type="submit" class="primary">Invite</button>
+												<button type="submit" class="primary" disabled={busy.active}>
+													{busy.is(`invite:${p.user_id}`) ? 'Inviting…' : 'Invite'}
+												</button>
 											</form>
 										{/if}
 									</li>
