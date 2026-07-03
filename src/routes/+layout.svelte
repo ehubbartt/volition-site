@@ -16,8 +16,9 @@
 	});
 </script>
 
-<!-- Instant feedback the moment a navigation starts: a thin indeterminate bar under
-     the header while the destination page's data is in flight. -->
+<!-- Feedback while a navigation's data is in flight — but only for SLOW ones: the
+     bar stays invisible for its first 150ms, so fast navigations show nothing and
+     feel instant instead of flashing a loading bar. -->
 {#if navigating.to}
 	<div class="nav-progress" aria-hidden="true"></div>
 {/if}
@@ -274,7 +275,18 @@
 		background: linear-gradient(90deg, transparent, #d9b65e, transparent);
 		background-size: 40% 100%;
 		background-repeat: no-repeat;
-		animation: nav-progress-slide 1s ease-in-out infinite;
+		/* Invisible for the first 150ms (sub-150ms navigations never show it), then
+		   fade in and slide. */
+		opacity: 0;
+		animation:
+			nav-progress-appear 0.15s linear 0.15s forwards,
+			nav-progress-slide 1s ease-in-out infinite;
+	}
+
+	@keyframes nav-progress-appear {
+		to {
+			opacity: 1;
+		}
 	}
 
 	@keyframes nav-progress-slide {

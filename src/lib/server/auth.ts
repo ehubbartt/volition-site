@@ -43,11 +43,36 @@ export async function createSession(userId: string, cookies: Cookies): Promise<s
 	return id;
 }
 
+// In-memory session cache: the session→user lookup runs in hooks.server.ts on
+// EVERY request, and after the role/ban caches it was the last per-request DB
+// round-trip gating every navigation. Entries live for a short TTL and are
+// dropped on logout and after ANY non-GET from that session (hooks.server.ts) —
+// form actions are the only way a user mutates their own profile, so edits like
+// onboarding/RSN changes are always re-read immediately. A user's welcome-pack
+// flag can be briefly stale, which is safe: ensureWelcomePack claims atomically.
+const SESSION_CACHE_TTL_MS = 60_000;
+type CachedSession = { user: SessionUser; expiresAt: number; cachedAt: number };
+const sessionCache = new Map<string, CachedSession>();
+
+export function invalidateSessionCache(sessionId: string | null | undefined): void {
+	if (sessionId) sessionCache.delete(sessionId);
+}
+
 export async function readSession(
 	cookies: Cookies
 ): Promise<{ user: SessionUser; sessionId: string } | null> {
 	const sessionId = cookies.get(SESSION_COOKIE);
 	if (!sessionId) return null;
+
+	const now = Date.now();
+	const cached = sessionCache.get(sessionId);
+	if (cached && now - cached.cachedAt < SESSION_CACHE_TTL_MS) {
+		if (cached.expiresAt < now) {
+			await destroySession(cookies);
+			return null;
+		}
+		return { user: cached.user, sessionId };
+	}
 
 	const { data, error } = await db()
 		.from('vs_sessions')
@@ -57,7 +82,10 @@ export async function readSession(
 		.eq('id', sessionId)
 		.maybeSingle();
 
-	if (error || !data) return null;
+	if (error || !data) {
+		sessionCache.delete(sessionId);
+		return null;
+	}
 
 	if (new Date(data.expires_at) < new Date()) {
 		await destroySession(cookies);
@@ -67,12 +95,18 @@ export async function readSession(
 	const user = data.vs_users as unknown as SessionUser | null;
 	if (!user) return null;
 
+	sessionCache.set(sessionId, {
+		user,
+		expiresAt: new Date(data.expires_at).getTime(),
+		cachedAt: now
+	});
 	return { user, sessionId: data.id };
 }
 
 export async function destroySession(cookies: Cookies): Promise<void> {
 	const sessionId = cookies.get(SESSION_COOKIE);
 	if (sessionId) {
+		sessionCache.delete(sessionId);
 		await db().from('vs_sessions').delete().eq('id', sessionId);
 	}
 	cookies.delete(SESSION_COOKIE, { path: '/' });

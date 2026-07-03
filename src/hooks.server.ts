@@ -1,7 +1,7 @@
 import type { Handle } from '@sveltejs/kit';
 import { env } from '$env/dynamic/public';
 import { env as serverEnv } from '$env/dynamic/private';
-import { readSession, isAdmin } from '$lib/server/auth';
+import { readSession, isAdmin, invalidateSessionCache } from '$lib/server/auth';
 import { ensureFreshAdminRoles } from '$lib/server/adminRoles';
 import { ensureFreshBans, getBanCached } from '$lib/server/bansCache';
 import { shouldAudit, capturePayload, captureBeforeState, logAudit } from '$lib/server/audit';
@@ -135,6 +135,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 	}
 
 	const response = await resolve(event);
+
+	// Any non-GET (form actions are how users mutate their own profile) drops this
+	// session's cached user, so the next request re-reads it fresh from the DB.
+	if (event.request.method !== 'GET' && event.locals.sessionId) {
+		invalidateSessionCache(event.locals.sessionId);
+	}
 
 	if (audit && payload) void logAudit(event, response.status, payload);
 
