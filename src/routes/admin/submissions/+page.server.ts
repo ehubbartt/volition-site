@@ -21,9 +21,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	// recent window the list loads by default).
 	const search = url.searchParams.get('q')?.trim() ?? '';
 
-	const { items, events, stats } = await loadPendingReview({ test });
-	// Only fetch the (heavier) reviewed history when that tab is active.
-	const reviewed = view === 'reviewed' ? await loadReviewedSubmissions({ test, search }) : null;
+	// The reviewed history is only fetched when that tab is active — but when it is,
+	// run it alongside the pending pass instead of after it (both are heavy).
+	const [{ items, events, stats }, reviewed] = await Promise.all([
+		loadPendingReview({ test }),
+		view === 'reviewed' ? loadReviewedSubmissions({ test, search }) : Promise.resolve(null)
+	]);
 
 	return { view, test, items, events, stats, reviewed, search };
 };
