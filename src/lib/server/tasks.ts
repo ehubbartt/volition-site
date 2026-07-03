@@ -97,11 +97,17 @@ async function dailyCrateTask(user: SessionUser): Promise<PlayerTask> {
 // daily crate but for a pack. Only shown when an admin has flagged a weekly pack AND
 // the user is a clan member; claimed inline on /tasks (?/claimWeeklyPack).
 async function weeklyPackTask(user: SessionUser): Promise<PlayerTask | null> {
-	const pack = await getWeeklyFreePack();
+	// The three lookups are independent — fetch together and apply the same gates
+	// after (the extra single-row reads when a gate fails are cheaper than chaining).
+	const [pack, member, claimAt] = await Promise.all([
+		getWeeklyFreePack(),
+		isClanMember(user.discord_id, user.rsn),
+		getWeeklyClaimAt(user.id)
+	]);
 	if (!pack) return null; // no weekly pack configured → nothing to show
-	if (!(await isClanMember(user.discord_id, user.rsn))) return null;
+	if (!member) return null;
 
-	const claimed = claimedThisWeek(await getWeeklyClaimAt(user.id));
+	const claimed = claimedThisWeek(claimAt);
 	return {
 		id: 'weekly-pack',
 		kind: 'packs',
@@ -162,26 +168,43 @@ async function taskInstanceTasks(user: SessionUser): Promise<PlayerTask[]> {
 // (past its start). One card per event; progress = approved objective submissions
 // / total objectives. Submissions match the site account (user_id) OR Discord id.
 async function taskEventTasks(user: SessionUser): Promise<PlayerTask[]> {
-	const { data: events } = await db()
-		.from('vs_events')
-		.select('id, slug, name, status, starts_at, ends_at')
-		.in('kind', [SIMPLE_EVENT_KIND, SEQUENTIAL_EVENT_KIND])
-		.eq('status', 'open');
+	// One query for open tasks + their open parent event via an inner embed (was two
+	// serial queries: events, then tasks by event id). The liveness window is applied
+	// in JS on the embedded event, same as before.
+	const { data: taskRows } = await db()
+		.from('vs_tasks')
+		.select('id, event_id, vs_events!event_id!inner(id, slug, name, status, starts_at, ends_at, kind)')
+		.eq('status', 'open')
+		.eq('vs_events.status', 'open')
+		.in('vs_events.kind', [SIMPLE_EVENT_KIND, SEQUENTIAL_EVENT_KIND]);
+
+	type EventEmbed = {
+		id: string;
+		slug: string;
+		name: string;
+		status: string;
+		starts_at: string | null;
+		ends_at: string | null;
+	};
+	const allTasks = ((taskRows ?? []) as unknown as Array<{
+		id: string;
+		event_id: string;
+		vs_events: EventEmbed;
+	}>);
 
 	// Open AND within its window (skip upcoming AND already-ended ones — neither is
 	// actionable now).
-	const live = ((events ?? []) as Array<Record<string, unknown>>).filter((e) =>
-		isEventLive(e.status as string, e.starts_at as string | null, e.ends_at as string | null)
-	);
+	const liveById = new Map<string, EventEmbed>();
+	for (const t of allTasks) {
+		const e = t.vs_events;
+		if (e && isEventLive(e.status, e.starts_at, e.ends_at)) liveById.set(e.id, e);
+	}
+	const live = [...liveById.values()] as unknown as Array<Record<string, unknown>>;
 	if (live.length === 0) return [];
 
-	const eventIds = live.map((e) => e.id as string);
-	const { data: taskRows } = await db()
-		.from('vs_tasks')
-		.select('id, event_id')
-		.in('event_id', eventIds)
-		.eq('status', 'open');
-	const tasks = (taskRows ?? []) as Array<{ id: string; event_id: string }>;
+	const tasks = allTasks
+		.filter((t) => liveById.has(t.event_id))
+		.map((t) => ({ id: t.id, event_id: t.event_id }));
 	if (tasks.length === 0) return [];
 
 	const taskIds = tasks.map((t) => t.id);
@@ -309,19 +332,20 @@ async function bingoTask(user: SessionUser): Promise<PlayerTask | null> {
 // --- DuoWolf (lightweight: team membership + raw approved-tile count) -------
 // The full 21-stage progress machine isn't implemented; surface a raw count only.
 async function duoWolfTask(user: SessionUser): Promise<PlayerTask | null> {
-	const { data: ev } = await db()
-		.from('vs_events')
-		.select('id, status')
-		.eq('slug', DUO_WOLF_SLUG)
-		.maybeSingle();
+	// Event row + the user's signup in parallel: the signup is matched to the event
+	// through an inner embed on its slug instead of waiting for the event id.
+	const [{ data: ev }, { data: signupRow }] = await Promise.all([
+		db().from('vs_events').select('id, status').eq('slug', DUO_WOLF_SLUG).maybeSingle(),
+		db()
+			.from('vs_event_signups')
+			.select('team_id, vs_events!event_id!inner(slug)')
+			.eq('vs_events.slug', DUO_WOLF_SLUG)
+			.eq('user_id', user.id)
+			.maybeSingle()
+	]);
 	if (!ev || ev.status !== 'open') return null;
 
-	const { data: signup } = await db()
-		.from('vs_event_signups')
-		.select('team_id')
-		.eq('event_id', ev.id)
-		.eq('user_id', user.id)
-		.maybeSingle();
+	const signup = (signupRow as { team_id: string | null } | null) ?? null;
 
 	if (!signup || !signup.team_id) {
 		return {
