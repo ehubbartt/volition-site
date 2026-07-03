@@ -94,24 +94,37 @@ function teamMarkerNode(prog: ProgressResult): string | null {
 	return duoPathId(stage.floor, stage.section!, Math.floor(lanes / 2), 0);
 }
 
+// Rows a caller can hand in when it already fetched them for its own view (the event
+// page loads the full signup roster + teams before calling this) so the same
+// event-wide paginated reads aren't issued twice per request.
+export type DuoStandingsPreloaded = {
+	teams?: { id: string; name: string | null }[];
+	signups?: {
+		team_id: string | null;
+		vs_users: { rsn: string | null; discord_username: string | null; clan_allegiance: string | null } | null;
+	}[];
+};
+
 export async function loadDuoStandings(
 	eventId: string,
 	myTeamId: string | null,
-	opts: { topN?: number; markersTopN?: number; perClanCap?: number } = {}
+	opts: { topN?: number; markersTopN?: number; perClanCap?: number } = {},
+	preloaded: DuoStandingsPreloaded = {}
 ): Promise<DuoStandings> {
 	const topN = opts.topN ?? 20;
 	const markersTopN = opts.markersTopN ?? 10;
 	const perClanCap = opts.perClanCap ?? 20;
 
-	// Required counts feed the progress engine — keep the admin-edited tile content fresh.
-	await ensureDuoTilesFresh();
-
 	const sb = db();
 	// Paginate every event-wide read past the 1000-row cap — `subs` especially, which silently
 	// truncated (and broke all progress) once the event crossed 1000 submissions.
+	// ensureDuoTilesFresh rides in the Promise.all (required counts feed the progress
+	// engine, read only after these land).
 	const [{ data: teamRows }, { data: allChoices }, { data: allSwaps }, { data: subs }, { data: signups }] =
 		await Promise.all([
-			fetchAllFiltered((f, t) => sb.from('vs_teams').select('id, name').eq('event_id', eventId).range(f, t)),
+			preloaded.teams
+				? Promise.resolve({ data: preloaded.teams })
+				: fetchAllFiltered((f, t) => sb.from('vs_teams').select('id, name').eq('event_id', eventId).range(f, t)),
 			fetchAllFiltered((f, t) =>
 				sb.from('vs_team_path_choices').select('team_id, floor, section, lane').eq('event_id', eventId).range(f, t)
 			),
@@ -121,13 +134,16 @@ export async function loadDuoStandings(
 			fetchAllFiltered((f, t) =>
 				sb.from('vs_submissions').select('team_id, target_id, status, quantity').eq('event_id', eventId).range(f, t)
 			),
-			fetchAllFiltered((f, t) =>
-				sb
-					.from('vs_event_signups')
-					.select('team_id, vs_users(rsn, discord_username, clan_allegiance)')
-					.eq('event_id', eventId)
-					.range(f, t)
-			)
+			preloaded.signups
+				? Promise.resolve({ data: preloaded.signups })
+				: fetchAllFiltered((f, t) =>
+						sb
+							.from('vs_event_signups')
+							.select('team_id, vs_users(rsn, discord_username, clan_allegiance)')
+							.eq('event_id', eventId)
+							.range(f, t)
+					),
+			ensureDuoTilesFresh()
 		]);
 
 	// A team's clan = its members' clan if they share one, else "mixed" (matches the

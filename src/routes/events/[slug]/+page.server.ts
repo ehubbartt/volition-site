@@ -122,16 +122,6 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	if (eventErr) throw error(500, eventErr.message);
 	if (!event) throw error(404, 'Event not found');
 
-	// Who hosts this event (the admin who created it) — shown so members know who to contact.
-	let host: { rsn: string | null; discord_username: string | null } | null = null;
-	if (event.owner_user_id) {
-		const { data: owner } = await supabase
-			.from('vs_users')
-			.select('rsn, discord_username')
-			.eq('id', event.owner_user_id)
-			.maybeSingle();
-		host = owner ?? null;
-	}
 	// This page is the bespoke DuoWolf detail; task events (open/sequential) live on
 	// the generic /event/[slug] page. (Custom/legacy events stay here.)
 	if (isTaskEvent(event.kind)) throw redirect(307, `/event/${params.slug}`);
@@ -161,8 +151,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		throw redirect(307, `/events/${params.slug}/board`);
 	}
 
-	// Paginate: a large event's signups (and teams) can exceed the 1000-row cap.
-	const [{ data: signupsRaw }, { data: teamsRaw }] = await Promise.all([
+	// One parallel round for everything that only needs the event row: signups + teams
+	// (paginated past the 1000-row cap), the host lookup, and the caller's pending
+	// invites. Host and invites used to be their own serial stages.
+	const [{ data: signupsRaw }, { data: teamsRaw }, hostRes, invitesRes] = await Promise.all([
 		fetchAllFiltered((f, t) =>
 			supabase
 				.from('vs_event_signups')
@@ -173,8 +165,25 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 				.order('joined_at', { ascending: true })
 				.range(f, t)
 		),
-		fetchAllFiltered((f, t) => supabase.from('vs_teams').select('id, name').eq('event_id', event.id).range(f, t))
+		fetchAllFiltered((f, t) => supabase.from('vs_teams').select('id, name').eq('event_id', event.id).range(f, t)),
+		// Who hosts this event (the admin who created it) — shown so members know who to contact.
+		event.owner_user_id
+			? supabase
+					.from('vs_users')
+					.select('rsn, discord_username')
+					.eq('id', event.owner_user_id)
+					.maybeSingle()
+			: Promise.resolve({ data: null }),
+		supabase
+			.from('vs_team_invites')
+			.select('id, from_user_id, to_user_id, created_at')
+			.eq('event_id', event.id)
+			.eq('status', 'pending')
+			.or(`from_user_id.eq.${locals.user.id},to_user_id.eq.${locals.user.id}`)
 	]);
+
+	const host: { rsn: string | null; discord_username: string | null } | null =
+		hostRes.data ?? null;
 
 	const signups = (signupsRaw ?? []) as unknown as SignupRow[];
 	const teamNameById = new Map<string, string | null>(
@@ -206,20 +215,16 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			account_type: s.vs_users.account_type
 		}));
 
+	// Invites were fetched unconditionally above (they only need event + user); the
+	// original gate still applies when SHAPING them — only un-teamed signed-up users
+	// see pending invites.
 	let pendingInvites: { incoming: InviteRow[]; outgoing: InviteRow[] } = {
 		incoming: [],
 		outgoing: []
 	};
 
 	if (mySignup && !mySignup.team_id) {
-		const { data: invitesRaw } = await supabase
-			.from('vs_team_invites')
-			.select('id, from_user_id, to_user_id, created_at')
-			.eq('event_id', event.id)
-			.eq('status', 'pending')
-			.or(`from_user_id.eq.${locals.user.id},to_user_id.eq.${locals.user.id}`);
-
-		const invites = (invitesRaw ?? []) as InviteRow[];
+		const invites = (invitesRes.data ?? []) as InviteRow[];
 		pendingInvites = {
 			incoming: invites.filter((i) => i.to_user_id === locals.user!.id),
 			outgoing: invites.filter((i) => i.from_user_id === locals.user!.id)
@@ -296,11 +301,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	// climb is live (the live event page = the solo landing + standings).
 	let standings: DuoStandings | null = null;
 	if (eventLive) {
-		standings = await loadDuoStandings(event.id, mySignup?.team_id ?? null, {
-			topN: 9999,
-			perClanCap: 9999,
-			markersTopN: 0
-		});
+		// Hand over the roster/teams this load already fetched so standings doesn't
+		// re-issue the same two event-wide paginated reads.
+		standings = await loadDuoStandings(
+			event.id,
+			mySignup?.team_id ?? null,
+			{ topN: 9999, perClanCap: 9999, markersTopN: 0 },
+			{
+				teams: ((teamsRaw ?? []) as { id: string; name: string | null }[]),
+				signups: signups.map((s) => ({ team_id: s.team_id, vs_users: s.vs_users }))
+			}
+		);
 	}
 
 	return {
