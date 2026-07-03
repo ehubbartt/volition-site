@@ -1,6 +1,7 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { db, fetchAllFiltered } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
+import { ensureFreshBans } from '$lib/server/bansCache';
 import type { Actions, PageServerLoad } from './$types';
 
 // Admin moderation hub — manage the bot's `bans` + `warnings` tables (shared
@@ -129,6 +130,9 @@ export const actions: Actions = {
 			created_at: new Date().toISOString()
 		});
 		if (insErr) return fail(500, { error: insErr.message });
+		// The hook's ban gate reads a TTL cache — force-refresh so this machine
+		// enforces the new ban immediately instead of within the TTL.
+		await ensureFreshBans(true);
 		return { ok: true, action: 'ban' as const };
 	},
 
@@ -139,6 +143,7 @@ export const actions: Actions = {
 		if (!discordId) return fail(400, { error: 'Missing discord_id' });
 		const { error: delErr } = await db().from('bans').delete().eq('discord_id', discordId);
 		if (delErr) return fail(500, { error: delErr.message });
+		await ensureFreshBans(true);
 		return { ok: true, action: 'unban' as const };
 	},
 

@@ -3,7 +3,7 @@ import { env } from '$env/dynamic/public';
 import { env as serverEnv } from '$env/dynamic/private';
 import { readSession, isAdmin } from '$lib/server/auth';
 import { ensureFreshAdminRoles } from '$lib/server/adminRoles';
-import { getBan } from '$lib/server/bans';
+import { ensureFreshBans, getBanCached } from '$lib/server/bansCache';
 import { shouldAudit, capturePayload, captureBeforeState, logAudit } from '$lib/server/audit';
 
 // Force a single canonical origin. Discord OAuth stores its state in a
@@ -81,21 +81,18 @@ export const handle: Handle = async ({ event, resolve }) => {
 		});
 	}
 
-	const session = await readSession(event.cookies);
+	// One parallel round: the session read plus the two TTL-guarded cache refreshes
+	// (vs_admin_roles, bans). The caches are no-ops on most requests, and none of the
+	// three depends on another — sequencing them (as before) stacked 2-3 blocking
+	// Supabase round-trips onto every navigation. Cache failures keep the last good
+	// state (env admins/owners still work; a bans outage fails open, as before).
+	const [session] = await Promise.all([
+		readSession(event.cookies),
+		ensureFreshAdminRoles().catch(() => {}),
+		ensureFreshBans().catch(() => {})
+	]);
 	event.locals.user = session?.user ?? null;
 	event.locals.sessionId = session?.sessionId ?? null;
-
-	// Refresh the DB-granted admin role cache (vs_admin_roles) before any permission
-	// check. TTL-guarded so this is a cheap no-op on most requests. Only needed when a
-	// user is logged in — anonymous requests never hit an isAdmin() gate. Best-effort:
-	// a failure keeps the last good cache (env admins/owners still work).
-	if (session?.user) {
-		try {
-			await ensureFreshAdminRoles();
-		} catch {
-			/* fail-open for env roles; DB grants simply won't apply this request */
-		}
-	}
 
 	// Staging lock: gate the whole site behind admin. The auth flow (so an admin can sign in)
 	// and static assets stay open; /health already returned above. Runs after the admin-role
@@ -110,15 +107,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	// Banned users (the bot's `bans` table, keyed by Discord id) can't use the site.
 	// Send every authenticated request to /banned — except the /banned page itself,
-	// logout (so they can leave), and static assets (so /banned can render). Only
-	// queried when a session resolved, so logged-out browsing is unaffected.
-	// Skip the bans-table read for static assets (/_app/ bundles, fonts, images) —
-	// they never render the /banned UI, so querying on every asset request just adds
-	// a round-trip to asset latency. Real pages (incl. /banned itself, so it can show
-	// the reason) still resolve locals.ban.
+	// logout (so they can leave), and static assets (so /banned can render). The read
+	// is a synchronous lookup against the TTL-cached bans table (refreshed above), so
+	// it costs zero round-trips; a new ban takes effect within the cache TTL (~30s) on
+	// machines other than the one that issued it (ban/unban actions force-refresh).
 	const path = event.url.pathname;
 	const isAsset = path.startsWith('/_app/') || path.includes('.');
-	event.locals.ban = session?.user && !isAsset ? await getBan(session.user.discord_id) : null;
+	event.locals.ban = session?.user && !isAsset ? getBanCached(session.user.discord_id) : null;
 	if (event.locals.ban) {
 		const allowed = path === '/banned' || path.startsWith('/auth/logout');
 		if (!allowed) {
