@@ -1,27 +1,43 @@
-name: Deploy to Fly.io
+# Deploy the PRODUCTION app (volition-site) to Fly on every push to main, so no local
+# flyctl is needed. Builds on Fly's REMOTE builders (--remote-only), so the GitHub
+# runner needs no Docker. Runnable on demand via the "Run workflow" button too.
+#
+# This uses its OWN secret, separate from the staging workflow's FLY_API_TOKEN, so the
+# staging token stays scoped to staging and can't touch production.
+#
+# One-time setup:
+#   1. Create a token that can deploy volition-site:
+#        fly tokens create deploy -a volition-site
+#      (or a Fly account access token from the dashboard).
+#   2. GitHub → repo Settings → Secrets and variables → Actions → add secret
+#      FLY_API_TOKEN_PROD with that token.
+# Then: push to main, or use the "Run workflow" button, to deploy.
+name: Deploy production (Fly)
 
-# Deploy the app whenever main is updated. Also runnable on demand from the
-# Actions tab (workflow_dispatch). Requires a FLY_API_TOKEN repository secret
-# (Settings → Secrets and variables → Actions) — create the token with
-# `fly tokens create deploy` and paste it in.
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
 
 jobs:
   deploy:
-    name: Deploy app
     runs-on: ubuntu-latest
-    # Never run two deploys at once; a newer push supersedes an in-flight one.
-    concurrency:
-      group: deploy-main
-      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      # --remote-only builds on Fly's builders, so the runner needs no Docker.
-      - run: flyctl deploy --remote-only
+      - name: Ensure FLY_API_TOKEN_PROD is set
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN_PROD }}
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::error::FLY_API_TOKEN_PROD repo secret is not set. Add it in Settings → Secrets → Actions, then re-run."
+            exit 1
+          fi
+      - name: Deploy to volition-site
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN_PROD }}
+        run: flyctl deploy --remote-only
