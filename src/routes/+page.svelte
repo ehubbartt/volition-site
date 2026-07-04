@@ -12,12 +12,14 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	// The heavy halves of the page data (member directory, to-do summary) are
-	// STREAMED promises (see +page.server.ts) so navigation lands instantly.
-	// Resolve them into state — keeping the previous value while a revalidation
-	// is in flight, so sections don't flash back to skeletons after form actions.
+	// ALL page data is STREAMED promises (see +page.server.ts) so navigation lands
+	// instantly. Resolve them into state — keeping the previous value while a
+	// revalidation is in flight, so sections don't flash back to skeletons after
+	// form actions.
 	let directory = $state<Awaited<PageData['directory']> | null>(null);
 	let taskSummary = $state<Awaited<PageData['taskSummary']>>(null);
+	let calendar = $state<Awaited<PageData['calendar']>>([]);
+	let stats = $state<Awaited<PageData['stats']> | null>(null);
 	$effect(() => {
 		let current = true;
 		data.directory.then((d) => {
@@ -31,6 +33,24 @@
 		let current = true;
 		data.taskSummary.then((t) => {
 			if (current) taskSummary = t;
+		});
+		return () => {
+			current = false;
+		};
+	});
+	$effect(() => {
+		let current = true;
+		data.calendar.then((c) => {
+			if (current) calendar = c;
+		});
+		return () => {
+			current = false;
+		};
+	});
+	$effect(() => {
+		let current = true;
+		data.stats.then((s) => {
+			if (current) stats = s;
 		});
 		return () => {
 			current = false;
@@ -83,7 +103,7 @@
 
 	const itemsByDay = $derived.by(() => {
 		const m = new Map<string, CalendarItem[]>();
-		for (const it of data.calendar) {
+		for (const it of calendar) {
 			const k = dayKey(new Date(it.date));
 			let arr = m.get(k);
 			if (!arr) {
@@ -112,13 +132,13 @@
 		if (selectedKey) return itemsByDay.get(selectedKey) ?? [];
 		const startOfToday = new Date();
 		startOfToday.setHours(0, 0, 0, 0);
-		return data.calendar
+		return calendar
 			.filter((it) => new Date(it.date).getTime() >= startOfToday.getTime())
 			.slice(0, 8);
 	});
 
 	// Soonest upcoming item drives the countdown banner (calendar is sorted asc).
-	const nextItem = $derived(data.calendar.find((it) => new Date(it.date).getTime() >= now) ?? null);
+	const nextItem = $derived(calendar.find((it) => new Date(it.date).getTime() >= now) ?? null);
 	const countdown = $derived.by(() => {
 		if (!nextItem) return '';
 		let ms = new Date(nextItem.date).getTime() - now;
@@ -293,8 +313,8 @@
 
 	<div class="public-stats">
 		<StatCard value={directory ? directory.memberCount : '—'} label="Members" />
-		<StatCard value={data.stats.activeEvents} label="Active events" />
-		<StatCard value={data.stats.totalEvents} label="Events all-time" />
+		<StatCard value={stats ? stats.activeEvents : '—'} label="Active events" />
+		<StatCard value={stats ? stats.totalEvents : '—'} label="Events all-time" />
 	</div>
 
 	{#if agendaItems.length > 0}
@@ -340,9 +360,9 @@
 
 	<div class="stat-strip">
 		<StatCard value={directory ? directory.memberCount : '—'} label="Members" />
-		<StatCard value={data.stats.activeEvents} label="Active events" />
-		<StatCard value={data.stats.totalEvents} label="Events all-time" />
-		<StatCard value={data.stats.packsOpened} label="Packs opened" />
+		<StatCard value={stats ? stats.activeEvents : '—'} label="Active events" />
+		<StatCard value={stats ? stats.totalEvents : '—'} label="Events all-time" />
+		<StatCard value={stats ? stats.packsOpened : '—'} label="Packs opened" />
 	</div>
 
 	{#if taskSummary}

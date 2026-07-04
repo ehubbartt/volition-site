@@ -163,39 +163,44 @@ export const load: PageServerLoad = async ({ locals }) => {
 		throw redirect(303, '/onboarding');
 	}
 
-	const admin = isAdmin(locals.user);
+	// STREAMED: the page shell renders instantly; the list fills in when this
+	// resolves. The two queries also run in parallel now (the user's signups are a
+	// tiny per-user set, so they no longer wait on the event list to narrow by id).
+	const sections = buildSections(locals.user.id, isAdmin(locals.user)).catch(() => ({
+		activeEvents: [],
+		upcomingEvents: [],
+		pastEvents: []
+	}));
+
+	return { sections };
+};
+
+async function buildSections(userId: string, admin: boolean) {
 	const visibleStatuses = admin
 		? ['draft', 'preview', 'open', 'locked', 'closed']
 		: ['open', 'locked', 'closed'];
 
 	// Tasks live in vs_tasks (their own table / the To Do page), so vs_events is
 	// only "full events" here — no task filtering needed.
-	const { data: events, error } = await db()
-		.from('vs_events')
-		.select(
-			'id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, starts_at, ends_at'
-		)
-		.neq('kind', 'personal') // exclude personal boards (owner-scoped, not public events)
-		.in('status', visibleStatuses)
-		.neq('slug', 'weekly-tasks'); // internal task container, not a real event
+	const [{ data: events, error }, { data: sus }] = await Promise.all([
+		db()
+			.from('vs_events')
+			.select(
+				'id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, starts_at, ends_at'
+			)
+			.neq('kind', 'personal') // exclude personal boards (owner-scoped, not public events)
+			.in('status', visibleStatuses)
+			.neq('slug', 'weekly-tasks'), // internal task container, not a real event
+		// Which events the current user has signed up for (signup events only) — drives
+		// the signed-up vs not-signed-up sorting/display.
+		db().from('vs_event_signups').select('event_id').eq('user_id', userId)
+	]);
 
 	if (error) throw new Error(error.message);
 
 	const rows = (events ?? []) as EventRow[];
 	const now = Date.now();
-
-	// Which of these the current user has signed up for (signup events only) — drives
-	// the signed-up vs not-signed-up sorting/display.
-	const eventIds = rows.map((e) => e.id);
-	let signedUpIds = new Set<string>();
-	if (eventIds.length) {
-		const { data: sus } = await db()
-			.from('vs_event_signups')
-			.select('event_id')
-			.eq('user_id', locals.user.id)
-			.in('event_id', eventIds);
-		signedUpIds = new Set((sus ?? []).map((r) => r.event_id as string));
-	}
+	const signedUpIds = new Set((sus ?? []).map((r) => r.event_id as string));
 
 	const items = rows.map((ev) => {
 		const startsAt = startsAtFor(ev.slug, ev.starts_at, ev.signup_opens_at);
@@ -225,4 +230,4 @@ export const load: PageServerLoad = async ({ locals }) => {
 		upcomingEvents: bySection('upcoming'),
 		pastEvents: bySection('past')
 	};
-};
+}

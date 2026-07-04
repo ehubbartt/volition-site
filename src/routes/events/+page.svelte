@@ -2,8 +2,22 @@
 	import type { PageData } from './$types';
 	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 	import { isTaskEvent } from '$lib/events/simple';
+	import Skeleton from '$lib/Skeleton.svelte';
 
 	let { data }: { data: PageData } = $props();
+
+	// The event list is STREAMED from the load so navigation lands instantly.
+	// Resolve into state, keeping the previous list during revalidations.
+	let sections = $state<Awaited<PageData['sections']> | null>(null);
+	$effect(() => {
+		let current = true;
+		data.sections.then((s) => {
+			if (current) sections = s;
+		});
+		return () => {
+			current = false;
+		};
+	});
 
 	// Route by event kind: bingo + duo keep their bespoke pages; task events (open /
 	// sequential) use the generic /event/[slug] page; anything else (legacy/custom)
@@ -33,7 +47,10 @@
 	<title>Events · Volition</title>
 </svelte:head>
 
-{#snippet eventCard(ev: PageData['activeEvents'][number], section: 'active' | 'upcoming' | 'past')}
+{#snippet eventCard(
+	ev: Awaited<PageData['sections']>['activeEvents'][number],
+	section: 'active' | 'upcoming' | 'past'
+)}
 	{@const past = section === 'past'}
 	{@const isBingo = ev.slug === BINGO_EVENT_SLUG}
 	{@const isDraft = ev.status === 'draft'}
@@ -100,33 +117,39 @@
 			</div>
 	</div>
 
-	{#if data.activeEvents.length === 0}
+	{#if !sections}
+		<ul class="events">
+			{#each { length: 3 }, i (i)}
+				<li><Skeleton height="8rem" radius="8px" /></li>
+			{/each}
+		</ul>
+	{:else if sections.activeEvents.length === 0}
 		<p class="muted">No events need your attention right now.</p>
 	{:else}
 		<ul class="events">
-			{#each data.activeEvents as ev (ev.id)}
+			{#each sections.activeEvents as ev (ev.id)}
 				{@render eventCard(ev, 'active')}
 			{/each}
 		</ul>
 	{/if}
 </section>
 
-{#if data.upcomingEvents.length > 0}
+{#if sections && sections.upcomingEvents.length > 0}
 	<section class="upcoming-section">
 		<h2>Upcoming events</h2>
 		<ul class="events">
-			{#each data.upcomingEvents as ev (ev.id)}
+			{#each sections.upcomingEvents as ev (ev.id)}
 				{@render eventCard(ev, 'upcoming')}
 			{/each}
 		</ul>
 	</section>
 {/if}
 
-{#if data.pastEvents.length > 0}
+{#if sections && sections.pastEvents.length > 0}
 	<section class="past-section">
 		<h2>Past events</h2>
 		<ul class="events">
-			{#each data.pastEvents as ev (ev.id)}
+			{#each sections.pastEvents as ev (ev.id)}
 				{@render eventCard(ev, 'past')}
 			{/each}
 		</ul>

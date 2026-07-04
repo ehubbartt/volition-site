@@ -61,24 +61,24 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const { user } = await parent();
 	const sb = db();
 
+	// EVERYTHING below is streamed (returned as promises, not awaited) so navigating
+	// to the homepage completes immediately — the calendar, stats, member directory,
+	// and to-do card each fill in as their data lands. Every promise carries a catch
+	// fallback: a rejected streamed promise would kill the whole response.
+
 	// Logged out → public landing (hero + a light upcoming teaser + headline stats).
 	if (!user) {
-		const [calendar, playersRes, eventsRes] = await Promise.all([
-			loadCalendarItems(false),
-			sb.from('players').select('id', { count: 'exact', head: true }),
-			sb.from('vs_events').select('status, ends_at').neq('kind', 'personal').in('status', ['open', 'locked', 'closed'])
-		]);
-		const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
 		return {
-			calendar,
-			stats: { activeEvents: active, totalEvents: total, packsOpened: 0 },
-			// Same streamed shape as the logged-in path (already resolved — no wait).
-			directory: Promise.resolve({
-				members: [] as Member[],
-				rankBreakdown: [] as RankBucket[],
-				recentMembers: [] as Member[],
-				memberCount: playersRes.count ?? 0
-			}),
+			calendar: loadCalendarItems(false).catch(() => [] as Awaited<ReturnType<typeof loadCalendarItems>>),
+			stats: buildStats(false).catch((): Stats => ({ activeEvents: 0, totalEvents: 0, packsOpened: 0 })),
+			directory: (async (): Promise<Directory> => {
+				try {
+					const playersRes = await sb.from('players').select('id', { count: 'exact', head: true });
+					return { members: [], rankBreakdown: [], recentMembers: [], memberCount: playersRes.count ?? 0 };
+				} catch {
+					return { members: [], rankBreakdown: [], recentMembers: [], memberCount: 0 };
+				}
+			})(),
 			taskSummary: Promise.resolve(null as TaskSummary | null),
 			categoryOptions: CATEGORY_OPTIONS
 		};
@@ -91,19 +91,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 
 	const admin = isAdmin(user);
 
-	// Await only the light queries — the page can render its shell from these. The
-	// heavy parts (full roster + site users, and the multi-query to-do aggregation)
-	// are returned as PROMISES so SvelteKit streams them: navigation switches
-	// immediately and the member directory / to-do card fill in when ready.
-	const [calendar, eventsRes, packsRes] = await Promise.all([
-		loadCalendarItems(admin),
-		sb.from('vs_events').select('status, ends_at').neq('kind', 'personal').in('status', ['draft', 'preview', 'open', 'locked', 'closed']),
-		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true })
-	]);
-
 	const directory = buildDirectory(user).catch((): Directory => {
-		// A streamed promise that rejects kills the whole response — degrade to an
-		// empty directory instead (the panel just shows no members this render).
 		return { members: [], rankBreakdown: [], recentMembers: [], memberCount: 0 };
 	});
 
@@ -121,20 +109,31 @@ export const load: PageServerLoad = async ({ parent }) => {
 		)
 		.catch(() => null);
 
-	const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
-
 	return {
-		calendar,
+		calendar: loadCalendarItems(admin).catch(() => [] as Awaited<ReturnType<typeof loadCalendarItems>>),
 		directory,
 		taskSummary,
-		stats: {
-			activeEvents: active,
-			totalEvents: total,
-			packsOpened: packsRes.count ?? 0
-		},
+		stats: buildStats(true).catch((): Stats => ({ activeEvents: 0, totalEvents: 0, packsOpened: 0 })),
 		categoryOptions: CATEGORY_OPTIONS
 	};
 };
+
+type Stats = { activeEvents: number; totalEvents: number; packsOpened: number };
+
+// Headline event/pack counters (streamed). Admins' event count includes unreleased
+// (draft/preview) events, mirroring what the events list shows them.
+async function buildStats(includeUnreleased: boolean): Promise<Stats> {
+	const sb = db();
+	const statuses = includeUnreleased
+		? ['draft', 'preview', 'open', 'locked', 'closed']
+		: ['open', 'locked', 'closed'];
+	const [eventsRes, packsRes] = await Promise.all([
+		sb.from('vs_events').select('status, ends_at').neq('kind', 'personal').in('status', statuses),
+		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true })
+	]);
+	const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
+	return { activeEvents: active, totalEvents: total, packsOpened: packsRes.count ?? 0 };
+}
 
 type Member = {
 	rsn: string;
