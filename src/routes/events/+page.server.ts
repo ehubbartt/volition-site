@@ -169,11 +169,19 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const sections = buildSections(locals.user.id, isAdmin(locals.user)).catch(() => ({
 		activeEvents: [],
 		upcomingEvents: [],
-		pastEvents: []
+		pastEvents: [],
+		personal: { state: 'none' } as PersonalCard
 	}));
 
 	return { sections };
 };
+
+// State for the always-present "Personal Bingo" card at the top of the list —
+// the entry point for creating (or getting back to) your own board.
+export type PersonalCard =
+	| { state: 'none' }
+	| { state: 'draft' }
+	| { state: 'running'; obtained: number; total: number };
 
 async function buildSections(userId: string, admin: boolean) {
 	const visibleStatuses = admin
@@ -182,7 +190,7 @@ async function buildSections(userId: string, admin: boolean) {
 
 	// Tasks live in vs_tasks (their own table / the To Do page), so vs_events is
 	// only "full events" here — no task filtering needed.
-	const [{ data: events, error }, { data: sus }] = await Promise.all([
+	const [{ data: events, error }, { data: sus }, { data: pb }] = await Promise.all([
 		db()
 			.from('vs_events')
 			.select(
@@ -193,10 +201,34 @@ async function buildSections(userId: string, admin: boolean) {
 			.neq('slug', 'weekly-tasks'), // internal task container, not a real event
 		// Which events the current user has signed up for (signup events only) — drives
 		// the signed-up vs not-signed-up sorting/display.
-		db().from('vs_event_signups').select('event_id').eq('user_id', userId)
+		db().from('vs_event_signups').select('event_id').eq('user_id', userId),
+		// The caller's own personal board (if any) for the Personal Bingo card.
+		db()
+			.from('vs_events')
+			.select('id, locked_at')
+			.eq('kind', 'personal')
+			.eq('owner_user_id', userId)
+			.maybeSingle()
 	]);
 
 	if (error) throw new Error(error.message);
+
+	let personal: PersonalCard = { state: 'none' };
+	if (pb) {
+		if (!pb.locked_at) {
+			personal = { state: 'draft' };
+		} else {
+			const [tilesRes, doneRes] = await Promise.all([
+				db().from('vs_tiles').select('id', { count: 'exact', head: true }).eq('event_id', pb.id),
+				db()
+					.from('vs_submissions')
+					.select('id', { count: 'exact', head: true })
+					.eq('event_id', pb.id)
+					.eq('status', 'approved')
+			]);
+			personal = { state: 'running', obtained: doneRes.count ?? 0, total: tilesRes.count ?? 0 };
+		}
+	}
 
 	const rows = (events ?? []) as EventRow[];
 	const now = Date.now();
@@ -228,6 +260,7 @@ async function buildSections(userId: string, admin: boolean) {
 	return {
 		activeEvents: bySection('active'),
 		upcomingEvents: bySection('upcoming'),
-		pastEvents: bySection('past')
+		pastEvents: bySection('past'),
+		personal
 	};
 }

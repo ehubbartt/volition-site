@@ -381,6 +381,35 @@ async function duoWolfTask(user: SessionUser): Promise<PlayerTask | null> {
 	};
 }
 
+// --- Personal bingo board (vs_events kind='personal') ------------------------
+// Nudge members who don't have a board RUNNING: no board at all → create one; a
+// generated draft that was never locked → lock it in (nothing tracks until then).
+// A locked board is ongoing ambient progress, not a to-do, so it shows nothing.
+async function personalBoardTask(user: SessionUser): Promise<PlayerTask | null> {
+	const { data: board } = await db()
+		.from('vs_events')
+		.select('id, locked_at')
+		.eq('kind', 'personal')
+		.eq('owner_user_id', user.id)
+		.maybeSingle();
+
+	if (board?.locked_at) return null; // board is running — nothing to do
+
+	const draft = !!board;
+	return {
+		id: 'personal-board',
+		kind: 'event',
+		status: 'todo',
+		title: 'Personal bingo board',
+		description: draft
+			? "Your draft board isn't locked in — nothing is tracking yet"
+			: 'Generate your own collection-log bingo board',
+		href: '/clog-bingo',
+		ctaLabel: draft ? 'Lock it in' : 'Create your board',
+		resetAt: null
+	};
+}
+
 // --- Unopened card packs (vs_user_packs) -----------------------------------
 // Nudge to open any packs sitting in the player's inventory (opened at /gamba).
 async function unopenedPacksTask(user: SessionUser): Promise<PlayerTask | null> {
@@ -448,6 +477,7 @@ export async function loadPlayerTasks(user: SessionUser): Promise<PlayerTask[]> 
 		skillOrKillTask(),
 		bingoTask(user),
 		duoWolfTask(user),
+		personalBoardTask(user),
 		unopenedPacksTask(user)
 	]);
 

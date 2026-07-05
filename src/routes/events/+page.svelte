@@ -112,7 +112,6 @@
 	<div class="head">
 		<h1>Active events</h1>
 			<div class="head-actions">
-				<a class="dink-link" href="/clog-bingo">Personal Bingo</a>
 				<a class="dink-link" href="/dink-check">Test your Dink setup</a>
 			</div>
 	</div>
@@ -123,14 +122,59 @@
 				<li><Skeleton height="8rem" radius="8px" /></li>
 			{/each}
 		</ul>
-	{:else if sections.activeEvents.length === 0}
-		<p class="muted">No events need your attention right now.</p>
 	{:else}
 		<ul class="events">
+			<!-- Personal Bingo: always-present card — the entry point to create your own
+			     board (or get back to the one you're running). -->
+			<li>
+				<a href="/clog-bingo" class="event-card personal">
+					<div class="event-name">Personal Bingo</div>
+					{#if sections.personal.state === 'running'}
+						<p class="desc muted">
+							Your own collection-log board is running — items, skilling goals, and combat
+							achievements tick off automatically.
+						</p>
+					{:else if sections.personal.state === 'draft'}
+						<p class="desc muted">
+							You generated a board but haven't locked it in — nothing is tracking yet.
+						</p>
+					{:else}
+						<p class="desc muted">
+							Roll your own collection-log bingo board — item drops, skilling goals, and combat
+							achievements, tracked automatically. Just for you.
+						</p>
+					{/if}
+					<div class="event-foot">
+						{#if sections.personal.state === 'running'}
+							<div class="status-line">
+								<span class="label">
+									{sections.personal.obtained} / {sections.personal.total} tiles complete
+								</span>
+							</div>
+							<div class="foot-tags">
+								<div class="badge open">View your board →</div>
+							</div>
+						{:else if sections.personal.state === 'draft'}
+							<div class="status-line"><span class="label">Draft — not tracking</span></div>
+							<div class="foot-tags">
+								<div class="badge personal-cta">Lock it in →</div>
+							</div>
+						{:else}
+							<div class="status-line"><span class="label">Not started</span></div>
+							<div class="foot-tags">
+								<div class="badge personal-cta">Create your board →</div>
+							</div>
+						{/if}
+					</div>
+				</a>
+			</li>
 			{#each sections.activeEvents as ev (ev.id)}
 				{@render eventCard(ev, 'active')}
 			{/each}
 		</ul>
+		{#if sections.activeEvents.length === 0}
+			<p class="muted">No clan events need your attention right now.</p>
+		{/if}
 	{/if}
 </section>
 
@@ -377,6 +421,19 @@
 
 	.event-card.bingo .event-name {
 		color: var(--yellow);
+	}
+
+	/* Personal Bingo entry card: same frame as events, with a gold name + a bright
+	   call-to-action badge so "this is where you start your own board" is obvious. */
+	.event-card.personal .event-name {
+		color: var(--yellow);
+	}
+
+	.badge.personal-cta {
+		background: var(--yellow, #d9b65e);
+		border-color: var(--yellow, #d9b65e);
+		color: #1a1208;
+		text-shadow: none;
 	}
 
 	.event-card.draft {
