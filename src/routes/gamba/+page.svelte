@@ -27,7 +27,7 @@
   // Resolve it into state and shadow it under the old `data` name: every existing
   // reference below keeps working, and while it's loading `data` serves safe
   // empty defaults behind the skeleton. Revalidations keep the previous data.
-  type Gamba = NonNullable<Awaited<PageData["gamba"]>>;
+  type Gamba = NonNullable<PageData["gamba"]["cached"]>;
   const EMPTY_GAMBA: Gamba = {
     vp_balance: 0,
     gold_balance: 0,
@@ -41,8 +41,10 @@
   } as unknown as Gamba;
   let loadedGamba = $state<Gamba | null>(null);
   $effect(() => {
+    const src = pageData.gamba;
+    if (src.cached) loadedGamba = src.cached;
     let current = true;
-    pageData.gamba.then((g) => {
+    src.fresh.then((g) => {
       if (current && g) loadedGamba = g;
     });
     return () => {

@@ -2,17 +2,20 @@
 	import type { PageData } from './$types';
 	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 	import { isTaskEvent } from '$lib/events/simple';
+	import type { EventListItem } from '$lib/eventsList';
 	import Skeleton from '$lib/Skeleton.svelte';
 
 	let { data }: { data: PageData } = $props();
 
-	// The event list is STREAMED from the load so navigation lands instantly.
-	// Resolve into state, keeping the previous list during revalidations.
-	let sections = $state<Awaited<PageData['sections']> | null>(null);
+	// The event list is a stale-while-revalidate pair (see +page.ts): revisits seed
+	// from the last list this browser saw, and the background refetch swaps in.
+	let sections = $state<PageData['sections']['cached']>(null);
 	$effect(() => {
+		const src = data.sections;
+		if (src.cached) sections = src.cached;
 		let current = true;
-		data.sections.then((s) => {
-			if (current) sections = s;
+		src.fresh.then((s) => {
+			if (current && s) sections = s;
 		});
 		return () => {
 			current = false;
@@ -47,10 +50,7 @@
 	<title>Events · Volition</title>
 </svelte:head>
 
-{#snippet eventCard(
-	ev: Awaited<PageData['sections']>['activeEvents'][number],
-	section: 'active' | 'upcoming' | 'past'
-)}
+{#snippet eventCard(ev: EventListItem, section: 'active' | 'upcoming' | 'past')}
 	{@const past = section === 'past'}
 	{@const isBingo = ev.slug === BINGO_EVENT_SLUG}
 	{@const isDraft = ev.status === 'draft'}

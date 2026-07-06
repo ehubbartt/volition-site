@@ -20,7 +20,7 @@
 	// old `data` name so every reference below keeps working; not-found and
 	// redirect outcomes are acted on when the payload arrives. Revalidations after
 	// form actions keep the previous data on screen.
-	type Detail = Extract<NonNullable<Awaited<PageData['detail']>>, { kind: 'ok' }>;
+	type Detail = Extract<NonNullable<PageData['detail']['cached']>, { kind: 'ok' }>;
 	const EMPTY_DETAIL = {
 		kind: 'ok',
 		isAdmin: false,
@@ -55,8 +55,13 @@
 	let detail = $state<Detail | null>(null);
 	let notFound = $state(false);
 	$effect(() => {
+		const src = pageData.detail;
+		// Seed from the last payload this browser saw — but only an 'ok' one; a
+		// CACHED redirect/not-found is never acted on (only the fresh response
+		// decides those, so a stale outcome can't bounce the user around).
+		if (src.cached?.kind === 'ok') detail = src.cached;
 		let current = true;
-		pageData.detail.then((d) => {
+		src.fresh.then((d) => {
 			if (!current) return;
 			if (!d || d.kind === 'not_found') {
 				notFound = true;

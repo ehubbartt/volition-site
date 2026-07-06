@@ -27,7 +27,7 @@
 	// Resolve into state and shadow under the old `data` name (merging the layout's
 	// `user`, which is available immediately) so every reference below keeps
 	// working; revalidations after actions keep the previous data on screen.
-	type Me = NonNullable<Awaited<PageData['me']>>;
+	type Me = NonNullable<PageData['me']['cached']>;
 	const EMPTY_ME = {
 		clanOptions: [],
 		accountTypes: [],
@@ -46,8 +46,10 @@
 	} as unknown as Me;
 	let loadedMe = $state<Me | null>(null);
 	$effect(() => {
+		const src = pageData.me;
+		if (src.cached) loadedMe = src.cached;
 		let current = true;
-		pageData.me.then((m) => {
+		src.fresh.then((m) => {
 			if (current && m) loadedMe = m;
 		});
 		return () => {

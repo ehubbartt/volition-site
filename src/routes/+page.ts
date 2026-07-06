@@ -1,13 +1,12 @@
 import { redirect } from '@sveltejs/kit';
 import { CATEGORY_OPTIONS, type CalendarItem } from '$lib/calendar';
-import { EMPTY_DIRECTORY, EMPTY_STATS, type Directory, type Stats, type TaskSummary } from '$lib/home';
+import type { Directory, Stats, TaskSummary } from '$lib/home';
+import { swr, emptySwr, type Swr } from '$lib/swr';
 import type { PageLoad } from './$types';
 
 // UNIVERSAL load, no server load: navigating home never waits on the network.
-// The onboarding gate runs against the layout's already-loaded user, the page
-// renders its shell + skeletons immediately, and each panel streams in from
-// /api/home. Every promise carries a catch fallback so a failed fetch degrades
-// to an empty panel instead of an error page.
+// Each panel is a stale-while-revalidate pair — revisits render the last-seen
+// content instantly while a background refetch swaps in fresh data.
 export const load: PageLoad = async ({ parent, fetch }) => {
 	const { user } = await parent();
 
@@ -16,28 +15,19 @@ export const load: PageLoad = async ({ parent, fetch }) => {
 		redirect(303, '/onboarding');
 	}
 
-	const main = fetch('/api/home?part=main').then((r) => {
-		if (!r.ok) throw new Error(`home main ${r.status}`);
-		return r.json() as Promise<{ calendar: CalendarItem[]; stats: Stats }>;
-	});
+	const main = swr<{ calendar: CalendarItem[]; stats: Stats }>(fetch, '/api/home?part=main');
 
 	return {
-		calendar: main.then((m) => m.calendar).catch(() => [] as CalendarItem[]),
-		stats: main.then((m) => m.stats).catch(() => EMPTY_STATS),
-		directory: fetch('/api/home?part=directory')
-			.then((r) => {
-				if (!r.ok) throw new Error(`home directory ${r.status}`);
-				return r.json() as Promise<Directory>;
-			})
-			.catch(() => EMPTY_DIRECTORY),
-		taskSummary: user
-			? fetch('/api/home?part=tasks')
-					.then((r) => {
-						if (!r.ok) throw new Error(`home tasks ${r.status}`);
-						return r.json() as Promise<TaskSummary | null>;
-					})
-					.catch(() => null)
-			: Promise.resolve(null),
+		calendar: {
+			cached: main.cached?.calendar ?? null,
+			fresh: main.fresh.then((m) => m?.calendar ?? null)
+		} satisfies Swr<CalendarItem[]>,
+		stats: {
+			cached: main.cached?.stats ?? null,
+			fresh: main.fresh.then((m) => m?.stats ?? null)
+		} satisfies Swr<Stats>,
+		directory: swr<Directory>(fetch, '/api/home?part=directory'),
+		taskSummary: user ? swr<TaskSummary | null>(fetch, '/api/home?part=tasks') : emptySwr<TaskSummary | null>(),
 		categoryOptions: CATEGORY_OPTIONS
 	};
 };

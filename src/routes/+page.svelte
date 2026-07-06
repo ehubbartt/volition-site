@@ -12,26 +12,30 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	// ALL page data is STREAMED promises (see +page.server.ts) so navigation lands
-	// instantly. Resolve them into state — keeping the previous value while a
-	// revalidation is in flight, so sections don't flash back to skeletons after
-	// form actions.
-	let directory = $state<Awaited<PageData['directory']> | null>(null);
-	let taskSummary = $state<Awaited<PageData['taskSummary']>>(null);
-	let calendar = $state<Awaited<PageData['calendar']>>([]);
-	let stats = $state<Awaited<PageData['stats']> | null>(null);
+	// ALL page data is stale-while-revalidate pairs (see +page.ts): each section
+	// seeds from the last payload this browser saw (instant real content on
+	// revisits) and swaps in the background refetch when it lands. First-ever
+	// visits show skeletons; revalidations keep the previous value on screen.
+	let directory = $state<NonNullable<PageData['directory']['cached']> | null>(null);
+	let taskSummary = $state<PageData['taskSummary']['cached']>(null);
+	let calendar = $state<NonNullable<PageData['calendar']['cached']>>([]);
+	let stats = $state<PageData['stats']['cached']>(null);
 	$effect(() => {
+		const src = data.directory;
+		if (src.cached) directory = src.cached;
 		let current = true;
-		data.directory.then((d) => {
-			if (current) directory = d;
+		src.fresh.then((d) => {
+			if (current && d) directory = d;
 		});
 		return () => {
 			current = false;
 		};
 	});
 	$effect(() => {
+		const src = data.taskSummary;
+		if (src.cached) taskSummary = src.cached;
 		let current = true;
-		data.taskSummary.then((t) => {
+		src.fresh.then((t) => {
 			if (current) taskSummary = t;
 		});
 		return () => {
@@ -39,18 +43,22 @@
 		};
 	});
 	$effect(() => {
+		const src = data.calendar;
+		if (src.cached) calendar = src.cached;
 		let current = true;
-		data.calendar.then((c) => {
-			if (current) calendar = c;
+		src.fresh.then((c) => {
+			if (current && c) calendar = c;
 		});
 		return () => {
 			current = false;
 		};
 	});
 	$effect(() => {
+		const src = data.stats;
+		if (src.cached) stats = src.cached;
 		let current = true;
-		data.stats.then((s) => {
-			if (current) stats = s;
+		src.fresh.then((s) => {
+			if (current && s) stats = s;
 		});
 		return () => {
 			current = false;

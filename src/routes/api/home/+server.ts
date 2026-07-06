@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import { isAdmin } from '$lib/server/auth';
 import { loadCalendarItems } from '$lib/server/calendar';
+import { microCached } from '$lib/server/microCache';
 import {
 	buildStats,
 	buildDirectory,
@@ -20,8 +21,11 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
 	switch (part) {
 		case 'main': {
+			const admin = user ? isAdmin(user) : false;
 			const [calendar, stats] = await Promise.all([
-				loadCalendarItems(user ? isAdmin(user) : false),
+				// Shared per role → micro-cached; calendar actions bust this so an admin
+				// sees their new entry immediately.
+				microCached(`home:calendar:${admin}`, 15_000, () => loadCalendarItems(admin)),
 				buildStats(!!user)
 			]);
 			return json({ calendar, stats }, { headers });

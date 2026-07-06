@@ -9,8 +9,10 @@
 	// Resolve into state; revalidations keep the previous list on screen.
 	let loadedTasks = $state<PlayerTask[] | null>(null);
 	$effect(() => {
+		const src = pageData.tasks;
+		if (src.cached) loadedTasks = src.cached;
 		let current = true;
-		pageData.tasks.then((t) => {
+		src.fresh.then((t) => {
 			if (current && t) loadedTasks = t;
 		});
 		return () => {

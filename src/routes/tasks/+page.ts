@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { PlayerTask } from '$lib/tasks';
+import { swr, type Swr } from '$lib/swr';
 import type { PageLoad } from './$types';
 
 // UNIVERSAL load, no server load: navigating to the To Do page never waits on
@@ -11,13 +12,13 @@ export const load: PageLoad = async ({ parent, fetch }) => {
 		redirect(303, '/onboarding');
 	}
 
-	const tasks: Promise<PlayerTask[] | null> = fetch('/api/tasks')
-		.then((r) => {
-			if (!r.ok) throw new Error(`tasks ${r.status}`);
-			return r.json() as Promise<{ tasks: PlayerTask[] }>;
-		})
-		.then((j) => j.tasks)
-		.catch(() => null);
+	// Stale-while-revalidate: revisits render the last-seen list instantly while
+	// a background refetch swaps in fresh data.
+	const raw = swr<{ tasks: PlayerTask[] }>(fetch, '/api/tasks');
+	const tasks: Swr<PlayerTask[]> = {
+		cached: raw.cached?.tasks ?? null,
+		fresh: raw.fresh.then((j) => j?.tasks ?? null)
+	};
 
 	return { tasks };
 };

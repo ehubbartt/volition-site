@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { buildGambaData } from '$lib/server/gambaPage';
+import { swr } from '$lib/swr';
 import type { PageLoad } from './$types';
 
 // Type-only import above is erased at build time, so no server code reaches the
@@ -16,12 +17,7 @@ export const load: PageLoad = async ({ parent, fetch }) => {
 		redirect(303, '/onboarding');
 	}
 
-	const gamba: Promise<GambaData | null> = fetch('/api/gamba')
-		.then((r) => {
-			if (!r.ok) throw new Error(`gamba ${r.status}`);
-			return r.json() as Promise<GambaData>;
-		})
-		.catch(() => null);
-
-	return { gamba };
+	// Stale-while-revalidate: revisits render the last-seen store/balances
+	// instantly while a background refetch swaps in fresh data.
+	return { gamba: swr<GambaData>(fetch, '/api/gamba') };
 };

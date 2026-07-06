@@ -29,7 +29,7 @@ FROM base
 
 COPY --from=build /app/build build/
 COPY --from=build /app/node_modules node_modules/
-COPY package.json .
+COPY package.json server.mjs ./
 
 EXPOSE 3000
-CMD [ "node", "build" ]
+CMD [ "node", "server.mjs" ]

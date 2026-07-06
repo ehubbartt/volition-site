@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { CATEGORY_OPTIONS } from '$lib/calendar';
+import { bustMicroCache } from '$lib/server/microCache';
 import type { Actions } from './$types';
 
 // ACTIONS ONLY — the homepage has no server load. Its data comes from /api/home
@@ -67,6 +68,7 @@ export const actions: Actions = {
 		});
 
 		if (insertError) return fail(500, { error: insertError.message });
+		bustMicroCache('home:calendar');
 		return { ok: true, action: 'create' };
 	},
 
@@ -100,6 +102,7 @@ export const actions: Actions = {
 			.eq('id', id);
 
 		if (updateError) return fail(500, { error: updateError.message });
+		bustMicroCache('home:calendar');
 		return { ok: true, action: 'update' };
 	},
 
@@ -112,6 +115,7 @@ export const actions: Actions = {
 
 		const { error: deleteError } = await db().from('vs_calendar_events').delete().eq('id', id);
 		if (deleteError) return fail(500, { error: deleteError.message });
+		bustMicroCache('home:calendar');
 		return { ok: true, action: 'delete' };
 	}
 };

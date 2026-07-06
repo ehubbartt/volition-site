@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { buildMeData } from '$lib/server/meData';
+import { swr } from '$lib/swr';
 import type { PageLoad } from './$types';
 
 // Type-only import above is erased at build time — the page just gets accurate
@@ -11,12 +12,7 @@ export const load: PageLoad = async ({ parent, fetch }) => {
 	const { user } = await parent();
 	if (!user) redirect(303, '/');
 
-	const me: Promise<MeData | null> = fetch('/api/me')
-		.then((r) => {
-			if (!r.ok) throw new Error(`me ${r.status}`);
-			return r.json() as Promise<MeData>;
-		})
-		.catch(() => null);
-
-	return { me };
+	// Stale-while-revalidate: revisits render the last-seen profile instantly
+	// while a background refetch swaps in fresh data.
+	return { me: swr<MeData>(fetch, '/api/me') };
 };

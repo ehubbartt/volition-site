@@ -1,4 +1,5 @@
 import { db, fetchAllFiltered } from './db';
+import { microCached } from './microCache';
 import { ensureWelcomePack } from './welcomePack';
 import { loadPlayerTasks } from './tasks';
 import type { SessionUser } from './auth';
@@ -54,18 +55,21 @@ function normRsn(rsn: string | null | undefined): string {
 }
 
 // Headline event/pack counters. Logged-in users' event count includes unreleased
-// (draft/preview) events, matching what the events list can show them.
+// (draft/preview) events, matching what the events list can show them. Shared
+// across users → micro-cached (15s of staleness on counters is invisible).
 export async function buildStats(includeUnreleased: boolean): Promise<Stats> {
-	const sb = db();
-	const statuses = includeUnreleased
-		? ['draft', 'preview', 'open', 'locked', 'closed']
-		: ['open', 'locked', 'closed'];
-	const [eventsRes, packsRes] = await Promise.all([
-		sb.from('vs_events').select('status, ends_at').neq('kind', 'personal').in('status', statuses),
-		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true })
-	]);
-	const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
-	return { activeEvents: active, totalEvents: total, packsOpened: packsRes.count ?? 0 };
+	return microCached(`home:stats:${includeUnreleased}`, 15_000, async () => {
+		const sb = db();
+		const statuses = includeUnreleased
+			? ['draft', 'preview', 'open', 'locked', 'closed']
+			: ['open', 'locked', 'closed'];
+		const [eventsRes, packsRes] = await Promise.all([
+			sb.from('vs_events').select('status, ends_at').neq('kind', 'personal').in('status', statuses),
+			sb.from('vs_pack_opens').select('id', { count: 'exact', head: true })
+		]);
+		const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
+		return { activeEvents: active, totalEvents: total, packsOpened: packsRes.count ?? 0 };
+	});
 }
 
 // Light summary for the home "Your to-do" card (not the full task array).
@@ -93,17 +97,23 @@ export async function buildDirectory(user: {
 	rsn: string | null;
 	welcome_pack_granted: boolean;
 }): Promise<Directory> {
-	const sb = db();
-	const [playersRes, siteUsersRes] = await Promise.all([
-		// Paginate: the full clan roster + all site users can exceed the 1000-row cap.
-		fetchAllFiltered((f, t) =>
-			sb.from('players').select('id, rsn, discord_id, rank, points, clan_joined_at, created_at').range(f, t)
-		),
-		fetchAllFiltered((f, t) => sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null).range(f, t))
-	]);
-
-	const playerRows = (playersRes.data ?? []) as PlayerRow[];
-	const siteUsers = (siteUsersRes.data ?? []) as SiteUserRow[];
+	// The roster + site-user tables are identical for every viewer and are the two
+	// heaviest reads on the site → micro-cache them (30s; rank/VP changes surfacing
+	// half a minute late is invisible). Everything derived below is per-request.
+	const { playerRows, siteUsers } = await microCached('home:roster', 30_000, async () => {
+		const sb = db();
+		const [playersRes, siteUsersRes] = await Promise.all([
+			// Paginate: the full clan roster + all site users can exceed the 1000-row cap.
+			fetchAllFiltered((f, t) =>
+				sb.from('players').select('id, rsn, discord_id, rank, points, clan_joined_at, created_at').range(f, t)
+			),
+			fetchAllFiltered((f, t) => sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null).range(f, t))
+		]);
+		return {
+			playerRows: (playersRes.data ?? []) as PlayerRow[],
+			siteUsers: (siteUsersRes.data ?? []) as SiteUserRow[]
+		};
+	});
 
 	// Which roster members have a site profile (→ /u/[rsn] is reachable). Match on
 	// discord_id first, then normalized rsn.

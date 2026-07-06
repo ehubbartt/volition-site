@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 import type { EventDetailResult } from '$lib/server/eventDetail';
+import { swr } from '$lib/swr';
 import type { PageLoad } from './$types';
 
 // Type-only import above is erased at build time — no server code reaches the
@@ -24,12 +25,7 @@ export const load: PageLoad = async ({ parent, fetch, params, url }) => {
 	if (url.searchParams.get('demo') === '1') qs.set('demo', '1');
 	const query = qs.size ? `?${qs}` : '';
 
-	const detail: Promise<EventDetailResult | null> = fetch(`/api/events/${params.slug}${query}`)
-		.then((r) => {
-			if (!r.ok) throw new Error(`event detail ${r.status}`);
-			return r.json() as Promise<EventDetailResult>;
-		})
-		.catch(() => null);
-
-	return { detail };
+	// Stale-while-revalidate: revisiting an event seeds from the last payload this
+	// browser saw for it, while the background refetch swaps in fresh data.
+	return { detail: swr<EventDetailResult>(fetch, `/api/events/${params.slug}${query}`) };
 };
