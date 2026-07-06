@@ -18,9 +18,39 @@
   import { DEFAULT_PACK_FRONT, discountedPrice } from "$lib/cards/packs";
   import { formatGP, osrsTier } from "$lib/gp";
   import { rsnToSlug } from "$lib/rsn";
+  import Skeleton from "$lib/Skeleton.svelte";
   import { page } from "$app/stores";
 
-  let { data }: { data: PageData } = $props();
+  let { data: pageData }: { data: PageData } = $props();
+
+  // The page dataset is STREAMED (see +page.ts) so navigation lands instantly.
+  // Resolve it into state and shadow it under the old `data` name: every existing
+  // reference below keeps working, and while it's loading `data` serves safe
+  // empty defaults behind the skeleton. Revalidations keep the previous data.
+  type Gamba = NonNullable<Awaited<PageData["gamba"]>>;
+  const EMPTY_GAMBA: Gamba = {
+    vp_balance: 0,
+    gold_balance: 0,
+    walletGpValue: 0,
+    packs: [],
+    teaserPacks: [],
+    recentRares: [],
+    crate: { spinCost: 5, paidEnabled: false, freeAvailable: false, odds: [], reel: [] },
+    recentCrateDrops: [],
+    weeklyPack: null,
+  } as unknown as Gamba;
+  let loadedGamba = $state<Gamba | null>(null);
+  $effect(() => {
+    let current = true;
+    pageData.gamba.then((g) => {
+      if (current && g) loadedGamba = g;
+    });
+    return () => {
+      current = false;
+    };
+  });
+  const data = $derived(loadedGamba ?? EMPTY_GAMBA);
+  const gambaReady = $derived(loadedGamba !== null);
 
   // Warn users whose settings make the 3D packs static or slow, and tell them what to
   // change. 'none' = no WebGL, 'software' = no GPU accel (the "loads super slow" case),
@@ -172,7 +202,7 @@
     return name.trim().toLowerCase() === "white pack";
   }
 
-  function canOpen(pack: PageData["packs"][number]): boolean {
+  function canOpen(pack: Gamba["packs"][number]): boolean {
     return (
       opening === null &&
       pack.card_count > 0 &&
@@ -654,7 +684,9 @@
     </div>
     <div class="balances">
       <div class="osrs-counter" title="Volition Points">
-        <span class="amount {osrsTier(data.vp_balance)}">{data.vp_balance.toLocaleString()}</span>
+        <span class="amount {osrsTier(data.vp_balance)}"
+          >{gambaReady ? data.vp_balance.toLocaleString() : "—"}</span
+        >
         <span class="label">VP</span>
       </div>
       {#if data.gold_balance > 0}
@@ -665,6 +697,21 @@
       {/if}
     </div>
   </header>
+
+  {#if !gambaReady}
+    <!-- Streamed data still on its way — pack-shaped skeletons in place of the store. -->
+    <div class="gamba-skeleton">
+      <Skeleton height="2.4rem" width="20rem" radius="6px" />
+      <div class="gamba-skeleton-grid">
+        {#each { length: 4 }, i (i)}
+          <Skeleton height="16rem" radius="10px" />
+        {/each}
+      </div>
+      <Skeleton height="6rem" radius="8px" />
+    </div>
+  {/if}
+
+  {#if gambaReady}
 
   {#if perfNotice}
     <div class="perf-notice" role="status">
@@ -1176,6 +1223,7 @@
       {/if}
     </div>
   {/if}
+  {/if}
 </section>
 
 {#if openerOpen && openedPack}
@@ -1246,6 +1294,19 @@
 {/if}
 
 <style>
+  .gamba-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .gamba-skeleton-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+    gap: 1rem;
+  }
+
   .gamba {
     max-width: 1100px;
     margin: 0 auto;
