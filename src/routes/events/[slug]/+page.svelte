@@ -1,37 +1,81 @@
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
+	import { goto } from '$app/navigation';
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import BoardLeaderboard from '$lib/board/BoardLeaderboard.svelte';
 	import { CLAN_OPTIONS } from '$lib/clans';
 	import { createBusy } from '$lib/busy.svelte';
 	import Skeleton from '$lib/Skeleton.svelte';
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let { data: pageData, form }: { data: PageData; form: ActionData } = $props();
 
 	// One shared pending-state for all the plain signup/team/invite forms below: any
 	// in-flight action disables the whole group (no double-submits) and swaps the
 	// clicked button's label so the round-trip is visible.
 	const busy = createBusy();
 
-	// Standings are STREAMED from the load (live events only) so navigation lands
-	// instantly. Resolve into state, keeping the previous table while an action's
-	// revalidation is in flight.
-	type Standings = Awaited<NonNullable<PageData['standings']>>;
-	let standings = $state<Standings>(null);
+	// The whole event payload is STREAMED (see +page.ts) so navigation lands
+	// instantly on a skeleton event. Resolve it into state and shadow it under the
+	// old `data` name so every reference below keeps working; not-found and
+	// redirect outcomes are acted on when the payload arrives. Revalidations after
+	// form actions keep the previous data on screen.
+	type Detail = Extract<NonNullable<Awaited<PageData['detail']>>, { kind: 'ok' }>;
+	const EMPTY_DETAIL = {
+		kind: 'ok',
+		isAdmin: false,
+		isDuo: false,
+		eventLive: false,
+		teamsView: false,
+		standings: null,
+		adminSignups: [],
+		event: {
+			id: '',
+			slug: '',
+			name: '',
+			kind: 'custom',
+			description: null,
+			description_html: '',
+			status: 'open',
+			signup_opens_at: null,
+			signup_closes_at: null,
+			starts_at: null,
+			team_size: null,
+			owner_user_id: null
+		},
+		host: null,
+		mySignup: null,
+		myTeam: [],
+		soloPool: [],
+		incomingInvites: [],
+		outgoingInvites: [],
+		teams: [],
+		stats: { totalSignups: 0, teamCount: 0, soloCount: 0, clanBreakdown: [] }
+	} as unknown as Detail;
+	let detail = $state<Detail | null>(null);
+	let notFound = $state(false);
 	$effect(() => {
 		let current = true;
-		if (!data.standings) {
-			standings = null;
-			return;
-		}
-		Promise.resolve(data.standings).then((s) => {
-			if (current) standings = s;
+		pageData.detail.then((d) => {
+			if (!current) return;
+			if (!d || d.kind === 'not_found') {
+				notFound = true;
+				return;
+			}
+			if (d.kind === 'redirect') {
+				goto(d.to, { replaceState: true });
+				return;
+			}
+			notFound = false;
+			detail = d;
 		});
 		return () => {
 			current = false;
 		};
 	});
+	const data = $derived(detail ?? EMPTY_DETAIL);
+	const ready = $derived(detail !== null);
+	const standings = $derived(data.standings);
 
 	let signedUp = $derived(!!data.mySignup);
 	let onTeam = $derived(!!data.mySignup?.team_id);
@@ -124,6 +168,34 @@
 	<a href="/events">← All events</a>
 </nav>
 
+{#if notFound}
+	<section class="hero">
+		<div class="hero-head">
+			<h1>Event not found</h1>
+		</div>
+		<p class="muted">This event doesn't exist or isn't visible to you.</p>
+	</section>
+{:else if !ready}
+	<!-- Streamed payload still on its way — an empty "fake event" holds the layout. -->
+	<section class="hero">
+		<div class="hero-head">
+			<Skeleton height="2.2rem" width="18rem" radius="6px" />
+		</div>
+		<div class="detail-skeleton-lines">
+			<Skeleton height="1rem" width="90%" />
+			<Skeleton height="1rem" width="70%" />
+		</div>
+	</section>
+	<section class="grid">
+		<div class="main">
+			<Skeleton height="10rem" radius="8px" />
+			<Skeleton height="14rem" radius="8px" />
+		</div>
+		<aside class="side">
+			<Skeleton height="8rem" radius="8px" />
+		</aside>
+	</section>
+{:else}
 <section class="hero">
 	<div class="hero-head">
 		<h1>{data.event.name}</h1>
@@ -592,6 +664,7 @@
 	</aside>
 </section>
 
+{/if}
 <style>
 	.crumbs {
 		margin-bottom: 0.75rem;
@@ -1206,6 +1279,13 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
+	}
+
+	.detail-skeleton-lines {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
 	}
 
 	.teams-view-head h2 {
