@@ -1,13 +1,15 @@
-import { redirect } from '@sveltejs/kit';
-import { db } from '$lib/server/db';
-import { isAdmin } from '$lib/server/auth';
+import { db } from './db';
 import { markdownPreview } from '$lib/markdown';
 import {
 	BINGO_EVENT_SLUG,
 	BINGO_ROW_COUNT,
 	BINGO_ROW_INTERVAL_HOURS
 } from '$lib/bingo/config';
-import type { PageServerLoad } from './$types';
+import type { EventSections, EventListItem, PersonalCard, Section, ActionLine } from '$lib/eventsList';
+
+// Builds the /events list (active/upcoming/past sections + the Personal Bingo card
+// state) for one user. Served as JSON by /api/events-list so the page's universal
+// load can navigate with zero server round-trips and stream this in behind skeletons.
 
 const HOUR_MS = 3_600_000;
 const BINGO_DURATION_MS = BINGO_ROW_COUNT * BINGO_ROW_INTERVAL_HOURS * HOUR_MS;
@@ -41,12 +43,6 @@ interface EventRow {
 	signup_closes_at: string | null;
 	starts_at: string | null;
 	ends_at: string | null;
-}
-
-type Section = 'active' | 'upcoming' | 'past';
-interface ActionLine {
-	label: string;
-	date: string | null;
 }
 
 // Only duo (and signup-configured custom) events use the signup flow. bingo/simple/
@@ -157,33 +153,7 @@ function classify(
 	};
 }
 
-export const load: PageServerLoad = async ({ locals }) => {
-	if (!locals.user) throw redirect(303, '/');
-	if (!locals.user.rsn || !locals.user.clan_allegiance || !locals.user.account_type) {
-		throw redirect(303, '/onboarding');
-	}
-
-	// STREAMED: the page shell renders instantly; the list fills in when this
-	// resolves. The two queries also run in parallel now (the user's signups are a
-	// tiny per-user set, so they no longer wait on the event list to narrow by id).
-	const sections = buildSections(locals.user.id, isAdmin(locals.user)).catch(() => ({
-		activeEvents: [],
-		upcomingEvents: [],
-		pastEvents: [],
-		personal: { state: 'none' } as PersonalCard
-	}));
-
-	return { sections };
-};
-
-// State for the always-present "Personal Bingo" card at the top of the list —
-// the entry point for creating (or getting back to) your own board.
-export type PersonalCard =
-	| { state: 'none' }
-	| { state: 'draft' }
-	| { state: 'running'; obtained: number; total: number };
-
-async function buildSections(userId: string, admin: boolean) {
+export async function buildSections(userId: string, admin: boolean): Promise<EventSections> {
 	const visibleStatuses = admin
 		? ['draft', 'preview', 'open', 'locked', 'closed']
 		: ['open', 'locked', 'closed'];
@@ -234,7 +204,7 @@ async function buildSections(userId: string, admin: boolean) {
 	const now = Date.now();
 	const signedUpIds = new Set((sus ?? []).map((r) => r.event_id as string));
 
-	const items = rows.map((ev) => {
+	const items: EventListItem[] = rows.map((ev) => {
 		const startsAt = startsAtFor(ev.slug, ev.starts_at, ev.signup_opens_at);
 		const endsAt = endsAtFor(ev.slug, startsAt, ev.ends_at, ev.signup_closes_at);
 		const signedUp = signedUpIds.has(ev.id);
