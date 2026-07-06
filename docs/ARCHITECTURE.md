@@ -103,6 +103,49 @@ Every request passes through the handle hook, in order:
 Filesystem routing under `src/routes/`; pages pair a `+page.svelte` with a
 `+page.server.ts` (loaders + form actions).
 
+### Instant navigation (the standard for member-facing pages)
+
+SvelteKit blocks a client-side navigation until the destination's **server** load
+resolves — so a page with a `+page.server.ts` load costs at least one network
+round-trip per navigation. The member-facing pages avoid that entirely: they have
+**no server load**, and clicking a link swaps the page in the same frame with
+skeletons that fill in as data streams. Converted so far: `/`, `/events`,
+`/events/[slug]`, `/gamba`, `/me`, `/tasks`.
+
+**The recipe for a new page (copy any converted page as a template):**
+
+1. **Data builder** in `src/lib/server/` — one exported async function taking the
+   `SessionUser` (+ params) and returning a JSON-serializable payload (e.g.
+   `homeData.ts`, `eventsList.ts`, `eventDetail.ts`, `gambaPage.ts`, `meData.ts`).
+2. **Endpoint** at `src/routes/api/<name>/+server.ts` — a ~10-line GET: check
+   `locals.user`, call the builder, `json(data, { headers: { 'cache-control': 'no-store' } })`.
+   Hooks (session/ban/staging gates) run on API requests like any other.
+3. **Universal load** at `+page.ts` — read `user` from `await parent()` for the
+   auth/onboarding redirects (zero network: layout data is already loaded), then
+   return the endpoint fetch **without awaiting it**. Always attach a
+   `.catch(() => fallback)` — a rejected streamed promise kills the whole render.
+4. **Page component** — resolve the promise into `$state` (see the block at the top
+   of any converted `+page.svelte`), render `$lib/Skeleton.svelte` placeholders
+   until it lands. Resolving into state (rather than `{#await}`) keeps the previous
+   data on screen during post-action revalidations instead of flashing skeletons.
+5. **Form actions stay** in `+page.server.ts` (actions only, no load) — see
+   `/` (calendar), `/gamba`, `/me`, `/events/[slug]`.
+
+Pages whose first decision needs data (404 by slug, conditional redirects) return a
+discriminated payload instead — `{ kind: 'ok' | 'not_found' | 'redirect' }` — and the
+component acts on it when it arrives (`eventDetail.ts` is the reference).
+
+**Rules that make this safe:** endpoints must re-check `locals` themselves (the
+client-side gates are UX, not security); type payloads with `import type` from the
+server builder (type-only imports are erased at build, so no server code leaks);
+and keep the root `+layout.server.ts` free of `url`/`params` reads — the zero
+round-trip depends on it not re-running per navigation.
+
+**Known tradeoff:** hard refreshes render skeletons first (content streams after
+hydration). Client-side navigation — the overwhelmingly common case for a
+logged-in member app — is what this optimizes. Admin pages keep classic server
+loads on purpose.
+
 - **Public:** `/` (roster, calendar, event counts), `/onboarding`, `/me`, `/u/[rsn]`,
   `/auth/*`, `/banned`, `/login-busy` (Discord API degradation).
 - **Events / board game:** `/events`, `/events/[slug]` (signups, teams, duo invites,
