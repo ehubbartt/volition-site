@@ -16,11 +16,46 @@
 	import WalletList from '$lib/WalletList.svelte';
 	import RankBadge from '$lib/RankBadge.svelte';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
+	import Skeleton from '$lib/Skeleton.svelte';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/stores';
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let { data: pageData, form }: { data: PageData; form: ActionData } = $props();
+
+	// The profile payload is STREAMED (see +page.ts) so navigation lands instantly.
+	// Resolve into state and shadow under the old `data` name (merging the layout's
+	// `user`, which is available immediately) so every reference below keeps
+	// working; revalidations after actions keep the previous data on screen.
+	type Me = NonNullable<Awaited<PageData['me']>>;
+	const EMPTY_ME = {
+		clanOptions: [],
+		accountTypes: [],
+		currentRank: null,
+		rankBreakdown: null,
+		vp_balance: 0,
+		gold_balance: 0,
+		wallet: [],
+		walletGpValue: 0,
+		collection: [],
+		collectionOwned: 0,
+		collectionTotal: 0,
+		myStats: null,
+		crateStats: null,
+		packs: []
+	} as unknown as Me;
+	let loadedMe = $state<Me | null>(null);
+	$effect(() => {
+		let current = true;
+		pageData.me.then((m) => {
+			if (current && m) loadedMe = m;
+		});
+		return () => {
+			current = false;
+		};
+	});
+	const data = $derived({ user: pageData.user!, ...(loadedMe ?? EMPTY_ME) });
+	const meReady = $derived(loadedMe !== null);
 
 	// Wallet → GP conversion (posts to the gamba action; reloads /me on success).
 	let walletConverting = $state(false);
@@ -93,7 +128,7 @@
 				</span>
 			</div>
 		</div>
-		<OsrsCounter value={data.vp_balance} label="VP" title="Volition Points" />
+		<OsrsCounter value={meReady ? data.vp_balance : 0} label="VP" title="Volition Points" />
 	</header>
 
 	{#if data.user.rsn}
@@ -102,6 +137,12 @@
 		</p>
 	{/if}
 
+	{#if !meReady}
+		<div class="me-skeleton">
+			<Skeleton height="2.4rem" width="24rem" radius="6px" />
+			<Skeleton height="18rem" radius="10px" />
+		</div>
+	{:else}
 	<nav class="tabs">
 		{#each tabs as t}
 			<button
@@ -456,6 +497,7 @@
 			{/if}
 		</div>
 	{/if}
+	{/if}
 </section>
 
 {#if viewing}
@@ -463,6 +505,13 @@
 {/if}
 
 <style>
+	.me-skeleton {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		margin-top: 1rem;
+	}
+
 	.profile {
 		max-width: 900px;
 		margin: 0 auto;

@@ -1,8 +1,24 @@
 <script lang="ts">
 	import { formatCountdown, type PlayerTask } from '$lib/tasks';
+	import Skeleton from '$lib/Skeleton.svelte';
 	import type { PageData } from './$types';
 
-	let { data }: { data: PageData } = $props();
+	let { data: pageData }: { data: PageData } = $props();
+
+	// The task list is STREAMED (see +page.ts) so navigation lands instantly.
+	// Resolve into state; revalidations keep the previous list on screen.
+	let loadedTasks = $state<PlayerTask[] | null>(null);
+	$effect(() => {
+		let current = true;
+		pageData.tasks.then((t) => {
+			if (current && t) loadedTasks = t;
+		});
+		return () => {
+			current = false;
+		};
+	});
+	const tasks = $derived(loadedTasks ?? []);
+	const tasksReady = $derived(loadedTasks !== null);
 
 	// Live clock so the countdowns tick (pattern from the gamba page).
 	let now = $state(Date.now());
@@ -11,7 +27,7 @@
 		return () => clearInterval(id);
 	});
 
-	const todoCount = $derived(data.tasks.filter((t) => t.status === 'todo').length);
+	const todoCount = $derived(tasks.filter((t) => t.status === 'todo').length);
 
 	const STATUS_LABEL: Record<PlayerTask['status'], string> = {
 		todo: 'To do',
@@ -74,11 +90,17 @@
 	</div>
 {/snippet}
 
-{#if data.tasks.length === 0}
+{#if !tasksReady}
+	<ul class="task-list">
+		{#each { length: 4 }, i (i)}
+			<li><Skeleton height="5.5rem" radius="8px" /></li>
+		{/each}
+	</ul>
+{:else if tasks.length === 0}
 	<div class="panel empty">Nothing time-gated right now. Check back later!</div>
 {:else}
 	<ul class="task-list">
-		{#each data.tasks as t (t.id)}
+		{#each tasks as t (t.id)}
 			<li>
 				<a
 					class="task panel"
