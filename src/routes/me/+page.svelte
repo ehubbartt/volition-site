@@ -17,6 +17,7 @@
 	import RankBadge from '$lib/RankBadge.svelte';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import Skeleton from '$lib/Skeleton.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -44,21 +45,9 @@
 		crateStats: null,
 		packs: []
 	} as unknown as Me;
-	let loadedMe = $state<Me | null>(null);
-	$effect(() => {
-		const src = pageData.me;
-		let current = true;
-		src.fresh.then((m) => {
-			if (current && m) loadedMe = m;
-		});
-		return () => {
-			current = false;
-		};
-	});
-	// Cached fallback is SYNCHRONOUS so revisits (incl. back/forward) first-paint
-	// with real content instead of a skeleton frame.
-	const data = $derived({ user: pageData.user!, ...(loadedMe ?? pageData.me.cached ?? EMPTY_ME) });
-	const meReady = $derived(loadedMe !== null || pageData.me.cached !== null);
+	const meRes = swrResource(() => pageData.me, EMPTY_ME);
+	const data = $derived({ user: pageData.user!, ...meRes.value });
+	const meReady = $derived(meRes.ready);
 
 	// Wallet → GP conversion (posts to the gamba action; reloads /me on success).
 	let walletConverting = $state(false);

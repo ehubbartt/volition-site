@@ -1,18 +1,13 @@
-import { redirect } from '@sveltejs/kit';
+import { instantLoad } from '$lib/instantLoad';
 import type { buildMeData } from '$lib/server/meData';
-import { swr } from '$lib/swr';
 import type { PageLoad } from './$types';
 
 // Type-only import above is erased at build time — the page just gets accurate
-// types for the streamed payload.
+// types for the streamed payload. Instant navigation: see docs/ARCHITECTURE.md.
 export type MeData = Awaited<ReturnType<typeof buildMeData>>;
 
-// UNIVERSAL load, no server load: navigating to /me never waits on the network.
-export const load: PageLoad = async ({ parent, fetch }) => {
-	const { user } = await parent();
-	if (!user) redirect(303, '/');
-
-	// Stale-while-revalidate: revisits render the last-seen profile instantly
-	// while a background refetch swaps in fresh data.
-	return { me: swr<MeData>(fetch, '/api/me') };
-};
+export const load: PageLoad = instantLoad<MeData, 'me'>({
+	key: 'me',
+	guard: 'member',
+	url: '/api/me'
+});

@@ -8,6 +8,7 @@
 	import { caTierLabel } from '$lib/ca';
 	import { itemImageUrl, skillImageUrl, monsterImageUrl, caTierImageUrl, wikiPageUrl } from '$lib/wikiImage';
 	import Skeleton from '$lib/Skeleton.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 	import type { PageData, ActionData } from './$types';
 
 	type PB = NonNullable<PageData['pb']['cached']>;
@@ -30,33 +31,23 @@
 		sizeRange: { min: 3, max: 7 },
 		difficultyRange: { min: 1, max: 10 }
 	} as unknown as PB;
-	let loadedPB = $state<PB | null>(null);
-	let toggled = false;
-	$effect(() => {
-		const src = pageData.pb;
-		let current = true;
-		src.fresh.then((p) => {
-			if (current && p) applyPB(p);
-		});
-		return () => {
-			current = false;
-		};
-	});
 	// Seed the regen-form toggles from the board's actual composition the first
-	// time it arrives (their $state initializers ran before the data existed).
-	function applyPB(p: PB) {
-		loadedPB = p;
-		if (!toggled && p.board) {
-			toggled = true;
-			skilling = p.board.tiles.some((t) => t.kind === 'skill');
-			ca = p.board.tiles.some((t) => t.kind === 'ca');
+	// time fresh data arrives (their $state initializers ran before the data existed).
+	let toggled = false;
+	const pbRes = swrResource(() => pageData.pb, EMPTY_PB, {
+		onFresh: (p) => {
+			if (!toggled && p.board) {
+				toggled = true;
+				skilling = p.board.tiles.some((t) => t.kind === 'skill');
+				ca = p.board.tiles.some((t) => t.kind === 'ca');
+			}
 		}
-	}
-	// Cached fallback is SYNCHRONOUS so revisits (incl. back/forward) first-paint
-	// with the last-seen board instead of a skeleton frame.
-	const currentPB = $derived(loadedPB ?? pageData.pb.cached);
-	const data = $derived({ ...(currentPB ?? EMPTY_PB), rsn: currentPB ? currentPB.rsn : (pageData.user?.rsn ?? null) });
-	const pbReady = $derived(currentPB !== null);
+	});
+	const data = $derived({
+		...pbRes.value,
+		rsn: pbRes.ready ? pbRes.value.rsn : (pageData.user?.rsn ?? null)
+	});
+	const pbReady = $derived(pbRes.ready);
 
 	let board = $derived(data.board);
 	let locked = $derived(data.locked);

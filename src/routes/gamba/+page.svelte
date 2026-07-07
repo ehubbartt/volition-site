@@ -19,6 +19,7 @@
   import { formatGP, osrsTier } from "$lib/gp";
   import { rsnToSlug } from "$lib/rsn";
   import Skeleton from "$lib/Skeleton.svelte";
+  import { swrResource } from "$lib/swrResource.svelte";
   import { page } from "$app/stores";
 
   let { data: pageData }: { data: PageData } = $props();
@@ -39,21 +40,9 @@
     recentCrateDrops: [],
     weeklyPack: null,
   } as unknown as Gamba;
-  let loadedGamba = $state<Gamba | null>(null);
-  $effect(() => {
-    const src = pageData.gamba;
-    let current = true;
-    src.fresh.then((g) => {
-      if (current && g) loadedGamba = g;
-    });
-    return () => {
-      current = false;
-    };
-  });
-  // Cached fallback is SYNCHRONOUS so revisits (incl. back/forward) first-paint
-  // with real content instead of a skeleton frame.
-  const data = $derived(loadedGamba ?? pageData.gamba.cached ?? EMPTY_GAMBA);
-  const gambaReady = $derived(loadedGamba !== null || pageData.gamba.cached !== null);
+  const gambaRes = swrResource(() => pageData.gamba, EMPTY_GAMBA);
+  const data = $derived(gambaRes.value);
+  const gambaReady = $derived(gambaRes.ready);
 
   // Warn users whose settings make the 3D packs static or slow, and tell them what to
   // change. 'none' = no WebGL, 'software' = no GPU accel (the "loads super slow" case),

@@ -1,27 +1,16 @@
 <script lang="ts">
 	import { formatCountdown, type PlayerTask } from '$lib/tasks';
 	import Skeleton from '$lib/Skeleton.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 	import type { PageData } from './$types';
 
 	let { data: pageData }: { data: PageData } = $props();
 
-	// The task list is STREAMED (see +page.ts) so navigation lands instantly.
-	// Resolve into state; revalidations keep the previous list on screen.
-	let loadedTasks = $state<PlayerTask[] | null>(null);
-	$effect(() => {
-		const src = pageData.tasks;
-		let current = true;
-		src.fresh.then((t) => {
-			if (current && t) loadedTasks = t;
-		});
-		return () => {
-			current = false;
-		};
-	});
-	// Cached fallback is SYNCHRONOUS so revisits (incl. back/forward) first-paint
-	// with real content instead of a skeleton frame.
-	const tasks = $derived(loadedTasks ?? pageData.tasks.cached ?? []);
-	const tasksReady = $derived(loadedTasks !== null || pageData.tasks.cached !== null);
+	// The task list is STREAMED (see +page.ts) so navigation lands instantly;
+	// swrResource shows cached content synchronously and swaps in fresh data.
+	const tasksRes = swrResource(() => pageData.tasks, [] as PlayerTask[]);
+	const tasks = $derived(tasksRes.value);
+	const tasksReady = $derived(tasksRes.ready);
 
 	// Live clock so the countdowns tick (pattern from the gamba page).
 	let now = $state(Date.now());
