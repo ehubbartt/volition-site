@@ -1,35 +1,16 @@
-import { redirect, error, fail } from '@sveltejs/kit';
+import { redirect, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { grantPlayerVp } from '$lib/server/playerStats';
-import { loadPendingReview, loadReviewedSubmissions, decideSubmissions, revokeSubmissions } from '$lib/server/submissions';
+import { decideSubmissions, revokeSubmissions } from '$lib/server/submissions';
 import type { SubmissionSource, ReviewDecision } from '$lib/submissions';
-import type { Actions, PageServerLoad } from './$types';
+import type { Actions } from './$types';
+
+// ACTIONS ONLY — this page has no server load. Its data comes from
+// /api/admin/submissions (built in $lib/server/admin/submissions.ts) via the
+// universal load in +page.ts, so navigating here never waits on the server.
 
 const SOURCES: SubmissionSource[] = ['generic', 'bingo', 'team'];
-
-export const load: PageServerLoad = async ({ locals, url }) => {
-	if (!locals.user) throw redirect(303, '/');
-	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
-
-	const view = url.searchParams.get('view') === 'reviewed' ? 'reviewed' : 'pending';
-	// Test view: admin preview-run submissions (vs_submissions.test), kept out of the
-	// live queue. Default (live) hides them; ?test=1 shows ONLY them.
-	const test = url.searchParams.get('test') === '1';
-
-	// Reviewed-history search (server-side, so it reaches submissions older than the
-	// recent window the list loads by default).
-	const search = url.searchParams.get('q')?.trim() ?? '';
-
-	// The reviewed history is only fetched when that tab is active — but when it is,
-	// run it alongside the pending pass instead of after it (both are heavy).
-	const [{ items, events, stats }, reviewed] = await Promise.all([
-		loadPendingReview({ test }),
-		view === 'reviewed' ? loadReviewedSubmissions({ test, search }) : Promise.resolve(null)
-	]);
-
-	return { view, test, items, events, stats, reviewed, search };
-};
 
 // Grant the event's vp_reward to the submitter the FIRST time one of their generic
 // submissions for that event is approved. Idempotent: skips if they already had an

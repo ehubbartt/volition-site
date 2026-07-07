@@ -1,8 +1,23 @@
 <script lang="ts">
 	import ModerationTabs from '$lib/admin/ModerationTabs.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 	import type { PageData } from './$types';
 
-	let { data }: { data: PageData } = $props();
+	let { data: pageData }: { data: PageData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen page
+	// instantly; first visits fill in as the fetch lands.
+	const EMPTY_AUDIT = {
+		rows: [],
+		userNames: {},
+		actors: [],
+		routes: [],
+		pageSize: 0,
+		hasMore: false,
+		nextBefore: null
+	} as NonNullable<PageData['audit']['cached']>;
+	const auditRes = swrResource(() => pageData.audit, EMPTY_AUDIT);
+	const data = $derived(auditRes.value);
 
 	let search = $state('');
 	let actorFilter = $state('all');
@@ -10,7 +25,8 @@
 	let statusFilter = $state<'all' | 'ok' | 'fail'>('all');
 
 	// Stable per-row actor key, matching the load's actor dropdown ids.
-	const actorKey = (r: PageData['rows'][number]) => r.actor_discord_id ?? r.actor_name ?? 'anonymous';
+	const actorKey = (r: NonNullable<PageData['audit']['cached']>['rows'][number]) =>
+		r.actor_discord_id ?? r.actor_name ?? 'anonymous';
 
 	let filtered = $derived(
 		data.rows.filter((r) => {

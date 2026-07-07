@@ -164,8 +164,20 @@ round-trip depends on it not re-running per navigation.
 
 **Known tradeoff:** hard refreshes render skeletons first (content streams after
 hydration). Client-side navigation — the overwhelmingly common case for a
-logged-in member app — is what this optimizes. Admin pages keep classic server
-loads on purpose.
+logged-in member app — is what this optimizes.
+
+**Admin pages** use the same pattern with role-gated endpoint factories:
+`adminEndpoint` / `superAdminEndpoint` / `cardAdminEndpoint` (in
+`lib/server/apiEndpoint.ts`) re-verify the role server-side on EVERY fetch of
+`/api/admin/*` — that is the security boundary. The `'admin'` / `'superAdmin'` /
+`'cardAdmin'` guards in `instantLoad` are UX only (they redirect/403 before render
+using the role flags the root layout exposes). Admin builders live in
+`lib/server/admin/*`; form actions and their audit capture stay in
+`+page.server.ts`. Converted: `/admin` (hub, zero network), `overview`, `stats`,
+`audit`, `voice`, `pack-stats`, `wallets`, `moderation`, `dink-drops`,
+`submissions`, `events`, `tasks`. The form-heavy/rare tools (cards, config,
+admins, tables, inventory, sims, dink-test, ehb, per-event pages) keep classic
+server loads on purpose.
 
 - **Public:** `/` (roster, calendar, event counts), `/onboarding`, `/me`, `/u/[rsn]`,
   `/auth/*`, `/banned`, `/login-busy` (Discord API degradation).

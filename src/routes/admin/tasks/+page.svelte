@@ -2,8 +2,19 @@
 	import { enhance } from '$app/forms';
 	import type { PageData, ActionData } from './$types';
 	import EventsTasksTabs from '$lib/admin/EventsTasksTabs.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let { data: pageData, form }: { data: PageData; form: ActionData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen lists instantly;
+	// first visits fill in as the fetch lands. Shadowed under the old `data` name so
+	// every reference keeps working.
+	const EMPTY_TASKS = {
+		templates: [],
+		active: []
+	} as NonNullable<PageData['tasks']['cached']>;
+	const taskRes = swrResource(() => pageData.tasks, EMPTY_TASKS);
+	const data = $derived(taskRes.value);
 
 	let createMode = $state<'template' | 'active'>('template');
 	let createKind = $state<'weekly' | 'custom'>('weekly');

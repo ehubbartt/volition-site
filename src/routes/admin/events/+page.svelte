@@ -5,11 +5,23 @@
 	import { isTaskEvent, isEventEnded } from '$lib/events/simple';
 	import { dateFormEnhance } from '$lib/datetime';
 	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
+	import { swrResource } from '$lib/swrResource.svelte';
 
 	// Client-safe duo slug (mirrors DUO_WOLF_EVENT_SLUG in the server-only duoWolfTiles.ts).
 	const DUO_SLUG = 'duo-wolf';
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let { data: pageData, form }: { data: PageData; form: ActionData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen list instantly;
+	// first visits fill in as the fetch lands. Shadowed under the old `data` name so
+	// every reference keeps working.
+	const EMPTY_EVENTS = {
+		events: [],
+		packNames: [],
+		templates: []
+	} as NonNullable<PageData['events']['cached']>;
+	const evRes = swrResource(() => pageData.events, EMPTY_EVENTS);
+	const data = $derived(evRes.value);
 
 	type EventRow = (typeof data.events)[number];
 

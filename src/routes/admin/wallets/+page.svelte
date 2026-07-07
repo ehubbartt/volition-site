@@ -4,8 +4,18 @@
 	import { formatDate } from '$lib/datetime';
 	import { enhance } from '$app/forms';
 	import StatsTabs from '$lib/admin/StatsTabs.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 
-	let { data }: { data: PageData } = $props();
+	let { data: pageData }: { data: PageData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen roster
+	// instantly; first visits fill in as the fetch lands.
+	const EMPTY_WALLETS = {
+		players: [],
+		totals: { members: 0, totalVP: 0, unpaidItems: 0, walletValue: 0, goldBalance: 0 }
+	} as NonNullable<PageData['wallets']['cached']>;
+	const walletsRes = swrResource(() => pageData.wallets, EMPTY_WALLETS);
+	const data = $derived(walletsRes.value);
 
 	let search = $state('');
 	let sortBy = $state<

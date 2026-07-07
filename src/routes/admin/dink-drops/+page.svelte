@@ -1,9 +1,20 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import DinkTabs from '$lib/admin/DinkTabs.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 	import type { PageData, ActionData } from './$types';
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let { data: pageData, form }: { data: PageData; form: ActionData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen drops
+	// instantly; first visits fill in as the fetch lands.
+	const EMPTY_DINK_DROPS = {
+		filter: 'all',
+		loadError: null,
+		drops: []
+	} as NonNullable<PageData['dinkDrops']['cached']>;
+	const ddRes = swrResource(() => pageData.dinkDrops, EMPTY_DINK_DROPS);
+	const data = $derived(ddRes.value);
 
 	const OUTCOME_LABEL: Record<string, string> = {
 		credited: '✓ credited',

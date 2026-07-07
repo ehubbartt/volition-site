@@ -2,9 +2,20 @@
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import ModerationTabs from '$lib/admin/ModerationTabs.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 	import type { PageData, ActionData } from './$types';
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let { data: pageData, form }: { data: PageData; form: ActionData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen lists
+	// instantly; first visits fill in as the fetch lands.
+	const EMPTY_MODERATION = {
+		bans: [],
+		warnings: [],
+		members: []
+	} as NonNullable<PageData['moderation']['cached']>;
+	const modRes = swrResource(() => pageData.moderation, EMPTY_MODERATION);
+	const data = $derived(modRes.value);
 
 	let banId = $state('');
 	let banReason = $state('');

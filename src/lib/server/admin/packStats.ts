@@ -1,8 +1,5 @@
-import { redirect, error } from '@sveltejs/kit';
 import { selectAll } from '$lib/server/db';
-import { isCardAdmin } from '$lib/server/auth';
 import { RARITIES, isValidRarity, DEFAULT_RARITY } from '$lib/cards/rarity';
-import type { PageServerLoad } from './$types';
 
 // Card-tester-gated player stats, built from the vs_pack_opens history log plus
 // current inventory (vs_user_cards / vs_user_packs). Aggregation happens in JS —
@@ -55,10 +52,7 @@ export interface PlayerStat {
 	lastOpened: string | null;
 }
 
-export const load: PageServerLoad = async ({ locals }) => {
-	if (!locals.user) throw redirect(303, '/');
-	if (!isCardAdmin(locals.user)) throw error(403, 'Not allowed');
-
+export async function buildPackStats() {
 	// Page through every row (PostgREST caps a plain .select() at 1000) so the
 	// rarity/SR pull counts and per-player totals reflect the FULL history, not just
 	// the first 1000 rows — vs_pack_open_cards (≈5 rows/open) blows past 1000 fast.
@@ -189,4 +183,4 @@ export const load: PageServerLoad = async ({ locals }) => {
 		packBreakdown,
 		playerStats
 	};
-};
+}

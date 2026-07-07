@@ -1,8 +1,6 @@
-import { redirect, error } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { isAdmin } from '$lib/server/auth';
 import { enrichAuditRows, type AuditEnrichment } from '$lib/server/audit';
-import type { PageServerLoad } from './$types';
 
 // How many recent rows to load per page. Filtering happens client-side over this set;
 // "Load older" walks back via the ?before cursor.
@@ -28,14 +26,8 @@ export interface AuditRow {
 
 export type EnrichedAuditRow = AuditRow & AuditEnrichment;
 
-// Admin-only (the audit log is sensitive — card testers don't see it).
-export const load: PageServerLoad = async ({ locals, url }) => {
-	if (!locals.user) throw redirect(303, '/');
-	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
-
-	// Cursor for "load older": fetch rows strictly before this created_at.
-	const before = url.searchParams.get('before');
-
+// `before` is the cursor for "load older": fetch rows strictly before this created_at.
+export async function buildAudit(before: string | null) {
 	let q = db()
 		.from('vs_audit_log')
 		.select(
@@ -82,4 +74,4 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		hasMore: rows.length === PAGE_SIZE,
 		nextBefore: rows.length ? rows[rows.length - 1].created_at : null
 	};
-};
+}

@@ -4,9 +4,25 @@
   import AccountIcon from "$lib/AccountIcon.svelte";
   import Lightbox from "$lib/Lightbox.svelte";
   import EventsTasksTabs from "$lib/admin/EventsTasksTabs.svelte";
+  import { swrResource } from "$lib/swrResource.svelte";
   import type { PageData } from "./$types";
 
-  let { data }: { data: PageData } = $props();
+  let { data: pageData }: { data: PageData } = $props();
+
+  // Streamed payload (see +page.ts): revisits render the last-seen queue
+  // instantly; first visits fill in as the fetch lands. Shadowed under the old
+  // `data` name so every reference keeps working.
+  const EMPTY_SUBMISSIONS = {
+    view: "pending",
+    test: false,
+    items: [],
+    events: [],
+    stats: { pending: 0, approved: 0, rejected: 0 },
+    reviewed: null,
+    search: "",
+  } as NonNullable<PageData["submissions"]["cached"]>;
+  const subRes = swrResource(() => pageData.submissions, EMPTY_SUBMISSIONS);
+  const data = $derived(subRes.value);
 
   let selectedEvent = $state("all");
   // Client-side filter over the pending queue (it loads ALL pending rows, so no server
@@ -34,11 +50,16 @@
   // Reviewed-history SERVER-SIDE search (?q=) — reaches submissions older than the loaded
   // recent window (the status/event chips above only filter what's already loaded).
   let searchInput = $state("");
-  // Seed + keep the box in step with the loaded ?q= (reading `data` in an effect avoids the
-  // "captures only the initial value" warning; user typing isn't clobbered since this only
-  // re-runs when data.search itself changes, i.e. on navigation).
+  // Seed + keep the box in step with the loaded ?q=. The payload object is
+  // replaced on every background refetch, so guard on the value: user typing is
+  // only overwritten when the loaded ?q= itself changes (i.e. on navigation).
+  let seededSearch: string | null = null;
   $effect(() => {
-    searchInput = data.search ?? "";
+    const s = data.search ?? "";
+    if (s !== seededSearch) {
+      seededSearch = s;
+      searchInput = s;
+    }
   });
   function reviewedUrl(q: string): string {
     const params = new URLSearchParams();

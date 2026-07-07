@@ -1,7 +1,4 @@
-import { redirect, error } from '@sveltejs/kit';
 import { db, fetchAllFiltered } from '$lib/server/db';
-import { isAdmin } from '$lib/server/auth';
-import type { PageServerLoad } from './$types';
 
 // Voice activity panel (migrated from volition-admin-dashboard). Reads the bot's voice
 // tracking tables: per-user totals, daily aggregates, and the live activity log.
@@ -10,10 +7,7 @@ export type VoiceUser = { user_id: string; name: string; total_minutes: number; 
 export type VoiceDay = { date: string; total_minutes: number; unique_users: number; peak_concurrent: number };
 export type VoiceActivity = { id: string | number; name: string; created_at: string; type: string | null };
 
-export const load: PageServerLoad = async ({ locals }) => {
-	if (!locals.user) throw redirect(303, '/');
-	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
-
+export async function buildVoice() {
 	const todayStart = new Date();
 	todayStart.setHours(0, 0, 0, 0);
 	const today = new Date().toISOString().split('T')[0];
@@ -91,4 +85,4 @@ export const load: PageServerLoad = async ({ locals }) => {
 	};
 
 	return { stats, days, users, recentActivity };
-};
+}

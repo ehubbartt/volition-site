@@ -1,11 +1,24 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import CardsTabs from '$lib/admin/CardsTabs.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 	import { rsnToSlug } from '$lib/rsn';
 	import { formatGP, formatPct } from '$lib/gp';
 	import { formatDate } from '$lib/datetime';
 
-	let { data }: { data: PageData } = $props();
+	let { data: pageData }: { data: PageData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen stats
+	// instantly; first visits fill in as the fetch lands.
+	const EMPTY_PACK_STATS = {
+		totals: { opens: 0, vpSpent: 0, gpSpent: 0, cardsPulled: 0, openers: 0 },
+		rarityBreak: [],
+		finishPulls: { normal: 0, holo: 0, reverse: 0 },
+		packBreakdown: [],
+		playerStats: []
+	} as NonNullable<PageData['packStats']['cached']>;
+	const statsRes = swrResource(() => pageData.packStats, EMPTY_PACK_STATS);
+	const data = $derived(statsRes.value);
 
 	const fmt = (n: number) => n.toLocaleString();
 

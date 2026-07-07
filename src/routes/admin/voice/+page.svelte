@@ -1,8 +1,20 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import StatsTabs from '$lib/admin/StatsTabs.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 
-	let { data }: { data: PageData } = $props();
+	let { data: pageData }: { data: PageData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen panel
+	// instantly; first visits fill in as the fetch lands.
+	const EMPTY_VOICE = {
+		stats: { totalMinutes: 0, totalUsers: 0, activeToday: 0, peakConcurrentToday: 0 },
+		days: [],
+		users: [],
+		recentActivity: []
+	} as NonNullable<PageData['voice']['cached']>;
+	const voiceRes = swrResource(() => pageData.voice, EMPTY_VOICE);
+	const data = $derived(voiceRes.value);
 
 	let search = $state('');
 	let tab = $state<'leaderboard' | 'activity'>('leaderboard');
