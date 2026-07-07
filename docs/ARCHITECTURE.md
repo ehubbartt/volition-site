@@ -115,28 +115,46 @@ skeletons that fill in as data streams. Converted so far: `/`, `/events`,
 Old `/bingo/[slug]` and `/clog-bingo` URLs 301-redirect to their `/events/...`
 homes.
 
-**The recipe for a new page (copy any converted page as a template):**
+The plumbing lives in four shared modules, so a new page writes only its data
+builder and its skeleton markup — everything else is a one-liner:
+
+- `src/lib/server/apiEndpoint.ts` — `memberEndpoint` / `publicEndpoint` (401 gate +
+  no-store JSON).
+- `src/lib/instantLoad.ts` — `instantGuard` (the `'public' | 'member' | 'onboarded'`
+  access gates) and `instantLoad` (the whole standard universal load).
+- `src/lib/swr.ts` — the client-only stale-while-revalidate cache (`swr`, `mapSwr`,
+  `emptySwr`). `cached` is a LIVE getter over the cache, which is what makes
+  back/forward revisits first-paint real content.
+- `src/lib/swrResource.svelte.ts` — `swrResource` / `swrRouted`, the component-side
+  resolvers (state + effect + staleness flag + synchronous cached fallback).
+
+**The recipe for a new page** (see `/me` for the simplest live example):
 
 1. **Data builder** in `src/lib/server/` — one exported async function taking the
    `SessionUser` (+ params) and returning a JSON-serializable payload (e.g.
-   `homeData.ts`, `eventsList.ts`, `eventDetail.ts`, `gambaPage.ts`, `meData.ts`).
-2. **Endpoint** at `src/routes/api/<name>/+server.ts` — a ~10-line GET: check
-   `locals.user`, call the builder, `json(data, { headers: { 'cache-control': 'no-store' } })`.
+   `meData.ts`, `eventsList.ts`, `eventDetail.ts`, `gambaPage.ts`).
+2. **Endpoint** at `src/routes/api/<name>/+server.ts`:
+   `export const GET: RequestHandler = memberEndpoint((user) => buildXData(user));`
    Hooks (session/ban/staging gates) run on API requests like any other.
-3. **Universal load** at `+page.ts` — read `user` from `await parent()` for the
-   auth/onboarding redirects (zero network: layout data is already loaded), then
-   return the endpoint fetch **without awaiting it**. Always attach a
-   `.catch(() => fallback)` — a rejected streamed promise kills the whole render.
-4. **Page component** — resolve the promise into `$state` (see the block at the top
-   of any converted `+page.svelte`), render `$lib/Skeleton.svelte` placeholders
-   until it lands. Resolving into state (rather than `{#await}`) keeps the previous
-   data on screen during post-action revalidations instead of flashing skeletons.
+3. **Universal load** at `+page.ts`:
+   `export const load: PageLoad = instantLoad<XData, 'x'>({ key: 'x', guard: 'onboarded', url: '/api/x' });`
+   (`url` can be a callback for params/query, e.g. `/events/[slug]`.)
+4. **Page component**: `const x = swrResource(() => pageData.x, EMPTY_X);` then
+   `{#if x.ready} …{x.value}… {:else} <Skeleton /> {/if}`. Resolving into state
+   (rather than `{#await}`) keeps the previous data on screen during post-action
+   revalidations instead of flashing skeletons.
 5. **Form actions stay** in `+page.server.ts` (actions only, no load) — see
    `/` (calendar), `/gamba`, `/me`, `/events/[slug]`.
 
 Pages whose first decision needs data (404 by slug, conditional redirects) return a
-discriminated payload instead — `{ kind: 'ok' | 'not_found' | 'redirect' }` — and the
-component acts on it when it arrives (`eventDetail.ts` is the reference).
+discriminated payload — `{ kind: 'ok' | 'not_found' | 'redirect' }` — and resolve it
+with `swrRouted` instead: cached renderable payloads still first-paint synchronously,
+but only FRESH responses steer (a stale cached redirect/not-found can never bounce
+the user). `eventDetail.ts` + `/events/[slug]` are the reference.
+
+Escape hatch: pages that stream several parts or reshape the payload (home, tasks)
+hand-compose `instantGuard` + `swr` + `mapSwr` in their load — `mapSwr` views stay
+live over the underlying cache; never snapshot `cached`.
 
 **Rules that make this safe:** endpoints must re-check `locals` themselves (the
 client-side gates are UX, not security); type payloads with `import type` from the
