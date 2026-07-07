@@ -1,4 +1,4 @@
-import { isAdmin, isCardTester } from '$lib/server/auth';
+import { isAdmin, isCardTester, isSuperAdmin } from '$lib/server/auth';
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = ({ locals }) => {
@@ -8,6 +8,7 @@ export const load: LayoutServerLoad = ({ locals }) => {
 		user,
 		isAdmin: isAdmin(user),
 		isCardTester: isCardTester(user),
+		isSuperAdmin: isSuperAdmin(user),
 		banned: !!locals.ban
 	};
 };

@@ -1,16 +1,10 @@
-import { redirect, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import {
-	isAdmin,
-	envAdminIds,
-	envSuperAdminIds,
-	envCardTesterIds
-} from '$lib/server/auth';
-import type { PageServerLoad } from './$types';
+import { envAdminIds, envSuperAdminIds, envCardTesterIds } from '$lib/server/auth';
 
-// Read-only "how is the bot set up right now" overview. Admin-gated (not super-admin):
-// any admin should be able to SEE current configuration; editing still happens behind
-// the super-admin gates on /admin/config and /admin/admins, which this page links to.
+// Read-only "how is the bot set up right now" overview for /admin/overview.
+// Admin-gated (not super-admin): any admin should be able to SEE current
+// configuration; editing still happens behind the super-admin gates on
+// /admin/config and /admin/admins.
 
 type ConfigRow = {
 	config_name: string;
@@ -55,10 +49,7 @@ function summarize(row: ConfigRow): ConfigSummary {
 	};
 }
 
-export const load: PageServerLoad = async ({ locals }) => {
-	if (!locals.user) throw redirect(303, '/');
-	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
-
+export async function buildOverview() {
 	// Bot configuration (the bot_config table the bot hot-reloads).
 	const { data: cfg, error: cfgErr } = await db()
 		.from('bot_config')
@@ -109,4 +100,4 @@ export const load: PageServerLoad = async ({ locals }) => {
 		},
 		usernames
 	};
-};
+}

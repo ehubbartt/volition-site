@@ -1,19 +1,14 @@
-import { redirect, error } from '@sveltejs/kit';
 import { db, fetchAllFiltered } from '$lib/server/db';
-import { isAdmin } from '$lib/server/auth';
 import { itemPrice } from '$lib/gp';
-import type { PageServerLoad } from './$types';
 
-// Clan stats dashboard (migrated from volition-admin-dashboard home page). A read-only
-// overview of clan + economy + loot-crate activity, sourced from the bot's tables.
+// Clan stats dashboard for /admin/stats (migrated from volition-admin-dashboard
+// home page). A read-only overview of clan + economy + loot-crate activity,
+// sourced from the bot's tables.
 
 const DAY = 86_400_000;
 const dayStr = (d: Date | number | string) => new Date(d).toISOString().split('T')[0];
 
-export const load: PageServerLoad = async ({ locals }) => {
-	if (!locals.user) throw redirect(303, '/');
-	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
-
+export async function buildAdminStats() {
 	const now = Date.now();
 	const since90 = new Date(now - 90 * DAY).toISOString();
 	const since30 = new Date(now - 30 * DAY).toISOString();
@@ -211,4 +206,4 @@ export const load: PageServerLoad = async ({ locals }) => {
 		recentRareDrops,
 		reroll: { total: rerollRows.length, holders: new Set(rerollRows.map((r) => String(r.user_id))).size }
 	};
-};
+}

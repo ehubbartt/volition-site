@@ -3,8 +3,28 @@
 	import { formatGP } from '$lib/gp';
 	import { rankColor, rankLabel } from '$lib/ranks';
 	import StatsTabs from '$lib/admin/StatsTabs.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 
-	let { data }: { data: PageData } = $props();
+	let { data: pageData }: { data: PageData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen stats
+	// instantly; first visits fill in as the fetch lands.
+	const EMPTY_STATS = {
+		members: { totalMembers: 0, totalVP: 0, avgVP: 0, recentJoins: 0, playersWithVP: 0, recentLooters: 0 },
+		flow: [],
+		rankDistribution: [],
+		topPlayers: [],
+		wallet: { walletValue: 0, unpaidCount: 0, payoutQueue: [] },
+		lootcrates: { total: 0, free: 0, paid: 0, item: 0, vp: 0 },
+		crate7: { opens: 0, freeOpens: 0, paidOpens: 0, vpWon: 0, vpSpent: 0 },
+		crate30: { opens: 0, freeOpens: 0, paidOpens: 0, vpWon: 0, vpSpent: 0 },
+		avgOpensPerDay: 0,
+		rareByDay: [],
+		recentRareDrops: [],
+		reroll: { total: 0, holders: 0 }
+	} as NonNullable<PageData['stats']['cached']>;
+	const statsRes = swrResource(() => pageData.stats, EMPTY_STATS);
+	const data = $derived(statsRes.value);
 
 	const fmt = (n: number) => n.toLocaleString();
 

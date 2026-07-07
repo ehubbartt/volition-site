@@ -8,8 +8,9 @@ import type { PageLoad } from './$types';
 // homepage streams several independently-fetched parts, two of which are
 // live views over one shared /api/home?part=main response.
 export const load: PageLoad = async ({ parent, fetch }) => {
-	const { user } = await parent();
-	instantGuard(user, 'public');
+	const parentData = await parent();
+	const { user } = parentData;
+	instantGuard(parentData, 'public');
 
 	const main = swr<{ calendar: CalendarItem[]; stats: Stats }>(fetch, '/api/home?part=main');
 

@@ -1,7 +1,19 @@
 <script lang="ts">
+	import { swrResource } from '$lib/swrResource.svelte';
 	import type { PageData } from './$types';
 
-	let { data }: { data: PageData } = $props();
+	let { data: pageData }: { data: PageData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen overview
+	// instantly; first visits fill in as the fetch lands.
+	const EMPTY_OVERVIEW = {
+		configs: [],
+		loadError: null,
+		roster: { owners: [], envAdmins: [], dbAdmins: [], envCardTesters: [], dbCardTesters: [] },
+		usernames: {}
+	} as NonNullable<PageData['overview']['cached']>;
+	const ovRes = swrResource(() => pageData.overview, EMPTY_OVERVIEW);
+	const data = $derived(ovRes.value);
 
 	function name(id: string): string {
 		return data.usernames[id] ?? id;
