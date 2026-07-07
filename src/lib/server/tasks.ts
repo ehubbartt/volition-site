@@ -404,7 +404,7 @@ async function personalBoardTask(user: SessionUser): Promise<PlayerTask | null> 
 		description: draft
 			? "Your draft board isn't locked in — nothing is tracking yet"
 			: 'Generate your own collection-log bingo board',
-		href: '/clog-bingo',
+		href: '/events/personal-bingo',
 		ctaLabel: draft ? 'Lock it in' : 'Create your board',
 		resetAt: null
 	};

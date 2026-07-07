@@ -111,7 +111,7 @@
 			<p class="muted small">
 				Targets <strong>{rsn || 'the player'}</strong>'s personal collection-log board. A COLLECTION drop of an
 				item on their board flips that tile to obtained — if the drop is received after the board was created.
-				Generate a board at <a href="/clog-bingo" target="_blank" rel="noreferrer">/clog-bingo</a> first.
+				Generate a board at <a href="/events/personal-bingo" target="_blank" rel="noreferrer">/events/personal-bingo</a> first.
 			</p>
 		{:else if tracked.length}
 			<div class="tracked">
@@ -161,7 +161,7 @@
 				<p class="sim-result">
 					Pipeline ran: processed <strong>{form.result.processed}</strong>, credited
 					<strong>{form.result.credited}</strong>{#if form.result.error} · error: {form.result.error}{/if}.
-					{#if form.personal}<a href="/clog-bingo" target="_blank" rel="noreferrer">View board ↗</a>
+					{#if form.personal}<a href="/events/personal-bingo" target="_blank" rel="noreferrer">View board ↗</a>
 					{:else if selectedEvent}<a href="/bingo/{selectedEvent.slug}" target="_blank" rel="noreferrer">View board ↗</a>{/if}
 				</p>
 			{/if}

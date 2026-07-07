@@ -7,11 +7,53 @@
 	import { formatXp } from '$lib/ehp';
 	import { caTierLabel } from '$lib/ca';
 	import { itemImageUrl, skillImageUrl, monsterImageUrl, caTierImageUrl, wikiPageUrl } from '$lib/wikiImage';
+	import Skeleton from '$lib/Skeleton.svelte';
 	import type { PageData, ActionData } from './$types';
 
-	type Tile = NonNullable<PageData['board']>['tiles'][number];
+	type PB = NonNullable<PageData['pb']['cached']>;
+	type Tile = NonNullable<PB['board']>['tiles'][number];
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let { data: pageData, form }: { data: PageData; form: ActionData } = $props();
+
+	// The board payload is a stale-while-revalidate pair (see +page.ts): revisits
+	// seed from the last board this browser saw, the background refetch swaps in
+	// fresh completion state, and first-ever visits show the skeleton grid below.
+	// Shadowed under the old `data` name so every reference keeps working.
+	const EMPTY_PB = {
+		rsn: null,
+		board: null,
+		dropRates: {},
+		locked: false,
+		resettableAt: null,
+		canReset: false,
+		lockDays: 0,
+		sizeRange: { min: 3, max: 7 },
+		difficultyRange: { min: 1, max: 10 }
+	} as unknown as PB;
+	let loadedPB = $state<PB | null>(null);
+	$effect(() => {
+		const src = pageData.pb;
+		if (src.cached) applyPB(src.cached);
+		let current = true;
+		src.fresh.then((p) => {
+			if (current && p) applyPB(p);
+		});
+		return () => {
+			current = false;
+		};
+	});
+	// Seed the regen-form toggles from the board's actual composition the first
+	// time it arrives (their $state initializers ran before the data existed).
+	function applyPB(p: PB) {
+		const first = loadedPB === null;
+		loadedPB = p;
+		if (first && p.board) {
+			skilling = p.board.tiles.some((t) => t.kind === 'skill');
+			ca = p.board.tiles.some((t) => t.kind === 'ca');
+		}
+	}
+	const data = $derived({ ...(loadedPB ?? EMPTY_PB), rsn: loadedPB ? loadedPB.rsn : (pageData.user?.rsn ?? null) });
+	const pbReady = $derived(loadedPB !== null);
 
 	let board = $derived(data.board);
 	let locked = $derived(data.locked);
@@ -56,8 +98,8 @@
 	// Create-form state. Defaults: 5×5, mid difficulty.
 	let size = $state(5);
 	let difficulty = $state(5);
-	let skilling = $state(data.board?.tiles.some((t) => t.kind === 'skill') ?? false);
-	let ca = $state(data.board?.tiles.some((t) => t.kind === 'ca') ?? false);
+	let skilling = $state(false); // re-seeded from the board when it arrives (applyPB)
+	let ca = $state(false);
 	let pets = $state(true); // pets are included by default; unchecking filters pet drops out
 	let skip99 = $state(false); // skilling sub-option: skip skills already at level 99
 	let generating = $state(false);
@@ -116,6 +158,17 @@
 		</p>
 	</header>
 
+	{#if !pbReady}
+		<!-- Payload still streaming in — 5x5 tile-skeleton grid holds the layout. -->
+		<div class="pb-skeleton">
+			<Skeleton height="3rem" radius="8px" />
+			<div class="pb-skeleton-grid">
+				{#each { length: 25 }, i (i)}
+					<Skeleton height="7rem" radius="10px" />
+				{/each}
+			</div>
+		</div>
+	{:else}
 	{#if !data.rsn}
 		<div class="panel notice">
 			<p>Set your <strong>OSRS RSN</strong> on your <a href="/me">profile</a> first — we read your
@@ -316,6 +369,7 @@
 				{/if}
 			</p>
 	{/if}
+	{/if}
 </section>
 
 <!-- Tile-detail modal (opens on clicking a tile's icon disc). -->
@@ -393,6 +447,18 @@
 {/if}
 
 <style>
+	.pb-skeleton {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.pb-skeleton-grid {
+		display: grid;
+		grid-template-columns: repeat(5, 1fr);
+		gap: 0.5rem;
+	}
+
 	.wrap {
 		max-width: 920px;
 		margin: 0 auto;

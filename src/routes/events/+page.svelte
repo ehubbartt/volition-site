@@ -127,7 +127,7 @@
 			<!-- Personal Bingo: always-present card — the entry point to create your own
 			     board (or get back to the one you're running). -->
 			<li>
-				<a href="/clog-bingo" class="event-card personal">
+				<a href="/events/personal-bingo" class="event-card personal">
 					<div class="event-name">Personal Bingo</div>
 					{#if sections.personal.state === 'running'}
 						<p class="desc muted">

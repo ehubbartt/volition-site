@@ -213,7 +213,7 @@ export async function evaluatePersonalDink(input: {
 	}
 	const board = await loadPersonalBoard(userId);
 	if (!board) {
-		reasons.push('This player has no personal board — generate one at /clog-bingo first.');
+		reasons.push('This player has no personal board — generate one at /events/personal-bingo first.');
 		return { wouldCredit: false, reasons, tileId: null, userResolved: true, tileOpenAtDropTime: null, alreadyCredited: false };
 	}
 	const name = (input.item_name ?? '').toLowerCase();
