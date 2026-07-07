@@ -8,6 +8,7 @@
 	import { rsnToSlug } from '$lib/rsn';
 	import StatCard from '$lib/StatCard.svelte';
 	import Skeleton from '$lib/Skeleton.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -19,54 +20,14 @@
 	// Cached fallbacks are SYNCHRONOUS (the ?? in each derived) so revisits —
 	// including back/forward, where scroll restoration needs real content — first-
 	// paint with the last-seen data instead of a skeleton frame.
-	let loadedDirectory = $state<NonNullable<PageData['directory']['cached']> | null>(null);
-	let loadedTaskSummary = $state<PageData['taskSummary']['cached']>(null);
-	let loadedCalendar = $state<PageData['calendar']['cached']>(null);
-	let loadedStats = $state<PageData['stats']['cached']>(null);
-	const directory = $derived(loadedDirectory ?? data.directory.cached);
-	const taskSummary = $derived(loadedTaskSummary ?? data.taskSummary.cached);
-	const calendar = $derived(loadedCalendar ?? data.calendar.cached ?? []);
-	const stats = $derived(loadedStats ?? data.stats.cached);
-	$effect(() => {
-		const src = data.directory;
-		let current = true;
-		src.fresh.then((d) => {
-			if (current && d) loadedDirectory = d;
-		});
-		return () => {
-			current = false;
-		};
-	});
-	$effect(() => {
-		const src = data.taskSummary;
-		let current = true;
-		src.fresh.then((t) => {
-			if (current) loadedTaskSummary = t;
-		});
-		return () => {
-			current = false;
-		};
-	});
-	$effect(() => {
-		const src = data.calendar;
-		let current = true;
-		src.fresh.then((c) => {
-			if (current && c) loadedCalendar = c;
-		});
-		return () => {
-			current = false;
-		};
-	});
-	$effect(() => {
-		const src = data.stats;
-		let current = true;
-		src.fresh.then((s) => {
-			if (current && s) loadedStats = s;
-		});
-		return () => {
-			current = false;
-		};
-	});
+	const directoryRes = swrResource<PageData['directory']['cached']>(() => data.directory, null);
+	const taskSummaryRes = swrResource<PageData['taskSummary']['cached']>(() => data.taskSummary, null);
+	const calendarRes = swrResource<CalendarItem[]>(() => data.calendar, []);
+	const statsRes = swrResource<PageData['stats']['cached']>(() => data.stats, null);
+	const directory = $derived(directoryRes.value);
+	const taskSummary = $derived(taskSummaryRes.value);
+	const calendar = $derived(calendarRes.value);
+	const stats = $derived(statsRes.value);
 
 	const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 	const MONTHS = [
