@@ -113,7 +113,7 @@
 			<li>
 				Log in to OSRS on <strong>{data.rsn}</strong> and get any easy drop —
 				{#if data.selfTestReady}
-					the <a href="/bingo/{data.selfTestSlug}">Dink Self-Test</a> tracks trivial items like
+					the <a href="/events/{data.selfTestSlug}">Dink Self-Test</a> tracks trivial items like
 					<strong>Bones</strong>, <strong>Cowhide</strong>, <strong>Feathers</strong> or a
 					<strong>Raw chicken</strong>. Go kill a few chickens or cows.
 				{:else}

@@ -59,7 +59,7 @@
 		<h1>Builder · {data.event.name}</h1>
 		<p class="sub">
 			Slug <code>{data.event.slug}</code> · status <code>{data.event.status}</code> ·
-			<a href="/bingo/{data.event.slug}" target="_blank" rel="noreferrer">view board ↗</a>
+			<a href="/events/{data.event.slug}" target="_blank" rel="noreferrer">view board ↗</a>
 		</p>
 	</header>
 

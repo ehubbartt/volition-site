@@ -1,6 +1,7 @@
 import { redirect, fail, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
+import { bingoActions } from '$lib/server/bingoPage';
 import type { Actions } from './$types';
 
 // ACTIONS ONLY — this page has no server load. Its data comes from
@@ -57,6 +58,9 @@ async function createSoloTeam(
 }
 
 export const actions: Actions = {
+	// Bingo boards are served on this URL too — their submit/remove/adminReject
+	// actions ride along (no name overlap with the signup/team actions below).
+	...bingoActions,
 	joinEvent: async ({ params, locals }) => {
 		if (!locals.user) throw redirect(303, '/');
 		if (!locals.user.rsn) throw redirect(303, '/onboarding');

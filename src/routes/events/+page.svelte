@@ -22,11 +22,10 @@
 		};
 	});
 
-	// Route by event kind: bingo + duo keep their bespoke pages; task events (open /
-	// sequential) use the generic /event/[slug] page; anything else (legacy/custom)
-	// falls back to the /events/[slug] detail page.
+	// Route by event kind: task events (open/sequential) use the generic
+	// /event/[slug] page; everything else — bingo, duo, legacy/custom — lives on
+	// the unified /events/[slug] detail page.
 	function hrefFor(ev: { slug: string; kind?: string | null }): string {
-		if (ev.slug === BINGO_EVENT_SLUG || ev.kind === 'bingo') return `/bingo/${ev.slug}`;
 		if (isTaskEvent(ev.kind)) return `/event/${ev.slug}`;
 		return `/events/${ev.slug}`;
 	}

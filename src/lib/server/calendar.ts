@@ -36,7 +36,7 @@ interface EventRow {
 }
 
 function eventHref(slug: string): string {
-	return slug === BINGO_EVENT_SLUG ? `/bingo/${slug}` : `/events/${slug}`;
+	return `/events/${slug}`;
 }
 
 // The bingo event has no explicit starts_at/ends_at — it begins at signup_opens_at

@@ -58,7 +58,7 @@
 		{#if form?.mode === 'selftest' && form.ok}
 			<p class="ok">
 				✓ Self-test event ready ({form.items.join(', ')}).
-				<a href="/bingo/{form.slug}" target="_blank" rel="noreferrer">View board ↗</a> ·
+				<a href="/events/{form.slug}" target="_blank" rel="noreferrer">View board ↗</a> ·
 				<a href="/dink-check" target="_blank" rel="noreferrer">Player view ↗</a>
 			</p>
 		{/if}
@@ -162,7 +162,7 @@
 					Pipeline ran: processed <strong>{form.result.processed}</strong>, credited
 					<strong>{form.result.credited}</strong>{#if form.result.error} · error: {form.result.error}{/if}.
 					{#if form.personal}<a href="/events/personal-bingo" target="_blank" rel="noreferrer">View board ↗</a>
-					{:else if selectedEvent}<a href="/bingo/{selectedEvent.slug}" target="_blank" rel="noreferrer">View board ↗</a>{/if}
+					{:else if selectedEvent}<a href="/events/{selectedEvent.slug}" target="_blank" rel="noreferrer">View board ↗</a>{/if}
 				</p>
 			{/if}
 		</div>

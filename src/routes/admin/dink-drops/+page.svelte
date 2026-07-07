@@ -56,7 +56,7 @@
 						{#if d.source}<span class="muted small">from {d.source}</span>{/if}
 					</div>
 					<div class="meta">
-						{#if d.event_slug}<a href="/bingo/{d.event_slug}" target="_blank" rel="noreferrer">{d.event_name}</a>{:else}<span class="muted">no event</span>{/if}
+						{#if d.event_slug}<a href="/events/{d.event_slug}" target="_blank" rel="noreferrer">{d.event_name}</a>{:else}<span class="muted">no event</span>{/if}
 						<span class="outcome out-{d.outcome ?? 'pending'}">{d.outcome ? OUTCOME_LABEL[d.outcome] ?? d.outcome : 'not processed yet'}</span>
 						<span class="muted small">{fmtTime(d.received_at)}</span>
 					</div>

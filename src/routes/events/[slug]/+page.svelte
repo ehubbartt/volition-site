@@ -7,6 +7,7 @@
 	import { CLAN_OPTIONS } from '$lib/clans';
 	import { createBusy } from '$lib/busy.svelte';
 	import Skeleton from '$lib/Skeleton.svelte';
+	import BingoBoardPage from '$lib/bingo/BingoBoardPage.svelte';
 
 	let { data: pageData, form }: { data: PageData; form: ActionData } = $props();
 
@@ -21,6 +22,7 @@
 	// redirect outcomes are acted on when the payload arrives. Revalidations after
 	// form actions keep the previous data on screen.
 	type Detail = Extract<NonNullable<PageData['detail']['cached']>, { kind: 'ok' }>;
+	type BingoPayload = Extract<NonNullable<PageData['detail']['cached']>, { kind: 'bingo' }>;
 	const EMPTY_DETAIL = {
 		kind: 'ok',
 		isAdmin: false,
@@ -53,13 +55,23 @@
 		stats: { totalSignups: 0, teamCount: 0, soloCount: 0, clanBreakdown: [] }
 	} as unknown as Detail;
 	let detail = $state<Detail | null>(null);
+	let bingo = $state<BingoPayload | null>(null);
 	let notFound = $state(false);
+	function applyPayload(d: Detail | BingoPayload) {
+		if (d.kind === 'bingo') {
+			bingo = d;
+			detail = null;
+		} else {
+			detail = d;
+			bingo = null;
+		}
+	}
 	$effect(() => {
 		const src = pageData.detail;
-		// Seed from the last payload this browser saw — but only an 'ok' one; a
+		// Seed from the last payload this browser saw — but only a renderable one; a
 		// CACHED redirect/not-found is never acted on (only the fresh response
 		// decides those, so a stale outcome can't bounce the user around).
-		if (src.cached?.kind === 'ok') detail = src.cached;
+		if (src.cached?.kind === 'ok' || src.cached?.kind === 'bingo') applyPayload(src.cached);
 		let current = true;
 		src.fresh.then((d) => {
 			if (!current) return;
@@ -72,14 +84,14 @@
 				return;
 			}
 			notFound = false;
-			detail = d;
+			applyPayload(d);
 		});
 		return () => {
 			current = false;
 		};
 	});
 	const data = $derived(detail ?? EMPTY_DETAIL);
-	const ready = $derived(detail !== null);
+	const ready = $derived(detail !== null || bingo !== null);
 	const standings = $derived(data.standings);
 
 	let signedUp = $derived(!!data.mySignup);
@@ -200,6 +212,9 @@
 			<Skeleton height="8rem" radius="8px" />
 		</aside>
 	</section>
+{:else if bingo}
+	<!-- Bingo events render the full board page body on this same URL. -->
+	<BingoBoardPage detail={bingo} user={pageData.user} isAdmin={pageData.isAdmin} />
 {:else}
 <section class="hero">
 	<div class="hero-head">

@@ -192,7 +192,7 @@ export async function postBingoCredit(d: {
 	const url = env.DISCORD_BINGO_WEBHOOK_URL || env.DISCORD_DROPS_WEBHOOK_URL;
 	if (!url) return;
 	const coll = collectionUrl(d.rsn);
-	const boardUrl = `${SITE_URL}/bingo/${d.eventSlug}`;
+	const boardUrl = `${SITE_URL}/events/${d.eventSlug}`;
 	const viaText = d.via ? ` via **${d.via}**` : '';
 	const base: Record<string, unknown> = {
 		username: 'Volition Bingo',

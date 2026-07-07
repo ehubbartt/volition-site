@@ -6,6 +6,8 @@ import { CLAN_LABEL, CLAN_OPTIONS } from '$lib/clans';
 import { ACCOUNT_TYPES } from '$lib/accountTypes';
 import { renderMarkdown } from '$lib/markdown';
 import { isTaskEvent } from '$lib/events/simple';
+import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
+import { buildBingoDetail, type BingoDetail } from './bingoPage';
 import { DUO_WOLF_EVENT_SLUG } from './duoWolfTiles';
 import { loadDuoStandings, type DuoStandings } from './duoStandings';
 
@@ -108,9 +110,12 @@ function buildDemoData() {
 	};
 }
 
+export type BingoOk = Extract<BingoDetail, { kind: 'ok' }>;
+
 export type EventDetailResult =
 	| { kind: 'not_found' }
 	| { kind: 'redirect'; to: string }
+	| (Omit<BingoOk, 'kind'> & { kind: 'bingo' })
 	| (Awaited<ReturnType<typeof buildOk>> & { kind: 'ok' });
 
 export async function buildEventDetail(
@@ -130,6 +135,14 @@ export async function buildEventDetail(
 
 	if (eventErr) throw error(500, eventErr.message);
 	if (!event) return { kind: 'not_found' };
+
+	// Bingo events are served on this same URL — one page per event slug, whatever
+	// its kind. The bingo builder owns its redaction/archive logic.
+	if (event.kind === 'bingo' || event.slug === BINGO_EVENT_SLUG) {
+		const bingo = await buildBingoDetail(user, slug);
+		if (bingo.kind !== 'ok') return { kind: 'not_found' };
+		return { ...bingo, kind: 'bingo' as const };
+	}
 
 	// This page is the bespoke DuoWolf detail; task events (open/sequential) live on
 	// the generic /event/[slug] page. (Custom/legacy events stay here.)

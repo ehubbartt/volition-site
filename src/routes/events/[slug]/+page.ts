@@ -1,5 +1,4 @@
 import { redirect } from '@sveltejs/kit';
-import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 import type { EventDetailResult } from '$lib/server/eventDetail';
 import { swr } from '$lib/swr';
 import type { PageLoad } from './$types';
@@ -18,8 +17,6 @@ export const load: PageLoad = async ({ parent, fetch, params, url }) => {
 	if (!user.rsn || !user.clan_allegiance || !user.account_type) {
 		redirect(303, '/onboarding');
 	}
-	if (params.slug === BINGO_EVENT_SLUG) redirect(303, `/bingo/${params.slug}`);
-
 	const qs = new URLSearchParams();
 	if (url.searchParams.get('view') === 'teams') qs.set('view', 'teams');
 	if (url.searchParams.get('demo') === '1') qs.set('demo', '1');

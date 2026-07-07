@@ -70,7 +70,7 @@ export async function buildEventTaskDetail(user: SessionUser, slug: string): Pro
 	if (!ev) return { kind: 'not_found' };
 
 	// Send the bespoke event types to their own pages.
-	if (ev.slug === BINGO_EVENT_SLUG || ev.kind === 'bingo') return { kind: 'redirect', to: `/bingo/${ev.slug}` };
+	if (ev.slug === BINGO_EVENT_SLUG || ev.kind === 'bingo') return { kind: 'redirect', to: `/events/${ev.slug}` };
 	if (ev.kind === 'duo') return { kind: 'redirect', to: `/events/${ev.slug}` };
 	if (!isTaskEvent(ev.kind)) return { kind: 'not_found' };
 

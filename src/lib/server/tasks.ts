@@ -321,7 +321,7 @@ async function bingoTask(user: SessionUser): Promise<PlayerTask | null> {
 		status: 'active',
 		title: 'Echo Rumors bingo',
 		description: `${done}/${BINGO_TILE_TOTAL} tiles${rowLabel}`,
-		href: `/bingo/${BINGO_EVENT_SLUG}`,
+		href: `/events/${BINGO_EVENT_SLUG}`,
 		ctaLabel: 'Open board',
 		resetAt: state.nextRowAt ? state.nextRowAt.toISOString() : null,
 		reward: 'Leaderboard points',
