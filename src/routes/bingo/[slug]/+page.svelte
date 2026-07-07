@@ -9,21 +9,53 @@
 	import Lightbox from '$lib/Lightbox.svelte';
 	import Skeleton from '$lib/Skeleton.svelte';
 
-	let { data }: { data: PageData } = $props();
+	let { data: pageData }: { data: PageData } = $props();
 
-	// Completion-derived data (community lists, counts, my submissions, leaderboard)
-	// is STREAMED from the load so the board renders instantly. Resolve into state,
-	// keeping the previous value while a submit/refresh revalidation is in flight.
-	let live = $state<Awaited<PageData['live']> | null>(null);
+	// The whole board payload is a stale-while-revalidate pair (see +page.ts):
+	// revisits seed from the last board this browser saw, the background refetch
+	// swaps in fresh tile/leaderboard state, and first visits show the skeleton
+	// grid. Shadowed under the old `data` name (merging the layout's user/isAdmin)
+	// so every reference below keeps working. A cached not-found is never acted on.
+	type Detail = Extract<NonNullable<PageData['detail']['cached']>, { kind: 'ok' }>;
+	const EMPTY_DETAIL = {
+		kind: 'ok',
+		event: { id: '', slug: '', name: '', description_html: '', status: 'open', start_at: null },
+		running: false,
+		archived: false,
+		state: null,
+		tiles: [],
+		columns: [],
+		bonus: { label: 'Bonus', points: 5, color: '#ff981f' },
+		bonusEnabled: false,
+		isClanMember: false,
+		live: { completionsByTile: {}, completionCountByTile: {}, mySubmissions: {}, leaderboard: [] }
+	} as unknown as Detail;
+	let detail = $state<Detail | null>(null);
+	let notFound = $state(false);
 	$effect(() => {
+		const src = pageData.detail;
+		if (src.cached?.kind === 'ok') detail = src.cached;
 		let current = true;
-		data.live.then((l) => {
-			if (current) live = l;
+		src.fresh.then((d) => {
+			if (!current) return;
+			if (!d || d.kind === 'not_found') {
+				notFound = true;
+				return;
+			}
+			notFound = false;
+			detail = d;
 		});
 		return () => {
 			current = false;
 		};
 	});
+	const data = $derived({ user: pageData.user, isAdmin: pageData.isAdmin, ...(detail ?? EMPTY_DETAIL) });
+	const ready = $derived(detail !== null);
+
+	// Completion-derived data (community lists, counts, my submissions, leaderboard)
+	// rides inside the payload; null until the first payload lands so the
+	// leaderboard skeleton shows.
+	const live = $derived(ready ? data.live : null);
 
 	// Columns are data-driven: name, points, colour and count come from the event.
 	const columns = $derived(data.columns);
@@ -131,6 +163,26 @@
 	<title>{data.event?.name ?? 'Bingo'} · Volition</title>
 </svelte:head>
 
+{#if notFound}
+	<section class="hero">
+		<div class="hero-head">
+			<h1>Board not found</h1>
+		</div>
+		<p class="muted">This bingo event doesn't exist or isn't visible to you.</p>
+	</section>
+{:else if !ready}
+	<!-- Payload still streaming in — tile-skeleton grid holds the board layout. -->
+	<section class="hero">
+		<div class="hero-head">
+			<Skeleton height="2.2rem" width="18rem" radius="6px" />
+		</div>
+	</section>
+	<div class="board-skeleton">
+		{#each { length: 24 }, i (i)}
+			<Skeleton height="6.5rem" radius="10px" />
+		{/each}
+	</div>
+{:else}
 <section class="hero">
 	<div class="hero-head">
 		<h1>{data.event?.name ?? 'Volition Bingo'}</h1>
@@ -294,7 +346,14 @@
 	<Lightbox src={lightboxSrc} alt="Bingo proof" onclose={closeLightbox} />
 {/if}
 
+{/if}
 <style>
+	.board-skeleton {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
+		gap: 0.5rem;
+	}
+
 	.hero {
 		margin-bottom: 1.5rem;
 		padding: 1.25rem 1.5rem;

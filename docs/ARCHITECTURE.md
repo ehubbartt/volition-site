@@ -110,7 +110,8 @@ resolves — so a page with a `+page.server.ts` load costs at least one network
 round-trip per navigation. The member-facing pages avoid that entirely: they have
 **no server load**, and clicking a link swaps the page in the same frame with
 skeletons that fill in as data streams. Converted so far: `/`, `/events`,
-`/events/[slug]`, `/gamba`, `/me`, `/tasks`.
+`/events/[slug]`, `/event/[slug]`, `/bingo/[slug]`, `/events/personal-bingo`
+(formerly `/clog-bingo`; the old URL redirects), `/gamba`, `/me`, `/tasks`.
 
 **The recipe for a new page (copy any converted page as a template):**
 
