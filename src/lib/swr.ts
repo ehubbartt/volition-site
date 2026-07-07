@@ -42,3 +42,17 @@ export const emptySwr = <T>(value: T | null = null): Swr<T> => ({
 	cached: value,
 	fresh: Promise.resolve(value)
 });
+
+// Live-getter view over another Swr, for loads that expose a slice of a shared
+// fetch (e.g. one /api/home response feeding several panels). NEVER snapshots
+// `cached` — reading the source getter at access time is what keeps back/forward
+// revisits fresh (see the `cached` comment above).
+export function mapSwr<T, U>(src: Swr<T>, fn: (t: T) => U | null): Swr<U> {
+	return {
+		get cached() {
+			const c = src.cached;
+			return c == null ? null : fn(c);
+		},
+		fresh: src.fresh.then((t) => (t == null ? null : fn(t)))
+	};
+}

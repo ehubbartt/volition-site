@@ -1,4 +1,5 @@
-import { json, error } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
+import { publicEndpoint } from '$lib/server/apiEndpoint';
 import { isAdmin } from '$lib/server/auth';
 import { loadCalendarItems } from '$lib/server/calendar';
 import { microCached } from '$lib/server/microCache';
@@ -11,14 +12,10 @@ import {
 import type { RequestHandler } from './$types';
 
 // Data for the homepage, split into independently-fetched parts so the fast ones
-// (calendar/stats) never wait on the slow ones (full roster, task fan-out). The
-// page has NO server load — its universal load fires these fetches without
-// awaiting, so navigating home completes instantly and each panel streams in.
-export const GET: RequestHandler = async ({ locals, url }) => {
-	const user = locals.user;
-	const part = url.searchParams.get('part') ?? 'main';
-	const headers = { 'cache-control': 'no-store' };
-
+// (calendar/stats) never wait on the slow ones (full roster, task fan-out).
+// Public: the logged-out homepage renders too (instant navigation).
+export const GET: RequestHandler = publicEndpoint(async (user, event) => {
+	const part = event.url.searchParams.get('part') ?? 'main';
 	switch (part) {
 		case 'main': {
 			const admin = user ? isAdmin(user) : false;
@@ -28,20 +25,15 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 				microCached(`home:calendar:${admin}`, 15_000, () => loadCalendarItems(admin)),
 				buildStats(!!user)
 			]);
-			return json({ calendar, stats }, { headers });
+			return { calendar, stats };
 		}
-		case 'directory': {
-			const directory = user ? await buildDirectory(user) : await buildPublicDirectory();
-			return json(directory, { headers });
-		}
-		case 'tasks': {
-			const summary =
-				user && user.rsn && user.clan_allegiance && user.account_type
-					? await buildTaskSummary(user)
-					: null;
-			return json(summary, { headers });
-		}
+		case 'directory':
+			return user ? buildDirectory(user) : buildPublicDirectory();
+		case 'tasks':
+			return user && user.rsn && user.clan_allegiance && user.account_type
+				? buildTaskSummary(user)
+				: null;
 		default:
 			throw error(400, 'Unknown part');
 	}
-};
+});
