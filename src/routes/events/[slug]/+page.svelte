@@ -1,12 +1,12 @@
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
-	import { goto } from '$app/navigation';
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import BoardLeaderboard from '$lib/board/BoardLeaderboard.svelte';
 	import { CLAN_OPTIONS } from '$lib/clans';
 	import { createBusy } from '$lib/busy.svelte';
 	import Skeleton from '$lib/Skeleton.svelte';
+	import { swrRouted } from '$lib/swrResource.svelte';
 	import BingoBoardPage from '$lib/bingo/BingoBoardPage.svelte';
 
 	let { data: pageData, form }: { data: PageData; form: ActionData } = $props();
@@ -22,7 +22,6 @@
 	// redirect outcomes are acted on when the payload arrives. Revalidations after
 	// form actions keep the previous data on screen.
 	type Detail = Extract<NonNullable<PageData['detail']['cached']>, { kind: 'ok' }>;
-	type BingoPayload = Extract<NonNullable<PageData['detail']['cached']>, { kind: 'bingo' }>;
 	const EMPTY_DETAIL = {
 		kind: 'ok',
 		isAdmin: false,
@@ -54,54 +53,12 @@
 		teams: [],
 		stats: { totalSignups: 0, teamCount: 0, soloCount: 0, clanBreakdown: [] }
 	} as unknown as Detail;
-	let loadedDetail = $state<Detail | null>(null);
-	let loadedBingo = $state<BingoPayload | null>(null);
-	let notFound = $state(false);
-	function applyPayload(d: Detail | BingoPayload) {
-		if (d.kind === 'bingo') {
-			loadedBingo = d;
-			loadedDetail = null;
-		} else {
-			loadedDetail = d;
-			loadedBingo = null;
-		}
-	}
-	$effect(() => {
-		const src = pageData.detail;
-		let current = true;
-		src.fresh.then((d) => {
-			if (!current) return;
-			if (!d || d.kind === 'not_found') {
-				notFound = true;
-				return;
-			}
-			if (d.kind === 'redirect') {
-				goto(d.to, { replaceState: true });
-				return;
-			}
-			notFound = false;
-			applyPayload(d);
-		});
-		return () => {
-			current = false;
-		};
-	});
-	// Cached fallbacks are SYNCHRONOUS so revisits (incl. back/forward) first-paint
-	// with real content instead of a skeleton frame. Only renderable payloads seed
-	// from cache — a CACHED redirect/not-found is never acted on (only the fresh
-	// response decides those, so a stale outcome can't bounce the user around).
-	const cachedPayload = $derived.by(() => {
-		const c = pageData.detail.cached;
-		return c && (c.kind === 'ok' || c.kind === 'bingo') ? c : null;
-	});
-	const detail = $derived(
-		loadedDetail ?? (cachedPayload?.kind === 'ok' && !loadedBingo ? cachedPayload : null)
-	);
-	const bingo = $derived(
-		loadedBingo ?? (cachedPayload?.kind === 'bingo' && !loadedDetail ? cachedPayload : null)
-	);
+	const detailRes = swrRouted(() => pageData.detail);
+	const notFound = $derived(detailRes.notFound);
+	const detail = $derived(detailRes.payload?.kind === 'ok' ? detailRes.payload : null);
+	const bingo = $derived(detailRes.payload?.kind === 'bingo' ? detailRes.payload : null);
 	const data = $derived(detail ?? EMPTY_DETAIL);
-	const ready = $derived(detail !== null || bingo !== null);
+	const ready = $derived(detailRes.ready);
 	const standings = $derived(data.standings);
 
 	let signedUp = $derived(!!data.mySignup);

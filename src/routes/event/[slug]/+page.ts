@@ -1,20 +1,12 @@
-import { redirect } from '@sveltejs/kit';
+import { instantLoad } from '$lib/instantLoad';
 import type { EventTaskDetail } from '$lib/server/eventTaskPage';
-import { swr } from '$lib/swr';
 import type { PageLoad } from './$types';
 
-// Type-only import above is erased at build time — the page just gets accurate
-// types for the streamed payload.
-
-// UNIVERSAL load, no server load: navigating to a task event never waits on the
-// network. Revisits render the last-seen event instantly (client cache); the
-// data-dependent outcomes (404, bespoke-page redirects) arrive in the payload.
-export const load: PageLoad = async ({ parent, fetch, params }) => {
-	const { user } = await parent();
-	if (!user) redirect(303, '/');
-	if (!user.rsn || !user.clan_allegiance || !user.account_type) {
-		redirect(303, '/onboarding');
-	}
-
-	return { detail: swr<EventTaskDetail>(fetch, `/api/event/${params.slug}`) };
-};
+// Type-only import above is erased at build time. Instant navigation: the
+// data-dependent outcomes (404, bespoke-page redirects) arrive in the payload
+// and only fresh responses steer (see swrRouted in the page).
+export const load: PageLoad = instantLoad<EventTaskDetail, 'detail'>({
+	key: 'detail',
+	guard: 'onboarded',
+	url: ({ params }) => `/api/event/${params.slug}`
+});

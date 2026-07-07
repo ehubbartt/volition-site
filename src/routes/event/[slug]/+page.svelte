@@ -1,8 +1,8 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import { goto } from '$app/navigation';
 	import EventTaskCard from '$lib/events/EventTaskCard.svelte';
 	import Skeleton from '$lib/Skeleton.svelte';
+	import { swrRouted } from '$lib/swrResource.svelte';
 	import { formatCountdown } from '$lib/tasks';
 
 	let { data: pageData }: { data: PageData } = $props();
@@ -31,35 +31,10 @@
 		ended: false,
 		canSubmit: false
 	} as unknown as Detail;
-	let loadedDetail = $state<Detail | null>(null);
-	let notFound = $state(false);
-	$effect(() => {
-		const src = pageData.detail;
-		let current = true;
-		src.fresh.then((d) => {
-			if (!current) return;
-			if (!d || d.kind === 'not_found') {
-				notFound = true;
-				return;
-			}
-			if (d.kind === 'redirect') {
-				goto(d.to, { replaceState: true });
-				return;
-			}
-			notFound = false;
-			loadedDetail = d;
-		});
-		return () => {
-			current = false;
-		};
-	});
-	// Cached fallback is SYNCHRONOUS so revisits (incl. back/forward) first-paint
-	// with real content; a cached redirect/not-found is never acted on.
-	const detail = $derived(
-		loadedDetail ?? (pageData.detail.cached?.kind === 'ok' ? pageData.detail.cached : null)
-	);
-	const data = $derived(detail ?? EMPTY_DETAIL);
-	const ready = $derived(detail !== null);
+	const detailRes = swrRouted(() => pageData.detail);
+	const notFound = $derived(detailRes.notFound);
+	const data = $derived(detailRes.payload ?? EMPTY_DETAIL);
+	const ready = $derived(detailRes.ready);
 
 	let total = $derived(data.tasks.length);
 
