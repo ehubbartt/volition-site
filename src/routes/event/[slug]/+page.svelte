@@ -1,9 +1,61 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import { goto } from '$app/navigation';
 	import EventTaskCard from '$lib/events/EventTaskCard.svelte';
+	import Skeleton from '$lib/Skeleton.svelte';
 	import { formatCountdown } from '$lib/tasks';
 
-	let { data }: { data: PageData } = $props();
+	let { data: pageData }: { data: PageData } = $props();
+
+	// Streamed stale-while-revalidate payload (see +page.ts), shadowed under the
+	// old `data` name. Cached redirect/not-found outcomes are never acted on —
+	// only the fresh response decides those.
+	type Detail = Extract<NonNullable<PageData['detail']['cached']>, { kind: 'ok' }>;
+	const EMPTY_DETAIL = {
+		kind: 'ok',
+		event: {
+			slug: '',
+			name: '',
+			kind: 'simple',
+			sequential: false,
+			description_html: '',
+			status: 'open',
+			starts_at: null,
+			ends_at: null
+		},
+		tasks: [],
+		completedCount: 0,
+		isClanMember: false,
+		adminPreview: false,
+		upcoming: false,
+		ended: false,
+		canSubmit: false
+	} as unknown as Detail;
+	let detail = $state<Detail | null>(null);
+	let notFound = $state(false);
+	$effect(() => {
+		const src = pageData.detail;
+		if (src.cached?.kind === 'ok') detail = src.cached;
+		let current = true;
+		src.fresh.then((d) => {
+			if (!current) return;
+			if (!d || d.kind === 'not_found') {
+				notFound = true;
+				return;
+			}
+			if (d.kind === 'redirect') {
+				goto(d.to, { replaceState: true });
+				return;
+			}
+			notFound = false;
+			detail = d;
+		});
+		return () => {
+			current = false;
+		};
+	});
+	const data = $derived(detail ?? EMPTY_DETAIL);
+	const ready = $derived(detail !== null);
 
 	let total = $derived(data.tasks.length);
 
@@ -23,6 +75,23 @@
 	<title>{data.event.name} · Volition</title>
 </svelte:head>
 
+{#if notFound}
+	<section class="head">
+		<a class="back" href="/events">← Events</a>
+		<h1>Event not found</h1>
+	</section>
+	<p class="muted">This event doesn't exist or isn't visible to you.</p>
+{:else if !ready}
+	<section class="head">
+		<a class="back" href="/events">← Events</a>
+		<Skeleton height="2.2rem" width="16rem" radius="6px" />
+	</section>
+	<div class="task-skeletons">
+		{#each { length: 3 }, i (i)}
+			<Skeleton height="7rem" radius="8px" />
+		{/each}
+	</div>
+{:else}
 <section class="head">
 	<a class="back" href="/events">← Events</a>
 	<h1>{data.event.name}</h1>
@@ -81,7 +150,15 @@
 	{/each}
 {/if}
 
+{/if}
 <style>
+	.task-skeletons {
+		display: flex;
+		flex-direction: column;
+		gap: 0.8rem;
+		margin-top: 1rem;
+	}
+
 	.head {
 		display: flex;
 		align-items: baseline;
