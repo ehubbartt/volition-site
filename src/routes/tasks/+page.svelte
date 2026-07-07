@@ -10,7 +10,6 @@
 	let loadedTasks = $state<PlayerTask[] | null>(null);
 	$effect(() => {
 		const src = pageData.tasks;
-		if (src.cached) loadedTasks = src.cached;
 		let current = true;
 		src.fresh.then((t) => {
 			if (current && t) loadedTasks = t;
@@ -19,8 +18,10 @@
 			current = false;
 		};
 	});
-	const tasks = $derived(loadedTasks ?? []);
-	const tasksReady = $derived(loadedTasks !== null);
+	// Cached fallback is SYNCHRONOUS so revisits (incl. back/forward) first-paint
+	// with real content instead of a skeleton frame.
+	const tasks = $derived(loadedTasks ?? pageData.tasks.cached ?? []);
+	const tasksReady = $derived(loadedTasks !== null || pageData.tasks.cached !== null);
 
 	// Live clock so the countdowns tick (pattern from the gamba page).
 	let now = $state(Date.now());

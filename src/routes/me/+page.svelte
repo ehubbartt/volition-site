@@ -47,7 +47,6 @@
 	let loadedMe = $state<Me | null>(null);
 	$effect(() => {
 		const src = pageData.me;
-		if (src.cached) loadedMe = src.cached;
 		let current = true;
 		src.fresh.then((m) => {
 			if (current && m) loadedMe = m;
@@ -56,8 +55,10 @@
 			current = false;
 		};
 	});
-	const data = $derived({ user: pageData.user!, ...(loadedMe ?? EMPTY_ME) });
-	const meReady = $derived(loadedMe !== null);
+	// Cached fallback is SYNCHRONOUS so revisits (incl. back/forward) first-paint
+	// with real content instead of a skeleton frame.
+	const data = $derived({ user: pageData.user!, ...(loadedMe ?? pageData.me.cached ?? EMPTY_ME) });
+	const meReady = $derived(loadedMe !== null || pageData.me.cached !== null);
 
 	// Wallet → GP conversion (posts to the gamba action; reloads /me on success).
 	let walletConverting = $state(false);

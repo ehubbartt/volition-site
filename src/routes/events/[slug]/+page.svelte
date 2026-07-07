@@ -54,24 +54,20 @@
 		teams: [],
 		stats: { totalSignups: 0, teamCount: 0, soloCount: 0, clanBreakdown: [] }
 	} as unknown as Detail;
-	let detail = $state<Detail | null>(null);
-	let bingo = $state<BingoPayload | null>(null);
+	let loadedDetail = $state<Detail | null>(null);
+	let loadedBingo = $state<BingoPayload | null>(null);
 	let notFound = $state(false);
 	function applyPayload(d: Detail | BingoPayload) {
 		if (d.kind === 'bingo') {
-			bingo = d;
-			detail = null;
+			loadedBingo = d;
+			loadedDetail = null;
 		} else {
-			detail = d;
-			bingo = null;
+			loadedDetail = d;
+			loadedBingo = null;
 		}
 	}
 	$effect(() => {
 		const src = pageData.detail;
-		// Seed from the last payload this browser saw — but only a renderable one; a
-		// CACHED redirect/not-found is never acted on (only the fresh response
-		// decides those, so a stale outcome can't bounce the user around).
-		if (src.cached?.kind === 'ok' || src.cached?.kind === 'bingo') applyPayload(src.cached);
 		let current = true;
 		src.fresh.then((d) => {
 			if (!current) return;
@@ -90,6 +86,20 @@
 			current = false;
 		};
 	});
+	// Cached fallbacks are SYNCHRONOUS so revisits (incl. back/forward) first-paint
+	// with real content instead of a skeleton frame. Only renderable payloads seed
+	// from cache — a CACHED redirect/not-found is never acted on (only the fresh
+	// response decides those, so a stale outcome can't bounce the user around).
+	const cachedPayload = $derived.by(() => {
+		const c = pageData.detail.cached;
+		return c && (c.kind === 'ok' || c.kind === 'bingo') ? c : null;
+	});
+	const detail = $derived(
+		loadedDetail ?? (cachedPayload?.kind === 'ok' && !loadedBingo ? cachedPayload : null)
+	);
+	const bingo = $derived(
+		loadedBingo ?? (cachedPayload?.kind === 'bingo' && !loadedDetail ? cachedPayload : null)
+	);
 	const data = $derived(detail ?? EMPTY_DETAIL);
 	const ready = $derived(detail !== null || bingo !== null);
 	const standings = $derived(data.standings);

@@ -42,7 +42,6 @@
   let loadedGamba = $state<Gamba | null>(null);
   $effect(() => {
     const src = pageData.gamba;
-    if (src.cached) loadedGamba = src.cached;
     let current = true;
     src.fresh.then((g) => {
       if (current && g) loadedGamba = g;
@@ -51,8 +50,10 @@
       current = false;
     };
   });
-  const data = $derived(loadedGamba ?? EMPTY_GAMBA);
-  const gambaReady = $derived(loadedGamba !== null);
+  // Cached fallback is SYNCHRONOUS so revisits (incl. back/forward) first-paint
+  // with real content instead of a skeleton frame.
+  const data = $derived(loadedGamba ?? pageData.gamba.cached ?? EMPTY_GAMBA);
+  const gambaReady = $derived(loadedGamba !== null || pageData.gamba.cached !== null);
 
   // Warn users whose settings make the 3D packs static or slow, and tell them what to
   // change. 'none' = no WebGL, 'software' = no GPU accel (the "loads super slow" case),

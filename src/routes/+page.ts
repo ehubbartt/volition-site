@@ -18,12 +18,18 @@ export const load: PageLoad = async ({ parent, fetch }) => {
 	const main = swr<{ calendar: CalendarItem[]; stats: Stats }>(fetch, '/api/home?part=main');
 
 	return {
+		// Getters keep these views over `main` LIVE (see swr.ts) — a snapshot would
+		// go stale when SvelteKit reuses this load result on back/forward navigation.
 		calendar: {
-			cached: main.cached?.calendar ?? null,
+			get cached() {
+				return main.cached?.calendar ?? null;
+			},
 			fresh: main.fresh.then((m) => m?.calendar ?? null)
 		} satisfies Swr<CalendarItem[]>,
 		stats: {
-			cached: main.cached?.stats ?? null,
+			get cached() {
+				return main.cached?.stats ?? null;
+			},
 			fresh: main.fresh.then((m) => m?.stats ?? null)
 		} satisfies Swr<Stats>,
 		directory: swr<Directory>(fetch, '/api/home?part=directory'),

@@ -15,7 +15,6 @@ const cache = new Map<string, unknown>();
 export type Swr<T> = { cached: T | null; fresh: Promise<T | null> };
 
 export function swr<T>(fetchFn: typeof fetch, url: string): Swr<T> {
-	const cached = browser ? ((cache.get(url) as T | undefined) ?? null) : null;
 	const fresh = fetchFn(url)
 		.then((r) => {
 			if (!r.ok) throw new Error(`${url} ${r.status}`);
@@ -27,7 +26,16 @@ export function swr<T>(fetchFn: typeof fetch, url: string): Swr<T> {
 			return data;
 		})
 		.catch(() => null);
-	return { cached, fresh };
+	return {
+		// LIVE getter, not a snapshot: on back/forward navigation SvelteKit reuses
+		// the previous load result without re-running the load, so a snapshot taken
+		// before the first fetch finished would stay null forever. Reading the map
+		// at access time means a revisited page sees whatever its last fetch stored.
+		get cached() {
+			return browser ? ((cache.get(url) as T | undefined) ?? null) : null;
+		},
+		fresh
+	};
 }
 
 export const emptySwr = <T>(value: T | null = null): Swr<T> => ({

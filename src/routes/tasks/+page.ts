@@ -15,8 +15,12 @@ export const load: PageLoad = async ({ parent, fetch }) => {
 	// Stale-while-revalidate: revisits render the last-seen list instantly while
 	// a background refetch swaps in fresh data.
 	const raw = swr<{ tasks: PlayerTask[] }>(fetch, '/api/tasks');
+	// Getter keeps this view over `raw` LIVE (see swr.ts) — a snapshot would go
+	// stale when SvelteKit reuses this load result on back/forward navigation.
 	const tasks: Swr<PlayerTask[]> = {
-		cached: raw.cached?.tasks ?? null,
+		get cached() {
+			return raw.cached?.tasks ?? null;
+		},
 		fresh: raw.fresh.then((j) => j?.tasks ?? null)
 	};
 

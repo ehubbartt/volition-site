@@ -9,18 +9,21 @@
 
 	// The event list is a stale-while-revalidate pair (see +page.ts): revisits seed
 	// from the last list this browser saw, and the background refetch swaps in.
-	let sections = $state<PageData['sections']['cached']>(null);
+	let loadedSections = $state<PageData['sections']['cached']>(null);
 	$effect(() => {
 		const src = data.sections;
-		if (src.cached) sections = src.cached;
 		let current = true;
 		src.fresh.then((s) => {
-			if (current && s) sections = s;
+			if (current && s) loadedSections = s;
 		});
 		return () => {
 			current = false;
 		};
 	});
+	// Fall back to the client cache SYNCHRONOUSLY so the first paint of a revisit
+	// (including back/forward, where scroll restoration needs real content) already
+	// shows the last-seen list instead of a skeleton frame.
+	const sections = $derived(loadedSections ?? data.sections.cached);
 
 	// Route by event kind: task events (open/sequential) use the generic
 	// /event/[slug] page; everything else — bingo, duo, legacy/custom — lives on

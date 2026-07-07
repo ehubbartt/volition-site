@@ -16,16 +16,22 @@
 	// seeds from the last payload this browser saw (instant real content on
 	// revisits) and swaps in the background refetch when it lands. First-ever
 	// visits show skeletons; revalidations keep the previous value on screen.
-	let directory = $state<NonNullable<PageData['directory']['cached']> | null>(null);
-	let taskSummary = $state<PageData['taskSummary']['cached']>(null);
-	let calendar = $state<NonNullable<PageData['calendar']['cached']>>([]);
-	let stats = $state<PageData['stats']['cached']>(null);
+	// Cached fallbacks are SYNCHRONOUS (the ?? in each derived) so revisits —
+	// including back/forward, where scroll restoration needs real content — first-
+	// paint with the last-seen data instead of a skeleton frame.
+	let loadedDirectory = $state<NonNullable<PageData['directory']['cached']> | null>(null);
+	let loadedTaskSummary = $state<PageData['taskSummary']['cached']>(null);
+	let loadedCalendar = $state<PageData['calendar']['cached']>(null);
+	let loadedStats = $state<PageData['stats']['cached']>(null);
+	const directory = $derived(loadedDirectory ?? data.directory.cached);
+	const taskSummary = $derived(loadedTaskSummary ?? data.taskSummary.cached);
+	const calendar = $derived(loadedCalendar ?? data.calendar.cached ?? []);
+	const stats = $derived(loadedStats ?? data.stats.cached);
 	$effect(() => {
 		const src = data.directory;
-		if (src.cached) directory = src.cached;
 		let current = true;
 		src.fresh.then((d) => {
-			if (current && d) directory = d;
+			if (current && d) loadedDirectory = d;
 		});
 		return () => {
 			current = false;
@@ -33,10 +39,9 @@
 	});
 	$effect(() => {
 		const src = data.taskSummary;
-		if (src.cached) taskSummary = src.cached;
 		let current = true;
 		src.fresh.then((t) => {
-			if (current) taskSummary = t;
+			if (current) loadedTaskSummary = t;
 		});
 		return () => {
 			current = false;
@@ -44,10 +49,9 @@
 	});
 	$effect(() => {
 		const src = data.calendar;
-		if (src.cached) calendar = src.cached;
 		let current = true;
 		src.fresh.then((c) => {
-			if (current && c) calendar = c;
+			if (current && c) loadedCalendar = c;
 		});
 		return () => {
 			current = false;
@@ -55,10 +59,9 @@
 	});
 	$effect(() => {
 		const src = data.stats;
-		if (src.cached) stats = src.cached;
 		let current = true;
 		src.fresh.then((s) => {
-			if (current && s) stats = s;
+			if (current && s) loadedStats = s;
 		});
 		return () => {
 			current = false;

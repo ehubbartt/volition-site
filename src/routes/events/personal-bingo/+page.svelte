@@ -31,9 +31,9 @@
 		difficultyRange: { min: 1, max: 10 }
 	} as unknown as PB;
 	let loadedPB = $state<PB | null>(null);
+	let toggled = false;
 	$effect(() => {
 		const src = pageData.pb;
-		if (src.cached) applyPB(src.cached);
 		let current = true;
 		src.fresh.then((p) => {
 			if (current && p) applyPB(p);
@@ -45,15 +45,18 @@
 	// Seed the regen-form toggles from the board's actual composition the first
 	// time it arrives (their $state initializers ran before the data existed).
 	function applyPB(p: PB) {
-		const first = loadedPB === null;
 		loadedPB = p;
-		if (first && p.board) {
+		if (!toggled && p.board) {
+			toggled = true;
 			skilling = p.board.tiles.some((t) => t.kind === 'skill');
 			ca = p.board.tiles.some((t) => t.kind === 'ca');
 		}
 	}
-	const data = $derived({ ...(loadedPB ?? EMPTY_PB), rsn: loadedPB ? loadedPB.rsn : (pageData.user?.rsn ?? null) });
-	const pbReady = $derived(loadedPB !== null);
+	// Cached fallback is SYNCHRONOUS so revisits (incl. back/forward) first-paint
+	// with the last-seen board instead of a skeleton frame.
+	const currentPB = $derived(loadedPB ?? pageData.pb.cached);
+	const data = $derived({ ...(currentPB ?? EMPTY_PB), rsn: currentPB ? currentPB.rsn : (pageData.user?.rsn ?? null) });
+	const pbReady = $derived(currentPB !== null);
 
 	let board = $derived(data.board);
 	let locked = $derived(data.locked);

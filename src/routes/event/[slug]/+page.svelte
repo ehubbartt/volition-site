@@ -31,11 +31,10 @@
 		ended: false,
 		canSubmit: false
 	} as unknown as Detail;
-	let detail = $state<Detail | null>(null);
+	let loadedDetail = $state<Detail | null>(null);
 	let notFound = $state(false);
 	$effect(() => {
 		const src = pageData.detail;
-		if (src.cached?.kind === 'ok') detail = src.cached;
 		let current = true;
 		src.fresh.then((d) => {
 			if (!current) return;
@@ -48,12 +47,17 @@
 				return;
 			}
 			notFound = false;
-			detail = d;
+			loadedDetail = d;
 		});
 		return () => {
 			current = false;
 		};
 	});
+	// Cached fallback is SYNCHRONOUS so revisits (incl. back/forward) first-paint
+	// with real content; a cached redirect/not-found is never acted on.
+	const detail = $derived(
+		loadedDetail ?? (pageData.detail.cached?.kind === 'ok' ? pageData.detail.cached : null)
+	);
 	const data = $derived(detail ?? EMPTY_DETAIL);
 	const ready = $derived(detail !== null);
 
