@@ -152,10 +152,25 @@ builder and its skeleton markup — everything else is a one-liner:
    `/` (calendar), `/gamba`, `/me`, `/events/[slug]`.
 
 Pages whose first decision needs data (404 by slug, conditional redirects) return a
-discriminated payload — `{ kind: 'ok' | 'not_found' | 'redirect' }` — and resolve it
-with `swrRouted` instead: cached renderable payloads still first-paint synchronously,
-but only FRESH responses steer (a stale cached redirect/not-found can never bounce
-the user). `eventDetail.ts` + `/events/[slug]` are the reference.
+discriminated payload composing the shared `Steering` type from
+`swrResource.svelte.ts` (`{ kind: 'not_found' | 'redirect' }` + renderable kinds) and
+resolve it with `swrRouted` instead: cached renderable payloads still first-paint
+synchronously, but only FRESH responses steer (a stale cached redirect/not-found can
+never bounce the user), and `notFound` is set ONLY by a real `not_found` payload —
+a failed fetch never repaints working content as a 404.
+`eventDetail.ts` + `/events/[slug]` are the reference.
+
+**Failure semantics** (owned by the shared modules — pages get them for free):
+`swr()` never fetches during SSR (the server pass paints skeletons anyway; fetching
+would run every builder twice per hard load), reports failures via `Swr.error`
+(HTTP status, or null for network), and ticket-guards cache writes so a slow
+superseded response can't regress the cache. A failed refresh keeps the previous
+data on screen. A 401/403 (session expired, role revoked mid-browse) triggers one
+throttled `invalidateAll()` so the layout re-runs and the normal guards redirect —
+never a permanently skeleton-stuck page. The client cache is wiped by the full
+document load logout causes — the logout forms are deliberately NOT `use:enhance`
+(commented in place); any future client-side auth transition must call
+`clearSwrCache()`.
 
 Escape hatch: pages that stream several parts or reshape the payload (home, tasks)
 hand-compose `instantGuard` + `swr` + `mapSwr` in their load — `mapSwr` views stay
@@ -183,6 +198,14 @@ using the role flags the root layout exposes). Admin builders live in
 `submissions`, `events`, `tasks`. The form-heavy/rare tools (cards, config,
 admins, tables, inventory, sims, dink-test, ehb, per-event pages) keep classic
 server loads on purpose.
+
+Admin pages don't build per-page skeletons: they render their `EMPTY_*` placeholder
+behind a "Loading…" note until the payload lands (admins tolerate a plain loading
+state; member pages get real skeletons). Convention for the placeholders: admin
+EMPTYs use a type ANNOTATION (`const EMPTY_X: NonNullable<PageData['x']['cached']> =
+{...}`) so the compiler catches drift when a builder's shape changes; member pages
+may keep `as unknown as` casts only because they gate ALL content on `ready`, so a
+drifted EMPTY can never be dereferenced.
 
 - **Public:** `/` (roster, calendar, event counts), `/onboarding`, `/me`, `/u/[rsn]`,
   `/auth/*`, `/banned`, `/login-busy` (Discord API degradation).
