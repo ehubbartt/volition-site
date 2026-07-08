@@ -22,12 +22,3 @@ export type Directory = {
 };
 
 export type Stats = { activeEvents: number; totalEvents: number; packsOpened: number };
-
-export const EMPTY_DIRECTORY: Directory = {
-	members: [],
-	rankBreakdown: [],
-	recentMembers: [],
-	memberCount: 0
-};
-
-export const EMPTY_STATS: Stats = { activeEvents: 0, totalEvents: 0, packsOpened: 0 };

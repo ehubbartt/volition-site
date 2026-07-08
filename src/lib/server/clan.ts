@@ -1,4 +1,5 @@
 import { db } from './db';
+import { rsnExactPattern } from './users';
 
 // Cross-references the bot's `players` table to verify a site user is an
 // actual clan member. Matches by discord_id first, falls back to RSN
@@ -22,7 +23,7 @@ export async function isClanMember(
 		const { data, error } = await sb
 			.from('players')
 			.select('rsn')
-			.ilike('rsn', rsn)
+			.ilike('rsn', rsnExactPattern(rsn))
 			.limit(1);
 		if (!error && data && data.length > 0) return true;
 	}

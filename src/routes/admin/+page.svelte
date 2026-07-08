@@ -66,7 +66,7 @@
 			href: '/admin/overview',
 			title: 'Bot Overview',
 			desc: 'Read-only snapshot of current bot config and who has admin access.',
-			show: data.superAdmin
+			show: data.admin
 		},
 		{
 			href: '/admin/ehb',

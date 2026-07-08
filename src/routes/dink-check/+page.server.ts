@@ -1,5 +1,6 @@
 import { redirect, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
+import { rsnExactPattern } from '$lib/server/users';
 import { getOrCreateToken, rotateToken, configUrlFor } from '$lib/server/dinkTokens';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -34,7 +35,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const { data: dropsRaw } = await db()
 		.from('vs_dink_drops')
 		.select('id, event_id, item_id, item_name, quantity, source, received_at')
-		.ilike('rsn', rsn)
+		.ilike('rsn', rsnExactPattern(rsn))
 		.gte('received_at', since)
 		.order('received_at', { ascending: false })
 		.limit(50);

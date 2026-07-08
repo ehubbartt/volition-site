@@ -1,4 +1,5 @@
 import { env } from '$env/dynamic/private';
+import { postJson } from '$lib/server/http';
 import { RARITY_BY_KEY, DEFAULT_RARITY, isValidRarity } from '$lib/cards/rarity';
 import { isVideoUrl } from '$lib/cards/config';
 import { rsnToSlug } from '$lib/rsn';
@@ -206,16 +207,10 @@ export async function postBingoCredit(d: {
 			}
 		]
 	};
-	try {
-		const res = await fetch(url, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(base)
-		});
-		if (!res.ok) console.error('[bingo-feed] post failed:', res.status, (await res.text().catch(() => '')) || '');
-	} catch (e) {
-		console.error('[bingo-feed] post error:', e instanceof Error ? e.message : e);
-	}
+	// postJson has a timeout and never throws — a slow/hung Discord webhook can't
+	// pin the awaiting drop-processing request open.
+	const ok = await postJson(url, base);
+	if (!ok) console.error('[bingo-feed] post failed');
 }
 
 // Format a percent for the "Drop Rate" field (up to 2 decimals, no trailing zeros).

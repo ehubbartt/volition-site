@@ -92,7 +92,7 @@
 	// Create-form state. Defaults: 5×5, mid difficulty.
 	let size = $state(5);
 	let difficulty = $state(5);
-	let skilling = $state(false); // re-seeded from the board when it arrives (applyPB)
+	let skilling = $state(false); // re-seeded from the board when it arrives (onFresh)
 	let ca = $state(false);
 	let pets = $state(true); // pets are included by default; unchecking filters pet drops out
 	let skip99 = $state(false); // skilling sub-option: skip skills already at level 99

@@ -36,10 +36,3 @@ export interface EventSections {
 	pastEvents: EventListItem[];
 	personal: PersonalCard;
 }
-
-export const EMPTY_SECTIONS: EventSections = {
-	activeEvents: [],
-	upcomingEvents: [],
-	pastEvents: [],
-	personal: { state: 'none' }
-};
