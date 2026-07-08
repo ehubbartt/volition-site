@@ -10,10 +10,10 @@
 
 	// Streamed payload (see +page.ts): revisits render the last-seen roster
 	// instantly; first visits fill in as the fetch lands.
-	const EMPTY_WALLETS = {
+	const EMPTY_WALLETS: NonNullable<PageData['wallets']['cached']> = {
 		players: [],
 		totals: { members: 0, totalVP: 0, unpaidItems: 0, walletValue: 0, goldBalance: 0 }
-	} as NonNullable<PageData['wallets']['cached']>;
+	};
 	const walletsRes = swrResource(() => pageData.wallets, EMPTY_WALLETS);
 	const data = $derived(walletsRes.value);
 
@@ -68,6 +68,10 @@
 	<p class="muted">
 		VP balances and the GP value of unpaid loot-crate items waiting in members' wallets.
 	</p>
+
+	{#if !walletsRes.ready}
+		<p class="muted">Loading…</p>
+	{/if}
 
 	<div class="summary">
 		<div class="stat">

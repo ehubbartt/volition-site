@@ -7,7 +7,7 @@
 
 	// Streamed payload (see +page.ts): revisits render the last-seen page
 	// instantly; first visits fill in as the fetch lands.
-	const EMPTY_AUDIT = {
+	const EMPTY_AUDIT: NonNullable<PageData['audit']['cached']> = {
 		rows: [],
 		userNames: {},
 		actors: [],
@@ -15,7 +15,7 @@
 		pageSize: 0,
 		hasMore: false,
 		nextBefore: null
-	} as NonNullable<PageData['audit']['cached']>;
+	};
 	const auditRes = swrResource(() => pageData.audit, EMPTY_AUDIT);
 	const data = $derived(auditRes.value);
 
@@ -125,6 +125,10 @@
 		Every privileged action (admin routes + anything an admin / card tester does) is recorded
 		automatically. Showing the {data.rows.length} most recent entries.
 	</p>
+
+	{#if !auditRes.ready}
+		<p class="muted">Loading…</p>
+	{/if}
 
 	<div class="toolbar">
 		<input class="search" type="search" placeholder="Search actor, route, action, payload…" bind:value={search} aria-label="Search audit log" />

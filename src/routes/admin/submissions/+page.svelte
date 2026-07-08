@@ -12,7 +12,7 @@
   // Streamed payload (see +page.ts): revisits render the last-seen queue
   // instantly; first visits fill in as the fetch lands. Shadowed under the old
   // `data` name so every reference keeps working.
-  const EMPTY_SUBMISSIONS = {
+  const EMPTY_SUBMISSIONS: NonNullable<PageData["submissions"]["cached"]> = {
     view: "pending",
     test: false,
     items: [],
@@ -20,7 +20,7 @@
     stats: { pending: 0, approved: 0, rejected: 0 },
     reviewed: null,
     search: "",
-  } as NonNullable<PageData["submissions"]["cached"]>;
+  };
   const subRes = swrResource(() => pageData.submissions, EMPTY_SUBMISSIONS);
   const data = $derived(subRes.value);
 
@@ -204,6 +204,11 @@
     class:active={data.test}>🧪 Test</a
   >
 </nav>
+
+{#if !subRes.ready}
+  <p class="muted">Loading…</p>
+{/if}
+
 {#if data.test}
   <p class="test-banner">
     Showing <strong>test submissions</strong> only (admin preview runs). These

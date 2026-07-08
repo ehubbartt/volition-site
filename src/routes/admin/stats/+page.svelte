@@ -9,7 +9,7 @@
 
 	// Streamed payload (see +page.ts): revisits render the last-seen stats
 	// instantly; first visits fill in as the fetch lands.
-	const EMPTY_STATS = {
+	const EMPTY_STATS: NonNullable<PageData['stats']['cached']> = {
 		members: { totalMembers: 0, totalVP: 0, avgVP: 0, recentJoins: 0, playersWithVP: 0, recentLooters: 0 },
 		flow: [],
 		rankDistribution: [],
@@ -22,7 +22,7 @@
 		rareByDay: [],
 		recentRareDrops: [],
 		reroll: { total: 0, holders: 0 }
-	} as NonNullable<PageData['stats']['cached']>;
+	};
 	const statsRes = swrResource(() => pageData.stats, EMPTY_STATS);
 	const data = $derived(statsRes.value);
 
@@ -60,6 +60,10 @@
 	<StatsTabs />
 	<p class="muted">Clan, economy, and loot-crate activity at a glance.</p>
 
+	{#if !statsRes.ready}
+		<p class="muted">Loading…</p>
+	{/if}
+
 	<div class="summary">
 		<div class="stat"><span class="num">{fmt(data.members.totalMembers)}</span><span class="lbl">Members</span></div>
 		<div class="stat"><span class="num">{fmt(data.members.totalVP)}</span><span class="lbl">Total VP</span></div>
@@ -83,10 +87,12 @@
 				</div>
 			{/each}
 		</div>
-		<div class="chart-axis">
-			<span>{shortDate(data.flow[0].date)}</span>
-			<span>{shortDate(data.flow[data.flow.length - 1].date)}</span>
-		</div>
+		{#if data.flow.length}
+			<div class="chart-axis">
+				<span>{shortDate(data.flow[0].date)}</span>
+				<span>{shortDate(data.flow[data.flow.length - 1].date)}</span>
+			</div>
+		{/if}
 	</div>
 
 	<div class="two-col">
@@ -173,10 +179,12 @@
 					</div>
 				{/each}
 			</div>
-			<div class="chart-axis">
-				<span>{shortDate(data.rareByDay[0].date)}</span>
-				<span>{shortDate(data.rareByDay[data.rareByDay.length - 1].date)}</span>
-			</div>
+			{#if data.rareByDay.length}
+				<div class="chart-axis">
+					<span>{shortDate(data.rareByDay[0].date)}</span>
+					<span>{shortDate(data.rareByDay[data.rareByDay.length - 1].date)}</span>
+				</div>
+			{/if}
 		</div>
 	</div>
 

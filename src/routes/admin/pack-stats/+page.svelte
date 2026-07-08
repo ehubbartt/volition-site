@@ -10,13 +10,13 @@
 
 	// Streamed payload (see +page.ts): revisits render the last-seen stats
 	// instantly; first visits fill in as the fetch lands.
-	const EMPTY_PACK_STATS = {
+	const EMPTY_PACK_STATS: NonNullable<PageData['packStats']['cached']> = {
 		totals: { opens: 0, vpSpent: 0, gpSpent: 0, cardsPulled: 0, openers: 0 },
 		rarityBreak: [],
 		finishPulls: { normal: 0, holo: 0, reverse: 0 },
 		packBreakdown: [],
 		playerStats: []
-	} as NonNullable<PageData['packStats']['cached']>;
+	};
 	const statsRes = swrResource(() => pageData.packStats, EMPTY_PACK_STATS);
 	const data = $derived(statsRes.value);
 
@@ -39,6 +39,10 @@
 <section>
 	<CardsTabs />
 	<p class="muted">Card-game activity across all players — pack opens, VP spent, and collections.</p>
+
+	{#if !statsRes.ready}
+		<p class="muted">Loading…</p>
+	{/if}
 
 	<div class="summary">
 		<div class="stat">

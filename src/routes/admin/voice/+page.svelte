@@ -7,12 +7,12 @@
 
 	// Streamed payload (see +page.ts): revisits render the last-seen panel
 	// instantly; first visits fill in as the fetch lands.
-	const EMPTY_VOICE = {
+	const EMPTY_VOICE: NonNullable<PageData['voice']['cached']> = {
 		stats: { totalMinutes: 0, totalUsers: 0, activeToday: 0, peakConcurrentToday: 0 },
 		days: [],
 		users: [],
 		recentActivity: []
-	} as NonNullable<PageData['voice']['cached']>;
+	};
 	const voiceRes = swrResource(() => pageData.voice, EMPTY_VOICE);
 	const data = $derived(voiceRes.value);
 
@@ -68,6 +68,10 @@
 	<StatsTabs />
 	<p class="muted">Voice channel tracking and analytics.</p>
 
+	{#if !voiceRes.ready}
+		<p class="muted">Loading…</p>
+	{/if}
+
 	<div class="summary">
 		<div class="stat">
 			<span class="num">{fmt(data.stats.totalMinutes)}</span>
@@ -96,10 +100,12 @@
 				</div>
 			{/each}
 		</div>
-		<div class="chart-axis">
-			<span>{shortDate(data.days[0].date)}</span>
-			<span>{shortDate(data.days[data.days.length - 1].date)}</span>
-		</div>
+		{#if data.days.length}
+			<div class="chart-axis">
+				<span>{shortDate(data.days[0].date)}</span>
+				<span>{shortDate(data.days[data.days.length - 1].date)}</span>
+			</div>
+		{/if}
 	</div>
 
 	<div class="tabs">

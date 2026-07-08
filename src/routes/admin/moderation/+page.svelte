@@ -9,11 +9,11 @@
 
 	// Streamed payload (see +page.ts): revisits render the last-seen lists
 	// instantly; first visits fill in as the fetch lands.
-	const EMPTY_MODERATION = {
+	const EMPTY_MODERATION: NonNullable<PageData['moderation']['cached']> = {
 		bans: [],
 		warnings: [],
 		members: []
-	} as NonNullable<PageData['moderation']['cached']>;
+	};
 	const modRes = swrResource(() => pageData.moderation, EMPTY_MODERATION);
 	const data = $derived(modRes.value);
 
@@ -45,6 +45,10 @@
 <svelte:head><title>Moderation · Volition</title></svelte:head>
 
 <ModerationTabs />
+
+{#if !modRes.ready}
+	<p class="muted">Loading…</p>
+{/if}
 
 {#if form?.error}
 	<div class="error">{form.error}</div>

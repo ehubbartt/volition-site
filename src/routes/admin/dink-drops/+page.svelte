@@ -8,11 +8,11 @@
 
 	// Streamed payload (see +page.ts): revisits render the last-seen drops
 	// instantly; first visits fill in as the fetch lands.
-	const EMPTY_DINK_DROPS = {
+	const EMPTY_DINK_DROPS: NonNullable<PageData['dinkDrops']['cached']> = {
 		filter: 'all',
 		loadError: null,
 		drops: []
-	} as NonNullable<PageData['dinkDrops']['cached']>;
+	};
 	const ddRes = swrResource(() => pageData.dinkDrops, EMPTY_DINK_DROPS);
 	const data = $derived(ddRes.value);
 
@@ -44,6 +44,10 @@
 		answer “why didn't I get credit?”. <strong>Reprocess</strong> re-runs a drop (e.g. after you add the
 		tile); <strong>Un-credit</strong> reverses a wrong auto-credit.
 	</p>
+
+	{#if !ddRes.ready}
+		<p class="muted">Loading…</p>
+	{/if}
 
 	<div class="filters">
 		<a class="pill" class:active={data.filter === 'all'} href="?show=all">All</a>

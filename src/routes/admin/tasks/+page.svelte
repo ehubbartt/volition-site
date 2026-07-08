@@ -9,10 +9,10 @@
 	// Streamed payload (see +page.ts): revisits render the last-seen lists instantly;
 	// first visits fill in as the fetch lands. Shadowed under the old `data` name so
 	// every reference keeps working.
-	const EMPTY_TASKS = {
+	const EMPTY_TASKS: NonNullable<PageData['tasks']['cached']> = {
 		templates: [],
 		active: []
-	} as NonNullable<PageData['tasks']['cached']>;
+	};
 	const taskRes = swrResource(() => pageData.tasks, EMPTY_TASKS);
 	const data = $derived(taskRes.value);
 
@@ -44,6 +44,10 @@
 <section class="head">
 	<p class="muted">The weekly rotation pool + active tasks. Tasks are separate from full events.</p>
 </section>
+
+{#if !taskRes.ready}
+	<p class="muted">Loading…</p>
+{/if}
 
 {#if form?.error}<div class="error">{form.error}</div>{/if}
 

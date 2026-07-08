@@ -15,11 +15,11 @@
 	// Streamed payload (see +page.ts): revisits render the last-seen list instantly;
 	// first visits fill in as the fetch lands. Shadowed under the old `data` name so
 	// every reference keeps working.
-	const EMPTY_EVENTS = {
+	const EMPTY_EVENTS: NonNullable<PageData['events']['cached']> = {
 		events: [],
 		packNames: [],
 		templates: []
-	} as NonNullable<PageData['events']['cached']>;
+	};
 	const evRes = swrResource(() => pageData.events, EMPTY_EVENTS);
 	const data = $derived(evRes.value);
 
@@ -62,6 +62,10 @@
 
 <section>
 	<EventsTasksTabs />
+
+	{#if !evRes.ready}
+		<p class="muted">Loading…</p>
+	{/if}
 
 	<p class="tool-link">
 		🧪 <a href="/admin/ehb">EHB Drop Tool</a> — experimental: look up an item's drop rate &amp; EHB cost, or find drops matching an EHB target.
