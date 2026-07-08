@@ -113,7 +113,11 @@ Reference: `docs/event-builder-and-dink-tracking.md`. Remaining setup:
 navigation on all member + core admin pages, bans/session caches, gzip, bingo URL
 unification, service-key support. When you're satisfied with staging:
 
-1. Merge `voli-site-2.0-refactor` → `main` (prod deploys from main).
+1. **Squash-merge** `voli-site-2.0-refactor` → `main` (prod deploys from main).
+   Use squash on purpose: a handful of early commits were authored as "Claude"
+   with attribution trailers, and two merge commits carry `claude/*` branch names
+   — squashing collapses all of it into one commit authored by you, so none of it
+   reaches `main`'s history. (The code content is already clean.)
 2. Then rename prod's key secret properly:
    ```sh
    flyctl secrets set SUPABASE_SERVICE_ROLE_KEY=<key> -a volition-site
