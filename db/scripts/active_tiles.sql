@@ -108,6 +108,15 @@ create view vs_active_tracked_items as
   from vs_active_player_tiles
   where type = 'item';
 
+-- Keep the RLS lockdown intact across re-applies (see enable_rls.sql): plain views
+-- run with the OWNER's privileges and would leak through table RLS without this.
+-- Consumers are unaffected — the site/bot/Dink proxy read via service_role.
+alter view vs_active_player_tiles  set (security_invoker = true);
+alter view vs_active_participants  set (security_invoker = true);
+alter view vs_active_tracked_items set (security_invoker = true);
+revoke select on vs_active_player_tiles, vs_active_participants, vs_active_tracked_items
+  from anon, authenticated;
+
 -- Supporting indexes (the view is filtered by user_id in the consumer).
 create index if not exists vs_event_signups_user      on vs_event_signups (user_id);
 create index if not exists vs_event_signups_event     on vs_event_signups (event_id);

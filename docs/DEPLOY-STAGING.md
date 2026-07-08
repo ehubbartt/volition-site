@@ -50,7 +50,7 @@ fly apps create volition-site-staging
 #    guard + the Discord OAuth callback). Reuse prod values for the rest.
 fly secrets set -a volition-site-staging \
   SUPABASE_URL='https://<project>.supabase.co' \
-  SUPABASE_ANON_KEY='<anon key>' \
+  SUPABASE_SERVICE_ROLE_KEY='<service role key>' \
   DISCORD_CLIENT_ID='<client id>' \
   DISCORD_CLIENT_SECRET='<client secret>' \
   PUBLIC_SITE_URL='https://volition-site-staging.fly.dev' \

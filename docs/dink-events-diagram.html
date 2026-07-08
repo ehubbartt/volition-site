@@ -341,7 +341,7 @@
 			<h3>Site (Fly)</h3>
 			<table>
 				<tr><th>Var</th><th>Purpose</th></tr>
-				<tr><td><code>SUPABASE_URL</code> + <code>SUPABASE_ANON_KEY</code></td><td>DB access (already set).</td></tr>
+				<tr><td><code>SUPABASE_URL</code> + <code>SUPABASE_KEY</code> (service-role value — RLS is deny-all for anon)</td><td>DB access (already set).</td></tr>
 				<tr><td><code>PROXY_BASE_URL</code></td><td>e.g. <code>https://dink-proxy.&lt;account&gt;.workers.dev</code> — lets <code>/dink-check</code> show full config URLs. Without it, members fall back to <code>/dink</code>.</td></tr>
 				<tr><td><code>DINK_PROCESS_SECRET</code></td><td>Guards <code>POST /api/dink/process</code>; unset = the endpoint is disabled (403).</td></tr>
 				<tr><td><code>DISCORD_BINGO_WEBHOOK_URL</code></td><td>Tile-complete announcements (falls back to <code>DISCORD_DROPS_WEBHOOK_URL</code>).</td></tr>

@@ -5,7 +5,8 @@
 #   fly deploy -c fly.staging.toml
 #
 # It shares the same Dockerfile as prod. It points at whatever SUPABASE_URL /
-# SUPABASE_ANON_KEY you set as its secrets (see docs/DEPLOY-STAGING.md) — by default
+# SUPABASE_SERVICE_ROLE_KEY you set as its secrets (see docs/DEPLOY-STAGING.md; RLS is
+# deny-all, so the anon key can no longer read anything) — by default
 # the same shared Supabase as prod, so you test against real data. PUBLIC_SITE_URL
 # MUST be set to this app's own URL so the canonical-host guard + Discord OAuth
 # callback resolve to the staging origin, not prod.
