@@ -12,12 +12,20 @@ export function db(): SupabaseClient {
 	// policies — see db/scripts/enable_rls.sql) the anon key can read/write NOTHING,
 	// and this server-only client is what bypasses RLS.
 	const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
-	// Fail fast in production if the service key is missing: with RLS on, the anon
-	// fallback reads/writes nothing, so booting on it would serve a silently hollow
-	// site (every query empty, every write denied) that still passes health checks.
-	// Better to crash the deploy. The fallback is a dev-only convenience.
-	if (!serviceKey && !dev) {
+	// Staging (STAGING_ADMIN_ONLY set — the same flag hooks.server.ts uses) runs a
+	// production BUILD but is unset in real prod, so it's how we tell them apart:
+	// `dev` is false in any built deploy, staging included.
+	const isStaging = /^(1|true|on|yes)$/i.test((env.STAGING_ADMIN_ONLY ?? '').trim());
+	// Fail fast ONLY in real prod when the service key is missing: with RLS deny-all,
+	// the anon fallback reads/writes nothing, so booting on it would serve a silently
+	// hollow site that still passes health checks — crash the deploy instead. dev and
+	// staging keep the anon fallback until the operator provisions the service key and
+	// enables RLS (see docs/PENDING-OPS.md §1).
+	if (!serviceKey && !dev && !isStaging) {
 		throw new Error('SUPABASE_SERVICE_ROLE_KEY must be set in production (RLS is deny-all for the anon key)');
+	}
+	if (!serviceKey && !dev) {
+		console.warn('[db] SUPABASE_SERVICE_ROLE_KEY not set — using anon key (staging, pre-RLS).');
 	}
 	const key = serviceKey || env.SUPABASE_ANON_KEY;
 
