@@ -1,7 +1,7 @@
 import { browser } from '$app/environment';
 
 // Stale-while-revalidate for the streamed page payloads (see the instant-navigation
-// section in docs/ARCHITECTURE.md). Universal loads call swr() instead of a bare
+// section in docs/PAGES.md). Universal loads call swr() instead of a bare
 // fetch: the page seeds its state from `cached` — the last payload this browser saw
 // for that URL — so revisited pages render REAL content in the same frame as the
 // click, while `fresh` refetches in the background and swaps in silently.

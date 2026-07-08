@@ -1,7 +1,7 @@
 import { json, error, type RequestEvent } from '@sveltejs/kit';
 import { isAdmin, isSuperAdmin, isCardAdmin, type SessionUser } from '$lib/server/auth';
 
-// Factories for the instant-navigation data endpoints (see docs/ARCHITECTURE.md).
+// Factories for the instant-navigation data endpoints (see docs/PAGES.md).
 // Each endpoint re-checks the session itself — the client-side gates in the
 // universal loads are UX, not security — and sends no-store so the browser never
 // caches a personalized payload (the client-side swr cache handles reuse).

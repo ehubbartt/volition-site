@@ -4,7 +4,7 @@ import type { Directory, Stats, TaskSummary } from '$lib/home';
 import { swr, mapSwr, emptySwr } from '$lib/swr';
 import type { PageLoad } from './$types';
 
-// Instant navigation (see docs/ARCHITECTURE.md); hand-composed because the
+// Instant navigation (see docs/PAGES.md); hand-composed because the
 // homepage streams several independently-fetched parts, two of which are
 // live views over one shared /api/home?part=main response.
 export const load: PageLoad = async ({ parent, fetch }) => {

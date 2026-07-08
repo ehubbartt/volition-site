@@ -2,7 +2,7 @@ import { goto, invalidateAll } from '$app/navigation';
 import type { Swr, SwrError } from '$lib/swr';
 
 // Component-side resolver for the streamed payloads produced by instantLoad/swr
-// (see docs/ARCHITECTURE.md, instant navigation). Call during component init:
+// (see docs/PAGES.md, instant navigation). Call during component init:
 //
 //   const tasks = swrResource(() => pageData.tasks, [] as PlayerTask[]);
 //   ...

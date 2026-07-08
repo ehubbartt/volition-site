@@ -3,7 +3,7 @@ import { redirect, error } from '@sveltejs/kit';
 import type { SessionUser } from '$lib/server/auth';
 import { swr, type Swr } from '$lib/swr';
 
-// The standard access gates for instant-navigation pages (see docs/ARCHITECTURE.md).
+// The standard access gates for instant-navigation pages (see docs/PAGES.md).
 // Universal loads run these against the layout's already-loaded data — `await
 // parent()` costs no network — so redirects/403s still happen before the page
 // renders. The admin gates here are UX ONLY: the real enforcement is the role
