@@ -3,6 +3,7 @@ import { isAdmin } from './auth';
 import type { SessionUser } from './auth';
 import { isClanMember } from './clan';
 import { renderMarkdown } from '$lib/markdown';
+import type { Steering } from '$lib/swrResource.svelte';
 import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 import {
 	SEQUENTIAL_EVENT_KIND,
@@ -60,10 +61,9 @@ export async function getEventTasks(eventId: string) {
 	return data ?? [];
 }
 
-export type EventTaskDetail =
-	| { kind: 'not_found' }
-	| { kind: 'redirect'; to: string }
-	| (Awaited<ReturnType<typeof buildOk>> & { kind: 'ok' });
+// Steering (type-only import, erased at build) is the shared contract with
+// swrRouted on the client — the not_found/redirect kinds can't drift apart.
+export type EventTaskDetail = Steering | (Awaited<ReturnType<typeof buildOk>> & { kind: 'ok' });
 
 export async function buildEventTaskDetail(user: SessionUser, slug: string): Promise<EventTaskDetail> {
 	const ev = await getEvent(slug);

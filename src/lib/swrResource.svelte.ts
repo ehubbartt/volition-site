@@ -1,5 +1,5 @@
-import { goto } from '$app/navigation';
-import type { Swr } from '$lib/swr';
+import { goto, invalidateAll } from '$app/navigation';
+import type { Swr, SwrError } from '$lib/swr';
 
 // Component-side resolver for the streamed payloads produced by instantLoad/swr
 // (see docs/ARCHITECTURE.md, instant navigation). Call during component init:
@@ -20,20 +20,43 @@ import type { Swr } from '$lib/swr';
 //   than the previous slug's data. Same-URL revalidation is unaffected — `value`
 //   falls back to `cached`, which the previous fetch populated, so the page keeps
 //   its content with no skeleton flash.
-// - Null fresh results (fetch error) never overwrite data — the cached/loaded
-//   content stays on screen.
+// - Failed fetches never overwrite data: the cached/loaded content stays on screen
+//   and `error` reports why the refresh failed (pages MAY surface it; none must).
+// - A 401/403 means our session or role went stale mid-browse (the layout load
+//   doesn't re-run on client navigation by itself). One throttled invalidateAll()
+//   re-runs every load: the layout refreshes `user`/role flags and the existing
+//   guards redirect — instead of the page silently turning into skeletons forever.
+
+let lastAuthResync = 0;
+function maybeResyncAuth(err: SwrError | null): void {
+	if (err?.status !== 401 && err?.status !== 403) return;
+	const now = Date.now();
+	if (now - lastAuthResync < 5_000) return; // throttle: never loop invalidations
+	lastAuthResync = now;
+	void invalidateAll();
+}
+
 export function swrResource<T>(
 	source: () => Swr<T>,
 	empty: T,
 	opts?: { onFresh?: (data: NonNullable<T>) => void }
-): { readonly value: T; readonly ready: boolean; readonly loaded: T | null } {
+): {
+	readonly value: T;
+	readonly ready: boolean;
+	readonly loaded: T | null;
+	readonly error: SwrError | null;
+} {
 	let loaded = $state<T | null>(null);
 	$effect(() => {
 		const src = source(); // tracked: re-runs when the load result is replaced
 		loaded = null;
 		let current = true;
 		src.fresh.then((d) => {
-			if (!current || d == null) return;
+			if (!current) return;
+			if (d == null) {
+				maybeResyncAuth(src.error);
+				return;
+			}
 			loaded = d;
 			opts?.onFresh?.(d);
 		});
@@ -50,22 +73,33 @@ export function swrResource<T>(
 		},
 		get ready() {
 			return loaded !== null || source().cached !== null;
+		},
+		get error() {
+			return source().error;
 		}
 	};
 }
 
-// Variant for discriminated payloads where the endpoint decides the outcome
-// (`kind: 'not_found' | 'redirect' | <renderable kinds>`). Only FRESH responses may
-// steer: a cached redirect/not_found is never rendered and never acted on, so a
-// stale outcome can't bounce the user around — the page shows its skeleton until
-// the fresh verdict lands. Renderable cached payloads still first-paint instantly.
-type Steering = { kind: 'not_found' } | { kind: 'redirect'; to: string };
+// Variant for discriminated payloads where the endpoint decides the outcome.
+// Builders compose this Steering contract (type-only import, erased at build) so
+// the kind strings can't drift between server and client:
+export type Steering = { kind: 'not_found' } | { kind: 'redirect'; to: string };
 type Renderable<P> = Exclude<P, Steering>;
 
+// Only FRESH responses may steer: a cached redirect/not_found is never rendered
+// and never acted on, so a stale outcome can't bounce the user around. And only a
+// REAL `kind: 'not_found'` payload sets notFound — a failed fetch (network blip,
+// expired session) keeps the cached payload on screen, or stays on the skeleton
+// with `error` set; it must never repaint working content as "not found".
 export function swrRouted<P extends { kind: string }>(
 	source: () => Swr<P>,
 	opts?: { onFresh?: (payload: Renderable<P>) => void }
-): { readonly payload: Renderable<P> | null; readonly ready: boolean; readonly notFound: boolean } {
+): {
+	readonly payload: Renderable<P> | null;
+	readonly ready: boolean;
+	readonly notFound: boolean;
+	readonly error: SwrError | null;
+} {
 	let loaded = $state<Renderable<P> | null>(null);
 	let notFound = $state(false);
 	$effect(() => {
@@ -75,13 +109,20 @@ export function swrRouted<P extends { kind: string }>(
 		let current = true;
 		src.fresh.then((d) => {
 			if (!current) return;
-			// null = fetch error; treated as not found, same as the hand-written pages.
-			if (!d || d.kind === 'not_found') {
+			if (d == null) {
+				maybeResyncAuth(src.error);
+				return;
+			}
+			if (d.kind === 'not_found') {
 				notFound = true;
 				return;
 			}
 			if (d.kind === 'redirect') {
-				goto((d as unknown as { to: string }).to, { replaceState: true });
+				// Structural narrowing (P only guarantees `kind`); builders compose
+				// Steering, so `to` is always present on redirect payloads.
+				if ('to' in d && typeof (d as { to?: unknown }).to === 'string') {
+					goto((d as { to: string }).to, { replaceState: true });
+				}
 				return;
 			}
 			notFound = false;
@@ -106,6 +147,9 @@ export function swrRouted<P extends { kind: string }>(
 		},
 		get notFound() {
 			return notFound;
+		},
+		get error() {
+			return source().error;
 		}
 	};
 }

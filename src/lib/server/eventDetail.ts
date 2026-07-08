@@ -8,6 +8,7 @@ import { renderMarkdown } from '$lib/markdown';
 import { isTaskEvent } from '$lib/events/simple';
 import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 import { buildBingoDetail, type BingoDetail } from './bingoPage';
+import type { Steering } from '$lib/swrResource.svelte';
 import { DUO_WOLF_EVENT_SLUG } from './duoWolfTiles';
 import { loadDuoStandings, type DuoStandings } from './duoStandings';
 
@@ -112,9 +113,10 @@ function buildDemoData() {
 
 export type BingoOk = Extract<BingoDetail, { kind: 'ok' }>;
 
+// Steering (type-only import, erased at build) is the shared contract with
+// swrRouted on the client — the not_found/redirect kinds can't drift apart.
 export type EventDetailResult =
-	| { kind: 'not_found' }
-	| { kind: 'redirect'; to: string }
+	| Steering
 	| (Omit<BingoOk, 'kind'> & { kind: 'bingo' })
 	| (Awaited<ReturnType<typeof buildOk>> & { kind: 'ok' });
 

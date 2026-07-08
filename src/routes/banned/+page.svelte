@@ -24,7 +24,9 @@
 			If you think this is a mistake, reach out to a Volition admin on Discord.
 		</p>
 
-		<form method="POST" action="/auth/logout">
+		<!-- Deliberately NOT use:enhance: the full document load this causes is what
+	     wipes the client-side swr cache on logout (see clearSwrCache in swr.ts). -->
+	<form method="POST" action="/auth/logout">
 			<button type="submit">Sign out</button>
 		</form>
 	</div>
