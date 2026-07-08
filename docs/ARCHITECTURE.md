@@ -49,7 +49,12 @@ Every request passes through the handle hook, in order:
 
 ## Database (`src/lib/server/db.ts`)
 
-- `db()` returns a singleton Supabase client (`SUPABASE_URL` + `SUPABASE_ANON_KEY`).
+- `db()` returns a singleton Supabase client (`SUPABASE_URL` +
+  `SUPABASE_SERVICE_ROLE_KEY`, falling back to `SUPABASE_ANON_KEY` for dev). Every
+  public table has RLS enabled with NO policies (deny-all — see
+  `db/scripts/enable_rls.sql`): the service key bypasses RLS, the anon key can
+  read/write nothing, so an anon-key leak is harmless. The service key is
+  server-only and must never appear in client code or PUBLIC_ env vars.
 - PostgREST caps a plain select at 1000 rows; use `selectAll(table, cols)` for full-table
   reads and `fetchAllFiltered(make)` for paged filtered reads to avoid silent truncation.
 - **Convention:** site-owned tables are prefixed **`vs_`**. The site also reads a few
@@ -242,7 +247,8 @@ bugs that used to recur per feature):
 
 ## Environment variables
 
-Required: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `DISCORD_CLIENT_ID`,
+Required: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (RLS bypass; the app falls
+back to `SUPABASE_ANON_KEY`, which only works while RLS is off), `DISCORD_CLIENT_ID`,
 `DISCORD_CLIENT_SECRET`, `PUBLIC_SITE_URL`, and the role lists `ADMIN_DISCORD_IDS`,
 `SUPER_ADMIN_DISCORD_IDS`, `CARD_TESTER_DISCORD_IDS`. Optional bridge/ops webhook URLs may
 also be set. Fly injects `NODE_ENV`, `PORT`, `FLY_REGION`. Confirm the live list against

@@ -8,7 +8,8 @@
 //
 // Run (Node 20+, from the repo root):
 //   node --env-file=.env db/scripts/optimize_card_art.mjs
-// Needs SUPABASE_URL + SUPABASE_ANON_KEY (RLS is off, anon key has write — same as the app).
+// Needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (RLS is on, deny-all; the service
+// key bypasses it — same as the app. SUPABASE_ANON_KEY works only if RLS is off).
 
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
@@ -20,12 +21,12 @@ const CACHE_CONTROL = '31536000'; // 1 year
 const VIDEO_RE = /\.(webm|mp4|m4v|mov|ogv)$/i;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-	console.error('Missing SUPABASE_URL / SUPABASE_ANON_KEY. Try: node --env-file=.env db/scripts/optimize_card_art.mjs');
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+	console.error('Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY. Try: node --env-file=.env db/scripts/optimize_card_art.mjs');
 	process.exit(1);
 }
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let optimized = 0;
 let skipped = 0;

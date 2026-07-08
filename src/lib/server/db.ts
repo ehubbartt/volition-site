@@ -7,10 +7,14 @@ export function db(): SupabaseClient {
 	if (_client) return _client;
 
 	const url = env.SUPABASE_URL;
-	const key = env.SUPABASE_ANON_KEY;
+	// Prefer the service-role key: with RLS enabled on every table (deny-all, no
+	// policies — see db/scripts/enable_rls.sql) the anon key can read/write NOTHING,
+	// and this server-only client is what bypasses RLS. The anon fallback keeps dev
+	// environments working before the secret is provisioned.
+	const key = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY;
 
 	if (!url || !key) {
-		throw new Error('SUPABASE_URL and SUPABASE_ANON_KEY must be set');
+		throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY) must be set');
 	}
 
 	_client = createClient(url, key, {

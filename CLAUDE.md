@@ -53,6 +53,7 @@ whose names are fixed by the tooling that loads them.
   allow-lists (`ADMIN_DISCORD_IDS`, `SUPER_ADMIN_DISCORD_IDS`,
   `CARD_TESTER_DISCORD_IDS`) plus DB grants in `vs_admin_roles`; form actions use
   `use:enhance`; styling uses the CSS-variable tokens in `src/app.css`.
-- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `DISCORD_CLIENT_ID`,
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (RLS is deny-all;
+  `SUPABASE_ANON_KEY` is a dev-only fallback), `DISCORD_CLIENT_ID`,
   `DISCORD_CLIENT_SECRET`, `PUBLIC_SITE_URL`, the three `*_DISCORD_IDS` lists. See
   `docs/ARCHITECTURE.md` for the complete list.
