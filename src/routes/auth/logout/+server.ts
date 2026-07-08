@@ -2,12 +2,10 @@ import { redirect } from '@sveltejs/kit';
 import { destroySession } from '$lib/server/auth';
 import type { RequestHandler } from './$types';
 
-const logout: RequestHandler = async ({ cookies }) => {
+// POST only, on purpose: a GET logout can be triggered cross-origin by an
+// <img src>/prefetcher and would let a third party force-log-out users. The
+// staging-lock notice and the /me + /banned pages all log out via a POST form.
+export const POST: RequestHandler = async ({ cookies }) => {
 	await destroySession(cookies);
 	throw redirect(303, '/');
 };
-
-export const POST = logout;
-// The staging-lock page links logout as a plain <a href> (hooks.server.ts renders
-// raw HTML before the app exists), which issues a GET.
-export const GET = logout;

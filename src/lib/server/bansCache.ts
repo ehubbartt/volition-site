@@ -1,4 +1,4 @@
-import { db } from './db';
+import { db, fetchAllFiltered } from './db';
 import type { Ban } from './bans';
 
 // In-memory cache of the bot-owned `bans` table, mirroring adminRoles.ts.
@@ -27,7 +27,11 @@ const cache: Cache = {
 let inflight: Promise<void> | null = null;
 
 async function doRefresh(): Promise<void> {
-	const { data, error } = await db().from('bans').select('discord_id, reason, created_at');
+	// Page past PostgREST's 1000-row cap — a bare select() would silently keep only
+	// the first 1000 bans, letting anyone beyond that arbitrary cutoff through.
+	const { data, error } = await fetchAllFiltered<Ban>((from, to) =>
+		db().from('bans').select('discord_id, reason, created_at').range(from, to)
+	);
 
 	if (error) {
 		// Keep the previous cache on failure — same fail-open posture as the old
@@ -49,7 +53,22 @@ async function doRefresh(): Promise<void> {
 // concurrent callers share one query. Ban/unban actions call with force=true so the
 // acting machine enforces immediately.
 export async function ensureFreshBans(force = false): Promise<void> {
-	const stale = force || !cache.loaded || Date.now() - cache.fetchedAt > TTL_MS;
+	if (force) {
+		// A ban/unban just wrote a row. Don't JOIN an in-flight refresh — its SELECT
+		// may have snapshotted before the write. Wait for any in-flight read to
+		// finish, then run a fresh one whose read starts after this call, so its
+		// write lands last and reflects the change.
+		const prev = inflight;
+		const p = (async () => {
+			if (prev) await prev.catch(() => {});
+			await doRefresh();
+		})();
+		inflight = p.finally(() => {
+			if (inflight === p) inflight = null;
+		});
+		return p;
+	}
+	const stale = !cache.loaded || Date.now() - cache.fetchedAt > TTL_MS;
 	if (!stale) return;
 	if (!inflight) {
 		inflight = doRefresh().finally(() => {

@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient, type PostgrestError } from '@supabase/supabase-js';
 import { env } from '$env/dynamic/private';
+import { dev } from '$app/environment';
 
 let _client: SupabaseClient | null = null;
 
@@ -9,9 +10,16 @@ export function db(): SupabaseClient {
 	const url = env.SUPABASE_URL;
 	// Prefer the service-role key: with RLS enabled on every table (deny-all, no
 	// policies — see db/scripts/enable_rls.sql) the anon key can read/write NOTHING,
-	// and this server-only client is what bypasses RLS. The anon fallback keeps dev
-	// environments working before the secret is provisioned.
-	const key = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY;
+	// and this server-only client is what bypasses RLS.
+	const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
+	// Fail fast in production if the service key is missing: with RLS on, the anon
+	// fallback reads/writes nothing, so booting on it would serve a silently hollow
+	// site (every query empty, every write denied) that still passes health checks.
+	// Better to crash the deploy. The fallback is a dev-only convenience.
+	if (!serviceKey && !dev) {
+		throw new Error('SUPABASE_SERVICE_ROLE_KEY must be set in production (RLS is deny-all for the anon key)');
+	}
+	const key = serviceKey || env.SUPABASE_ANON_KEY;
 
 	if (!url || !key) {
 		throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY) must be set');

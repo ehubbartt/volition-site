@@ -27,13 +27,26 @@ try {
 // in prod, so prod is unaffected. Read once at startup.
 const STAGING_ADMIN_ONLY = /^(1|true|on|yes)$/i.test((serverEnv.STAGING_ADMIN_ONLY ?? '').trim());
 
+// A request is for a static asset (and so skips the staging + ban gates) if it's a
+// build artifact under /_app/ or ends in a known static-file extension. This is a
+// real extension list rather than "the path contains a dot" ON PURPOSE: route
+// params can contain dots (e.g. /api/events/<slug>), and a bare dot check would let
+// a banned user — or an anonymous visitor on the staging lock — reach those routes.
+const STATIC_EXT =
+	/\.(?:js|mjs|css|map|ico|png|jpe?g|gif|svg|webp|avif|woff2?|ttf|otf|eot|txt|xml|json|webmanifest|mp4|webm|ogg|mp3|wav|pdf)$/i;
+function isStaticAsset(path: string): boolean {
+	return path.startsWith('/_app/') || STATIC_EXT.test(path);
+}
+
 // Minimal admin-only notice for the staging lock (no app assets needed — inline styles). Shows
 // a Discord sign-in link when signed out, or a "not an admin" note (+ logout) when signed in.
 function stagingLockResponse(signedIn: boolean): Response {
 	const body = signedIn
 		? `<p>This is the <strong>staging</strong> site and it's restricted to admins.</p>
 		   <p class="muted">Your account isn't an admin here.</p>
-		   <a class="btn" href="/auth/logout">Log out</a>`
+		   <form method="POST" action="/auth/logout" style="margin:0">
+		     <button class="btn" type="submit" style="border:none;cursor:pointer;font:inherit">Log out</button>
+		   </form>`
 		: `<p>This is the <strong>staging</strong> site and it's restricted to admins.</p>
 		   <a class="btn" href="/auth/discord/login">Sign in with Discord</a>`;
 	const html = `<!doctype html><html lang="en"><head><meta charset="utf-8" />
@@ -99,7 +112,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// cache refresh so DB-granted admins are recognised.
 	if (STAGING_ADMIN_ONLY) {
 		const gatePath = event.url.pathname;
-		const openForLogin = gatePath.startsWith('/auth/') || gatePath.startsWith('/_app/') || gatePath.includes('.');
+		const openForLogin = gatePath.startsWith('/auth/') || isStaticAsset(gatePath);
 		if (!openForLogin && !isAdmin(event.locals.user)) {
 			return stagingLockResponse(!!event.locals.user);
 		}
@@ -112,9 +125,11 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// it costs zero round-trips; a new ban takes effect within the cache TTL (~30s) on
 	// machines other than the one that issued it (ban/unban actions force-refresh).
 	const path = event.url.pathname;
-	const isAsset = path.startsWith('/_app/') || path.includes('.');
-	event.locals.ban = session?.user && !isAsset ? getBanCached(session.user.discord_id) : null;
-	if (event.locals.ban) {
+	// Populate locals.ban for EVERY authenticated request (the lookup is a zero-cost
+	// synchronous cache read), so server loads/endpoints can see it. Only the redirect
+	// is skipped for static assets — otherwise /banned couldn't load its own assets.
+	event.locals.ban = session?.user ? getBanCached(session.user.discord_id) : null;
+	if (event.locals.ban && !isStaticAsset(path)) {
 		const allowed = path === '/banned' || path.startsWith('/auth/logout');
 		if (!allowed) {
 			return new Response(null, { status: 303, headers: { location: '/banned' } });
