@@ -57,7 +57,11 @@ export const actions: Actions = {
 				.from('vs_rank_sim')
 				.upsert(
 					{
-						rsn: inputs.rsn,
+						// Key the row by the member's PROFILE rsn — the exact value buildMeData
+						// reads back (.ilike('rsn', user.rsn)). inputs.rsn is the WiseOldMan
+						// canonical name, which differs after a rename/alt spelling, so keying
+						// on it wrote a row the page could never find.
+						rsn,
 						wom_id: inputs.womId,
 						ehb: inputs.ehb,
 						total_level: inputs.totalLevel,
