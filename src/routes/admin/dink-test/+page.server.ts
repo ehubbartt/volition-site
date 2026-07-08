@@ -6,6 +6,7 @@ import { evaluateDinkDrop, evaluatePersonalDink, simulateDinkDrop, type DropVerd
 // Sentinel event_id for "target the player's personal collection-log board" instead of an event.
 const PERSONAL = '__personal__';
 import { listActiveTokens, revokeTokensFor } from '$lib/server/dinkTokens';
+import { bustEventCaches } from '$lib/server/microCache';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -88,6 +89,7 @@ export const actions: Actions = {
 		if (te) return fail(500, { error: te.message });
 		const { error: tie } = await db().from('vs_event_tracked_items').insert(tracked);
 		if (tie) return fail(500, { error: tie.message });
+		bustEventCaches(); // the self-test event is now open — refresh the list/calendar/stats
 		return { mode: 'selftest' as const, ok: true, slug: SELF_TEST_SLUG, items: SELF_TEST_ITEMS.map((i) => i.name) };
 	},
 

@@ -1,6 +1,7 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
+import { bustEventCaches } from '$lib/server/microCache';
 import { EVENT_TASK_KIND, isTaskEvent } from '$lib/events/simple';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -86,6 +87,7 @@ export const actions: Actions = {
 
 		const { error: e } = await db().from('vs_events').update(patch).eq('id', guard.ev.id);
 		if (e) return fail(500, { error: e.message });
+		bustEventCaches();
 		return { ok: true };
 	},
 
@@ -100,6 +102,7 @@ export const actions: Actions = {
 
 		const { error: e } = await db().from('vs_events').update({ status }).eq('id', guard.ev.id);
 		if (e) return fail(500, { error: e.message });
+		bustEventCaches();
 		return { ok: true };
 	},
 
@@ -194,6 +197,7 @@ export const actions: Actions = {
 
 		const { error: e } = await db().from('vs_events').delete().eq('id', guard.ev.id);
 		if (e) return fail(500, { error: e.message });
+		bustEventCaches();
 		throw redirect(303, '/admin/events');
 	}
 };

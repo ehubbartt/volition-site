@@ -161,20 +161,23 @@ export async function buildSections(userId: string, admin: boolean): Promise<Eve
 
 	// Tasks live in vs_tasks (their own table / the To Do page), so vs_events is
 	// only "full events" here — no task filtering needed.
-	const [{ data: events, error }, { data: sus }, { data: pb }] = await Promise.all([
+	const [events, { data: sus }, { data: pb }] = await Promise.all([
 		// The event list itself is identical for every viewer (per admin visibility)
 		// → micro-cached; admin event mutations bust 'events:list'. The signup +
-		// personal-board reads below are per-user and stay live.
-		microCached(`events:list:${admin}`, 15_000, async () =>
-			db()
+		// personal-board reads below are per-user and stay live. Throw INSIDE the
+		// cached fn so a transient DB error isn't cached as a 500 for the whole TTL.
+		microCached(`events:list:${admin}`, 15_000, async () => {
+			const { data, error } = await db()
 				.from('vs_events')
 				.select(
 					'id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, starts_at, ends_at'
 				)
 				.neq('kind', 'personal') // exclude personal boards (owner-scoped, not public events)
 				.in('status', visibleStatuses)
-				.neq('slug', 'weekly-tasks') // internal task container, not a real event
-		),
+				.neq('slug', 'weekly-tasks'); // internal task container, not a real event
+			if (error) throw new Error(error.message);
+			return (data ?? []) as EventRow[];
+		}),
 		// Which events the current user has signed up for (signup events only) — drives
 		// the signed-up vs not-signed-up sorting/display.
 		db().from('vs_event_signups').select('event_id').eq('user_id', userId),
@@ -186,8 +189,6 @@ export async function buildSections(userId: string, admin: boolean): Promise<Eve
 			.eq('owner_user_id', userId)
 			.maybeSingle()
 	]);
-
-	if (error) throw new Error(error.message);
 
 	let personal: PersonalCard = { state: 'none' };
 	if (pb) {
@@ -206,7 +207,7 @@ export async function buildSections(userId: string, admin: boolean): Promise<Eve
 		}
 	}
 
-	const rows = (events ?? []) as EventRow[];
+	const rows = events;
 	const now = Date.now();
 	const signedUpIds = new Set((sus ?? []).map((r) => r.event_id as string));
 

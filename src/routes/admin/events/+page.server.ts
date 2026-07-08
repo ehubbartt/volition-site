@@ -4,7 +4,7 @@ import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { isTaskEvent, EVENT_TASK_KIND, slugify } from '$lib/events/simple';
 import { cloneTemplateToEvent, listTemplates } from '$lib/server/eventStructure';
-import { bustMicroCache } from '$lib/server/microCache';
+import { bustEventCaches } from '$lib/server/microCache';
 import type { Actions } from './$types';
 
 // ACTIONS ONLY — this page has no server load. Its data comes from
@@ -114,7 +114,7 @@ export const actions: Actions = {
 				}
 				return fail(500, { error: insertError.message });
 			}
-			bustMicroCache('events:list');
+			bustEventCaches();
 			return { ok: true };
 		}
 
@@ -246,7 +246,7 @@ export const actions: Actions = {
 			return fail(500, { error: updateError.message });
 		}
 
-		bustMicroCache('events:list');
+		bustEventCaches();
 		return { ok: true };
 	},
 
@@ -288,7 +288,7 @@ export const actions: Actions = {
 
 		const { error: delErr } = await db().from('vs_events').delete().eq('id', id);
 		if (delErr) return fail(500, { error: delErr.message });
-		bustMicroCache('events:list');
+		bustEventCaches();
 		return { ok: true, deleted: ev.slug };
 	},
 
@@ -311,7 +311,7 @@ export const actions: Actions = {
 
 		if (updateError) return fail(500, { error: updateError.message });
 
-		bustMicroCache('events:list');
+		bustEventCaches();
 		return { ok: true };
 	},
 
@@ -334,7 +334,7 @@ export const actions: Actions = {
 
 		if (updateError) return fail(500, { error: updateError.message });
 
-		bustMicroCache('events:list');
+		bustEventCaches();
 		return { ok: true };
 	}
 };
