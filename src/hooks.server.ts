@@ -1,4 +1,4 @@
-import type { Handle } from '@sveltejs/kit';
+import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { env } from '$env/dynamic/public';
 import { env as serverEnv } from '$env/dynamic/private';
 import { readSession, isAdmin, isSuperAdmin, invalidateSessionCache } from '$lib/server/auth';
@@ -176,4 +176,24 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (audit && payload) void logAudit(event, response.status, payload);
 
 	return response;
+};
+
+// Unexpected server errors: always log the full error (Fly logs), and on STAGING
+// only, return the real message + stack in the response body so failures are
+// debuggable from the browser's Network tab. Prod keeps the opaque default —
+// stack traces must never leak to members.
+export const handleError: HandleServerError = ({ error, event, status, message }) => {
+	console.error(
+		'[unhandled]',
+		event.request.method,
+		event.url.pathname + event.url.search,
+		status,
+		error
+	);
+	if (STAGING_ADMIN_ONLY) {
+		const detail =
+			error instanceof Error ? `${error.message}\n\n${error.stack ?? ''}` : String(error);
+		return { message: detail };
+	}
+	return { message };
 };
