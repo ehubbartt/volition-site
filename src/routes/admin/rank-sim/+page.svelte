@@ -192,7 +192,7 @@
 				{#each data.rankOrder as role}
 					<label>
 						<span style="color:{rankColor(role)}">{data.rankLabels[role]}</span>
-						<input type="number" step="0.001" min="0" max="1" name={`t_${role}`} value={thr(role)} />
+						<input type="number" step="0.01" min="0" max="1" name={`t_${role}`} value={thr(role)} />
 					</label>
 				{/each}
 			</div>

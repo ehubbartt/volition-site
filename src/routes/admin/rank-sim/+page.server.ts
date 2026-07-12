@@ -199,14 +199,15 @@ function buildSummary(
 }
 
 // Target population share per rank (low → high) for "Suggest right-skewed thresholds":
-// a right-skewed, still-roughly-bell shape — mode at Iron/Steel, steadily decaying tail
-// so the top ranks stay rare. Must line up with RANK_ORDER and sum to 1.
-const SKEW_TARGET_SHARE = [0.09, 0.15, 0.15, 0.13, 0.11, 0.09, 0.08, 0.065, 0.05, 0.035, 0.025, 0.015, 0.01];
+// a right-skewed, still-roughly-bell shape — mode at Gold/Mithril, steadily decaying
+// tail so the top ranks stay rare. Must line up with RANK_ORDER and sum to 1.
+const SKEW_TARGET_SHARE = [0.06, 0.09, 0.12, 0.14, 0.14, 0.11, 0.09, 0.07, 0.06, 0.05, 0.04, 0.02, 0.01];
 
 // Derive score→rank thresholds that would place the given composite scores into the
 // SKEW_TARGET_SHARE distribution: each rank's floor is the score quantile at the
 // cumulative share below it (midpoint between the straddling players, so small score
-// nudges don't flip anyone). Strictly increasing so tied scores can't collapse ranks.
+// nudges don't flip anyone), rounded to a clean 2-decimal value. Strictly increasing
+// so tied scores can't collapse ranks.
 function suggestSkewedThresholds(composites: number[]): { womRole: RankValue; scoreMin: number }[] {
 	const sorted = [...composites].sort((a, b) => a - b);
 	const n = sorted.length;
@@ -218,10 +219,10 @@ function suggestSkewedThresholds(composites: number[]): { womRole: RankValue; sc
 		if (i > 0) {
 			const k = Math.min(n - 1, Math.max(1, Math.round(cum * n)));
 			const mid = (sorted[k - 1] + sorted[k]) / 2;
-			scoreMin = Math.round(mid * 1000) / 1000;
+			scoreMin = Math.round(mid * 100) / 100;
 		}
-		scoreMin = Math.min(0.99, Math.max(scoreMin, prev + (i > 0 ? 0.005 : 0)));
-		scoreMin = Math.round(scoreMin * 1000) / 1000;
+		scoreMin = Math.min(0.99, Math.max(scoreMin, prev + (i > 0 ? 0.01 : 0)));
+		scoreMin = Math.round(scoreMin * 100) / 100;
 		prev = scoreMin;
 		cum += SKEW_TARGET_SHARE[i];
 		out.push({ womRole, scoreMin });
