@@ -33,8 +33,10 @@ The root `+layout.server.ts` exposes `isAdmin`/`isCardTester`/`isSuperAdmin` fla
 UX-only page guards; the real authorization boundary is the endpoint role re-check (see
 [`PAGES.md`](PAGES.md), Admin).
 
-**View-as (super admins only).** A super admin can preview the site as a lower role via
-the fixed switcher pill (bottom-left): plain admin, member, or non-clan-member ('guest').
+**View-as (super admins only).** A super admin can preview the site as a lower role —
+plain admin, member, or non-clan-member ('guest') — from the "View site as" card on the
+`/admin` hub. While a preview is active, `/admin` is unreachable (that's the point), so an
+accent "Viewing as X ✕" chip in the header nav is the way back.
 Mechanics: a `vs_view_as` cookie set by `POST /admin/view-as`; `hooks.server.ts` applies it
 to `locals.user` ONLY when the real session user is a super admin (checked before the
 override, after the staging lock so the preview can't lock you out of staging), so it can

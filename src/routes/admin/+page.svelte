@@ -101,6 +101,31 @@
 			</a>
 		{/each}
 	</div>
+
+	<!-- VIEW-AS (real super admins only — see hooks.server.ts). Deliberately a
+	     NATIVE form: the full document load it causes wipes the client swr cache,
+	     so payloads fetched under a higher role can never first-paint into a
+	     lower-role preview. While a preview is active this page is unreachable —
+	     the header shows an "exit preview" chip instead (root +layout.svelte). -->
+	{#if data.realSuperAdmin}
+		<div class="view-as-card">
+			<div>
+				<strong>View site as</strong>
+				<p class="muted">
+					Preview the whole site as a lower role — nav, pages, and permissions all follow.
+					A chip in the header brings you back.
+				</p>
+			</div>
+			<form method="POST" action="/admin/view-as">
+				<select name="role" aria-label="View site as role">
+					<option value="admin">Admin</option>
+					<option value="member">Member</option>
+					<option value="guest">Non-clan member</option>
+				</select>
+				<button type="submit">Preview</button>
+			</form>
+		</div>
+	{/if}
 </section>
 
 <style>
@@ -151,5 +176,47 @@
 	.tool span {
 		font-size: 0.9rem;
 		line-height: 1.4;
+	}
+
+	.view-as-card {
+		margin-top: 1.5rem;
+		padding: 1rem 1.25rem;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+		background: linear-gradient(180deg, rgba(58, 48, 36, 0.85), rgba(40, 32, 24, 0.85));
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+	}
+	.view-as-card strong {
+		font-family: var(--font-heading);
+		color: var(--accent);
+		text-shadow: var(--ts);
+	}
+	.view-as-card p {
+		margin: 0.15rem 0 0;
+		font-size: 0.85rem;
+		max-width: 34rem;
+	}
+	.view-as-card form {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+	}
+	.view-as-card select,
+	.view-as-card button {
+		background: var(--surface-alt);
+		color: var(--text);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 0.35rem 0.6rem;
+		font: inherit;
+		cursor: pointer;
+	}
+	.view-as-card button:hover {
+		border-color: var(--accent);
+		color: var(--accent);
 	}
 </style>

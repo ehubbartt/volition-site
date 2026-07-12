@@ -48,31 +48,15 @@
 				{#if data.isAdmin || data.isCardTester}
 					<a href="/admin" class:active={path.startsWith('/admin')}>Admin</a>
 				{/if}
-				<!-- VIEW-AS switcher (real super admins only — see hooks.server.ts).
-				     Deliberately a NATIVE form: the full document load it causes wipes the
-				     client swr cache, so payloads fetched under a higher role can never
-				     first-paint into a lower-role preview. Lives in the nav so it's part of
-				     the header on desktop and inside the menu on mobile — and stays
-				     reachable in every preview mode to switch back. -->
-				{#if data.realSuperAdmin || data.viewAs}
-					<form
-						method="POST"
-						action="/admin/view-as"
-						class="view-as"
-						class:previewing={!!data.viewAs}
-						title="Preview the site as a lower role (super admin only)"
-					>
-						<select
-							name="role"
-							onchange={(e) => e.currentTarget.form?.requestSubmit()}
-							aria-label="View site as role"
-						>
-							<option value="super" selected={!data.viewAs}>View as: me</option>
-							<option value="admin" selected={data.viewAs === 'admin'}>View as: Admin</option>
-							<option value="member" selected={data.viewAs === 'member'}>View as: Member</option>
-							<option value="guest" selected={data.viewAs === 'guest'}>View as: Non-member</option>
-						</select>
-						<noscript><button type="submit">Apply</button></noscript>
+				<!-- Shown ONLY while a view-as preview is active (started from /admin —
+				     which is unreachable in a preview, so this chip is the way back).
+				     NATIVE form on purpose: the full reload wipes the client swr cache. -->
+				{#if data.viewAs}
+					<form method="POST" action="/admin/view-as" class="view-as" title="Exit the role preview">
+						<input type="hidden" name="role" value="super" />
+						<button type="submit">
+							Viewing as {data.viewAs === 'admin' ? 'Admin' : data.viewAs === 'member' ? 'Member' : 'Non-member'} ✕
+						</button>
 					</form>
 				{/if}
 			</nav>
@@ -448,28 +432,24 @@
 		}
 	}
 
-	/* View-as switcher: part of the header nav (menu on mobile). Quiet when
-	   viewing as yourself; accent-bordered while a preview is active so it's
-	   impossible to forget you're not seeing your real role. */
+	/* View-as exit chip: only exists while a preview is active (the picker lives
+	   on /admin). Accent so the not-your-real-role state is unmissable. */
 	.view-as {
 		display: flex;
 		align-items: center;
 	}
-	.view-as select {
+	.view-as button {
 		background: transparent;
-		color: var(--muted);
-		border: 1px solid var(--border);
-		border-radius: 6px;
-		padding: 0.25rem 0.4rem;
-		font: inherit;
-		font-size: 0.8rem;
-		cursor: pointer;
-	}
-	.view-as select:hover {
-		color: var(--text);
-	}
-	.view-as.previewing select {
-		border-color: var(--accent);
 		color: var(--accent);
+		border: 1px solid var(--accent);
+		border-radius: 999px;
+		padding: 0.25rem 0.7rem;
+		font: inherit;
+		font-size: 0.78rem;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.view-as button:hover {
+		background: rgba(255, 152, 31, 0.12);
 	}
 </style>
