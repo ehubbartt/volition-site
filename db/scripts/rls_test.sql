@@ -25,6 +25,12 @@ create or replace view public.vs_rls_test_view as
 create or replace function public.vs_rls_test_fn() returns text
 	language sql stable as $$ select 'rls test fn ok'::text $$;
 
+-- Tell PostgREST (the REST API supabase-js talks to) about the NEW objects — it
+-- caches the schema, so without this the API reports "not found in the schema
+-- cache" for a few seconds/minutes. Only needed for newly-created objects; the
+-- real enable_rls.sql acts on existing tables, so it needs no reload.
+notify pgrst, 'reload schema';
+
 -- After SECTION 1: visit /admin/rls-test on staging → all three READABLE (RLS off).
 
 -- ─────────────────────────────────────────────────────────────────────────────
