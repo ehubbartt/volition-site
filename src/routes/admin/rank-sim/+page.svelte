@@ -54,7 +54,10 @@
 	function thr(role: string): number {
 		return config.thresholds.find((t) => t.womRole === role)?.scoreMin ?? 0;
 	}
-	let maxRankCount = $derived(Math.max(1, ...summary.distribution.map((d) => d.projected)));
+	// Shared scale across the projected and current charts so their bars compare 1:1.
+	let maxRankCount = $derived(
+		Math.max(1, ...summary.distribution.map((d) => Math.max(d.projected, d.current)))
+	);
 </script>
 
 <svelte:head>
@@ -283,6 +286,22 @@
 						<div
 							class="rbar"
 							style="height:{(d.projected / maxRankCount) * 100}%; background:{rankColor(d.rank)}"
+						></div>
+					</div>
+					<span class="rlbl" style="color:{rankColor(d.rank)}">{d.label}</span>
+				</div>
+			{/each}
+		</div>
+
+		<strong class="mt">Players per rank (current)</strong>
+		<div class="rank-hist">
+			{#each summary.distribution as d (d.rank)}
+				<div class="rcol" title={`${d.label}: ${d.current} current · ${d.projected} projected`}>
+					<span class="rcount">{d.current}</span>
+					<div class="rtrack">
+						<div
+							class="rbar"
+							style="height:{(d.current / maxRankCount) * 100}%; background:{rankColor(d.rank)}"
 						></div>
 					</div>
 					<span class="rlbl" style="color:{rankColor(d.rank)}">{d.label}</span>
