@@ -1,11 +1,7 @@
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
-	import AccountIcon from '$lib/AccountIcon.svelte';
-	import CardThumb from '$lib/cards/CardThumb.svelte';
-	import PackThumb from '$lib/cards/PackThumb.svelte';
 	import CardInspector3D from '$lib/cards/CardInspector3D.svelte';
 	import type { UserCard } from '$lib/cards/rarity';
-	import { FINISH_BY_KEY } from '$lib/cards/finishes';
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
 	import { rsnToSlug } from '$lib/rsn';
@@ -17,6 +13,12 @@
 	import RankBadge from '$lib/RankBadge.svelte';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import Skeleton from '$lib/Skeleton.svelte';
+	import ProfileBanner from '$lib/profile/ProfileBanner.svelte';
+	import ProfileTabs from '$lib/profile/ProfileTabs.svelte';
+	import ProfilePanel from '$lib/profile/ProfilePanel.svelte';
+	import CollectionPanel from '$lib/profile/CollectionPanel.svelte';
+	import StatsPanel from '$lib/profile/StatsPanel.svelte';
+	import EmptyState from '$lib/profile/EmptyState.svelte';
 	import { swrResource } from '$lib/swrResource.svelte';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
@@ -65,19 +67,20 @@
 	// Collection card the viewer modal is showing (null = closed).
 	let viewing = $state<UserCard | null>(null);
 
-	let tabs = $derived<{ id: Tab; label: string }[]>([
-		{ id: 'profile', label: 'Profile' },
-		{ id: 'rank', label: 'Rank' },
-		{ id: 'collection', label: 'Collection' },
-		{ id: 'stats', label: 'Stats' },
-		{ id: 'wallet', label: 'Wallet' }
-	]);
-
 	let clanLabel = $derived(
 		data.user.clan_allegiance ? CLAN_LABEL[data.user.clan_allegiance as ClanValue] : null
 	);
 	let walletTotal = $derived(data.wallet.reduce((sum, w) => sum + w.quantity, 0));
 	let packTotal = $derived(data.packs.reduce((sum, p) => sum + p.quantity, 0));
+
+	let tabs = $derived([
+		{ id: 'profile', label: 'Profile' },
+		{ id: 'rank', label: 'Rank' },
+		{ id: 'collection', label: 'Collection', count: data.collectionOwned },
+		{ id: 'stats', label: 'Stats' },
+		{ id: 'wallet', label: 'Wallet', count: walletTotal }
+	]);
+
 
 	// "Check my rank" — refreshes the cached breakdown from live data and writes the rank.
 	// After the action, the page load re-runs and data.rankBreakdown re-renders below.
@@ -122,18 +125,13 @@
 </svelte:head>
 
 <section class="profile">
-	<header class="banner">
-		<div class="identity">
-			<AccountIcon type={data.user.account_type} size={48} />
-			<div class="who">
-				<h1>{data.user.rsn ?? data.user.discord_username}</h1>
-				<span class="sub">
-					@{data.user.discord_username}{#if clanLabel} · {clanLabel}{/if}
-				</span>
-			</div>
-		</div>
-		<OsrsCounter value={meReady ? data.vp_balance : 0} label="VP" title="Volition Points" />
-	</header>
+	<ProfileBanner
+		accountType={data.user.account_type}
+		name={data.user.rsn ?? data.user.discord_username}
+		username={data.user.discord_username}
+		{clanLabel}
+		vp={meReady ? data.vp_balance : 0}
+	/>
 
 	{#if data.user.rsn}
 		<p class="profile-link muted">
@@ -147,26 +145,10 @@
 			<Skeleton height="18rem" radius="10px" />
 		</div>
 	{:else}
-	<nav class="tabs">
-		{#each tabs as t}
-			<button
-				type="button"
-				class="tab"
-				class:active={tab === t.id}
-				onclick={() => (tab = t.id)}
-			>
-				{t.label}
-				{#if t.id === 'collection' && data.collectionOwned}
-					<span class="count">{data.collectionOwned}</span>
-				{:else if t.id === 'wallet' && walletTotal}
-					<span class="count">{walletTotal}</span>
-				{/if}
-			</button>
-		{/each}
-	</nav>
+	<ProfileTabs {tabs} active={tab} onselect={(id) => (tab = id as Tab)} />
 
 	{#if tab === 'profile'}
-		<div class="panel">
+		<ProfilePanel>
 			{#if form?.success}
 				<div class="success">Saved.</div>
 			{:else if form?.error}
@@ -258,9 +240,9 @@
 	<form method="POST" action="/auth/logout" class="logout">
 				<button type="submit">Sign out</button>
 			</form>
-		</div>
+		</ProfilePanel>
 	{:else if tab === 'rank'}
-		<div class="panel">
+		<ProfilePanel>
 			<section class="rank-panel">
 				<div class="rank-head">
 					<div class="rank-id">
@@ -407,100 +389,33 @@
 					</p>
 				{/if}
 			</section>
-		</div>
+		</ProfilePanel>
 	{:else if tab === 'collection'}
-		<div class="panel">
-			{#if data.collection.length === 0 && data.packs.length === 0}
-				<div class="empty">
-					<p>Nothing here yet.</p>
-					<p class="muted">Open a pack to start collecting.</p>
-				</div>
-			{:else}
-				{#if data.packs.length > 0}
-					<h3 class="section-head">Unopened packs <span class="count">{packTotal}</span></h3>
-					<div class="card-grid packs-grid">
-						{#each data.packs as pack (pack.id)}
-							<PackThumb {pack} quantity={pack.quantity} />
-						{/each}
-					</div>
-				{/if}
-
-				<h3 class="section-head">
-					Cards <span class="count-text muted">{data.collectionOwned} / {data.collectionTotal} collected</span>
-				</h3>
-				{#if data.collection.length === 0}
-					<p class="muted">No cards yet — open a pack to start collecting.</p>
-				{:else}
-					<div class="card-grid">
-						{#each data.collection as card (card.id + '-' + card.finish)}
-							{#if card.owned}
-								<button type="button" class="thumb-btn" onclick={() => (viewing = card)}>
-									<CardThumb {card} quantity={card.quantity} finish={card.finish} flip={false} />
-								</button>
-							{:else if card.hidden}
-								<div class="thumb-btn mystery-slot" title="Secret rare — undiscovered">
-									<CardThumb {card} flip={false} />
-								</div>
-							{:else}
-								<div class="thumb-btn locked" title="Not owned · {FINISH_BY_KEY[card.finish]?.label ?? 'Normal'}">
-									<CardThumb {card} finish={card.finish} backOnly flip={false} />
-								</div>
-							{/if}
-						{/each}
-					</div>
-				{/if}
-			{/if}
-		</div>
+		<ProfilePanel>
+			<CollectionPanel
+				packs={data.packs}
+				collection={data.collection}
+				collectionOwned={data.collectionOwned}
+				collectionTotal={data.collectionTotal}
+				emptyHint="Open a pack to start collecting."
+				noCardsText="No cards yet — open a pack to start collecting."
+				onview={(card) => (viewing = card)}
+			/>
+		</ProfilePanel>
 	{:else if tab === 'stats'}
-		<div class="panel">
-			<div class="stats-grid">
-				<section class="stat-card">
-					<h3>Volition Points</h3>
-					<div class="mini-stats">
-						<div class="ms"><span class="ms-num">{data.vp_balance.toLocaleString()}</span><span class="ms-lbl">Current VP</span></div>
-					</div>
-				</section>
-
-				<section class="stat-card">
-					<h3>Cards</h3>
-					<div class="mini-stats">
-						<div class="ms"><span class="ms-num">{data.myStats.cardsOwned}</span><span class="ms-lbl">Cards owned</span></div>
-						<div class="ms"><span class="ms-num">{data.collectionOwned} / {data.collectionTotal}</span><span class="ms-lbl">Variants collected</span></div>
-					</div>
-				</section>
-
-				<section class="stat-card">
-					<h3>Packs</h3>
-					<div class="mini-stats">
-						<div class="ms"><span class="ms-num">{packTotal}</span><span class="ms-lbl">Unopened</span></div>
-						<div class="ms"><span class="ms-num">{data.myStats.packsOpened}</span><span class="ms-lbl">Opened</span></div>
-						<div class="ms"><span class="ms-num">{data.myStats.cardsPulled}</span><span class="ms-lbl">Cards pulled</span></div>
-						<div class="ms"><span class="ms-num">{data.myStats.vpSpent.toLocaleString()}</span><span class="ms-lbl">VP spent</span></div>
-					</div>
-				</section>
-
-				<section class="stat-card">
-					<h3>Gamba crates</h3>
-					<div class="mini-stats">
-						<div class="ms"><span class="ms-num">{data.crateStats.totalOpens}</span><span class="ms-lbl">Opened</span></div>
-						<div class="ms"><span class="ms-num">{data.crateStats.freeOpens}</span><span class="ms-lbl">Free</span></div>
-						<div class="ms"><span class="ms-num">{data.crateStats.paidOpens}</span><span class="ms-lbl">Paid</span></div>
-						<div class="ms"><span class="ms-num">{data.crateStats.vpWon.toLocaleString()}</span><span class="ms-lbl">VP won</span></div>
-						<div class="ms"><span class="ms-num">{data.crateStats.vpSpent.toLocaleString()}</span><span class="ms-lbl">VP spent</span></div>
-						<div class="ms"><span class="ms-num">{data.crateStats.biggestWin.toLocaleString()}</span><span class="ms-lbl">Biggest win</span></div>
-					</div>
-				</section>
-
-				<section class="stat-card">
-					<h3>Wallet</h3>
-					<div class="mini-stats">
-						<div class="ms"><span class="ms-num">{walletTotal}</span><span class="ms-lbl">Unpaid items</span></div>
-					</div>
-				</section>
-			</div>
-		</div>
+		<ProfilePanel>
+			<StatsPanel
+				vp={data.vp_balance}
+				cards={data.myStats}
+				crateStats={data.crateStats}
+				collectionOwned={data.collectionOwned}
+				collectionTotal={data.collectionTotal}
+				{packTotal}
+				{walletTotal}
+			/>
+		</ProfilePanel>
 	{:else if tab === 'wallet'}
-		<div class="panel">
+		<ProfilePanel>
 			<div class="wallet-head">
 				<OsrsCounter
 					value={data.gold_balance}
@@ -557,15 +472,15 @@
 			{#if walletMsg}<p class="wallet-msg">{walletMsg}</p>{/if}
 
 			{#if data.wallet.length === 0}
-				<div class="empty">
-					<p>No unpaid items in your wallet.</p>
-					<p class="muted">Items you win from gamble boxes show up here. Convert them into a spendable balance, or have them paid out in-game.</p>
-				</div>
+				<EmptyState
+					title="No unpaid items in your wallet."
+					hint="Items you win from gamble boxes show up here. Convert them into a spendable balance, or have them paid out in-game."
+				/>
 			{:else}
 				<WalletList items={data.wallet} />
 				<p class="muted small wallet-total">Wallet value: <strong>{formatGP(data.walletGpValue)}</strong></p>
 			{/if}
-		</div>
+		</ProfilePanel>
 	{/if}
 	{/if}
 </section>
@@ -587,106 +502,9 @@
 		margin: 0 auto;
 	}
 
-	.banner {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-		flex-wrap: wrap;
-		padding: 1.5rem;
-		background-color: var(--stone-fill);
-		background-image: var(--stone-tile);
-		background-repeat: repeat;
-		border: 4px solid transparent;
-		border-image: url('/osrs/border-tiny.png') 4 / 4px round;
-		border-radius: 4px;
-	}
-
-	.identity {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-		min-width: 0;
-	}
-
-	.who {
-		min-width: 0;
-	}
-
-	h1 {
-		margin: 0;
-		font-size: 1.8rem;
-		line-height: 1.1;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.sub {
-		color: var(--muted);
-		font-size: 0.9rem;
-	}
-
 	.profile-link {
 		margin: 0.75rem 0 0;
 		font-size: 0.85rem;
-	}
-
-	.tabs {
-		display: flex;
-		gap: 0.25rem;
-		margin: 1.25rem 0 1rem;
-		border-bottom: 1px solid var(--border);
-	}
-
-	.tab {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.4rem;
-		min-height: auto;
-		padding: 0.55rem 1rem;
-		background: transparent;
-		border: none;
-		border-bottom: 2px solid transparent;
-		border-radius: 0;
-		color: var(--muted);
-		font-size: 1rem;
-		cursor: pointer;
-		transition: color 0.15s, border-color 0.15s;
-	}
-
-	.tab:hover {
-		color: var(--text);
-		background: transparent;
-	}
-
-	.tab.active {
-		color: var(--accent);
-		border-bottom-color: var(--accent);
-	}
-
-	.count {
-		padding: 0.05rem 0.45rem;
-		background: var(--surface-alt);
-		border: 1px solid var(--border);
-		border-radius: 3px;
-		font-size: 0.75rem;
-		color: var(--text);
-	}
-
-	.panel {
-		padding: 1.1rem 1.25rem;
-		animation: fade-in 0.2s ease-out;
-	}
-
-	@keyframes fade-in {
-		from {
-			opacity: 0;
-			transform: translateY(4px);
-		}
-		to {
-			opacity: 1;
-			transform: none;
-		}
 	}
 
 	form.edit {
@@ -869,106 +687,6 @@
 		image-rendering: pixelated;
 		image-rendering: crisp-edges;
 		object-fit: contain;
-	}
-
-	.card-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
-		gap: 1rem;
-	}
-
-	.thumb-btn {
-		display: block;
-		padding: 0;
-		margin: 0;
-		min-height: auto;
-		background: none;
-		border: none;
-		text-align: inherit;
-		cursor: pointer;
-		position: relative;
-	}
-
-	/* Unowned cards: greyed out, not interactive, with a lock badge. */
-	.thumb-btn.locked {
-		cursor: default;
-	}
-
-	/* Undiscovered secret rares: a mystery spot, not interactive. */
-	.thumb-btn.mystery-slot {
-		cursor: default;
-	}
-
-	.mini-stats {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
-		gap: 0.75rem;
-		margin: 0;
-	}
-
-	.section-head {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		margin: 1.5rem 0 0.75rem;
-		font-size: 1.05rem;
-	}
-
-	.section-head:first-child {
-		margin-top: 0;
-	}
-
-	.count-text {
-		font-size: 0.8rem;
-		font-weight: normal;
-	}
-
-	.packs-grid {
-		margin-bottom: 0.5rem;
-	}
-
-	.stats-grid {
-		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
-	}
-
-	.stat-card h3 {
-		margin: 0 0 0.6rem;
-		font-size: 1rem;
-		color: var(--accent);
-		text-shadow: var(--ts);
-	}
-
-	.ms {
-		display: flex;
-		flex-direction: column;
-		gap: 0.15rem;
-		padding: 0.7rem 0.9rem;
-		background: var(--surface-alt);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-	}
-
-	.ms-num {
-		font-family: var(--font-heading);
-		font-size: 1.3rem;
-		color: var(--accent);
-		text-shadow: var(--ts);
-	}
-
-	.ms-lbl {
-		font-size: 0.78rem;
-		color: var(--muted);
-	}
-
-	.empty {
-		padding: 3rem 1rem;
-		text-align: center;
-	}
-
-	.empty p {
-		margin: 0.25rem 0;
 	}
 
 	.muted {
@@ -1214,11 +932,5 @@
 	}
 	.small {
 		font-size: 0.85rem;
-	}
-
-	@media (max-width: 480px) {
-		h1 {
-			font-size: 1.4rem;
-		}
 	}
 </style>

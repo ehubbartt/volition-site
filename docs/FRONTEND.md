@@ -66,3 +66,10 @@ bugs that used to recur per feature):
   it, and event/bingo grids should do the same.
 - **`src/lib/Skeleton.svelte`** — the shimmer placeholder used behind streamed page data
   (see [`PAGES.md`](PAGES.md)).
+- **`src/lib/profile/*`** — the shared profile-page kit that keeps `/me` and `/u/[rsn]`
+  pixel-identical: `ProfileBanner` (stone/gold identity header + VP counter),
+  `ProfileTabs` (underline tab strip with count chips), `ProfilePanel` (tab-body wrapper
+  with the standard padding + fade-in), `CollectionPanel` (packs + card grid incl.
+  locked/mystery slots), `StatsPanel` (VP/cards/packs/crates/wallet mini-stats), and
+  `EmptyState`. If a profile section needs a style change, change the component — don't
+  re-style it per page.
