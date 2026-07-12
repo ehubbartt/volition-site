@@ -1,0 +1,416 @@
+<script lang="ts">
+	import type { Snippet } from 'svelte';
+	import RankBadge from '$lib/RankBadge.svelte';
+	import { rankLabel, rankColor, type RankValue } from '$lib/ranks';
+	import { itemIconUrl } from '$lib/osrsItems';
+
+	// Shared Rank tab body for /me and /u/[rsn]: rank badge + composite, progress to
+	// the next rank, the weighted component breakdown, gear pieces, and combat
+	// achievements. Read-only — /me injects its "Check my rank" form via the
+	// `actions` snippet and its error/cooldown lines via `status`.
+	interface RankComponent {
+		key: string;
+		label: string;
+		weight: number;
+		normalized: number;
+		raw: number;
+		cap: number;
+	}
+	interface GearPiece {
+		name: string;
+		iconItem: string | null;
+		earned: number;
+		max: number;
+		owned: boolean;
+	}
+	interface GearGroup {
+		tier: string;
+		label: string;
+		pieces: GearPiece[];
+	}
+	interface CADetailView {
+		tasksCompleted: number;
+		wikiPoints: number;
+		highestTier: string;
+	}
+	interface RankBreakdownView {
+		rank: RankValue;
+		composite: number;
+		nextRank: RankValue | null;
+		nextThreshold: number | null;
+		nextRankProgress: number;
+		components: RankComponent[];
+		gearGrid: GearGroup[];
+		gearOwned: number;
+		gearTotal: number;
+		caDetail: CADetailView | null;
+		templeAvailable: boolean;
+		wikisyncAvailable: boolean;
+		fetchedAt: string | null;
+	}
+
+	let {
+		rank,
+		currentRank = null,
+		emptyText = '',
+		actions,
+		status
+	}: {
+		rank: RankBreakdownView | null;
+		currentRank?: string | null;
+		/** Shown when there's no breakdown yet; pass '' to show nothing. */
+		emptyText?: string;
+		actions?: Snippet;
+		status?: Snippet;
+	} = $props();
+
+	const pct = (n: number) => `${Math.round(n * 100)}%`;
+	const num = (n: number) => Math.round(n).toLocaleString();
+	const TIER_LABEL: Record<string, string> = {
+		none: 'None',
+		easy: 'Easy',
+		medium: 'Medium',
+		hard: 'Hard',
+		elite: 'Elite',
+		master: 'Master',
+		grandmaster: 'Grandmaster'
+	};
+	const tierLabel = (t: string | undefined | null) => (t ? (TIER_LABEL[t] ?? t) : 'None');
+	const fmtWhen = (iso: string | null) =>
+		iso
+			? new Date(iso).toLocaleString(undefined, {
+					month: 'short',
+					day: 'numeric',
+					hour: 'numeric',
+					minute: '2-digit'
+				})
+			: null;
+</script>
+
+<section class="rank-panel">
+	<div class="rank-head">
+		<div class="rank-id">
+			<RankBadge rank={rank?.rank ?? currentRank} size={40} />
+			<div>
+				<span class="rank-label">Clan rank</span>
+				<strong class="rank-name" style="color:{rankColor(rank?.rank ?? currentRank)}">
+					{rank ? rankLabel(rank.rank) : currentRank ? rankLabel(currentRank) : 'Not calculated yet'}
+				</strong>
+				{#if rank}
+					<span class="composite">Composite score {pct(rank.composite)}</span>
+				{/if}
+			</div>
+		</div>
+		{#if actions}{@render actions()}{/if}
+	</div>
+
+	{#if status}{@render status()}{/if}
+
+	{#if rank}
+		<!-- Overall progress toward the next rank (within the current tier's band). -->
+		<div class="next-rank">
+			<div class="comp-top">
+				<span class="comp-label">
+					{#if rank.nextRank}
+						Progress to {rankLabel(rank.nextRank)}
+					{:else}
+						Max rank achieved
+					{/if}
+				</span>
+				<span class="comp-weight">{pct(rank.nextRankProgress)}</span>
+			</div>
+			<div class="osrs-bar next-bar">
+				<span class="osrs-bar-fill" style="width:{pct(rank.nextRankProgress)}"></span>
+			</div>
+			{#if rank.nextRank && rank.nextThreshold !== null}
+				<span class="next-hint muted"
+					>Composite {pct(rank.composite)} · {rankLabel(rank.nextRank)} at {pct(rank.nextThreshold)}</span
+				>
+			{/if}
+		</div>
+
+		<div class="comps">
+			{#each rank.components as c (c.key)}
+				<div class="comp">
+					<div class="comp-top">
+						<span class="comp-label">{c.label}</span>
+						<span class="comp-weight">{pct(c.weight)} of score</span>
+					</div>
+					<div class="osrs-bar"><span class="osrs-bar-fill" style="width:{pct(c.normalized)}"></span></div>
+					<div class="comp-foot">
+						<span class="comp-raw">{num(c.raw)} / {num(c.cap)}</span>
+						<span class="comp-norm">{pct(c.normalized)}</span>
+					</div>
+				</div>
+			{/each}
+		</div>
+
+		{#if rank.gearGrid.length}
+			<details class="gear-detail" open>
+				<summary>Gear pieces · {rank.gearOwned} / {rank.gearTotal} earned</summary>
+				{#each rank.gearGrid as group (group.tier)}
+					<p class="tier-head muted">{group.label}</p>
+					<div class="gear-grid">
+						{#each group.pieces as p (p.name)}
+							<div class="gtile" class:owned={p.owned} title="{p.name} · {p.owned ? `${p.earned}/${p.max}` : `0/${p.max}`} pts">
+								<div class="gtile-img">
+									{#if p.iconItem}
+										<img
+											src={itemIconUrl(p.iconItem)}
+											alt={p.name}
+											loading="lazy"
+											referrerpolicy="no-referrer"
+											onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
+										/>
+									{/if}
+								</div>
+								<span class="gtile-pts">{p.owned ? `${p.earned}/${p.max}` : p.max}</span>
+							</div>
+						{/each}
+					</div>
+				{/each}
+			</details>
+		{/if}
+
+		{#if rank.caDetail}
+			<div class="ca-detail">
+				<h4>Combat achievements</h4>
+				<div class="ca-stats">
+					<div class="ca-stat">
+						<span class="ca-num">{tierLabel(rank.caDetail.highestTier)}</span>
+						<span class="ca-lbl">Highest tier</span>
+					</div>
+					<div class="ca-stat">
+						<span class="ca-num">{num(rank.caDetail.tasksCompleted)}</span>
+						<span class="ca-lbl">Tasks done</span>
+					</div>
+					<div
+						class="ca-stat"
+						title="Total combat-achievement points as tracked in-game — each completed CA task awards points based on its tier."
+					>
+						<span class="ca-num">{num(rank.caDetail.wikiPoints)}</span>
+						<span class="ca-lbl">CA points</span>
+					</div>
+				</div>
+			</div>
+		{/if}
+
+		<p class="rank-foot muted small">
+			Data as of {fmtWhen(rank.fetchedAt) ?? 'unknown'}.
+			{#if !rank.templeAvailable || !rank.wikisyncAvailable}
+				Some sources were unavailable ({[
+					!rank.templeAvailable ? 'TempleOSRS' : null,
+					!rank.wikisyncAvailable ? 'WikiSync' : null
+				]
+					.filter(Boolean)
+					.join(', ')}) — re-check after syncing to improve accuracy.
+			{/if}
+		</p>
+	{:else if emptyText}
+		<p class="muted small">{emptyText}</p>
+	{/if}
+</section>
+
+<style>
+	.rank-panel {
+		padding: 1.1rem 1.2rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		max-width: 40rem;
+		/* The card is narrower than the page — center it instead of hugging the left. */
+		margin-inline: auto;
+	}
+	.rank-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+		padding-bottom: 1rem;
+		margin-bottom: 1rem;
+		border-bottom: 1px solid var(--border);
+	}
+	.composite {
+		display: block;
+		font-size: 0.82rem;
+		color: var(--muted);
+		margin-top: 0.15rem;
+	}
+	.rank-id {
+		display: flex;
+		align-items: center;
+		gap: 0.7rem;
+	}
+	.rank-label {
+		display: block;
+		font-size: 0.78rem;
+		color: var(--muted);
+	}
+	.rank-name {
+		font-family: var(--font-heading);
+		font-size: 1.25rem;
+		text-shadow: var(--ts);
+	}
+
+	/* Overall next-rank progress (sits above the component breakdown) */
+	.next-rank {
+		margin-bottom: 1.1rem;
+		padding-bottom: 1rem;
+		border-bottom: 1px solid var(--border);
+	}
+	.next-bar {
+		height: 0.8rem; /* the headline bar reads slightly heavier than the components */
+	}
+	.next-hint {
+		display: block;
+		margin-top: 0.35rem;
+		font-size: 0.78rem;
+	}
+
+	/* Weighted component breakdown */
+	.comps {
+		display: flex;
+		flex-direction: column;
+		gap: 0.85rem;
+	}
+	.comp-top {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin-bottom: 0.3rem;
+	}
+	.comp-label {
+		font-size: 0.92rem;
+		color: var(--text);
+	}
+	.comp-weight {
+		font-size: 0.74rem;
+		color: var(--muted);
+	}
+	/* composite bars use the shared .osrs-bar / .osrs-bar-fill utility (app.css) */
+	.comp-foot {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin-top: 0.25rem;
+	}
+	.comp-raw {
+		font-size: 0.78rem;
+		color: var(--muted);
+	}
+	.comp-norm {
+		font-size: 0.78rem;
+		font-family: var(--font-heading);
+		color: var(--accent);
+	}
+
+	/* Gear pieces (collapsible) */
+	.gear-detail {
+		margin-top: 1.1rem;
+		border-top: 1px solid var(--border);
+		padding-top: 1rem;
+	}
+	.gear-detail summary {
+		cursor: pointer;
+		font-size: 0.9rem;
+		color: var(--text);
+	}
+	.tier-head {
+		margin: 1rem 0 0.5rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		font-size: 0.72rem;
+	}
+	.gear-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
+		gap: 0.35rem;
+	}
+	.gtile {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		gap: 0.1rem;
+		padding: 0.3rem 0.15rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		opacity: 0.32;
+		filter: grayscale(1);
+	}
+	.gtile.owned {
+		opacity: 1;
+		filter: none;
+		border-color: var(--border-strong);
+	}
+	.gtile-img {
+		height: 30px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.gtile-img img {
+		max-width: 34px;
+		max-height: 30px;
+		object-fit: contain;
+	}
+	.gtile-pts {
+		font-size: 0.6rem;
+		color: var(--muted);
+	}
+	.gtile.owned .gtile-pts {
+		color: var(--accent);
+		font-family: var(--font-heading);
+	}
+
+	/* Combat achievements summary */
+	.ca-detail {
+		margin-top: 1.1rem;
+		border-top: 1px solid var(--border);
+		padding-top: 1rem;
+	}
+	.ca-detail h4 {
+		margin: 0 0 0.6rem;
+		font-size: 0.92rem;
+		color: var(--text);
+	}
+	.ca-stats {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+		gap: 0.75rem;
+	}
+	.ca-stat {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		padding: 0.6rem 0.8rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+	}
+	.ca-num {
+		font-family: var(--font-heading);
+		font-size: 1.05rem;
+		color: var(--accent);
+		text-shadow: var(--ts);
+	}
+	.ca-lbl {
+		font-size: 0.74rem;
+		color: var(--muted);
+	}
+
+	.rank-foot {
+		margin: 1.1rem 0 0;
+		line-height: 1.45;
+	}
+	.muted {
+		color: var(--muted);
+	}
+	.small {
+		font-size: 0.85rem;
+	}
+</style>

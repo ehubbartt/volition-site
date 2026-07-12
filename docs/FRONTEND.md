@@ -69,7 +69,9 @@ bugs that used to recur per feature):
 - **`src/lib/profile/*`** — the shared profile-page kit that keeps `/me` and `/u/[rsn]`
   pixel-identical: `ProfileBanner` (stone/gold identity header + VP counter),
   `ProfileTabs` (underline tab strip with count chips), `ProfilePanel` (tab-body wrapper
-  with the standard padding + fade-in), `CollectionPanel` (packs + card grid incl.
-  locked/mystery slots), `StatsPanel` (VP/cards/packs/crates/wallet mini-stats), and
-  `EmptyState`. If a profile section needs a style change, change the component — don't
-  re-style it per page.
+  with the standard padding + fade-in), `RankPanel` (rank badge + composite, next-rank
+  progress, weighted component breakdown, gear/CA detail — read-only; /me injects its
+  "Check my rank" form via the `actions`/`status` snippets), `CollectionPanel` (packs +
+  card grid incl. locked/mystery slots), `StatsPanel` (VP/cards/packs/crates/wallet
+  mini-stats), and `EmptyState`. If a profile section needs a style change, change the
+  component — don't re-style it per page.

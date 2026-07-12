@@ -160,22 +160,26 @@ function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
 	};
 }
 
-export async function buildMeData(user: SessionUser) {
-	const [profile, currentRank] = await Promise.all([
-		loadCardProfile(user),
-		getPlayerRank(user.discord_id, user.rsn)
+// Load a player's rank breakdown from their cached vs_rank_sim row, recomputed with
+// the live config. Null when they've never been fetched (no "Check my rank" and no
+// admin rank-sim refresh yet). Shared by /me's Rank tab and the public /u/[rsn] one.
+export async function loadRankBreakdown(
+	rsn: string | null
+): Promise<ReturnType<typeof buildRankBreakdown> | null> {
+	if (!rsn) return null;
+	const [config, { data: simRow }] = await Promise.all([
+		getRankConfig(),
+		db().from('vs_rank_sim').select(SIM_ROW_COLUMNS).ilike('rsn', rsn).maybeSingle()
 	]);
+	return simRow ? buildRankBreakdown(simRow as RankSimRow, config) : null;
+}
 
-	// Rank tab: render from the member's cached vs_rank_sim row (recomputed with the
-	// live config). Null until they "Check my rank" or an admin refresh fetches them.
-	let rankBreakdown: ReturnType<typeof buildRankBreakdown> | null = null;
-	if (user.rsn) {
-		const [config, { data: simRow }] = await Promise.all([
-			getRankConfig(),
-			db().from('vs_rank_sim').select(SIM_ROW_COLUMNS).ilike('rsn', user.rsn).maybeSingle()
-		]);
-		if (simRow) rankBreakdown = buildRankBreakdown(simRow as RankSimRow, config);
-	}
+export async function buildMeData(user: SessionUser) {
+	const [profile, currentRank, rankBreakdown] = await Promise.all([
+		loadCardProfile(user),
+		getPlayerRank(user.discord_id, user.rsn),
+		loadRankBreakdown(user.rsn)
+	]);
 
 	return {
 		clanOptions: CLAN_OPTIONS,
