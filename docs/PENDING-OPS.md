@@ -11,25 +11,35 @@ except where marked. Delete sections as you complete them.
 Goal: the anon key can read/write **nothing**; every server talks to Supabase with
 the service-role key. Until step 1.4 runs, the database behaves exactly as today.
 
-**Order matters: 1.1 → 1.2 → 1.3 must ALL be done before 1.4.**
+> **Mechanism PROVEN end-to-end** via `db/scripts/rls_test.sql` + `/admin/rls-test`
+> on staging: anon key blocked on a locked table/view/function; service key reads
+> everything with RLS on. What's left is distributing the key + running the script.
 
-### 1.1 Copy the service-role key
-Supabase dashboard → Project Settings → API → `service_role` key. Never commit it,
-never put it in client code.
+**Order matters: 1.2 → 1.3 must ALL be done before 1.4.**
 
-### 1.2 Hand it to every server
+### 1.1 Copy the service-role key — ✅ DONE
+(Already used to configure staging.) Supabase dashboard → Project Settings → API →
+`service_role` key. Never commit it, never put it in client code.
+
+### 1.2 Hand it to every server — ✅ staging done · ☐ prod · ☐ bot
 ```sh
-flyctl secrets set SUPABASE_SERVICE_ROLE_KEY=<key> -a volition-site-staging
-flyctl secrets set SUPABASE_SERVICE_ROLE_KEY=<key> -a <bot app name>
+# ✅ DONE: volition-site-staging has SUPABASE_SERVICE_ROLE_KEY and runs on it.
 
-# PROD SITE runs pre-refactor code from main, which only reads SUPABASE_ANON_KEY —
-# so give that variable the service-role VALUE (rename properly when the refactor
-# branch ships to prod, see section 4):
-flyctl secrets set SUPABASE_ANON_KEY=<key> -a volition-site
+# ☐ PROD SITE — runs pre-refactor code from main, which only reads
+#   SUPABASE_ANON_KEY. Adding a new var does NOTHING; you must overwrite the
+#   EXISTING variable's VALUE with the service-role key (rename properly when
+#   the refactor ships to prod, see section 4):
+flyctl secrets set SUPABASE_ANON_KEY=<service_role_key> -a volition-site
+
+# ☐ BOT — code already deployed with service-key support:
+flyctl secrets set SUPABASE_SERVICE_ROLE_KEY=<service_role_key> -a <bot app name>
 ```
-Each `secrets set` restarts the app; that's fine.
+Each `secrets set` restarts the app by itself — **no separate deploy needed**. Use
+the flyctl CLI, NOT the Fly dashboard's deploy button: the dashboard's GitHub
+integration builds from `main`, which is the wrong branch for staging (its failed
+build is how we learned this — see the note at the end of this section).
 
-### 1.3 The Dink proxy Worker (easy to forget — it writes drops to the DB)
+### 1.3 ☐ The Dink proxy Worker (easy to forget — it writes drops to the DB)
 From the `dink-proxy` repo:
 ```sh
 npx wrangler secret put SUPABASE_KEY    # paste the service-role key
@@ -39,7 +49,7 @@ No code change; it's a value swap.
 Also add `SUPABASE_SERVICE_ROLE_KEY=<key>` to the `.env` on your dev machine
 (the card-art / analytics scripts use it).
 
-### 1.4 Flip RLS on (Supabase dashboard → SQL editor)
+### 1.4 ☐ Flip RLS on (Supabase dashboard → SQL editor)
 1. **Canary** (instantly reversible):
    ```sql
    alter table public.wordles enable row level security;
@@ -50,7 +60,7 @@ Also add `SUPABASE_SERVICE_ROLE_KEY=<key>` to the `.env` on your dev machine
    tables, views (they bypass table RLS without `security_invoker`), and RPC
    functions (anon can call them by default). Run the whole file.
 
-### 1.5 Verify
+### 1.5 ☐ Verify
 With the ANON key (from any machine):
 ```sh
 curl "https://rrnmckaabbvtkkpoeefg.supabase.co/rest/v1/players?select=rsn&limit=1" \
@@ -70,7 +80,23 @@ select proname, prosecdef from pg_proc p
 ### 1.6 Optional hardening (any time after 1.5)
 Rotate the anon key in the dashboard — the old one had full access its whole life.
 Nothing depends on it after the lockdown, so this closes any unknown historical
-exposure for free.
+exposure for free. (Note: prod temporarily carries the service-role key in the
+`SUPABASE_ANON_KEY` variable per 1.2 — rotating the anon key doesn't affect that;
+just don't overwrite prod's variable with the NEW anon key by habit.)
+
+### 1.7 ☐ Test-scaffold cleanup
+- Run SECTION 3 of `db/scripts/rls_test.sql` (drops the throwaway
+  `vs_rls_test` table/view/function).
+- Optional: remove the `/admin/rls-test` route + `db/scripts/rls_test.sql` from the
+  branch, or keep them as a re-runnable staging diagnostic.
+
+### Deploy-source gotcha (why the dashboard deploy failed)
+`volition-site-staging`'s Fly-native GitHub integration is pinned to the repo's
+default branch (`main`), so the dashboard's "deploy" button builds the WRONG branch
+and fails. Staging's real deploy path is the GitHub Actions workflow
+(`deploy-staging.yml`, builds `voli-site-2.0-refactor`; auto on push, or the
+"Run workflow" button). Fix when convenient: disconnect the GitHub integration on
+the staging app (or repoint it at the refactor branch) in the Fly dashboard.
 
 ---
 
