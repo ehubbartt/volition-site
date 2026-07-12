@@ -6,9 +6,14 @@ export const load: LayoutServerLoad = ({ locals }) => {
 
 	return {
 		user,
+		// Role flags follow any active view-as preview (see hooks.server.ts), so the
+		// nav/guards render exactly what the previewed role would see…
 		isAdmin: isAdmin(user),
 		isCardTester: isCardTester(user),
 		isSuperAdmin: isSuperAdmin(user),
+		// …while these two drive the switcher itself from the REAL identity.
+		realSuperAdmin: locals.realSuperAdmin,
+		viewAs: user?.view_as ?? null,
 		banned: !!locals.ban
 	};
 };

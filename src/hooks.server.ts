@@ -1,7 +1,7 @@
 import type { Handle } from '@sveltejs/kit';
 import { env } from '$env/dynamic/public';
 import { env as serverEnv } from '$env/dynamic/private';
-import { readSession, isAdmin, invalidateSessionCache } from '$lib/server/auth';
+import { readSession, isAdmin, isSuperAdmin, invalidateSessionCache } from '$lib/server/auth';
 import { ensureFreshAdminRoles } from '$lib/server/adminRoles';
 import { ensureFreshBans, getBanCached } from '$lib/server/bansCache';
 import { shouldAudit, capturePayload, captureBeforeState, logAudit } from '$lib/server/audit';
@@ -109,12 +109,28 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	// Staging lock: gate the whole site behind admin. The auth flow (so an admin can sign in)
 	// and static assets stay open; /health already returned above. Runs after the admin-role
-	// cache refresh so DB-granted admins are recognised.
+	// cache refresh so DB-granted admins are recognised. Checked against the RAW user —
+	// BEFORE the view-as override below — so a super admin previewing as "member" isn't
+	// locked out of staging by their own preview.
 	if (STAGING_ADMIN_ONLY) {
 		const gatePath = event.url.pathname;
 		const openForLogin = gatePath.startsWith('/auth/') || isStaticAsset(gatePath);
 		if (!openForLogin && !isAdmin(event.locals.user)) {
 			return stagingLockResponse(!!event.locals.user);
+		}
+	}
+
+	// VIEW-AS (super admins only): preview the site as a lower role. The override is
+	// applied ONLY when the real session user is a super admin, and every preview role
+	// is below super admin — so it can strictly REDUCE privileges, never escalate.
+	// From here on, every role check (layout flags, page guards, endpoint factories,
+	// form-action gates, isClanMember) answers as the previewed role; the real
+	// identity stays in locals.realSuperAdmin so the switcher itself keeps working.
+	event.locals.realSuperAdmin = isSuperAdmin(event.locals.user);
+	if (event.locals.realSuperAdmin && event.locals.user) {
+		const viewAs = event.cookies.get('vs_view_as');
+		if (viewAs === 'admin' || viewAs === 'member' || viewAs === 'guest') {
+			event.locals.user = { ...event.locals.user, view_as: viewAs };
 		}
 	}
 

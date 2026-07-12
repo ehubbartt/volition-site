@@ -64,6 +64,23 @@
 	{@render children()}
 </main>
 
+<!-- VIEW-AS switcher (real super admins only — see hooks.server.ts). Deliberately a
+     NATIVE form: the full document load it causes wipes the client swr cache, so
+     payloads fetched under a higher role can never first-paint into a lower-role
+     preview. -->
+{#if data.realSuperAdmin || data.viewAs}
+	<form method="POST" action="/admin/view-as" class="view-as" class:previewing={!!data.viewAs}>
+		<span class="view-as-label">Viewing&nbsp;as</span>
+		<select name="role" onchange={(e) => e.currentTarget.form?.requestSubmit()} aria-label="View site as role">
+			<option value="super" selected={!data.viewAs}>Super admin (me)</option>
+			<option value="admin" selected={data.viewAs === 'admin'}>Admin</option>
+			<option value="member" selected={data.viewAs === 'member'}>Member</option>
+			<option value="guest" selected={data.viewAs === 'guest'}>Non-clan member</option>
+		</select>
+		<noscript><button type="submit">Apply</button></noscript>
+	</form>
+{/if}
+
 <footer>
 	<div class="container footer-row">
 		<span class="muted">Volition · OSRS <span class="credit">— site &amp; Discord bot by Bajj</span></span>
@@ -419,5 +436,42 @@
 		main.page {
 			padding: 1.25rem 0.75rem 3rem;
 		}
+	}
+
+	/* View-as switcher: fixed pill, bottom-left, above everything. Turns accent
+	   while a preview is active so it's impossible to forget you're not seeing
+	   your real role. */
+	.view-as {
+		position: fixed;
+		left: 0.75rem;
+		bottom: 0.75rem;
+		z-index: 1000;
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		padding: 0.35rem 0.6rem;
+		background: linear-gradient(180deg, rgba(58, 48, 36, 0.95), rgba(40, 32, 24, 0.95));
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		box-shadow: var(--shadow-card);
+		font-size: 0.78rem;
+	}
+	.view-as.previewing {
+		border-color: var(--accent);
+	}
+	.view-as-label {
+		color: var(--muted);
+		text-transform: uppercase;
+		letter-spacing: 0.4px;
+		font-size: 0.68rem;
+	}
+	.view-as select {
+		background: var(--surface-alt);
+		color: var(--text);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 0.15rem 0.35rem;
+		font: inherit;
+		cursor: pointer;
 	}
 </style>

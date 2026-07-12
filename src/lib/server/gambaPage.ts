@@ -521,7 +521,7 @@ export async function buildGambaData(user: SessionUser) {
 	if (weeklyFreePack) {
 		const [claimAt, member] = await Promise.all([
 			getWeeklyClaimAt(user.id),
-			isClanMember(user.discord_id, user.rsn)
+			isClanMember(user)
 		]);
 		const claimed = claimedThisWeek(claimAt);
 		weeklyPack = {

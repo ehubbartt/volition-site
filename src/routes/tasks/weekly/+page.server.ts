@@ -50,7 +50,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		throw redirect(303, '/onboarding');
 	}
 
-	const memberOfClan = await isClanMember(locals.user.discord_id, locals.user.rsn);
+	const memberOfClan = await isClanMember(locals.user);
 	const admin = isAdmin(locals.user);
 	const instances = await loadActiveTaskInstances();
 
@@ -140,7 +140,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 export const actions: Actions = {
 	submit: async ({ locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
-		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
+		if (!(await isClanMember(locals.user))) {
 			return fail(403, { error: 'Only Volition clan members can submit tasks.' });
 		}
 

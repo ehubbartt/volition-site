@@ -6,6 +6,13 @@ import { dbAdminIds, dbCardTesterIds } from './adminRoles';
 const SESSION_COOKIE = 'vs_session';
 const SESSION_TTL_DAYS = 30;
 
+// "View as" (super-admin only, see hooks.server.ts): when set, every role check
+// answers AS THAT ROLE, so a super admin can preview the site as a plain admin,
+// a regular member, or a non-clan-member ('guest'). Applied only in hooks after
+// verifying the REAL session user is a super admin, so it can only ever REDUCE
+// privileges — it never grants anything the real user doesn't already have.
+export type ViewAsRole = 'admin' | 'member' | 'guest';
+
 export interface SessionUser {
 	id: string;
 	discord_id: string;
@@ -14,6 +21,7 @@ export interface SessionUser {
 	clan_allegiance: string | null;
 	account_type: string | null;
 	welcome_pack_granted: boolean;
+	view_as?: ViewAsRole;
 }
 
 function randomToken(bytes = 32): string {
@@ -127,6 +135,8 @@ function envIds(raw: string | undefined): string[] {
 // hooks.server.ts refreshes it before any permission check runs.
 export function isAdmin(user: SessionUser | null): boolean {
 	if (!user) return false;
+	// View-as override: 'admin' previews as a plain admin; 'member'/'guest' drop it.
+	if (user.view_as) return user.view_as === 'admin';
 	if (envIds(env.ADMIN_DISCORD_IDS).includes(user.discord_id)) return true;
 	if (isSuperAdmin(user)) return true;
 	return dbAdminIds().has(user.discord_id);
@@ -138,6 +148,8 @@ export function isAdmin(user: SessionUser | null): boolean {
 // card_tester role from /admin/admins (merged via the DB cache).
 export function isCardTester(user: SessionUser | null): boolean {
 	if (!user) return false;
+	// View-as override: none of the preview roles carry the card-tester grant.
+	if (user.view_as) return false;
 	if (envIds(env.CARD_TESTER_DISCORD_IDS).includes(user.discord_id)) return true;
 	return dbCardTesterIds().has(user.discord_id);
 }
@@ -155,6 +167,8 @@ export function isCardAdmin(user: SessionUser | null): boolean {
 // gated to a small set of people, SEPARATE from ADMIN_DISCORD_IDS. Independent list.
 export function isSuperAdmin(user: SessionUser | null): boolean {
 	if (!user) return false;
+	// View-as override: every preview role is below super admin.
+	if (user.view_as) return false;
 	return envIds(env.SUPER_ADMIN_DISCORD_IDS).includes(user.discord_id);
 }
 

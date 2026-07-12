@@ -33,6 +33,18 @@ The root `+layout.server.ts` exposes `isAdmin`/`isCardTester`/`isSuperAdmin` fla
 UX-only page guards; the real authorization boundary is the endpoint role re-check (see
 [`PAGES.md`](PAGES.md), Admin).
 
+**View-as (super admins only).** A super admin can preview the site as a lower role via
+the fixed switcher pill (bottom-left): plain admin, member, or non-clan-member ('guest').
+Mechanics: a `vs_view_as` cookie set by `POST /admin/view-as`; `hooks.server.ts` applies it
+to `locals.user` ONLY when the real session user is a super admin (checked before the
+override, after the staging lock so the preview can't lock you out of staging), so it can
+strictly reduce privileges. Every role check honors it — `isAdmin`/`isSuperAdmin`/
+`isCardTester` short-circuit on `user.view_as`, and `isClanMember(user)` answers false for
+'guest' — so guards, endpoints, actions, and nav all behave as the previewed role. The
+switcher is a NATIVE form on purpose (full reload wipes the client swr cache, so higher-role
+payloads can't leak into the preview); `locals.realSuperAdmin` carries the real identity so
+you can always switch back.
+
 ## Ban gate
 
 Banned users (the bot's `bans` table, keyed by Discord id) are redirected to `/banned` on

@@ -67,7 +67,7 @@ export async function buildBingoDetail(user: SessionUser, slug: string): Promise
 	// The event row and the caller's clan-membership check are independent.
 	const [event, memberOfClan] = await Promise.all([
 		fetchBingoEvent(slug),
-		isClanMember(user.discord_id, user.rsn)
+		isClanMember(user)
 	]);
 	if (!event) return { kind: 'not_found' };
 
@@ -397,7 +397,7 @@ export const bingoActions = {
 	submit: async ({ params, locals, request }: BingoActionEvent) => {
 		if (!locals.user) throw redirect(303, '/');
 
-		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
+		if (!(await isClanMember(locals.user))) {
 			return fail(403, { error: 'Only Volition clan members can submit tiles for this event.' });
 		}
 
@@ -453,7 +453,7 @@ export const bingoActions = {
 	remove: async ({ params, locals, request }: BingoActionEvent) => {
 		if (!locals.user) throw redirect(303, '/');
 
-		if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
+		if (!(await isClanMember(locals.user))) {
 			return fail(403, { error: 'Only Volition clan members can manage submissions.' });
 		}
 

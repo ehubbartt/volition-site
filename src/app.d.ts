@@ -9,6 +9,10 @@ declare global {
 			user: SessionUser | null;
 			sessionId: string | null;
 			ban: Ban | null;
+			// True when the REAL session user is a super admin, regardless of any
+			// view-as preview applied to `user` (see hooks.server.ts). Lets the
+			// view-as switcher keep working while previewing a lower role.
+			realSuperAdmin: boolean;
 		}
 		// interface PageData {}
 		// interface PageState {}

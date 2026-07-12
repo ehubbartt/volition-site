@@ -89,7 +89,7 @@ async function buildOk(user: SessionUser, ev: EventRow, admin: boolean) {
 
 	const [tasks, memberOfClan] = await Promise.all([
 		getEventTasks(ev.id),
-		isClanMember(user.discord_id, user.rsn)
+		isClanMember(user)
 	]);
 
 	// This player's submissions across the event's tasks, grouped by task_id. Match

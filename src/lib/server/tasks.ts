@@ -101,7 +101,7 @@ async function weeklyPackTask(user: SessionUser): Promise<PlayerTask | null> {
 	// after (the extra single-row reads when a gate fails are cheaper than chaining).
 	const [pack, member, claimAt] = await Promise.all([
 		getWeeklyFreePack(),
-		isClanMember(user.discord_id, user.rsn),
+		isClanMember(user),
 		getWeeklyClaimAt(user.id)
 	]);
 	if (!pack) return null; // no weekly pack configured → nothing to show

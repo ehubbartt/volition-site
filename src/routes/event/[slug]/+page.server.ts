@@ -38,7 +38,7 @@ export const actions: Actions = {
 								: 'This event has ended — submissions are closed.'
 				});
 			}
-			if (!(await isClanMember(locals.user.discord_id, locals.user.rsn))) {
+			if (!(await isClanMember(locals.user))) {
 				return fail(403, { error: 'Only Volition clan members can submit.' });
 			}
 		}
