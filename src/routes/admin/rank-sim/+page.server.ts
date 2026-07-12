@@ -198,6 +198,37 @@ function buildSummary(
 	};
 }
 
+// Target population share per rank (low → high) for "Suggest right-skewed thresholds":
+// a right-skewed, still-roughly-bell shape — mode at Iron/Steel, steadily decaying tail
+// so the top ranks stay rare. Must line up with RANK_ORDER and sum to 1.
+const SKEW_TARGET_SHARE = [0.09, 0.15, 0.15, 0.13, 0.11, 0.09, 0.08, 0.065, 0.05, 0.035, 0.025, 0.015, 0.01];
+
+// Derive score→rank thresholds that would place the given composite scores into the
+// SKEW_TARGET_SHARE distribution: each rank's floor is the score quantile at the
+// cumulative share below it (midpoint between the straddling players, so small score
+// nudges don't flip anyone). Strictly increasing so tied scores can't collapse ranks.
+function suggestSkewedThresholds(composites: number[]): { womRole: RankValue; scoreMin: number }[] {
+	const sorted = [...composites].sort((a, b) => a - b);
+	const n = sorted.length;
+	const out: { womRole: RankValue; scoreMin: number }[] = [];
+	let cum = 0;
+	let prev = -1;
+	RANK_ORDER.forEach((womRole, i) => {
+		let scoreMin = 0; // bronze: everyone qualifies
+		if (i > 0) {
+			const k = Math.min(n - 1, Math.max(1, Math.round(cum * n)));
+			const mid = (sorted[k - 1] + sorted[k]) / 2;
+			scoreMin = Math.round(mid * 1000) / 1000;
+		}
+		scoreMin = Math.min(0.99, Math.max(scoreMin, prev + (i > 0 ? 0.005 : 0)));
+		scoreMin = Math.round(scoreMin * 1000) / 1000;
+		prev = scoreMin;
+		cum += SKEW_TARGET_SHARE[i];
+		out.push({ womRole, scoreMin });
+	});
+	return out;
+}
+
 // Build a RankScoringConfig from posted form fields, falling back to `base` per field.
 function parseConfigFromForm(form: FormData, base: RankScoringConfig): RankScoringConfig {
 	const num = (key: string, fallback: number) => {
@@ -380,6 +411,56 @@ export const actions: Actions = {
 			saveError,
 			config,
 			excludeNoTemple, // echoed so the checkbox stays put across recalcs
+			summary: buildSummary(rows, config, current, { excludeNoTemple })
+		};
+	},
+
+	// Compute right-skewed thresholds from the cached players' ACTUAL composite scores
+	// (quantiles of SKEW_TARGET_SHARE, using the form's weights/caps) and return them
+	// like a recalc — the form repopulates and the chart previews the shape. Nothing is
+	// saved; the admin reviews and uses "Save as live config" to persist.
+	suggest: async ({ locals, request }) => {
+		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+
+		const form = await request.formData();
+		const base = await getRankConfig(true);
+		const formConfig = parseConfigFromForm(form, base);
+		const excludeNoTemple = form.get('excludeNoTemple') === '1';
+
+		const [rows, current] = await Promise.all([readSimRows(), readCurrentRanks()]);
+		const scoreRows = excludeNoTemple ? rows.filter((r) => r.temple_available) : rows;
+		if (scoreRows.length < 2) {
+			return fail(400, {
+				suggestError: 'Not enough cached players to suggest thresholds — refresh first.'
+			});
+		}
+
+		const composites = scoreRows.map(
+			(row) =>
+				computeScores(
+					{
+						ehb: row.ehb,
+						totalLevel: row.total_level,
+						gearPoints: row.gear_points,
+						clogFinished: row.clog_finished,
+						clogAvailable: row.clog_available,
+						monthsInClan: row.months_in_clan,
+						caPoints: row.ca_points
+					},
+					formConfig
+				).composite
+		);
+
+		const config: RankScoringConfig = {
+			...formConfig,
+			thresholds: suggestSkewedThresholds(composites)
+		};
+
+		return {
+			suggestOk: true,
+			suggestedFrom: scoreRows.length,
+			config,
+			excludeNoTemple,
 			summary: buildSummary(rows, config, current, { excludeNoTemple })
 		};
 	},

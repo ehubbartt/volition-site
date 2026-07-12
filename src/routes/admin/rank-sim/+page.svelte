@@ -192,7 +192,7 @@
 				{#each data.rankOrder as role}
 					<label>
 						<span style="color:{rankColor(role)}">{data.rankLabels[role]}</span>
-						<input type="number" step="0.01" min="0" max="1" name={`t_${role}`} value={thr(role)} />
+						<input type="number" step="0.001" min="0" max="1" name={`t_${role}`} value={thr(role)} />
 					</label>
 				{/each}
 			</div>
@@ -217,8 +217,20 @@
 				<button class="btn" type="submit" name="save" value="1" disabled={recalcing}>
 					Save as live config & recalc
 				</button>
+				<button class="btn" type="submit" formaction="?/suggest" disabled={recalcing}>
+					Suggest right-skewed thresholds
+				</button>
 				{#if form && 'saved' in form && form.saved}<span class="ok small">Saved live.</span>{/if}
 				{#if form && 'saveError' in form && form.saveError}<span class="err small">{form.saveError}</span>{/if}
+				{#if form && 'suggestOk' in form && form.suggestOk}
+					<span class="ok small">
+						Thresholds suggested from {form.suggestedFrom} players' actual scores — the preview
+						below already uses them. Save to make live.
+					</span>
+				{/if}
+				{#if form && 'suggestError' in form && form.suggestError}
+					<span class="err small">{form.suggestError}</span>
+				{/if}
 			</div>
 		</div>
 	</form>
