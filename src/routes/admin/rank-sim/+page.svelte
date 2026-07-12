@@ -16,6 +16,13 @@
 	);
 
 	let refreshing = $state(false);
+	// Auto-chained refresh: one click sweeps the whole clan. `runSince` stamps the
+	// pass (the server only fetches members not yet updated in this pass and reports
+	// `remaining`); the enhance callback resubmits until remaining is 0 or Stop.
+	let runSince = $state<string | null>(null);
+	let stopRequested = $state(false);
+	let refreshRemaining = $state<number | null>(null);
+	let refreshForm = $state<HTMLFormElement>();
 	let recalcing = $state(false);
 	let applying = $state(false);
 	let applyOpen = $state(false);
@@ -69,8 +76,14 @@
 				</p>
 				{#if form && 'refreshOk' in form && form.refreshOk}
 					<p class="ok small">
-						Fetched {form.processed} player(s). {form.cachedCount}/{form.rosterSize} cached — click
-						again to continue.
+						{#if refreshing}
+							Fetching… {form.cachedCount}/{form.rosterSize} cached · {refreshRemaining ?? '?'}
+							left in this pass.
+						{:else if 'remaining' in form && form.remaining === 0}
+							Done — {form.cachedCount}/{form.rosterSize} cached.
+						{:else}
+							Stopped. {form.cachedCount}/{form.rosterSize} cached.
+						{/if}
 					</p>
 				{:else if form && 'refreshError' in form && form.refreshError}
 					<p class="err small">{form.refreshError}</p>
@@ -79,17 +92,40 @@
 			<form
 				method="POST"
 				action="?/refresh"
-				use:enhance={() => {
+				bind:this={refreshForm}
+				use:enhance={({ formData }) => {
+					// Stamp the pass on the first batch; every chained batch reuses it so
+					// the server can tell what's already been refreshed this run.
+					if (!runSince) runSince = new Date().toISOString();
+					formData.set('since', runSince);
 					refreshing = true;
-					return async ({ update }) => {
+					return async ({ update, result }) => {
 						await update({ reset: false });
-						refreshing = false;
+						const remaining =
+							result.type === 'success' && result.data && typeof result.data.remaining === 'number'
+								? result.data.remaining
+								: 0;
+						refreshRemaining = remaining;
+						if (remaining > 0 && !stopRequested) {
+							// Keep sweeping — the server's per-player delay handles rate limits;
+							// this pause just spaces the requests.
+							setTimeout(() => refreshForm?.requestSubmit(), 300);
+						} else {
+							refreshing = false;
+							runSince = null;
+							stopRequested = false;
+						}
 					};
 				}}
 			>
 				<button class="btn" type="submit" disabled={refreshing}>
-					{refreshing ? 'Fetching…' : 'Refresh next batch'}
+					{refreshing ? 'Fetching all…' : 'Refresh all'}
 				</button>
+				{#if refreshing}
+					<button class="btn" type="button" onclick={() => (stopRequested = true)}>
+						Stop after this batch
+					</button>
+				{/if}
 			</form>
 		</div>
 	</div>

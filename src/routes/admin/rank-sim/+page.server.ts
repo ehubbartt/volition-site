@@ -236,9 +236,15 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 export const actions: Actions = {
 	// Pull the next batch of clan members' raw data into vs_rank_sim. Resumable: each
-	// click fetches the REFRESH_BATCH stalest (or never-fetched) roster members.
-	refresh: async ({ locals }) => {
+	// request fetches the REFRESH_BATCH stalest (or never-fetched) roster members.
+	// The page auto-chains batches: it stamps a `since` when a run starts, we only
+	// consider members not yet fetched in THIS pass, and `remaining` in the response
+	// tells the client whether to submit again — so one click sweeps the whole clan
+	// while every batch keeps the per-player politeness delay.
+	refresh: async ({ locals, request }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+
+		const since = ((await request.formData()).get('since') ?? '').toString();
 
 		const roster = await fetchClanRoster();
 		const rosterEntries = Object.values(roster);
@@ -249,9 +255,15 @@ export const actions: Actions = {
 		const existing = await readSimRows();
 		const fetchedAt = new Map(existing.map((r) => [r.rsn.toLowerCase(), r.fetched_at]));
 
+		// This pass's pending set: members whose last fetch predates the run start
+		// (never-fetched sorts as '' — always pending). Without `since` (manual single
+		// batch), everyone is eligible and the stalest-first order picks the batch.
+		const pending = since
+			? rosterEntries.filter((e) => (fetchedAt.get(e.rsn.toLowerCase()) ?? '') < since)
+			: rosterEntries.slice();
+
 		// Stalest first: never-fetched (null) before oldest timestamp.
-		const worklist = rosterEntries
-			.slice()
+		const worklist = pending
 			.sort((a, b) => {
 				const fa = fetchedAt.get(a.rsn.toLowerCase()) ?? '';
 				const fb = fetchedAt.get(b.rsn.toLowerCase()) ?? '';
@@ -306,7 +318,10 @@ export const actions: Actions = {
 			refreshOk: true,
 			processed,
 			cachedCount: cachedNow.size,
-			rosterSize: rosterEntries.length
+			rosterSize: rosterEntries.length,
+			// How many of this pass's pending members are still unfetched — >0 tells
+			// the page to auto-submit the next batch (0 without `since`: single-batch).
+			remaining: since ? Math.max(0, pending.length - processed) : 0
 		};
 	},
 
