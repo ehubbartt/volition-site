@@ -879,6 +879,8 @@
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
 		max-width: 40rem;
+		/* The card is narrower than the page — center it instead of hugging the left. */
+		margin-inline: auto;
 	}
 	.rank-head {
 		display: flex;
