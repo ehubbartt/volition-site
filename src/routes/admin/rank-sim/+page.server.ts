@@ -155,15 +155,6 @@ function buildSummary(
 		composite: avg('composite')
 	};
 
-	// 20-bucket composite histogram (0.00–1.00).
-	const buckets = new Array(20).fill(0) as number[];
-	for (const s of scored) buckets[Math.min(19, Math.floor(s.composite * 20))]++;
-	const histogram = buckets.map((count, i) => ({
-		lo: i * 0.05,
-		hi: (i + 1) * 0.05,
-		count
-	}));
-
 	// Notable moves (projected vs current rank), biggest deltas first.
 	const changes = scored
 		.filter((s) => s.current && s.current !== s.projected)
@@ -200,7 +191,6 @@ function buildSummary(
 		total,
 		distribution,
 		componentAverages,
-		histogram,
 		upgrades,
 		downgrades,
 		players,

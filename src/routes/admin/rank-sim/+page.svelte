@@ -54,7 +54,7 @@
 	function thr(role: string): number {
 		return config.thresholds.find((t) => t.womRole === role)?.scoreMin ?? 0;
 	}
-	let maxBucket = $derived(Math.max(1, ...summary.histogram.map((b) => b.count)));
+	let maxRankCount = $derived(Math.max(1, ...summary.distribution.map((d) => d.projected)));
 </script>
 
 <svelte:head>
@@ -262,15 +262,21 @@
 			<span class="strong">Composite {summary.componentAverages.composite.toFixed(3)}</span>
 		</div>
 
-		<strong class="mt">Composite histogram</strong>
-		<div class="hist">
-			{#each summary.histogram as b}
-				<div class="hbar" title={`${b.lo.toFixed(2)}–${b.hi.toFixed(2)}: ${b.count}`}>
-					<div class="fill" style="height:{(b.count / maxBucket) * 100}%"></div>
+		<strong class="mt">Players per rank (projected)</strong>
+		<div class="rank-hist">
+			{#each summary.distribution as d (d.rank)}
+				<div class="rcol" title={`${d.label}: ${d.projected} projected · ${d.current} current`}>
+					<span class="rcount">{d.projected}</span>
+					<div class="rtrack">
+						<div
+							class="rbar"
+							style="height:{(d.projected / maxRankCount) * 100}%; background:{rankColor(d.rank)}"
+						></div>
+					</div>
+					<span class="rlbl" style="color:{rankColor(d.rank)}">{d.label}</span>
 				</div>
 			{/each}
 		</div>
-		<div class="muted small">0.00 → 1.00 composite, 20 buckets</div>
 	</div>
 
 	<!-- Notable changes ---------------------------------------------------- -->
@@ -497,29 +503,46 @@
 		border-color: var(--accent);
 		color: var(--accent);
 	}
-	.hist {
+	/* Players-per-rank histogram: one colored column per rank. The track has a
+	   fixed height so the bar's PERCENTAGE height has something to resolve against. */
+	.rank-hist {
 		display: flex;
 		align-items: flex-end;
-		gap: 2px;
-		height: 90px;
+		gap: 0.6rem;
 		margin-top: 0.6rem;
 	}
-	.hbar {
+	.rcol {
 		flex: 1;
-		/* Full column height matters: the fill's height is a PERCENTAGE, and without
-		   this the flex-end parent collapses to content height → every bar renders
-		   as the 1px min-height sliver. */
-		height: 100%;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.25rem;
+		min-width: 0;
+	}
+	.rcount {
+		font-size: 0.8rem;
+		font-family: var(--font-heading);
+		color: var(--text);
+	}
+	.rtrack {
+		width: 100%;
+		height: 110px;
 		display: flex;
 		align-items: flex-end;
 		background: var(--surface);
-		border-radius: 2px;
+		border-radius: 3px;
 	}
-	.hbar .fill {
+	.rbar {
 		width: 100%;
-		background: var(--accent);
-		border-radius: 2px;
-		min-height: 1px;
+		border-radius: 3px;
+		min-height: 2px;
+	}
+	.rlbl {
+		font-size: 0.68rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 100%;
 	}
 	.chk {
 		display: flex;
