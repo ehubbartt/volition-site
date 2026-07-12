@@ -17,6 +17,7 @@ import {
 } from '$lib/server/rankData';
 import { calculateGearPoints, calculateCAPoints } from '$lib/server/rankScoring';
 import { setPlayerRank } from '$lib/server/playerStats';
+import { microCached } from '$lib/server/microCache';
 import { RANK_ORDER, RANK_LABEL, rankIndex, toRankValue, type RankValue } from '$lib/ranks';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -27,8 +28,14 @@ import type { Actions, PageServerLoad } from './$types';
 // the spread before saving the config live (bot_config 'rank_scoring') or APPLYing the
 // projected ranks to players.rank. Admin-gated, like /admin/crate-sim.
 
-const REFRESH_BATCH = 8; // players fetched per "refresh" click (bounds request time)
-const PER_PLAYER_DELAY_MS = 1200; // be polite to the external APIs between players
+const REFRESH_BATCH = 6; // players fetched per request (bounds request time)
+// WOM's anonymous rate budget is ~20 req/min and each player costs one WOM call
+// (Temple/WikiSync have their own, laxer limits) — 3s spacing keeps a full
+// auto-chained sweep at ~20/min so WOM stops 429ing mid-run.
+const PER_PLAYER_DELAY_MS = 3000;
+// The bulk roster call is heavy; cache it across the run's batches (and across
+// admins) instead of re-fetching it every ~30s. Identity-independent → microCache.
+const ROSTER_TTL_MS = 10 * 60_000;
 
 interface SimRow {
 	rsn: string;
@@ -268,11 +275,22 @@ export const actions: Actions = {
 
 		const since = ((await request.formData()).get('since') ?? '').toString();
 
-		const roster = await fetchClanRoster();
-		const rosterEntries = Object.values(roster);
-		if (rosterEntries.length === 0) {
-			return fail(502, { refreshError: 'WOM clan roster unavailable — try again shortly.' });
+		// Cached across batches: one WOM group call per run instead of one per batch.
+		// Throw INSIDE the cached fn so an empty/failed roster is never cached.
+		const roster = await microCached('wom:roster', ROSTER_TTL_MS, async () => {
+			const r = await fetchClanRoster();
+			if (Object.keys(r).length === 0) throw new Error('empty roster');
+			return r;
+		}).catch(() => null);
+		if (!roster) {
+			// refreshRetryable tells the auto-run to back off and try again rather
+			// than aborting the sweep on a transient WOM rate-limit/outage.
+			return fail(502, {
+				refreshError: 'WOM clan roster unavailable (likely rate-limited).',
+				refreshRetryable: true
+			});
 		}
+		const rosterEntries = Object.values(roster);
 
 		const existing = await readSimRows();
 		const fetchedAt = new Map(existing.map((r) => [r.rsn.toLowerCase(), r.fetched_at]));

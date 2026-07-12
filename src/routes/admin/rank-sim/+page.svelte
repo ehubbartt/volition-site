@@ -22,7 +22,10 @@
 	let runSince = $state<string | null>(null);
 	let stopRequested = $state(false);
 	let refreshRemaining = $state<number | null>(null);
+	let refreshRetries = $state(0); // consecutive retryable failures (WOM rate-limit backoff)
 	let refreshForm = $state<HTMLFormElement>();
+	const MAX_REFRESH_RETRIES = 5;
+	const RETRY_DELAY_MS = 25_000; // long enough for WOM's per-minute window to reset
 	let recalcing = $state(false);
 	let applying = $state(false);
 	let applyOpen = $state(false);
@@ -86,7 +89,12 @@
 						{/if}
 					</p>
 				{:else if form && 'refreshError' in form && form.refreshError}
-					<p class="err small">{form.refreshError}</p>
+					<p class="err small">
+						{form.refreshError}
+						{#if refreshing && refreshRetries > 0}
+							Retrying automatically ({refreshRetries}/{MAX_REFRESH_RETRIES})…
+						{/if}
+					</p>
 				{/if}
 			</div>
 			<form
@@ -101,12 +109,22 @@
 					refreshing = true;
 					return async ({ update, result }) => {
 						await update({ reset: false });
+						// Transient WOM failure (rate-limit/outage): back off and retry the
+						// same batch instead of aborting the sweep.
+						const retryable =
+							result.type === 'failure' && !!result.data && result.data.refreshRetryable === true;
+						if (retryable && !stopRequested && refreshRetries < MAX_REFRESH_RETRIES) {
+							refreshRetries += 1;
+							setTimeout(() => refreshForm?.requestSubmit(), RETRY_DELAY_MS);
+							return;
+						}
 						const remaining =
 							result.type === 'success' && result.data && typeof result.data.remaining === 'number'
 								? result.data.remaining
 								: 0;
 						refreshRemaining = remaining;
-						if (remaining > 0 && !stopRequested) {
+						if (result.type === 'success') refreshRetries = 0;
+						if (result.type === 'success' && remaining > 0 && !stopRequested) {
 							// Keep sweeping — the server's per-player delay handles rate limits;
 							// this pause just spaces the requests.
 							setTimeout(() => refreshForm?.requestSubmit(), 300);
@@ -114,6 +132,7 @@
 							refreshing = false;
 							runSince = null;
 							stopRequested = false;
+							refreshRetries = 0;
 						}
 					};
 				}}
