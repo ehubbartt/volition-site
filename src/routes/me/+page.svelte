@@ -161,7 +161,7 @@
 				<div class="error">{form.error}</div>
 			{/if}
 
-			<form method="POST" class="edit">
+			<form method="POST" action="?/saveProfile" class="edit">
 				<label>
 					<span>OSRS RSN</span>
 					<input name="rsn" type="text" maxlength="12" required value={data.user.rsn ?? ''} />

@@ -115,7 +115,9 @@ export const actions: Actions = {
 		}
 	},
 
-	default: async ({ request, locals }) => {
+	// Named on purpose: SvelteKit forbids a `default` action alongside named ones
+	// (every action POST to the page 500s otherwise — this is a runtime-only check).
+	saveProfile: async ({ request, locals }) => {
 		if (!locals.user) throw redirect(303, '/');
 
 		const form = await request.formData();
