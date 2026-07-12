@@ -133,9 +133,22 @@ function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
 
 	const gear = buildGearGrid(row.gear_detail);
 
+	// "How close am I to the next rank?" — thresholds map composite → rank; the
+	// next tier up (if any) gives the target, and progress is measured within the
+	// current tier's band so the bar restarts at each rank-up.
+	const thresholds = [...config.thresholds].sort((a, b) => a.scoreMin - b.scoreMin);
+	const nextTier = thresholds.find((t) => t.scoreMin > scores.composite) ?? null;
+	const curMin = thresholds.filter((t) => t.scoreMin <= scores.composite).at(-1)?.scoreMin ?? 0;
+	const nextRankProgress = nextTier
+		? Math.min(1, Math.max(0, (scores.composite - curMin) / (nextTier.scoreMin - curMin)))
+		: 1;
+
 	return {
 		rank: determineProjectedRank(scores.composite, config) as RankValue,
 		composite: scores.composite,
+		nextRank: (nextTier?.womRole ?? null) as RankValue | null,
+		nextThreshold: nextTier?.scoreMin ?? null,
+		nextRankProgress,
 		components,
 		gearGrid: gear.grid,
 		gearOwned: gear.owned,

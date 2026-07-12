@@ -531,6 +531,9 @@ strong,
 	overflow: hidden;
 }
 .osrs-bar-fill {
+	/* display:block matters: the fill is often a <span>, and inline elements
+	   ignore width/height — without this the bar renders empty. */
+	display: block;
 	height: 100%;
 	background: var(--accent);
 	border-radius: 999px;

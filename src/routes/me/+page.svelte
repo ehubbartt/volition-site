@@ -250,6 +250,28 @@
 				{/if}
 
 				{#if rank}
+					<!-- Overall progress toward the next rank (within the current tier's band). -->
+					<div class="next-rank">
+						<div class="comp-top">
+							<span class="comp-label">
+								{#if rank.nextRank}
+									Progress to {rankLabel(rank.nextRank)}
+								{:else}
+									Max rank achieved
+								{/if}
+							</span>
+							<span class="comp-weight">{pct(rank.nextRankProgress)}</span>
+						</div>
+						<div class="osrs-bar next-bar">
+							<span class="osrs-bar-fill" style="width:{pct(rank.nextRankProgress)}"></span>
+						</div>
+						{#if rank.nextRank && rank.nextThreshold !== null}
+							<span class="next-hint muted"
+								>Composite {pct(rank.composite)} · {rankLabel(rank.nextRank)} at {pct(rank.nextThreshold)}</span
+							>
+						{/if}
+					</div>
+
 					<div class="comps">
 						{#each rank.components as c (c.key)}
 							<div class="comp">
@@ -305,9 +327,12 @@
 									<span class="ca-num">{num(rank.caDetail.tasksCompleted)}</span>
 									<span class="ca-lbl">Tasks done</span>
 								</div>
-								<div class="ca-stat">
+								<div
+									class="ca-stat"
+									title="Your total combat-achievement points as tracked in-game — each completed CA task awards points based on its tier."
+								>
 									<span class="ca-num">{num(rank.caDetail.wikiPoints)}</span>
-									<span class="ca-lbl">Wiki points</span>
+									<span class="ca-lbl">CA points</span>
 								</div>
 							</div>
 						</div>
@@ -921,6 +946,21 @@
 	}
 	.rank-note {
 		margin: 0 0 0.85rem;
+	}
+
+	/* Overall next-rank progress (sits above the component breakdown) */
+	.next-rank {
+		margin-bottom: 1.1rem;
+		padding-bottom: 1rem;
+		border-bottom: 1px solid var(--border);
+	}
+	.next-bar {
+		height: 0.8rem; /* the headline bar reads slightly heavier than the components */
+	}
+	.next-hint {
+		display: block;
+		margin-top: 0.35rem;
+		font-size: 0.78rem;
 	}
 
 	/* Weighted component breakdown */
