@@ -178,6 +178,19 @@
 				{/each}
 			</div>
 
+			<label class="chk mt">
+				<input
+					type="checkbox"
+					name="excludeNoTemple"
+					value="1"
+					checked={form && 'excludeNoTemple' in form ? !!form.excludeNoTemple : false}
+				/>
+				<span>
+					Exclude players without Temple data — their gear/clog score 0 through no fault of
+					their own, which skews the distribution
+				</span>
+			</label>
+
 			<div class="row gap mt">
 				<button class="btn primary" type="submit" disabled={recalcing}>
 					{recalcing ? 'Recalculating…' : 'Recalculate'}
@@ -193,7 +206,11 @@
 
 	<!-- Distribution ------------------------------------------------------- -->
 	<div class="card">
-		<strong>Rank distribution ({summary.total} players)</strong>
+		<strong>
+			Rank distribution ({summary.total} players){#if summary.excludedNoTemple > 0}
+				<span class="muted small">· {summary.excludedNoTemple} hidden (no Temple data)</span>
+			{/if}
+		</strong>
 		<table>
 			<thead>
 				<tr><th>Rank</th><th>Current</th><th>Projected</th><th>Δ</th></tr>
@@ -470,6 +487,10 @@
 	}
 	.hbar {
 		flex: 1;
+		/* Full column height matters: the fill's height is a PERCENTAGE, and without
+		   this the flex-end parent collapses to content height → every bar renders
+		   as the 1px min-height sliver. */
+		height: 100%;
 		display: flex;
 		align-items: flex-end;
 		background: var(--surface);
@@ -480,6 +501,18 @@
 		background: var(--accent);
 		border-radius: 2px;
 		min-height: 1px;
+	}
+	.chk {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.45rem;
+		font-size: 0.85rem;
+		color: var(--muted);
+		cursor: pointer;
+		max-width: 38rem;
+	}
+	.chk input {
+		margin-top: 0.15rem;
 	}
 	.cols {
 		display: grid;

@@ -75,7 +75,20 @@ interface Scored {
 
 // Re-score every cached row with `config` and assemble the same summaries the bot
 // script prints (distribution, component averages, histogram, notable changes).
-function buildSummary(rows: SimRow[], config: RankScoringConfig, current: Map<string, string | null>) {
+function buildSummary(
+	rows: SimRow[],
+	config: RankScoringConfig,
+	current: Map<string, string | null>,
+	opts?: { excludeNoTemple?: boolean }
+) {
+	// Players without Temple data score 0 on gear + clog through no fault of their
+	// own (private/unsynced log), which drags the distribution and averages down.
+	// The exclude toggle drops them from the whole simulation view.
+	const excludedNoTemple = opts?.excludeNoTemple
+		? rows.filter((r) => !r.temple_available).length
+		: 0;
+	if (opts?.excludeNoTemple) rows = rows.filter((r) => r.temple_available);
+
 	const scored: Scored[] = rows.map((row) => {
 		const scores = computeScores(
 			{
@@ -176,7 +189,16 @@ function buildSummary(rows: SimRow[], config: RankScoringConfig, current: Map<st
 			wikisyncAvailable: s.row.wikisync_available
 		}));
 
-	return { total, distribution, componentAverages, histogram, upgrades, downgrades, players };
+	return {
+		total,
+		distribution,
+		componentAverages,
+		histogram,
+		upgrades,
+		downgrades,
+		players,
+		excludedNoTemple
+	};
 }
 
 // Build a RankScoringConfig from posted form fields, falling back to `base` per field.
@@ -343,12 +365,14 @@ export const actions: Actions = {
 		}
 
 		const [rows, current] = await Promise.all([readSimRows(), readCurrentRanks()]);
+		const excludeNoTemple = form.get('excludeNoTemple') === '1';
 		return {
 			recalcOk: true,
 			saved,
 			saveError,
 			config,
-			summary: buildSummary(rows, config, current)
+			excludeNoTemple, // echoed so the checkbox stays put across recalcs
+			summary: buildSummary(rows, config, current, { excludeNoTemple })
 		};
 	},
 
