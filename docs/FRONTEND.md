@@ -31,10 +31,11 @@ How it flows:
    is already themed (no flash). The root layout exposes it as `data.theme` for the picker.
 4. **CSS** — `src/app.css` ends with one `:root[data-theme='…']` block per theme that
    overrides tokens only (`--accent`, `--surface*`, `--border*`, `--yellow`, `--heading`,
-   the `--bg-*` page-background layers, and `--stone-fill`/`--stone-tile`). The
-   `--stone-tile` override layers a tinted gradient over the stone texture so panels keep
-   the in-game grain in the theme's hue. `--heading` exists so a theme can recolour
-   headings independently of links/buttons (e.g. Clan Hall's gold-on-purple).
+   the `--bg-*` page-background layers, and `--stone-fill`/`--stone-blend`). Every theme
+   keeps the real `tile.png` stone texture: themes set `--stone-blend: luminosity`, so
+   the tile supplies the grain and `--stone-fill` supplies the hue. `--heading` exists so
+   a theme can recolour headings independently of links/buttons (e.g. Clan Hall's
+   gold-on-purple).
 5. **Instant switch** — the picker flips `document.documentElement.dataset.theme` on click
    and then submits the form, so the change is live before the cookie round-trip.
 

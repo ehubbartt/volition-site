@@ -350,6 +350,9 @@ strong,
 	/* Classic warm stone interior fill that lives inside the bordered panels. */
 	--stone-tile: url('/osrs/tile.png');
 	--stone-fill: #4d4030;
+	/* How the stone texture combines with --stone-fill. Themes set `luminosity` so the
+	   tile keeps its grain while taking the theme's hue from the fill colour. */
+	--stone-blend: normal;
 }
 
 /* Raised chiseled panel — the core OSRS interface box: the in-game gold
@@ -360,6 +363,7 @@ strong,
 	background-color: var(--stone-fill);
 	background-image: var(--stone-tile);
 	background-repeat: repeat;
+	background-blend-mode: var(--stone-blend);
 	border: 4px solid transparent;
 	border-image: url('/osrs/border-tiny.png') 4 / 4px round;
 	border-radius: 4px;
@@ -509,6 +513,7 @@ strong,
 	background-color: var(--stone-fill) !important;
 	background-image: var(--stone-tile) !important;
 	background-repeat: repeat !important;
+	background-blend-mode: var(--stone-blend) !important;
 	border: 4px solid transparent !important;
 	border-image: url('/osrs/border-tiny.png') 4 / 4px round !important;
 	border-radius: 4px !important;
@@ -577,10 +582,8 @@ strong,
 	--bg-pool: rgba(120, 30, 8, 0.32);
 	--bg-top: #120a08;
 	--bg-bottom: #070404;
-	--stone-fill: #46281c;
-	--stone-tile:
-		linear-gradient(180deg, rgba(64, 30, 18, 0.85), rgba(34, 15, 9, 0.85)),
-		url('/osrs/tile.png');
+	--stone-fill: #5a3322;
+	--stone-blend: luminosity;
 }
 
 /* Clan Hall — royal purple furniture with gold headings and highlights. */
@@ -598,8 +601,6 @@ strong,
 	--bg-pool: rgba(60, 48, 90, 0.35);
 	--bg-top: #120e18;
 	--bg-bottom: #0a0710;
-	--stone-fill: #3a3153;
-	--stone-tile:
-		linear-gradient(180deg, rgba(52, 44, 76, 0.88), rgba(30, 25, 45, 0.88)),
-		url('/osrs/tile.png');
+	--stone-fill: #453a66;
+	--stone-blend: luminosity;
 }
