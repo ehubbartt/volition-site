@@ -13,6 +13,36 @@ broadly-shared component or change a convention. For page data-loading, see
   (dark theme, orange accent, self-hosted RS fonts). Use the tokens, don't hardcode colors.
 - **Server-only** logic stays in `src/lib/server/` so secrets never reach the client.
 
+## Theming (selectable site themes)
+
+Members can pick a site theme on `/me` (Profile tab). A theme is **only a token-override
+block** — components read the CSS variables and never know themes exist, so new pages and
+future themes compose automatically.
+
+How it flows:
+
+1. **Registry** — `src/lib/themes.ts` lists every theme (`value`, `label`, `description`,
+   picker swatches) plus `THEME_COOKIE`/`isTheme()`. Single source of truth.
+2. **Persistence** — the `?/saveTheme` action on `/me` writes the choice to the `vs_theme`
+   cookie (1 year). Cookie, not DB, on purpose: the server must know the theme before
+   rendering *any* page, without a per-request DB read.
+3. **SSR** — `hooks.server.ts` validates the cookie into `locals.theme` and stamps it into
+   `app.html`'s `<html data-theme="%vs.theme%">` via `transformPageChunk`, so first paint
+   is already themed (no flash). The root layout exposes it as `data.theme` for the picker.
+4. **CSS** — `src/app.css` ends with one `:root[data-theme='…']` block per theme that
+   overrides tokens only (`--accent`, `--surface*`, `--border*`, `--yellow`, `--heading`,
+   the `--bg-*` page-background layers, and `--stone-fill`/`--stone-tile`). The
+   `--stone-tile` override layers a tinted gradient over the stone texture so panels keep
+   the in-game grain in the theme's hue. `--heading` exists so a theme can recolour
+   headings independently of links/buttons (e.g. Clan Hall's gold-on-purple).
+5. **Instant switch** — the picker flips `document.documentElement.dataset.theme` on click
+   and then submits the form, so the change is live before the cookie round-trip.
+
+**Adding a theme:** one entry in `themes.ts` + one token block in `app.css`. Keep themes to
+hue shifts (no extra glows/effects) so the shared OSRS sprites (gold borders, bronze
+buttons, stone tiles) fit every theme. Current themes: `default` (Old School), `ember`
+(Emberforge), `royal` (Clan Hall).
+
 ## Shared UI: OSRS wiki images & bingo tiles
 
 Reuse these instead of re-deriving wiki URLs or re-styling tiles (avoids the casing/format

@@ -21,6 +21,7 @@
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/stores';
+	import { THEMES } from '$lib/themes';
 
 	let { data: pageData, form }: { data: PageData; form: ActionData } = $props();
 
@@ -103,6 +104,17 @@
 					minute: '2-digit'
 				})
 			: null;
+
+	// Site theme picker: flip <html data-theme> instantly for live feedback, then
+	// submit to ?/saveTheme so the vs_theme cookie makes it stick across visits
+	// (SSR re-renders with the same attribute — see hooks.server.ts + $lib/themes).
+	let theme = $state(pageData.theme ?? 'default');
+	let themeForm = $state<HTMLFormElement>();
+	function pickTheme(v: string) {
+		theme = v;
+		document.documentElement.dataset.theme = v;
+		themeForm?.requestSubmit();
+	}
 </script>
 
 <svelte:head>
@@ -201,6 +213,45 @@
 
 				<button type="submit" class="primary">Save</button>
 			</form>
+
+			<!-- Site theme — applies instantly, persists via cookie (see $lib/themes). -->
+			<div class="theme-block">
+				<h3>Site theme</h3>
+				<p class="muted small">How Volition looks for you in this browser.</p>
+				<form
+					method="POST"
+					action="?/saveTheme"
+					class="themes"
+					bind:this={themeForm}
+					use:enhance={() => {
+						return async ({ update }) => {
+							await update({ reset: false });
+						};
+					}}
+				>
+					{#each THEMES as t (t.value)}
+						<label class="theme-option" class:selected={theme === t.value}>
+							<input
+								type="radio"
+								name="theme"
+								value={t.value}
+								checked={theme === t.value}
+								onchange={() => pickTheme(t.value)}
+							/>
+							<span class="swatches">
+								{#each t.swatches as c (c)}<span class="sw" style="background:{c}"></span>{/each}
+							</span>
+							<span class="theme-name">{t.label}</span>
+							<span class="theme-desc muted">{t.description}</span>
+						</label>
+					{/each}
+				</form>
+				{#if form && 'themeSaved' in form && form.themeSaved}
+					<p class="success small theme-msg">Theme saved.</p>
+				{:else if form && 'themeError' in form && form.themeError}
+					<p class="error small theme-msg">{form.themeError}</p>
+				{/if}
+			</div>
 
 			<!-- Deliberately NOT use:enhance: the full document load this causes is what
 	     wipes the client-side swr cache on logout (see clearSwrCache in swr.ts). -->
@@ -650,6 +701,65 @@
 		padding-top: 1.5rem;
 		border-top: 1px solid var(--border);
 		max-width: 32rem;
+	}
+
+	/* ── Site theme picker ── */
+	.theme-block {
+		margin-top: 1.5rem;
+		padding-top: 1.25rem;
+		border-top: 1px solid var(--border);
+	}
+	.theme-block h3 {
+		margin: 0 0 0.2rem;
+	}
+	.themes {
+		display: flex;
+		gap: 0.6rem;
+		flex-wrap: wrap;
+		margin-top: 0.6rem;
+	}
+	.theme-option {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		padding: 0.7rem 0.85rem;
+		min-width: 11rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		cursor: pointer;
+		transition: border-color 0.12s;
+	}
+	.theme-option:hover {
+		border-color: var(--border-strong);
+	}
+	.theme-option.selected {
+		border-color: var(--accent);
+		background: var(--accent-soft);
+	}
+	.theme-option input {
+		display: none;
+	}
+	.swatches {
+		display: flex;
+		gap: 4px;
+	}
+	.sw {
+		width: 18px;
+		height: 18px;
+		border-radius: 4px;
+		border: 1px solid rgba(0, 0, 0, 0.5);
+	}
+	.theme-name {
+		font-family: var(--font-heading);
+		color: var(--text);
+	}
+	.theme-desc {
+		font-size: 0.78rem;
+	}
+	.theme-msg {
+		margin-top: 0.6rem;
+		display: inline-block;
 	}
 
 	label {

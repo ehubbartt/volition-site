@@ -27,6 +27,17 @@
 	--danger: #ff0000;
 	--danger-bg: #3a2420;
 
+	/* Heading colour — separate from --accent so a theme can give headings their own
+	   hue (e.g. gold headings over purple furniture) without recolouring links/buttons. */
+	--heading: var(--accent);
+
+	/* Page background layers (see body below) — themable as tokens. */
+	--bg-solid: #0d0a06;
+	--bg-bloom: rgba(255, 152, 31, 0.1);
+	--bg-pool: rgba(77, 67, 54, 0.4);
+	--bg-top: #15110b;
+	--bg-bottom: #0b0805;
+
 	--font-body: 'rssmall', ui-sans-serif, Arial, sans-serif;
 	--font-heading: 'rsbold', ui-sans-serif, Arial, sans-serif;
 	--ts: 1px 1px #000;
@@ -73,15 +84,15 @@ body {
 }
 
 body {
-	background-color: #0d0a06;
+	background-color: var(--bg-solid);
 	background-image:
 		/* warm light bloom top, stone pool bottom */
-		radial-gradient(ellipse 70% 45% at 50% -10%, rgba(255, 152, 31, 0.1) 0%, transparent 65%),
-		radial-gradient(ellipse 60% 45% at 50% 110%, rgba(77, 67, 54, 0.4) 0%, transparent 65%),
+		radial-gradient(ellipse 70% 45% at 50% -10%, var(--bg-bloom) 0%, transparent 65%),
+		radial-gradient(ellipse 60% 45% at 50% 110%, var(--bg-pool) 0%, transparent 65%),
 		/* tiled OSRS stone floor */
 		url('/osrs/tile-dark.png'),
 		/* dark stone base */
-		linear-gradient(180deg, #15110b, #0b0805);
+		linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
 	background-repeat: no-repeat, no-repeat, repeat, no-repeat;
 	background-attachment: fixed, fixed, fixed, fixed;
 	background-size: cover, cover, auto, cover;
@@ -120,7 +131,7 @@ h1,
 h2,
 h3 {
 	font-family: var(--font-heading);
-	color: var(--accent);
+	color: var(--heading);
 	font-weight: normal;
 	letter-spacing: 1px;
 	text-shadow: var(--ts-strong);
@@ -372,7 +383,7 @@ strong,
 	font-size: 1.25rem;
 	font-weight: normal;
 	letter-spacing: 1px;
-	color: var(--accent);
+	color: var(--heading);
 	text-align: center;
 	text-shadow: var(--ts-strong);
 	padding: 0 0 0.5rem;
@@ -538,4 +549,57 @@ strong,
 	background: var(--accent);
 	border-radius: 999px;
 	transition: width 0.3s ease;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Themes — selectable palettes, applied as <html data-theme="…"> (set from the
+   vs_theme cookie in hooks.server.ts; picker on /me). Each theme is ONLY a
+   token-override block: components read tokens and never know themes exist, so
+   every current and future page re-themes automatically. The user-facing
+   registry lives in src/lib/themes.ts — adding a theme means one entry there
+   plus one block here. Keep themes to hue shifts (no new effects/glows) so the
+   OSRS sprite work (gold borders, bronze buttons, stone tiles) fits them all.
+   The --stone-tile override layers a tinted gradient OVER the stone texture so
+   panels keep their in-game grain while taking the theme's hue.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Emberforge — volcanic reds with molten orange. */
+:root[data-theme='ember'] {
+	--surface: #3a2420;
+	--surface-alt: #251611;
+	--border: #4a2c1c;
+	--border-strong: #63381f;
+	--accent: #ff7a1a;
+	--accent-soft: rgba(255, 122, 26, 0.18);
+	--yellow: #ffd23d;
+	--bg-solid: #0a0607;
+	--bg-bloom: rgba(255, 94, 20, 0.14);
+	--bg-pool: rgba(120, 30, 8, 0.32);
+	--bg-top: #120a08;
+	--bg-bottom: #070404;
+	--stone-fill: #46281c;
+	--stone-tile:
+		linear-gradient(180deg, rgba(64, 30, 18, 0.85), rgba(34, 15, 9, 0.85)),
+		url('/osrs/tile.png');
+}
+
+/* Clan Hall — royal purple furniture with gold headings and highlights. */
+:root[data-theme='royal'] {
+	--surface: #332b47;
+	--surface-alt: #221c31;
+	--border: #453a66;
+	--border-strong: #584a85;
+	--accent: #a58cff;
+	--accent-soft: rgba(138, 108, 255, 0.18);
+	--heading: #d9b65e;
+	--yellow: #ffdf87;
+	--bg-solid: #0c0912;
+	--bg-bloom: rgba(138, 108, 255, 0.12);
+	--bg-pool: rgba(60, 48, 90, 0.35);
+	--bg-top: #120e18;
+	--bg-bottom: #0a0710;
+	--stone-fill: #3a3153;
+	--stone-tile:
+		linear-gradient(180deg, rgba(52, 44, 76, 0.88), rgba(30, 25, 45, 0.88)),
+		url('/osrs/tile.png');
 }

@@ -2,6 +2,7 @@ import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { env } from '$env/dynamic/public';
 import { env as serverEnv } from '$env/dynamic/private';
 import { readSession, isAdmin, isSuperAdmin, invalidateSessionCache } from '$lib/server/auth';
+import { THEME_COOKIE, DEFAULT_THEME, isTheme } from '$lib/themes';
 import { ensureFreshAdminRoles } from '$lib/server/adminRoles';
 import { ensureFreshBans, getBanCached } from '$lib/server/bansCache';
 import { shouldAudit, capturePayload, captureBeforeState, logAudit } from '$lib/server/audit';
@@ -107,6 +108,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.user = session?.user ?? null;
 	event.locals.sessionId = session?.sessionId ?? null;
 
+	// Site theme: a validated cookie value that becomes <html data-theme="…"> via the
+	// transformPageChunk below, so SSR paints the chosen theme with no flash. Themes are
+	// pure CSS token blocks in app.css keyed off that attribute (see $lib/themes).
+	const themeCookie = event.cookies.get(THEME_COOKIE);
+	event.locals.theme = isTheme(themeCookie) ? themeCookie : DEFAULT_THEME;
+
 	// Staging lock: gate the whole site behind admin. The auth flow (so an admin can sign in)
 	// and static assets stay open; /health already returned above. Runs after the admin-role
 	// cache refresh so DB-granted admins are recognised. Checked against the RAW user —
@@ -165,7 +172,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 		if (before) payload._before = before;
 	}
 
-	const response = await resolve(event);
+	const response = await resolve(event, {
+		// Stamp the theme into app.html's <html data-theme="%vs.theme%"> placeholder.
+		transformPageChunk: ({ html }) => html.replace('%vs.theme%', event.locals.theme)
+	});
 
 	// Any non-GET (form actions are how users mutate their own profile) drops this
 	// session's cached user, so the next request re-reads it fresh from the DB.

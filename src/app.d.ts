@@ -13,6 +13,8 @@ declare global {
 			// view-as preview applied to `user` (see hooks.server.ts). Lets the
 			// view-as switcher keep working while previewing a lower role.
 			realSuperAdmin: boolean;
+			// Validated site theme from the vs_theme cookie (see $lib/themes).
+			theme: string;
 		}
 		// interface PageData {}
 		// interface PageState {}

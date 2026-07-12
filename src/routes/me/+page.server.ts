@@ -8,6 +8,7 @@ import { setPlayerRank } from '$lib/server/playerStats';
 import { getRankConfig } from '$lib/server/rankConfig';
 import { fetchPlayerRankInputs } from '$lib/server/rankData';
 import { scorePlayer } from '$lib/server/rankScoring';
+import { THEME_COOKIE, isTheme } from '$lib/themes';
 import type { Actions } from './$types';
 
 // ACTIONS ONLY — this page has no server load. Its data comes from /api/me
@@ -32,6 +33,23 @@ const lastRankCheck = new Map<string, number>();
 const RANK_CHECK_COOLDOWN_MS = 60_000;
 
 export const actions: Actions = {
+	// Persist the site-theme choice as a year-long cookie. Cookie (not DB) on purpose:
+	// hooks.server.ts must know the theme before rendering ANY page (SSR sets
+	// <html data-theme> with no flash), and a cookie is the only store available that
+	// early without a per-request DB read. See $lib/themes.
+	saveTheme: async ({ locals, request, cookies }) => {
+		if (!locals.user) throw redirect(303, '/');
+		const theme = ((await request.formData()).get('theme') ?? '').toString();
+		if (!isTheme(theme)) return fail(400, { themeError: 'Unknown theme.' });
+		cookies.set(THEME_COOKIE, theme, {
+			path: '/',
+			maxAge: 60 * 60 * 24 * 365,
+			httpOnly: true,
+			sameSite: 'lax'
+		});
+		return { themeSaved: true };
+	},
+
 	// Fetch the signed-in player's live data, compute their composite rank with the
 	// current rank_scoring config, and write players.rank (the bot mirrors it to Discord).
 	checkRank: async ({ locals }) => {

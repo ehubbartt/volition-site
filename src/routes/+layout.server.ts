@@ -14,6 +14,9 @@ export const load: LayoutServerLoad = ({ locals }) => {
 		// …while these two drive the switcher itself from the REAL identity.
 		realSuperAdmin: locals.realSuperAdmin,
 		viewAs: user?.view_as ?? null,
-		banned: !!locals.ban
+		banned: !!locals.ban,
+		// Current site theme (cookie-backed; SSR sets <html data-theme> from it). The
+		// /me picker uses this as its initial selection.
+		theme: locals.theme
 	};
 };
