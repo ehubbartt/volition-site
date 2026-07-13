@@ -1,10 +1,12 @@
 import { fail, redirect } from '@sveltejs/kit';
 import {
 	generatePersonalBoard,
+	generateTestPersonalBoard,
 	lockPersonalBoard,
 	refreshPersonalBoard,
 	submitPersonalTile
 } from '$lib/server/personalBoard';
+import { isAdmin } from '$lib/server/auth';
 import type { Actions } from './$types';
 
 // ACTIONS ONLY — this page has no server load. Its data comes from
@@ -64,6 +66,31 @@ export const actions: Actions = {
 								: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
 			const status =
 				result.reason === 'too_few' ? 400 : result.reason === 'locked' ? 403 : 502;
+			return fail(status, { error: msg });
+		}
+		return { ok: true, generated: true };
+	},
+
+	// TEMPORARY (admin-only): generate the easiest possible 3x3 board — cheapest missing
+	// clog items, 1 XP skill goals, easiest uncompleted CAs — for end-to-end testing of
+	// Dink collection / XP / CA tracking. Remove once tracking is verified in prod.
+	generateTest: async ({ locals }) => {
+		if (!locals.user) throw redirect(303, '/');
+		if (!isAdmin(locals.user)) return fail(403, { error: 'Admins only.' });
+
+		const result = await generateTestPersonalBoard(locals.user.id, locals.user.rsn);
+		if (!result.ok) {
+			const msg =
+				result.reason === 'no_rsn'
+					? 'Set your OSRS RSN on your profile first.'
+					: result.reason === 'locked'
+						? `Your board is locked in until ${result.resettable_at ? fmtResetDate(result.resettable_at) : 'later'}. You can make a new one after that.`
+						: result.reason === 'ca_unavailable'
+							? "Couldn't read your combat achievements from WikiSync. Make sure your RSN is synced in RuneLite's WikiSync plugin and try again."
+							: result.reason === 'too_few'
+								? `You're only missing ${result.missing} eligible clog items — not enough to fill the test board (needs ${result.need}).`
+								: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
+			const status = result.reason === 'too_few' ? 400 : result.reason === 'locked' ? 403 : 502;
 			return fail(status, { error: msg });
 		}
 		return { ok: true, generated: true };

@@ -53,6 +53,9 @@
 	let locked = $derived(data.locked);
 	let canReset = $derived(data.canReset);
 
+	// TEMPORARY: busy flag for the admin-only easy-test-board generator.
+	let generatingTest = $state(false);
+
 	// Map a personal-board tile (item / skill / ca) onto the generic BingoTile props.
 	function tileImage(t: Tile): string {
 		if (t.kind === 'skill') return skillImageUrl(t.skill ?? '');
@@ -273,6 +276,35 @@
 				{/if}
 			</div>
 		</form>
+
+		<!-- TEMPORARY (admins only): easiest-possible 3x3 for verifying Dink/XP/CA tracking
+		     end to end. Remove once personal-board tracking is confirmed working. -->
+		{#if pageData.isAdmin}
+			<form
+				method="POST"
+				action="?/generateTest"
+				class="panel testgen"
+				use:enhance={() => {
+					generatingTest = true;
+					return async ({ update }) => {
+						await update({ reset: false });
+						generatingTest = false;
+						showRegen = false;
+					};
+				}}
+			>
+				<p class="muted small">
+					<strong>Admin test:</strong> generates a 3×3 with your 3 cheapest missing collection-log
+					items, 3 skill goals of 1 XP, and your 3 easiest uncompleted combat achievements —
+					lock it in, then any clog unlock / XP drop / CA completion should tick tiles off
+					automatically. (Item tiles credit from collection-log notifications, not ground drops,
+					so common drops like bones or feathers can't be used here.)
+				</p>
+				<button type="submit" class="ghost" disabled={generatingTest || !data.rsn}>
+					{generatingTest ? 'Building test board…' : 'Generate easy test board'}
+				</button>
+			</form>
+		{/if}
 	{/if}
 
 	<!-- ── Draft: lock-in bar ── -->

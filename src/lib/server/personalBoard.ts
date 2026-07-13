@@ -500,6 +500,19 @@ export async function generatePersonalBoard(
 		...caPicks.map((c) => ({ kind: 'ca' as const, item_id: null, item_name: c.name, ehb: c.ehb, source: c.monster, skill: null, target_xp: null, ca_id: c.ca_id, ca_tier: c.tier }))
 	];
 	shuffle(placed);
+	return persistPersonalBoard(existing, userId, rsn, n, diff, placed);
+}
+
+// Replace (or create) the user's draft board with the given placed tiles. Shared by the
+// normal generator and the admin test-board generator.
+async function persistPersonalBoard(
+	existing: EventRow | null,
+	userId: string,
+	rsn: string,
+	n: number,
+	diff: number,
+	placed: Placed[]
+): Promise<GenerateResult> {
 	const sb = db();
 
 	// One board per user: drop the old event (tiles cascade) + its ledger rows before inserting.
@@ -545,6 +558,72 @@ export async function generatePersonalBoard(
 			tiles: placed.map((p, idx) => rowToTile(tileToRow(ev.id, p, idx)))
 		}
 	};
+}
+
+// TEMPORARY admin test board: the easiest possible 3x3 for end-to-end tracking checks —
+// the player's 3 cheapest missing clog items (credit via Dink collection-log notifs),
+// 3 skill tiles at 1 XP each (any XP gain after locking completes them), and the 3
+// easiest-tier CAs the player hasn't done. Admin-gated on the page action.
+export async function generateTestPersonalBoard(
+	userId: string,
+	rsn: string | null
+): Promise<GenerateResult> {
+	if (!rsn) return { ok: false, reason: 'no_rsn' };
+
+	const existing = await loadPersonalEvent(userId);
+	if (existing?.locked_at) {
+		const reset = boardResettableAt(existing.locked_at);
+		if (reset && Date.now() < new Date(reset).getTime()) {
+			return { ok: false, reason: 'locked', resettable_at: reset };
+		}
+	}
+
+	const completed = await getCompletedCAs(userId, rsn);
+	if (completed == null) return { ok: false, reason: 'ca_unavailable' };
+	const catalogue = await getCATasks();
+	const caPool = catalogue
+		.filter((t) => !completed.has(t.id))
+		.sort(
+			(a, b) =>
+				CA_TIERS.indexOf(a.tier as (typeof CA_TIERS)[number]) -
+				CA_TIERS.indexOf(b.tier as (typeof CA_TIERS)[number])
+		);
+	const caPicks: CaPick[] = caPool.slice(0, 3).map((task) => {
+		const ti = Math.max(0, CA_TIERS.indexOf(task.tier as (typeof CA_TIERS)[number]));
+		return {
+			ca_id: task.id,
+			name: task.name,
+			tier: task.tier,
+			monster: task.monster ?? null,
+			ehb: CA_TIER_HOURS[ti] ?? 1
+		};
+	});
+
+	const skillsPool = [...TILE_SKILLS];
+	shuffle(skillsPool);
+	const skills: SkillPick[] = skillsPool
+		.slice(0, 3)
+		.map((skill) => ({ skill, target_xp: 1, ehb: 0 }));
+
+	const owned = await getOwnedClogNames(userId, rsn);
+	if (owned == null) return { ok: false, reason: 'clog_unavailable' };
+	const overrides = await getEhbOverrides();
+	const excludedIds = await getExcludedItemIds();
+	const pool = missingCandidates(owned, overrides, true, excludedIds);
+	const itemCount = 9 - skills.length - caPicks.length;
+	if (pool.length < itemCount) {
+		return { ok: false, reason: 'too_few', missing: pool.length, need: itemCount };
+	}
+	// Easiest first — no gradient, this board is meant to be completable in minutes.
+	const items = pool.slice(0, itemCount);
+
+	const placed: Placed[] = [
+		...items.map((c) => ({ kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null })),
+		...skills.map((s) => ({ kind: 'skill' as const, item_id: null, item_name: null, ehb: s.ehb, source: null, skill: s.skill, target_xp: s.target_xp, ca_id: null, ca_tier: null })),
+		...caPicks.map((c) => ({ kind: 'ca' as const, item_id: null, item_name: c.name, ehb: c.ehb, source: c.monster, skill: null, target_xp: null, ca_id: c.ca_id, ca_tier: c.tier }))
+	];
+	shuffle(placed);
+	return persistPersonalBoard(existing, userId, rsn, 3, MIN_DIFFICULTY, placed);
 }
 
 // Load the user's current board (null if none).
