@@ -185,7 +185,18 @@
 	{/if}
 
 	{#if form?.error}
-		<div class="panel error">{form.error}</div>
+		<div class="panel error">
+			{form.error}
+			{#if form.error.includes('TempleOSRS')}
+				<a href="/temple-guide">Temple setup guide →</a>
+			{:else if form.error.includes('WikiSync')}
+				<a
+					href="https://runelite.net/plugin-hub/show/wikisync"
+					target="_blank"
+					rel="noreferrer noopener">Get the WikiSync plugin ↗</a
+				>
+			{/if}
+		</div>
 	{/if}
 	{#if form?.refreshed}
 		<div class="panel ok">
