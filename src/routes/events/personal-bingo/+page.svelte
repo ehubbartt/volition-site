@@ -23,6 +23,7 @@
 	const EMPTY_PB = {
 		rsn: null,
 		board: null,
+		vp: null,
 		dropRates: {},
 		locked: false,
 		resettableAt: null,
@@ -337,6 +338,10 @@
 				Happy with this board? <strong>Lock it in</strong> to start tracking — it'll be committed
 				for {data.lockDays} days. Item tiles tick off from your collection log + Dink; skilling
 				tiles count XP gained from now on. Progress you already had before locking doesn't count.
+				{#if data.vp && !data.vp.test}
+					Completed rows, columns and diagonals pay <strong>{data.vp.line} VP</strong> each, and
+					blacking out the whole board pays a <strong>+{data.vp.blackout} VP</strong> bonus.
+				{/if}
 			</p>
 			<form
 				method="POST"
@@ -368,6 +373,14 @@
 					<span class="stat"><strong>{obtainedCount}</strong> / {board.tiles.length} obtained</span>
 					<span class="stat"><strong>{lines.count}</strong> bingo{lines.count === 1 ? '' : 's'}</span>
 					<span class="stat muted">{board.size}×{board.size} · {DIFF_LABELS[board.difficulty]}</span>
+					{#if data.vp}
+						{#if data.vp.test}
+							<span class="stat muted">test board · no VP</span>
+						{:else}
+							<span class="stat"><strong>{data.vp.earned}</strong> VP earned</span>
+							<span class="stat muted">line {data.vp.line} VP · blackout +{data.vp.blackout} VP</span>
+						{/if}
+					{/if}
 				</div>
 				<div class="bar-actions">
 					<form

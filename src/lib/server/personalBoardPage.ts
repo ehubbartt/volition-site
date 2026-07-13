@@ -1,11 +1,14 @@
 import {
 	loadPersonalBoard,
 	boardResettableAt,
+	settlePersonalVp,
+	personalVpAmounts,
 	LOCK_DAYS,
 	MIN_SIZE,
 	MAX_SIZE,
 	MIN_DIFFICULTY,
-	MAX_DIFFICULTY
+	MAX_DIFFICULTY,
+	type PersonalVpState
 } from './personalBoard';
 import type { SessionUser } from './auth';
 import itemEhbData from './data/itemEhb.json';
@@ -28,6 +31,19 @@ export async function buildPersonalBoardData(user: SessionUser) {
 
 	const board = await loadPersonalBoard(user.id);
 
+	// Settle VP for any newly-completed lines/blackout (idempotent, CAS-guarded), and
+	// surface the board's reward amounts for display. Draft boards preview the amounts.
+	let vp: PersonalVpState | null = null;
+	if (board) {
+		vp = await settlePersonalVp(
+			{ id: user.id, discord_id: user.discord_id, rsn: user.rsn },
+			board
+		).catch((e) => {
+			console.warn('[personalBoard] vp settle failed:', e instanceof Error ? e.message : e);
+			return { ...personalVpAmounts(board.size, board.difficulty), earned: 0, test: false };
+		});
+	}
+
 	// Per-item-tile drop rate (raw "1/N" string) for the tile-detail modal, keyed by tile idx.
 	// Matched to the boss shown on the tile (tile.source); doom sources have no rate string.
 	const dropRates: Record<number, string> = {};
@@ -45,6 +61,7 @@ export async function buildPersonalBoardData(user: SessionUser) {
 	return {
 		rsn: user.rsn,
 		board,
+		vp,
 		dropRates,
 		locked: !!board?.locked_at,
 		resettableAt,

@@ -45,6 +45,13 @@ Every credit is one row: `event_id, target_id (=tile_key), user_id|team_id, quan
 Manual → `pending` (reviewed) or `approved` (self-serve). Auto-track → `approved`. **Progress is
 derived from this ledger; there is no per-tile `obtained` flag to keep in sync.**
 
+**Personal-board VP.** Completed rows/columns/diagonals and a blackout pay VP, scaled by the
+board's size + difficulty (`personalVpAmounts` in `personalBoard.ts`). Settlement is
+poll-on-read (`settlePersonalVp`, run on every board view): awarded state lives in the event
+row's `structure.vp = { lines, blackout, total, v }` with `v` as a compare-and-swap version so
+concurrent views can't double-pay; the grant goes through `grantPlayerVp` (players.points).
+Admin test boards carry `structure.test = true` and never pay.
+
 ### `vs_active_tiles` — the view (only interface the trackers read)
 One row per **(participant × not-yet-complete tile × trigger)**, expanding each tile's `triggers`
 jsonb, across open events + locked personal boards. Carries `type, match_key, required_qty,

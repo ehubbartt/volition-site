@@ -21,6 +21,7 @@ import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer, fetchWik
 import { bestEhbSource, isPetItem, type ItemEhb, type EhbOverrides } from '$lib/ehb';
 import { getEhbOverrides, getExcludedItemIds } from './ehbOverrides';
 import { uploadProof } from './submissions';
+import { grantPlayerVp } from './playerStats';
 import { MAX_IMAGES_PER_SUBMISSION, BINGO_BUCKET } from '$lib/bingo/config';
 import { TILE_SKILLS, SKILL_EHP_RATES, MAX_SKILL_XP, roundXp, skillTileHours, type Skill } from '$lib/ehp';
 import { CA_TIERS, caTierForDifficulty } from '$lib/ca';
@@ -37,6 +38,45 @@ export const MAX_DIFFICULTY = 10;
 // Personal boards are vs_events rows with this kind + a per-user slug.
 const PERSONAL_KIND = 'personal';
 const personalSlug = (userId: string) => `personal-${userId}`;
+
+// ── VP rewards ────────────────────────────────────────────────────────────────
+// Completing a full row/column/diagonal pays LINE VP; completing every tile pays the
+// BLACKOUT bonus on top. Both scale with the board's difficulty (1-10) and size (a
+// 7×7 line is longer and a 7×7 blackout far bigger than a 3×3). Tune the formulas
+// here — for calibration, event podium awards are 50/30/20 VP.
+//   line(size, diff)     = (3 + diff)      × size/5   → 5×5 mid-difficulty ≈ 8 VP
+//   blackout(size, diff) = (15 + 5×diff)   × size/5   → 5×5 mid-difficulty ≈ 40 VP
+export function personalVpAmounts(size: number, difficulty: number): { line: number; blackout: number } {
+	const s = Math.max(1, size) / 5;
+	const d = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, difficulty));
+	return {
+		line: Math.max(1, Math.round((3 + d) * s)),
+		blackout: Math.max(1, Math.round((15 + 5 * d) * s))
+	};
+}
+
+// Keys of every fully-completed line: rows r0..r{n-1}, columns c0..c{n-1}, diagonals d0/d1.
+function completedLineKeys(size: number, obtained: Set<number>): string[] {
+	const out: string[] = [];
+	for (let r = 0; r < size; r++) {
+		let full = true;
+		for (let c = 0; c < size; c++) if (!obtained.has(r * size + c)) { full = false; break; }
+		if (full) out.push(`r${r}`);
+	}
+	for (let c = 0; c < size; c++) {
+		let full = true;
+		for (let r = 0; r < size; r++) if (!obtained.has(r * size + c)) { full = false; break; }
+		if (full) out.push(`c${c}`);
+	}
+	let d0 = true, d1 = true;
+	for (let i = 0; i < size; i++) {
+		if (!obtained.has(i * size + i)) d0 = false;
+		if (!obtained.has(i * size + (size - 1 - i))) d1 = false;
+	}
+	if (d0) out.push('d0');
+	if (d1) out.push('d1');
+	return out;
+}
 
 // A locked board is committed for this long before the owner can reset and make a new one.
 export const LOCK_DAYS = 30;
@@ -581,7 +621,8 @@ async function persistPersonalBoard(
 	rsn: string,
 	n: number,
 	diff: number,
-	placed: Placed[]
+	placed: Placed[],
+	test = false // admin test board: flagged in structure so VP settlement skips it
 ): Promise<GenerateResult> {
 	const sb = db();
 
@@ -603,7 +644,7 @@ async function persistPersonalBoard(
 			// them by kind='personal'. Keeping status out of 'open' also stops the bot's
 			// event-announce poller (which reads status='open') from posting them to Discord.
 			status: 'draft',
-			structure: { size: n, difficulty: diff, rsn }
+			structure: { size: n, difficulty: diff, rsn, ...(test ? { test: true } : {}) }
 		})
 		.select('id, structure, created_at, locked_at')
 		.single();
@@ -686,7 +727,7 @@ export async function generateTestPersonalBoard(
 		...caPicks.map((c) => ({ kind: 'ca' as const, item_id: null, item_name: c.name, ehb: c.ehb, source: c.monster, skill: null, target_xp: null, ca_id: c.ca_id, ca_tier: c.tier }))
 	];
 	shuffle(placed);
-	return persistPersonalBoard(existing, userId, rsn, 3, MIN_DIFFICULTY, placed);
+	return persistPersonalBoard(existing, userId, rsn, 3, MIN_DIFFICULTY, placed, true);
 }
 
 // Load the user's current board (null if none).
@@ -720,6 +761,71 @@ export async function loadPersonalBoard(userId: string): Promise<PersonalBoard |
 			)
 		)
 	};
+}
+
+// ── VP settlement ──────────────────────────────────────────────────────────────
+// Awarded state lives on the board's vs_events row: structure.vp = { lines, blackout,
+// total, v }. Settling compares the CURRENTLY completed lines/blackout against that
+// state and pays only the difference, so it's safe to run on every board view
+// (poll-on-read, like the drop consumer). `v` is a version counter used as a
+// compare-and-swap guard: the structure update only applies if v is unchanged, so two
+// concurrent settles can't both pay the same line. Test boards never pay.
+
+export interface PersonalVpState {
+	line: number; // VP per completed row/column/diagonal on this board
+	blackout: number; // bonus VP for completing every tile
+	earned: number; // VP this board has paid out so far
+	test: boolean; // admin test board — rewards disabled
+}
+
+export async function settlePersonalVp(
+	user: { id: string; discord_id: string | null; rsn: string | null },
+	board: PersonalBoard
+): Promise<PersonalVpState> {
+	const amounts = personalVpAmounts(board.size, board.difficulty);
+	const sb = db();
+	const { data } = await sb.from('vs_events').select('structure').eq('id', board.id).maybeSingle();
+	const structure = ((data as { structure?: Record<string, unknown> } | null)?.structure ?? {}) as Record<string, unknown>;
+	const isTest = structure.test === true;
+	const vp = (structure.vp ?? {}) as { lines?: string[]; blackout?: boolean; total?: number; v?: number };
+	const awardedLines = new Set(vp.lines ?? []);
+	const earned = Number(vp.total ?? 0);
+	const base = { line: amounts.line, blackout: amounts.blackout, test: isTest };
+
+	if (!board.locked_at || isTest) return { ...base, earned };
+
+	const obtained = new Set(board.tiles.filter((t) => t.obtained).map((t) => t.idx));
+	const lines = completedLineKeys(board.size, obtained);
+	const newLines = lines.filter((k) => !awardedLines.has(k));
+	const blackoutNow = obtained.size >= board.size * board.size;
+	const newBlackout = blackoutNow && vp.blackout !== true;
+	const delta = newLines.length * amounts.line + (newBlackout ? amounts.blackout : 0);
+	if (delta <= 0) return { ...base, earned };
+
+	const oldV = Number(vp.v ?? 0);
+	const nextStructure = {
+		...structure,
+		vp: {
+			lines: [...awardedLines, ...newLines],
+			blackout: vp.blackout === true || blackoutNow,
+			total: earned + delta,
+			v: oldV + 1
+		}
+	};
+	let q = sb.from('vs_events').update({ structure: nextStructure }).eq('id', board.id);
+	// CAS: only apply if the version we read is still current (missing vp counts as v0).
+	q = vp.v == null
+		? q.or('structure->vp.is.null,structure->vp->>v.is.null')
+		: q.eq('structure->vp->>v', String(oldV));
+	const { data: updated, error } = await q.select('id');
+	if (error || !updated || updated.length === 0) {
+		// Lost the race (or write failed) — the winning settle pays; report what we read.
+		if (error) console.error('[personalBoard] vp settle update failed', board.id, error.message);
+		return { ...base, earned };
+	}
+
+	await grantPlayerVp(user.discord_id, user.rsn, delta);
+	return { ...base, earned: earned + delta };
 }
 
 // Lock a draft board in: starts tracking + the LOCK_DAYS commitment. Idempotent.
