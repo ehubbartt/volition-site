@@ -2,6 +2,8 @@ import { db } from './db';
 import type { SessionUser } from './auth';
 import { isAdmin } from './auth';
 import { isClanMember } from './clan';
+import { rsnExactPattern } from './users';
+import { fetchTempleCollectionLog } from './rankData';
 import { countPendingReview } from './submissions';
 import { getLastLootDate } from './playerStats';
 import { getWeeklyFreePack, getWeeklyClaimAt, claimedThisWeek } from './weeklyPack';
@@ -437,6 +439,101 @@ async function unopenedPacksTask(user: SessionUser): Promise<PlayerTask | null> 
 }
 
 // --- Admin: pending submissions awaiting review ----------------------------
+// --- First-time setup (Temple + Dink) ---------------------------------------
+// The two integrations the new ranking system + auto-tracked bingo require. Each
+// renders in the /tasks page's separate "Finish your setup" section (top of the
+// list) and disappears once its real completion signal is observed:
+//   Temple → their collection log is readable on TempleOSRS by RSN.
+//   Dink   → at least one drop of theirs has been recorded by the proxy (the
+//            /dink-check wizard's own "it works" test) — a token alone is minted
+//            just by VISITING the page, so it proves nothing.
+
+// The Temple check is an external call, so it's cached hard: linked players stay
+// "linked" for a day; unlinked re-checks every 10 minutes so the task clears soon
+// after they finish the guide. `quick` (the nav-badge path, which runs in the root
+// layout load) never blocks a page on Temple: it uses the cached verdict — or
+// assumes linked until a background refresh says otherwise.
+const templeCache = new Map<string, { at: number; linked: boolean }>();
+const TEMPLE_LINKED_TTL_MS = 24 * 60 * 60 * 1000;
+const TEMPLE_UNLINKED_TTL_MS = 10 * 60 * 1000;
+const templeInflight = new Map<string, Promise<boolean>>();
+
+function refreshTempleLinked(rsn: string): Promise<boolean> {
+	const key = rsn.toLowerCase();
+	let p = templeInflight.get(key);
+	if (!p) {
+		p = fetchTempleCollectionLog(rsn)
+			.then((r) => {
+				const linked = r != null;
+				templeCache.set(key, { at: Date.now(), linked });
+				return linked;
+			})
+			.catch(() => templeCache.get(key)?.linked ?? false)
+			.finally(() => templeInflight.delete(key));
+		templeInflight.set(key, p);
+	}
+	return p;
+}
+
+async function templeLinked(rsn: string, quick: boolean): Promise<boolean> {
+	const hit = templeCache.get(rsn.toLowerCase());
+	const ttl = hit?.linked ? TEMPLE_LINKED_TTL_MS : TEMPLE_UNLINKED_TTL_MS;
+	if (hit && Date.now() - hit.at < ttl) return hit.linked;
+	if (quick) {
+		void refreshTempleLinked(rsn);
+		return hit?.linked ?? true; // unknown → no task on the badge until verified
+	}
+	return refreshTempleLinked(rsn);
+}
+
+// Has the proxy ever recorded a drop for this RSN? One indexed row lookup.
+async function hasDinkDrop(rsn: string): Promise<boolean> {
+	const { data } = await db()
+		.from('vs_dink_drops')
+		.select('id')
+		.ilike('rsn', rsnExactPattern(rsn))
+		.limit(1);
+	return !!(data && data.length);
+}
+
+async function setupTasks(user: SessionUser, quick: boolean): Promise<PlayerTask[]> {
+	const [temple, dink] = await Promise.all([
+		user.rsn ? templeLinked(user.rsn, quick) : Promise.resolve(false),
+		user.rsn ? hasDinkDrop(user.rsn) : Promise.resolve(false)
+	]);
+
+	const out: PlayerTask[] = [];
+	if (!temple) {
+		out.push({
+			id: 'setup-temple',
+			kind: 'setup',
+			status: 'todo',
+			title: 'Link TempleOSRS',
+			description: user.rsn
+				? 'Sync your collection log — it powers your rank and personal bingo'
+				: 'Set your RSN on your profile, then sync your collection log',
+			href: '/temple-guide',
+			ctaLabel: 'Follow the guide',
+			resetAt: null
+		});
+	}
+	if (!dink) {
+		out.push({
+			id: 'setup-dink',
+			kind: 'setup',
+			status: 'todo',
+			title: 'Set up Dink',
+			description: user.rsn
+				? 'Auto-post your drops and tick bingo tiles the moment they land'
+				: 'Set your RSN on your profile, then connect the Dink plugin',
+			href: '/dink-check',
+			ctaLabel: 'Follow the guide',
+			resetAt: null
+		});
+	}
+	return out;
+}
+
 // Only for admins, and only when something's actually queued. Surfaces the
 // unified review backlog as a top-of-list to-do so admins don't have to poll
 // /admin/submissions. Counts raw pending rows across all submission sources.
@@ -457,8 +554,10 @@ async function adminReviewTask(user: SessionUser): Promise<PlayerTask | null> {
 }
 
 const STATUS_ORDER: Record<PlayerTask['status'], number> = { todo: 0, active: 1, done: 2 };
-// admin first within a status group (review backlog is the priority for admins).
+// setup before everything (the page renders it as its own section), then admin
+// (review backlog is the priority for admins) within a status group.
 const KIND_ORDER: Record<PlayerTask['kind'], number> = {
+	setup: -2,
 	admin: -1,
 	daily: 0,
 	weekly: 1,
@@ -467,8 +566,12 @@ const KIND_ORDER: Record<PlayerTask['kind'], number> = {
 	packs: 4
 };
 
-export async function loadPlayerTasks(user: SessionUser): Promise<PlayerTask[]> {
+export async function loadPlayerTasks(
+	user: SessionUser,
+	opts: { quick?: boolean } = {}
+): Promise<PlayerTask[]> {
 	const results = await Promise.all([
+		setupTasks(user, opts.quick ?? false),
 		adminReviewTask(user),
 		dailyCrateTask(user),
 		weeklyPackTask(user),
@@ -501,7 +604,9 @@ export async function loadPlayerTasks(user: SessionUser): Promise<PlayerTask[]> 
 // breaking the nav on every page (this runs in the root layout load).
 export async function loadTodoBadgeCount(user: SessionUser): Promise<number> {
 	try {
-		return countOutstandingTasks(await loadPlayerTasks(user));
+		// quick: the setup section's Temple check must never block a page on an
+		// external call — the badge uses the cached verdict (see templeLinked).
+		return countOutstandingTasks(await loadPlayerTasks(user, { quick: true }));
 	} catch {
 		return 0;
 	}
