@@ -113,9 +113,10 @@
 			<li>
 				Log in to OSRS on <strong>{data.rsn}</strong> and get any easy drop —
 				{#if data.selfTestReady}
-					the <a href="/events/{data.selfTestSlug}">Dink Self-Test</a> tracks trivial items like
 					<strong>Bones</strong>, <strong>Cowhide</strong>, <strong>Feathers</strong> or a
-					<strong>Raw chicken</strong>. Go kill a few chickens or cows.
+					<strong>Raw chicken</strong> all count. Go kill a few chickens or cows. No setup
+					needed — opening this page enrolled you in the self-test automatically (give it a
+					minute to reach your Dink).
 				{:else}
 					kill something that's part of an active event's tracked items.
 				{/if}

@@ -51,9 +51,22 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const { data: selfTest } = await db()
 		.from('vs_events')
-		.select('slug, status')
+		.select('id, slug, status')
 		.eq('slug', SELF_TEST_SLUG)
 		.maybeSingle();
+
+	// Zero-friction self-test: opening this page IS the signup. A bare signup row is
+	// all vs_active_player_tiles needs to make the self-test items tracked for this
+	// player (the proxy's manifest picks it up within its ~30s TTL). Idempotent —
+	// the duplicate insert on revisits is expected and ignored.
+	if (selfTest && (selfTest as { status: string }).status === 'open') {
+		const { error: enrollErr } = await db()
+			.from('vs_event_signups')
+			.insert({ event_id: (selfTest as { id: string }).id, user_id: locals.user.id });
+		if (enrollErr && !enrollErr.message.includes('duplicate')) {
+			console.warn('[dink-check] self-test enroll failed:', enrollErr.message);
+		}
+	}
 
 	// The player's personal Dink config URL (mint one on first visit). Same token the
 	// Discord /dink command would hand out — keyed by Discord id.

@@ -111,6 +111,7 @@ inferred from what's live — each row has a check query if you're unsure.
 | `db/scripts/dink_tracking_hardening.sql` | **PENDING** | Required before Dink auto-tracking goes live (section 3). Safe to re-run. |
 | `db/scripts/ehb_overrides.sql` | **PROBABLY PENDING** | `/admin/ehb` (staging) errors without it. Check: `select 1 from vs_ehb_overrides limit 1;` |
 | `db/scripts/events_v2.sql` | likely applied | Personal boards run on this spine in prod. Check: `select 1 from vs_event_participants limit 1;` Safe to re-run (additive + idempotent). |
+| `db/scripts/events_unlisted.sql` | **RUN with Dink go-live** | Adds `vs_events.unlisted` + creates the permanent Dink Self-Test event that `/dink-check` auto-enrolls into. Run BEFORE deploying the site build that filters on `unlisted`, and before the bot's unlisted-filter branch merges. |
 | `db/scripts/vs_rank_sim.sql` | applied | The `gear_detail`/`ca_detail` alters were run while fixing "Check my rank" (which now saves fine). Check: `select gear_detail from vs_rank_sim limit 1;` |
 | `db/scripts/create_vs_admin_roles.sql` | applied | DB role grants are live. |
 | `db/functions/vs_accept_invite.sql` | applied | Team invites work in prod. |

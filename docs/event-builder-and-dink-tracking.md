@@ -152,6 +152,21 @@ When a tile auto-completes on an **open** event, an embed is posted to
 `DISCORD_BINGO_WEBHOOK_URL` (falls back to `DISCORD_DROPS_WEBHOOK_URL`). The self-test
 event is suppressed so member testing doesn't spam the channel.
 
+## The Dink Self-Test (zero-friction connection check)
+
+`/dink-check` is the member-facing "is my Dink working?" page. It's powered by a
+permanent, **unlisted** event (slug `dink-self-test`, created by
+`db/scripts/events_unlisted.sql`) whose tiles track trivial drops — Bones, Cowhide,
+Feathers, Raw chicken — with an unreachable `required_qty` so the tiles never complete
+and re-testing always works. **Opening the page auto-enrolls the viewer** (a bare
+`vs_event_signups` row is all `vs_active_player_tiles` needs), so the member flow is:
+open `/dink-check` → kill a chicken → the drop appears on the page within seconds.
+No joining, no admin action.
+
+`unlisted` events (a `vs_events` boolean) are hidden from the public `/events` list,
+the home-page stats, and the bot's announcements, but stay fully functional and
+reachable by direct link. Reuse it for any future utility event.
+
 ## Per-user config URLs (Dink tokens)
 
 Each member uses a **personal** Dink config URL — `${PROXY_BASE_URL}/config/<token>` —

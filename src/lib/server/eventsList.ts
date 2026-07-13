@@ -173,6 +173,7 @@ export async function buildSections(userId: string, admin: boolean): Promise<Eve
 					'id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, starts_at, ends_at'
 				)
 				.neq('kind', 'personal') // exclude personal boards (owner-scoped, not public events)
+				.eq('unlisted', false) // hide utility events (e.g. the Dink self-test)
 				.in('status', visibleStatuses)
 				.neq('slug', 'weekly-tasks'); // internal task container, not a real event
 			if (error) throw new Error(error.message);

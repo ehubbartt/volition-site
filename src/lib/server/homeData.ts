@@ -64,7 +64,12 @@ export async function buildStats(includeUnreleased: boolean): Promise<Stats> {
 			? ['draft', 'preview', 'open', 'locked', 'closed']
 			: ['open', 'locked', 'closed'];
 		const [eventsRes, packsRes] = await Promise.all([
-			sb.from('vs_events').select('status, ends_at').neq('kind', 'personal').in('status', statuses),
+			sb
+				.from('vs_events')
+				.select('status, ends_at')
+				.neq('kind', 'personal')
+				.eq('unlisted', false) // utility events (Dink self-test) don't count as real events
+				.in('status', statuses),
 			sb.from('vs_pack_opens').select('id', { count: 'exact', head: true })
 		]);
 		const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
