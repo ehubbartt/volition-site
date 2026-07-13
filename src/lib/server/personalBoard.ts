@@ -44,14 +44,14 @@ const personalSlug = (userId: string) => `personal-${userId}`;
 // BLACKOUT bonus on top. Both scale with the board's difficulty (1-10) — with a
 // quadratic term so the hard end pays disproportionately more — and with size (a 7×7
 // line is longer and a 7×7 blackout far bigger than a 3×3). Tune the formulas here.
-//   line(size, diff)     = (5 + 2·diff + 0.3·diff²) × size/5   → 5×5: 7 @d1, 23 @d5, 55 @d10
-//   blackout(size, diff) = (30 + 10·diff + 2·diff²) × size/5   → 5×5: 42 @d1, 130 @d5, 330 @d10
+//   line(size, diff)     = (4 + 1.5·diff + 0.15·diff²) × size/5   → 5×5: 6 @d1, 15 @d5, 34 @d10
+//   blackout(size, diff) = (20 + 7·diff + diff²)       × size/5   → 5×5: 28 @d1, 80 @d5, 190 @d10
 export function personalVpAmounts(size: number, difficulty: number): { line: number; blackout: number } {
 	const s = Math.max(1, size) / 5;
 	const d = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, difficulty));
 	return {
-		line: Math.max(1, Math.round((5 + 2 * d + 0.3 * d * d) * s)),
-		blackout: Math.max(1, Math.round((30 + 10 * d + 2 * d * d) * s))
+		line: Math.max(1, Math.round((4 + 1.5 * d + 0.15 * d * d) * s)),
+		blackout: Math.max(1, Math.round((20 + 7 * d + d * d) * s))
 	};
 }
 
