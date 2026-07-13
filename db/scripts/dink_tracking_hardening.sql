@@ -27,6 +27,10 @@ alter table vs_dink_drops add column if not exists notif_type text not null defa
 alter table vs_dink_drops add column if not exists outcome text;
 -- gp value of the drop (from the proxy); shown in the /admin/dink-drops debug view.
 alter table vs_dink_drops add column if not exists value bigint;
+-- Public URL of the Dink screenshot for this drop (uploaded to vs-bingo-proofs by the
+-- proxy when the client attached one). The consumer copies it into the credited
+-- submission's proof_urls so the drop image doubles as reviewable proof.
+alter table vs_dink_drops add column if not exists image_url text;
 
 alter table vs_bingo_completions add column if not exists source text;
 

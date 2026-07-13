@@ -297,8 +297,17 @@ curl -X POST https://<site>/api/dink/process \
 ```
 
 (or just load `/bingo/<slug>` — the board runs a throttled `processDinkDrops()`
-backstop on load.) The tile should now show an **approved** completion for the
-matched RSN and the leaderboard should update. Re-run → no double credit.
+backstop on load; `/events/personal-bingo` runs the same backstop for personal
+boards.) The tile should now show an **approved** completion for the matched RSN
+and the leaderboard should update. Re-run → no double credit.
+
+**Drop screenshots as proof.** When the Dink client attaches a screenshot to the
+notification (loot ≥ `lootImageMinValue`, default 3m, and all collection unlocks),
+the proxy uploads it to the `vs-bingo-proofs` bucket (`dink/<drop_key>.<ext>`) and
+stamps the public URL on the drop row (`vs_dink_drops.image_url`). The consumer
+copies that URL into the credited completion's `proof_urls`, so auto-credited tiles
+carry the actual drop image for review. Imageless drops credit with no proof, as
+before.
 
 ### C. End-to-end with real Dink (deployed)
 

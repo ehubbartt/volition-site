@@ -678,8 +678,13 @@ export async function lockPersonalBoard(userId: string): Promise<LockResult> {
 // Credit a personal-board tile from the Dink auto-tracker (COLLECTION unlock match). Idempotent;
 // the activation rule (drop.received_at >= locked_at) and locked-only gating are enforced by the
 // caller + the active-tiles view. `eventId` is the board's vs_events id, `idx` the tile position.
-export async function creditPersonalTile(eventId: string, idx: number, userId: string): Promise<'credited' | 'noop' | 'error'> {
-	return creditTile(eventId, userId, String(idx), 'dink');
+export async function creditPersonalTile(
+	eventId: string,
+	idx: number,
+	userId: string,
+	opts?: { proofUrls?: string[]; targetLabel?: string }
+): Promise<'credited' | 'noop' | 'error'> {
+	return creditTile(eventId, userId, String(idx), 'dink', opts);
 }
 
 export type RefreshResult =

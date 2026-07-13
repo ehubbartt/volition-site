@@ -30,6 +30,9 @@ interface DropRow {
 	quantity: number;
 	received_at: string;
 	notif_type: string;
+	// Dink screenshot for the drop (proxy-uploaded public URL) — becomes the credited
+	// submission's proof image so reviewers can eyeball the actual drop.
+	image_url?: string | null;
 }
 
 interface TrackedRow {
@@ -389,7 +392,7 @@ export async function processDinkDrops(
 
 	const { data: drops, error } = await sb
 		.from('vs_dink_drops')
-		.select('id, event_id, rsn, item_id, item_name, quantity, received_at, notif_type')
+		.select('id, event_id, rsn, item_id, item_name, quantity, received_at, notif_type, image_url')
 		.eq('processed', false)
 		.order('received_at', { ascending: true })
 		.limit(BATCH);
@@ -453,7 +456,11 @@ export async function processDinkDrops(
 		// A drop obtained BEFORE the board (tile) became active never credits it.
 		if (cand.activated_at && new Date(drop.received_at).getTime() < new Date(cand.activated_at).getTime())
 			return 'timing';
-		const res = await creditPersonalTile(cand.board_id as string, cand.board_idx as number, cand.user_id as string);
+		const res = await creditPersonalTile(cand.board_id as string, cand.board_idx as number, cand.user_id as string, {
+			// The Dink screenshot (when the client attached one) doubles as the proof image.
+			proofUrls: drop.image_url ? [drop.image_url] : undefined,
+			targetLabel: drop.item_name ?? undefined
+		});
 		if (res === 'error') return 'retry';
 		return res === 'credited' ? 'credited' : 'duplicate';
 	}
@@ -496,7 +503,8 @@ export async function processDinkDrops(
 		const { error: insErr } = await sb.from('vs_bingo_completions').insert({
 			event_id: eventId, user_id: userId, tile_id: tileId,
 			// Mirror the manual submit path's column set (legacy proof_url/proof_path may be NOT NULL).
-			proof_url: '', proof_path: '', proof_urls: [], proof_paths: [],
+			// The Dink screenshot (when attached) becomes the reviewable proof image.
+			proof_url: '', proof_path: '', proof_urls: drop.image_url ? [drop.image_url] : [], proof_paths: [],
 			status: 'approved', source: 'dink', submitted_at: now, reviewed_at: now, reviewed_by: null,
 			review_note: `Auto-tracked via Dink (${drop.item_name ?? drop.item_id ?? 'item'})`
 		});
