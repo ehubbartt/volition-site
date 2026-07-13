@@ -68,6 +68,7 @@ export async function loadCalendarItems(admin: boolean): Promise<CalendarItem[]>
 			.from('vs_events')
 			.select('id, slug, name, status, signup_opens_at, signup_closes_at, starts_at, ends_at')
 			.in('status', visibleStatuses)
+			.neq('slug', 'dink-self-test')
 	]);
 
 	const items: CalendarItem[] = [];

@@ -187,23 +187,32 @@ export function isValidRarity(value: unknown): value is CardRarity {
 	return typeof value === 'string' && value in RARITY_BY_KEY;
 }
 
-// "Rare" = dragon rarity and up (dragon, sr, and the elemental event tier) —
-// the threshold for the /gamba recent-rares feed. Compared by position in
-// RARITIES so reordering/adding tiers stays consistent.
+// "Rare" = dragon rarity and up — the threshold for the /gamba recent-rares feed
+// and the Discord drop announcements. Compared by position in RARITIES so
+// reordering/adding tiers stays consistent.
+//
+// The elemental tier is deliberately EXCLUDED even though it's the highest tier:
+// elemental cards only come from event-gift packs, not gamba pulls, so they don't
+// belong in the "rare drops" feed. Both the array and predicate below share this rule.
 export const RARE_MIN_RARITY: CardRarity = 'dragon';
 const RARE_MIN_INDEX = RARITIES.findIndex((r) => r.key === RARE_MIN_RARITY);
 
+// High tiers kept OUT of the rare-drops feed (event-only rarities, not gamba pulls).
+const NON_DROP_RARITIES: CardRarity[] = ['elemental'];
+
 export function isRareRarity(value: unknown): boolean {
 	if (typeof value !== 'string') return false;
+	if (NON_DROP_RARITIES.includes(value as CardRarity)) return false;
 	const i = RARITIES.findIndex((r) => r.key === value);
 	return i >= 0 && i >= RARE_MIN_INDEX;
 }
 
-// The rarity keys that count as "rare" (dragon+), for querying the rare-pull feed
-// (vs_pack_open_cards) with a simple `.in('rarity', RARE_RARITIES)`.
-export const RARE_RARITIES: CardRarity[] = RARITIES.filter((_, i) => i >= RARE_MIN_INDEX).map(
-	(r) => r.key
-);
+// The rarity keys that count as a "rare drop" (dragon+, excluding the elemental event
+// tier), for querying the rare-pull feed (vs_pack_open_cards) with a simple
+// `.in('rarity', RARE_RARITIES)`.
+export const RARE_RARITIES: CardRarity[] = RARITIES.filter(
+	(r, i) => i >= RARE_MIN_INDEX && !NON_DROP_RARITIES.includes(r.key)
+).map((r) => r.key);
 
 // Normalises a stored `vs_cards.layers` jsonb value (an array of {path, url, effect,
 // depth, inset}) to the client-safe CardLayer[] (url + optional effect/depth/inset),

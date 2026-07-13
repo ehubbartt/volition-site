@@ -1,0 +1,22 @@
+# Keep the Docker build context small: without this file, `COPY . .` uploads the
+# whole folder (node_modules, .git, build output…) to the builder every deploy —
+# ~180 MB, which is slow and times out on flaky connections.
+
+# Dependencies — the image reinstalls these with `npm ci`, so never upload them.
+node_modules
+
+# Git history & CI config — not needed to build or run the app.
+.git
+.gitignore
+.github
+
+# Generated during the image build — regenerated inside the container.
+build
+.svelte-kit
+
+# Editor / OS noise.
+.vscode
+.idea
+.DS_Store
+*.log
+npm-debug.log*

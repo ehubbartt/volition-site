@@ -11,6 +11,8 @@ import {
 	type UploadedLayer
 } from '$lib/server/cardArt';
 import { grantUserPack } from '$lib/server/gamba';
+import { getEventParticipantIds } from '$lib/server/eventParticipants';
+import { filterClanMembers } from '$lib/server/clan';
 import { isValidRarity, RARITIES, DEFAULT_RARITY, type CardAbility } from '$lib/cards/rarity';
 import { isLayerEffect, type LayerEffect } from '$lib/cards/layerEffects';
 import { MAX_CARD_LAYERS } from '$lib/cards/config';
@@ -26,7 +28,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (!isCardAdmin(locals.user)) throw error(403, 'Not allowed');
 	const canEdit = isCardTester(locals.user);
 
-	const [cardsRes, packsRes, membersRes] = await Promise.all([
+	const [cardsRes, packsRes, membersRes, eventsRes] = await Promise.all([
 		db()
 			.from('vs_cards')
 			.select(
@@ -36,7 +38,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		db()
 			.from('vs_card_packs')
 			.select(
-				'id, name, description, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, released, weekly_free, rarity_weights, slot_weights, slot_finishes, front_path, front_url, back_path, back_url, holo_regular_path, holo_regular_url, holo_reverse_path, holo_reverse_url, created_at'
+				'id, name, description, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, released, teaser, elemental, weekly_free, rarity_weights, slot_weights, slot_finishes, front_path, front_url, back_path, back_url, holo_regular_path, holo_regular_url, holo_reverse_path, holo_reverse_url, created_at'
 			)
 			.order('created_at', { ascending: false }),
 		// Grant tab: every member with a site profile (the only grantable targets —
@@ -45,7 +47,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// admin catalog of hundreds — well under the raised max_rows backstop — left as-is.)
 		fetchAllFiltered((f, t) =>
 			db().from('vs_users').select('id, rsn, discord_username').order('rsn', { ascending: true }).range(f, t)
-		)
+		),
+		// Grant tab: events (newest first) power the "event participants" target picker.
+		db().from('vs_events').select('id, name, slug, status').order('created_at', { ascending: false })
 	]);
 
 	if (cardsRes.error) throw error(500, cardsRes.error.message);
@@ -53,7 +57,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (membersRes.error) throw error(500, membersRes.error.message);
 
 	const members = (membersRes.data ?? []) as { id: string; rsn: string | null; discord_username: string | null }[];
-	return { cards: cardsRes.data ?? [], packs: packsRes.data ?? [], members, canEdit };
+	const events = (eventsRes.data ?? []) as { id: string; name: string; slug: string; status: string }[];
+	return { cards: cardsRes.data ?? [], packs: packsRes.data ?? [], members, events, canEdit };
 };
 
 /* ------------------------------- Cards ------------------------------- */
@@ -137,6 +142,40 @@ function parsePackGp(form: FormData): number | null {
 	if (!raw) return null;
 	const n = Math.floor(Number(raw));
 	return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+// A pack's release state is a single status picked in the editor's dropdown; it maps
+// to the two stored booleans. 'released' wins over teaser, so a live pack never also
+// carries the "coming soon" flag. Unknown / missing → draft (not released).
+function releaseFlagsFromStatus(status: string | null | undefined): { released: boolean; teaser: boolean } {
+	if (status === 'released') return { released: true, teaser: false };
+	if (status === 'coming_soon') return { released: false, teaser: true };
+	return { released: false, teaser: false };
+}
+
+// Add `qty` packs to each user's unopened inventory in one upsert. Reads current
+// quantities first so the upsert (which SETS quantity) ADDS to what each member already
+// holds rather than overwriting it. Shared by the "everyone" and "event participants"
+// grants. Paginates both reads/writes past the 1000-row cap.
+async function bulkGrantPacks(packId: string, userIds: string[], qty: number): Promise<{ error?: string }> {
+	if (userIds.length === 0) return {};
+
+	const { data: existing, error: eErr } = await fetchAllFiltered((f, t) =>
+		db().from('vs_user_packs').select('user_id, quantity').eq('pack_id', packId).range(f, t)
+	);
+	if (eErr) return { error: eErr.message };
+	const have = new Map<string, number>();
+	for (const r of (existing ?? []) as { user_id: string; quantity: number }[]) have.set(r.user_id, r.quantity ?? 0);
+
+	const now = new Date().toISOString();
+	const rows = userIds.map((id) => ({
+		user_id: id,
+		pack_id: packId,
+		quantity: (have.get(id) ?? 0) + qty,
+		updated_at: now
+	}));
+	const { error: upErr } = await db().from('vs_user_packs').upsert(rows, { onConflict: 'user_id,pack_id' });
+	return upErr ? { error: upErr.message } : {};
 }
 
 export const actions: Actions = {
@@ -534,8 +573,8 @@ export const actions: Actions = {
 				discount_pct: parsed.data.discount_pct,
 				discount_vp_pct: parsed.data.discount_vp_pct,
 				cards_per_pack: parsed.data.cards_per_pack,
-				released: form.get('released') === 'on',
-				teaser: form.get('teaser') === 'on'
+				...releaseFlagsFromStatus(form.get('release_status')?.toString()),
+				elemental: form.get('elemental') === 'on'
 			})
 			.select('id')
 			.single();
@@ -608,6 +647,8 @@ export const actions: Actions = {
 			discount_pct: parsed.data.discount_pct,
 			discount_vp_pct: parsed.data.discount_vp_pct,
 			cards_per_pack: parsed.data.cards_per_pack,
+			...releaseFlagsFromStatus(form.get('release_status')?.toString()),
+			elemental: form.get('elemental') === 'on',
 			slot_weights: slotWeights,
 			slot_finishes: slotFinishes,
 			updated_at: new Date().toISOString()
@@ -658,7 +699,9 @@ export const actions: Actions = {
 		return { ok: true };
 	},
 
-	toggleRelease: async ({ locals, request }) => {
+	// Set a pack's release state from the catalog dropdown: Not released (draft),
+	// Coming soon (locked teaser), or Released (live in the store).
+	setReleaseStatus: async ({ locals, request }) => {
 		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
 
 		const form = await request.formData();
@@ -667,7 +710,34 @@ export const actions: Actions = {
 
 		const { data: prev, error: readErr } = await db()
 			.from('vs_card_packs')
-			.select('released')
+			.select('id')
+			.eq('id', id)
+			.maybeSingle();
+		if (readErr) return fail(500, { error: readErr.message });
+		if (!prev) return fail(404, { error: 'Pack not found' });
+
+		const flags = releaseFlagsFromStatus(form.get('release_status')?.toString());
+		const { error: updErr } = await db()
+			.from('vs_card_packs')
+			.update({ ...flags, updated_at: new Date().toISOString() })
+			.eq('id', id);
+		if (updErr) return fail(500, { error: updErr.message });
+
+		return { ok: true };
+	},
+
+	// Flag (or unflag) a pack as "elemental" — an event gift that's never
+	// purchasable and only appears on the Gamba page for players who own one.
+	toggleElemental: async ({ locals, request }) => {
+		if (!locals.user || !isCardTester(locals.user)) throw error(403, 'Not allowed');
+
+		const form = await request.formData();
+		const id = form.get('id')?.toString();
+		if (!id) return fail(400, { error: 'Missing id' });
+
+		const { data: prev, error: readErr } = await db()
+			.from('vs_card_packs')
+			.select('elemental')
 			.eq('id', id)
 			.maybeSingle();
 		if (readErr) return fail(500, { error: readErr.message });
@@ -675,7 +745,7 @@ export const actions: Actions = {
 
 		const { error: updErr } = await db()
 			.from('vs_card_packs')
-			.update({ released: !prev.released, updated_at: new Date().toISOString() })
+			.update({ elemental: !prev.elemental, updated_at: new Date().toISOString() })
 			.eq('id', id);
 		if (updErr) return fail(500, { error: updErr.message });
 
@@ -753,7 +823,7 @@ export const actions: Actions = {
 
 		const form = await request.formData();
 		const packId = form.get('pack_id')?.toString();
-		const target = form.get('target')?.toString(); // 'one' | 'all'
+		const target = form.get('target')?.toString(); // 'one' | 'all' | 'event'
 		const userId = form.get('user_id')?.toString();
 		const qty = Math.floor(Number(form.get('quantity') ?? 1));
 
@@ -774,7 +844,7 @@ export const actions: Actions = {
 		const plural = qty === 1 ? 'pack' : 'packs';
 
 		// ── Award to ONE member ──────────────────────────────────────────────
-		if (target !== 'all') {
+		if (target === 'one') {
 			if (!userId) return fail(400, { error: 'Pick a member (or choose Everyone).' });
 			const { data: member, error: mErr } = await db()
 				.from('vs_users')
@@ -791,8 +861,66 @@ export const actions: Actions = {
 			return { ok: true, message: `Awarded ${qty} ${pack.name} ${plural} to ${who}.` };
 		}
 
+		// ── Award to EVENT PARTICIPANTS (clan members only) ──────────────────
+		// Anyone who completed ≥1 tile/task in the event (team completions credit the
+		// whole team). Only clan members actually receive a pack.
+		if (target === 'event') {
+			const eventId = form.get('event_id')?.toString();
+			if (!eventId) return fail(400, { error: 'Pick an event.' });
+			const { data: ev, error: evErr } = await db()
+				.from('vs_events')
+				.select('id, name')
+				.eq('id', eventId)
+				.maybeSingle();
+			if (evErr) return fail(500, { error: evErr.message });
+			if (!ev) return fail(404, { error: 'That event no longer exists.' });
+
+			const participantIds = await getEventParticipantIds(eventId);
+			if (participantIds.length === 0) {
+				return fail(400, { error: 'No one has completed a tile or task in that event yet.' });
+			}
+
+			// Keep only clan members: load the participants' identity keys, then filter.
+			const { data: pUsers, error: puErr } = await fetchAllFiltered((f, t) =>
+				db()
+					.from('vs_users')
+					.select('id, discord_id, discord_username, rsn')
+					.in('id', participantIds)
+					.order('id', { ascending: true })
+					.range(f, t)
+			);
+			if (puErr) return fail(500, { error: puErr.message });
+			const pRows = (pUsers ?? []) as {
+				id: string;
+				discord_id: string | null;
+				discord_username: string | null;
+				rsn: string | null;
+			}[];
+			const clan = await filterClanMembers(pRows);
+			const ids = participantIds.filter((id) => clan.has(id));
+			if (ids.length === 0) {
+				return fail(400, { error: 'None of that event’s participants are current clan members.' });
+			}
+
+			const res = await bulkGrantPacks(packId, ids, qty);
+			if (res.error) return fail(500, { error: res.error });
+
+			// List of who received a pack, for the admin's confirmation (rsn, else Discord name).
+			const labelById = new Map(pRows.map((u) => [u.id, u.rsn || u.discord_username || 'Unknown member']));
+			const recipients = ids
+				.map((id) => labelById.get(id) ?? 'Unknown member')
+				.sort((a, b) => a.localeCompare(b));
+
+			const who = ids.length === 1 ? 'clan participant' : 'clan participants';
+			return {
+				ok: true,
+				message: `Awarded ${qty} ${pack.name} ${plural} to ${ids.length} ${who} of ${ev.name}.`,
+				recipients
+			};
+		}
+
 		// ── Award to EVERYONE (all site members) ─────────────────────────────
-		// Paginate: both vs_users and (per-pack) vs_user_packs can exceed the 1000-row cap.
+		if (target !== 'all') return fail(400, { error: 'Pick who to award to.' });
 		const { data: users, error: uErr } = await fetchAllFiltered((f, t) =>
 			db().from('vs_users').select('id').range(f, t)
 		);
@@ -800,27 +928,8 @@ export const actions: Actions = {
 		const ids = (users ?? []).map((u) => (u as { id: string }).id);
 		if (ids.length === 0) return fail(400, { error: 'There are no site members to award to.' });
 
-		// Read existing quantities for this pack so the upsert (which SETS quantity)
-		// adds to what each member already has instead of overwriting it.
-		const { data: existing, error: eErr } = await fetchAllFiltered((f, t) =>
-			db().from('vs_user_packs').select('user_id, quantity').eq('pack_id', packId).range(f, t)
-		);
-		if (eErr) return fail(500, { error: eErr.message });
-		const have = new Map<string, number>();
-		for (const r of (existing ?? []) as { user_id: string; quantity: number }[])
-			have.set(r.user_id, r.quantity ?? 0);
-
-		const now = new Date().toISOString();
-		const rows = ids.map((id) => ({
-			user_id: id,
-			pack_id: packId,
-			quantity: (have.get(id) ?? 0) + qty,
-			updated_at: now
-		}));
-		const { error: upErr } = await db()
-			.from('vs_user_packs')
-			.upsert(rows, { onConflict: 'user_id,pack_id' });
-		if (upErr) return fail(500, { error: upErr.message });
+		const res = await bulkGrantPacks(packId, ids, qty);
+		if (res.error) return fail(500, { error: res.error });
 
 		return { ok: true, message: `Awarded ${qty} ${pack.name} ${plural} to all ${ids.length} members.` };
 	}

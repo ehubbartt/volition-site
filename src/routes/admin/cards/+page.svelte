@@ -111,7 +111,7 @@
 	let packSearch = $state('');
 
 	// ── Grant tab ─────────────────────────────────────────────────────────
-	let grantTarget = $state<'one' | 'all'>('one');
+	let grantTarget = $state<'one' | 'all' | 'event'>('one');
 	let granting = $state(false);
 
 	function memberLabel(m: PageData['members'][number]): string {
@@ -120,10 +120,17 @@
 
 	// Confirm before a mass grant; keep the form's typed values after submit.
 	const onGrantSubmit: SubmitFunction = ({ formData, cancel }) => {
-		if (formData.get('target') === 'all') {
-			const qty = formData.get('quantity') ?? '1';
-			const packName = data.packs.find((p) => p.id === formData.get('pack_id'))?.name ?? 'this pack';
+		const target = formData.get('target');
+		const qty = formData.get('quantity') ?? '1';
+		const packName = data.packs.find((p) => p.id === formData.get('pack_id'))?.name ?? 'this pack';
+		if (target === 'all') {
 			if (!confirm(`Give ${qty} × ${packName} to all ${data.members.length} members?`)) {
+				cancel();
+				return;
+			}
+		} else if (target === 'event') {
+			const ev = data.events.find((e) => e.id === formData.get('event_id'));
+			if (!confirm(`Give ${qty} × ${packName} to every clan member who participated in ${ev?.name ?? 'this event'}?`)) {
 				cancel();
 				return;
 			}
@@ -137,6 +144,10 @@
 
 	// Only the grantPacks action returns a `message` (success toast for the Grant tab).
 	let grantMsg = $derived(form && 'message' in form ? (form as { message?: string }).message : null);
+	// The event-participants grant also returns the recipient names (rsn/Discord).
+	let grantRecipients = $derived(
+		form && 'recipients' in form ? ((form as { recipients?: string[] }).recipients ?? []) : []
+	);
 
 	// Edit forms: keep the typed values after a successful save. SvelteKit's default
 	// enhance resets the form on success, but Svelte sets the input `value` property
@@ -772,13 +783,17 @@
 				<input name="cards_per_pack" type="number" min="1" max="50" value="5" />
 			</label>
 		</div>
-		<label class="check">
-			<input type="checkbox" name="released" />
-			<span>Released (visible to players in the Gamba store)</span>
+		<label>
+			<span>Release status</span>
+			<select name="release_status">
+				<option value="draft">Not released (draft — hidden from the store)</option>
+				<option value="coming_soon">Coming soon (locked “coming soon” card — name + art only, can't be opened)</option>
+				<option value="released">Released (live and openable in the Gamba store)</option>
+			</select>
 		</label>
 		<label class="check">
-			<input type="checkbox" name="teaser" />
-			<span>Teaser (show in the store as a locked “coming soon” card — name + art only, can't be opened; ignored once released)</span>
+			<input type="checkbox" name="elemental" />
+			<span>Elemental (event gift — never purchasable with VP or wallet; only shows in the store for players who own one. Award via the Grant tab.)</span>
 		</label>
 		<div class="row">
 			<label>
@@ -810,6 +825,7 @@
 <!-- ── Pack edit form (drawer) ── -->
 {#snippet packEditForm(raw: RawPack)}
 	{@const pack = toPack(raw)}
+	{@const releaseStatus = raw.released ? 'released' : raw.teaser ? 'coming_soon' : 'draft'}
 	<form method="POST" action="?/updatePack" enctype="multipart/form-data" use:enhance={keepValues} class="edit-form">
 		<input type="hidden" name="id" value={pack.id} />
 		<fieldset class="form-ro" disabled={!canEdit}>
@@ -843,6 +859,19 @@
 				<input name="cards_per_pack" type="number" min="1" max="50" bind:value={slotCount[pack.id]} />
 			</label>
 		</div>
+
+		<label>
+			<span>Release status</span>
+			<select name="release_status">
+				<option value="draft" selected={releaseStatus === 'draft'}>Not released (draft — hidden from the store)</option>
+				<option value="coming_soon" selected={releaseStatus === 'coming_soon'}>Coming soon (locked “coming soon” card — name + art only, can't be opened)</option>
+				<option value="released" selected={releaseStatus === 'released'}>Released (live and openable in the Gamba store)</option>
+			</select>
+		</label>
+		<label class="check">
+			<input type="checkbox" name="elemental" checked={raw.elemental} />
+			<span>Elemental (event gift — never purchasable with VP or wallet; only shows in the store for players who own one. Award via the Grant tab.)</span>
+		</label>
 
 		<fieldset class="rates">
 			<legend>
@@ -951,18 +980,34 @@
 			<span class="tile-badges">
 				<span class="badge" class:live={raw.released}>{raw.released ? 'Released' : 'Draft'}</span>
 				{#if raw.weekly_free}<span class="badge weekly">Weekly</span>{/if}
+				{#if raw.teaser}<span class="badge teaser">Coming soon</span>{/if}
+				{#if raw.elemental}<span class="badge elemental">Elemental</span>{/if}
 			</span>
 			<span class="muted small">{pack.cost_vp.toLocaleString()} VP{#if raw.cost_gp} · {formatGP(raw.cost_gp)} GP{/if}{#if raw.discount_vp_pct} · {raw.discount_vp_pct}% off VP{/if}{#if raw.discount_pct} · {raw.discount_pct}% off GP{/if} · {raw.cards_per_pack}/open · {n} card{n === 1 ? '' : 's'}</span>
 		</button>
 		{#if canEdit}
 			<div class="pack-actions">
-				<form method="POST" action="?/toggleRelease" use:enhance>
+				<form method="POST" action="?/setReleaseStatus" use:enhance>
 					<input type="hidden" name="id" value={pack.id} />
-					<button type="submit" class="mini">{raw.released ? 'Unrelease' : 'Release'}</button>
+					<select
+						name="release_status"
+						class="status-select"
+						title="Release status"
+						value={raw.released ? 'released' : raw.teaser ? 'coming_soon' : 'draft'}
+						onchange={(e) => e.currentTarget.form?.requestSubmit()}
+					>
+						<option value="draft">Not released</option>
+						<option value="coming_soon">Coming soon</option>
+						<option value="released">Released</option>
+					</select>
 				</form>
 				<form method="POST" action="?/toggleWeeklyFree" use:enhance>
 					<input type="hidden" name="id" value={pack.id} />
 					<button type="submit" class="mini" title="Free pack everyone can claim once a week">{raw.weekly_free ? 'Unset weekly' : 'Set weekly'}</button>
+				</form>
+				<form method="POST" action="?/toggleElemental" use:enhance>
+					<input type="hidden" name="id" value={pack.id} />
+					<button type="submit" class="mini" title="Event gift — never purchasable; only shows for owners">{raw.elemental ? 'Unset elemental' : 'Make elemental'}</button>
 				</form>
 				<form method="POST" action="?/deletePack" use:enhance>
 					<input type="hidden" name="id" value={pack.id} />
@@ -984,7 +1029,19 @@
 		<div class="error">{form.error}</div>
 	{/if}
 	{#if grantMsg}
-		<div class="ok">{grantMsg}</div>
+		<div class="ok">
+			{grantMsg}
+			{#if grantRecipients.length > 0}
+				<details class="recipients">
+					<summary>Show {grantRecipients.length} recipient{grantRecipients.length === 1 ? '' : 's'}</summary>
+					<ul>
+						{#each grantRecipients as name (name)}
+							<li>{name}</li>
+						{/each}
+					</ul>
+				</details>
+			{/if}
+		</div>
 	{/if}
 
 	{#if tab === 'cards'}
@@ -1086,6 +1143,10 @@
 					<input type="radio" name="target" value="all" bind:group={grantTarget} />
 					<span>Everyone ({data.members.length} members)</span>
 				</label>
+				<label class="radio">
+					<input type="radio" name="target" value="event" bind:group={grantTarget} />
+					<span>Event participants (clan members who completed ≥1 tile/task)</span>
+				</label>
 			</fieldset>
 
 			{#if grantTarget === 'one'}
@@ -1098,6 +1159,20 @@
 						{/each}
 					</select>
 				</label>
+			{:else if grantTarget === 'event'}
+				<label>
+					<span>Event</span>
+					<select name="event_id" required>
+						<option value="" disabled selected>Pick an event…</option>
+						{#each data.events as e (e.id)}
+							<option value={e.id}>{e.name}{e.status && e.status !== 'closed' ? ` · ${e.status}` : ''}</option>
+						{/each}
+					</select>
+				</label>
+				<p class="muted small">
+					Grants to every <strong>clan member</strong> who completed at least one tile or task.
+					Team completions credit the whole team. Non-clan participants are skipped.
+				</p>
 			{/if}
 
 			<label>
@@ -1187,6 +1262,28 @@
 		padding: 0.6rem 0.8rem;
 		border-radius: 4px;
 		margin-bottom: 1rem;
+	}
+
+	.ok .recipients {
+		margin-top: 0.4rem;
+	}
+
+	.ok .recipients summary {
+		cursor: pointer;
+		color: var(--muted);
+		font-size: 0.85rem;
+	}
+
+	.ok .recipients ul {
+		margin: 0.4rem 0 0;
+		padding-left: 1.2rem;
+		max-height: 12rem;
+		overflow-y: auto;
+		columns: 2;
+	}
+
+	.ok .recipients li {
+		font-size: 0.85rem;
 	}
 
 	/* View-only (non-card-tester admin) banner on the Cards/Packs tabs. */
@@ -1450,6 +1547,24 @@
 		background: var(--danger-bg);
 	}
 
+	/* Release-status dropdown in the pack list — styled to match the mini buttons. */
+	.status-select {
+		width: 100%;
+		padding: 0.3rem 0.4rem;
+		font-size: 0.78rem;
+		min-height: 0;
+		border: 1px solid var(--border);
+		color: var(--muted);
+		background: var(--surface-alt);
+		border-radius: var(--radius, 6px);
+		cursor: pointer;
+	}
+
+	.status-select:hover {
+		border-color: var(--accent);
+		color: var(--text);
+	}
+
 	.badge {
 		padding: 0.05rem 0.5rem;
 		border-radius: 3px;
@@ -1472,6 +1587,18 @@
 		border-color: var(--accent);
 		color: var(--accent);
 		background: var(--accent-soft);
+	}
+
+	.badge.teaser {
+		border-color: #c79a3a;
+		color: #e0b34d;
+		background: rgba(199, 154, 58, 0.15);
+	}
+
+	.badge.elemental {
+		border-color: #6f7bff;
+		color: #9aa6ff;
+		background: rgba(111, 123, 255, 0.15);
 	}
 
 	/* ── Slide-out edit drawer ── */
