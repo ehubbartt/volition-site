@@ -2,11 +2,17 @@
 	import { invalidateAll } from '$app/navigation';
 	import { enhance } from '$app/forms';
 	import { onMount } from 'svelte';
+	import BingoTile from '$lib/BingoTile.svelte';
+	import { itemImageUrl } from '$lib/wikiImage';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	const working = $derived(data.drops.length > 0);
+	// The test tile completes on a Bones drop — the one item every combat kill can supply.
+	const bonesDone = $derived(
+		data.drops.some((d) => d.item_id === 526 || d.item_name?.toLowerCase() === 'bones')
+	);
 
 	// After a rotate the action returns the fresh URL; otherwise use the loaded one.
 	const configUrl = $derived(form?.configUrl ?? data.configUrl);
@@ -85,18 +91,40 @@
 		{#if form?.error}<p class="warn">{form.error}</p>{/if}
 	</div>
 
-	<div class="status" class:good={working} class:wait={!working}>
-		{#if working}
-			<div class="status-icon">✓</div>
+	<div class="status" class:good={bonesDone} class:wait={!bonesDone}>
+		<div class="quest-tile">
+			<BingoTile
+				image={itemImageUrl('Bones')}
+				imageAlt="Bones"
+				name="Bones"
+				sub="any monster drops them"
+				obtained={bonesDone}
+				highlighted={bonesDone}
+				title={bonesDone ? 'Tile complete!' : 'Kill anything that drops Bones'}
+			/>
+		</div>
+		{#if bonesDone}
 			<div>
-				<h2>Dink is working!</h2>
-				<p>We received {data.drops.length} drop{data.drops.length === 1 ? '' : 's'} from your account in the last {data.windowMinutes} minutes.</p>
+				<h2>✓ Tile complete — Dink is working!</h2>
+				<p>
+					Your Bones made it all the way to the tracker. During events, your drops will credit
+					your tiles exactly like this — no screenshots needed.
+				</p>
 			</div>
 		{:else}
-			<div class="status-icon">…</div>
 			<div>
-				<h2>Waiting for a drop</h2>
-				<p>No drops received yet. Follow the steps below — this page refreshes itself every few seconds{#if refreshing} <span class="dot">●</span>{/if}.</p>
+				<h2>Complete this tile</h2>
+				<p>
+					Kill <strong>anything that drops Bones</strong> — a chicken, cow, or goblin works.
+					When the drop lands, the tile checks off like a real bingo tile. This page watches
+					for it automatically{#if refreshing} <span class="dot">●</span>{/if}.
+				</p>
+				{#if working}
+					<p class="muted small">
+						We're already receiving your drops ({data.drops.length} in the last
+						{data.windowMinutes} min) — grab those Bones to finish the tile.
+					</p>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -111,23 +139,17 @@
 				the config itself.
 			</li>
 			<li>
-				Log in to OSRS on <strong>{data.rsn}</strong> and get any easy drop —
+				Log in to OSRS on <strong>{data.rsn}</strong>, then complete the tile above: kill
+				anything that drops <strong>Bones</strong>.
 				{#if data.selfTestReady}
-					<strong>Bones</strong>, <strong>Cowhide</strong>, <strong>Feathers</strong> or a
-					<strong>Raw chicken</strong> all count. Go kill a few chickens or cows. No setup
-					needed — opening this page enrolled you in the self-test automatically (give it a
+					No signup needed — opening this page armed the test for your account (give it a
 					minute to reach your Dink).
 				{:else}
-					kill something that's part of an active event's tracked items.
+					<span class="warn-inline">⚠ The self-test isn't enabled right now — ask an admin.</span>
 				{/if}
 			</li>
-			<li>Leave this page open — when the drop arrives it appears below within ~10 seconds.</li>
+			<li>Leave this page open — the tile ticks within ~10 seconds of the drop.</li>
 		</ol>
-		{#if !data.selfTestReady}
-			<p class="muted small">
-				⚠ The self-test event isn't open right now. Ask an admin to enable it, or test during a live event.
-			</p>
-		{/if}
 	</div>
 
 	<div class="card">
@@ -156,7 +178,7 @@
 	.muted { color: var(--muted); }
 	.small { font-size: 0.85rem; }
 	.status {
-		display: flex; align-items: center; gap: 1rem;
+		display: flex; align-items: center; gap: 1.2rem; flex-wrap: wrap;
 		padding: 1.1rem 1.2rem; margin: 1.1rem 0;
 		background-color: var(--stone-fill);
 		background-image: var(--stone-tile);
@@ -171,10 +193,11 @@
 	.status h2 { margin: 0 0 0.2rem; font-size: 1.1rem; }
 	.status.good h2 { color: var(--success); }
 	.status.wait h2 { color: var(--yellow); }
-	.status p { margin: 0; }
-	.status-icon { font-size: 2rem; line-height: 1; }
-	.status.good .status-icon { color: var(--success); }
-	.status.wait .status-icon { color: var(--yellow); }
+	.status p { margin: 0 0 0.35rem; }
+	.status p:last-child { margin-bottom: 0; }
+	/* The single quest tile: give the grid-item tile a fixed footprint. */
+	.quest-tile { flex-shrink: 0; width: 8.5rem; display: grid; }
+	.warn-inline { color: var(--yellow); }
 	.dot { color: var(--success); animation: pulse 1s infinite; }
 	@keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 	.card {
