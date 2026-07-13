@@ -176,7 +176,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			'id, slug, name, kind, description, status, signup_opens_at, signup_closes_at, starts_at, ends_at'
 		)
 		.in('status', visibleStatuses)
-		.neq('slug', 'weekly-tasks'); // internal task container, not a real event
+		.neq('slug', 'weekly-tasks') // internal task container, not a real event
+		.neq('slug', 'dink-self-test'); // permanent Dink connection-test event, not a real event
 
 	if (error) throw new Error(error.message);
 

@@ -66,7 +66,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 		const [calendar, playersRes, eventsRes] = await Promise.all([
 			loadCalendarItems(false),
 			sb.from('players').select('id', { count: 'exact', head: true }),
-			sb.from('vs_events').select('status, ends_at').in('status', ['open', 'locked', 'closed'])
+			sb.from('vs_events').select('status, ends_at').neq('slug', 'dink-self-test').in('status', ['open', 'locked', 'closed'])
 		]);
 		const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
 		return {
@@ -94,7 +94,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 			sb.from('players').select('id, rsn, discord_id, rank, points, clan_joined_at, created_at').range(f, t)
 		),
 		fetchAllFiltered((f, t) => sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null).range(f, t)),
-		sb.from('vs_events').select('status, ends_at').in('status', ['draft', 'preview', 'open', 'locked', 'closed']),
+		sb.from('vs_events').select('status, ends_at').neq('slug', 'dink-self-test').in('status', ['draft', 'preview', 'open', 'locked', 'closed']),
 		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true }),
 		// To-do surface is open to all onboarded users — always aggregate it.
 		loadPlayerTasks(user)
