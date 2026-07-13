@@ -41,17 +41,17 @@ const personalSlug = (userId: string) => `personal-${userId}`;
 
 // ── VP rewards ────────────────────────────────────────────────────────────────
 // Completing a full row/column/diagonal pays LINE VP; completing every tile pays the
-// BLACKOUT bonus on top. Both scale with the board's difficulty (1-10) and size (a
-// 7×7 line is longer and a 7×7 blackout far bigger than a 3×3). Tune the formulas
-// here — for calibration, event podium awards are 50/30/20 VP.
-//   line(size, diff)     = (3 + diff)      × size/5   → 5×5 mid-difficulty ≈ 8 VP
-//   blackout(size, diff) = (15 + 5×diff)   × size/5   → 5×5 mid-difficulty ≈ 40 VP
+// BLACKOUT bonus on top. Both scale with the board's difficulty (1-10) — with a
+// quadratic term so the hard end pays disproportionately more — and with size (a 7×7
+// line is longer and a 7×7 blackout far bigger than a 3×3). Tune the formulas here.
+//   line(size, diff)     = (5 + 2·diff + 0.3·diff²) × size/5   → 5×5: 7 @d1, 23 @d5, 55 @d10
+//   blackout(size, diff) = (30 + 10·diff + 2·diff²) × size/5   → 5×5: 42 @d1, 130 @d5, 330 @d10
 export function personalVpAmounts(size: number, difficulty: number): { line: number; blackout: number } {
 	const s = Math.max(1, size) / 5;
 	const d = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, difficulty));
 	return {
-		line: Math.max(1, Math.round((3 + d) * s)),
-		blackout: Math.max(1, Math.round((15 + 5 * d) * s))
+		line: Math.max(1, Math.round((5 + 2 * d + 0.3 * d * d) * s)),
+		blackout: Math.max(1, Math.round((30 + 10 * d + 2 * d * d) * s))
 	};
 }
 
@@ -764,12 +764,17 @@ export async function loadPersonalBoard(userId: string): Promise<PersonalBoard |
 }
 
 // ── VP settlement ──────────────────────────────────────────────────────────────
-// Awarded state lives on the board's vs_events row: structure.vp = { lines, blackout,
-// total, v }. Settling compares the CURRENTLY completed lines/blackout against that
-// state and pays only the difference, so it's safe to run on every board view
-// (poll-on-read, like the drop consumer). `v` is a version counter used as a
-// compare-and-swap guard: the structure update only applies if v is unchanged, so two
-// concurrent settles can't both pay the same line. Test boards never pay.
+// Awarded state IS the ledger: every paid line/blackout is a vs_submissions row with
+// target_id 'vp:<lineKey>' (or 'vp:blackout'), source 'vp', and the VP amount granted
+// in `quantity` — auditable in the DB, and wiped with the board on a reroll like every
+// other board row. Settling compares the CURRENTLY completed lines/blackout against
+// those rows and pays only the difference, so it's safe to run on every board view
+// (poll-on-read, like the drop consumer). An in-process per-user guard stops two
+// concurrent views double-paying (single adapter-node process, owner-only trigger).
+// Test boards never pay.
+
+const VP_KEY_PREFIX = 'vp:';
+const vpSettleInflight = new Set<string>();
 
 export interface PersonalVpState {
 	line: number; // VP per completed row/column/diagonal on this board
@@ -784,48 +789,70 @@ export async function settlePersonalVp(
 ): Promise<PersonalVpState> {
 	const amounts = personalVpAmounts(board.size, board.difficulty);
 	const sb = db();
-	const { data } = await sb.from('vs_events').select('structure').eq('id', board.id).maybeSingle();
-	const structure = ((data as { structure?: Record<string, unknown> } | null)?.structure ?? {}) as Record<string, unknown>;
+
+	const [{ data: evRow }, { data: vpRows, error: readErr }] = await Promise.all([
+		sb.from('vs_events').select('structure').eq('id', board.id).maybeSingle(),
+		sb
+			.from('vs_submissions')
+			.select('target_id, quantity')
+			.eq('event_id', board.id)
+			.eq('user_id', user.id)
+			.eq('source', 'vp')
+			.eq('status', 'approved')
+	]);
+	const structure = ((evRow as { structure?: Record<string, unknown> } | null)?.structure ?? {}) as Record<string, unknown>;
 	const isTest = structure.test === true;
-	const vp = (structure.vp ?? {}) as { lines?: string[]; blackout?: boolean; total?: number; v?: number };
-	const awardedLines = new Set(vp.lines ?? []);
-	const earned = Number(vp.total ?? 0);
+	const paid = (vpRows ?? []) as { target_id: string; quantity: number }[];
+	const awarded = new Set(paid.map((r) => r.target_id));
+	const earned = paid.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
 	const base = { line: amounts.line, blackout: amounts.blackout, test: isTest };
 
+	if (readErr) {
+		console.error('[personalBoard] vp ledger read failed', board.id, readErr.message);
+		return { ...base, earned };
+	}
 	if (!board.locked_at || isTest) return { ...base, earned };
 
 	const obtained = new Set(board.tiles.filter((t) => t.obtained).map((t) => t.idx));
-	const lines = completedLineKeys(board.size, obtained);
-	const newLines = lines.filter((k) => !awardedLines.has(k));
-	const blackoutNow = obtained.size >= board.size * board.size;
-	const newBlackout = blackoutNow && vp.blackout !== true;
-	const delta = newLines.length * amounts.line + (newBlackout ? amounts.blackout : 0);
-	if (delta <= 0) return { ...base, earned };
-
-	const oldV = Number(vp.v ?? 0);
-	const nextStructure = {
-		...structure,
-		vp: {
-			lines: [...awardedLines, ...newLines],
-			blackout: vp.blackout === true || blackoutNow,
-			total: earned + delta,
-			v: oldV + 1
-		}
-	};
-	let q = sb.from('vs_events').update({ structure: nextStructure }).eq('id', board.id);
-	// CAS: only apply if the version we read is still current (missing vp counts as v0).
-	q = vp.v == null
-		? q.or('structure->vp.is.null,structure->vp->>v.is.null')
-		: q.eq('structure->vp->>v', String(oldV));
-	const { data: updated, error } = await q.select('id');
-	if (error || !updated || updated.length === 0) {
-		// Lost the race (or write failed) — the winning settle pays; report what we read.
-		if (error) console.error('[personalBoard] vp settle update failed', board.id, error.message);
-		return { ...base, earned };
+	const wanted: { key: string; vp: number; label: string }[] = completedLineKeys(board.size, obtained)
+		.map((k) => ({ key: VP_KEY_PREFIX + k, vp: amounts.line, label: `Bingo line ${k}` }))
+		.filter((w) => !awarded.has(w.key));
+	if (obtained.size >= board.size * board.size && !awarded.has(`${VP_KEY_PREFIX}blackout`)) {
+		wanted.push({ key: `${VP_KEY_PREFIX}blackout`, vp: amounts.blackout, label: 'Bingo blackout' });
 	}
+	if (wanted.length === 0) return { ...base, earned };
 
-	await grantPlayerVp(user.discord_id, user.rsn, delta);
-	return { ...base, earned: earned + delta };
+	// Re-entrancy guard: a second view racing this one reports the pre-settle total and
+	// pays nothing; the next view shows the settled number.
+	if (vpSettleInflight.has(user.id)) return { ...base, earned };
+	vpSettleInflight.add(user.id);
+	try {
+		const now = new Date().toISOString();
+		const { error: insErr } = await sb.from('vs_submissions').insert(
+			wanted.map((w) => ({
+				event_id: board.id,
+				user_id: user.id,
+				target_id: w.key,
+				target_label: w.label,
+				quantity: w.vp,
+				status: 'approved',
+				source: 'vp',
+				test: false,
+				proof_urls: [],
+				submitted_at: now,
+				reviewed_at: now
+			}))
+		);
+		if (insErr) {
+			console.error('[personalBoard] vp award insert failed', board.id, insErr.message);
+			return { ...base, earned };
+		}
+		const delta = wanted.reduce((sum, w) => sum + w.vp, 0);
+		await grantPlayerVp(user.discord_id, user.rsn, delta);
+		return { ...base, earned: earned + delta };
+	} finally {
+		vpSettleInflight.delete(user.id);
+	}
 }
 
 // Lock a draft board in: starts tracking + the LOCK_DAYS commitment. Idempotent.

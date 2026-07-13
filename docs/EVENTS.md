@@ -46,11 +46,13 @@ Manual → `pending` (reviewed) or `approved` (self-serve). Auto-track → `appr
 derived from this ledger; there is no per-tile `obtained` flag to keep in sync.**
 
 **Personal-board VP.** Completed rows/columns/diagonals and a blackout pay VP, scaled by the
-board's size + difficulty (`personalVpAmounts` in `personalBoard.ts`). Settlement is
-poll-on-read (`settlePersonalVp`, run on every board view): awarded state lives in the event
-row's `structure.vp = { lines, blackout, total, v }` with `v` as a compare-and-swap version so
-concurrent views can't double-pay; the grant goes through `grantPlayerVp` (players.points).
-Admin test boards carry `structure.test = true` and never pay.
+board's size + difficulty with a quadratic hard-end bump (`personalVpAmounts` in
+`personalBoard.ts`). Settlement is poll-on-read (`settlePersonalVp`, run on every board view):
+each paid line/blackout is itself a `vs_submissions` row — `target_id 'vp:<lineKey>'`, source
+`'vp'`, the granted amount in `quantity` — so the awarded set and the earned total are read
+straight from the ledger, and a reroll wipes them with the board. An in-process per-user guard
+prevents concurrent views double-paying; the grant goes through `grantPlayerVp`
+(players.points). Admin test boards carry `structure.test = true` and never pay.
 
 ### `vs_active_tiles` — the view (only interface the trackers read)
 One row per **(participant × not-yet-complete tile × trigger)**, expanding each tile's `triggers`
