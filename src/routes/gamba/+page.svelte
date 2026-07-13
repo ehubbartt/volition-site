@@ -1683,11 +1683,12 @@
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   }
 
-  /* Elemental "event gift" packs — top-left chip marking a non-purchasable pack
-     that only shows because the player was awarded it. */
+  /* Elemental "event gift" packs — chip marking a non-purchasable pack that only
+     shows because the player was awarded it. Sits BELOW the "N per open" tag
+     (both are top-left; same coords stacked them on top of each other). */
   .gift-tag {
     position: absolute;
-    top: 0.5rem;
+    top: 2.15rem;
     left: 0.5rem;
     z-index: 2;
     padding: 0.1rem 0.5rem;

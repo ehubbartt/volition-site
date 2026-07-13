@@ -169,11 +169,15 @@
 		<h1>Personal Bingo</h1>
 		<p class="muted">
 			Generate a personal PVM bingo board from collection-log items you don't have yet —
-			balanced by EHB so every board runs from quick tiles to grindy ones. Reroll it as much as
-			you like, then <strong>lock it in</strong> to start tracking; a locked board is yours for
-			{data.lockDays} days. Tiles tick off automatically from your collection log and Dink drops
-			— set up <a href="/temple-guide">Temple</a> and <a href="/dink-check">Dink</a> once and
-			you're covered.
+			balanced so every board runs from quick tiles to grindy ones. Reroll it as much as you
+			like, then <strong>lock it in</strong>; a locked board is yours for {data.lockDays} days.
+		</p>
+		<p class="muted">
+			<strong>Everything tracks automatically.</strong> With
+			<a href="/temple-guide">Temple</a> and <a href="/dink-check">Dink</a> linked (one-time,
+			~2 minutes each), item drops, XP gains and combat achievements tick off on their own —
+			no screenshots, no forms. Manual submission exists only as a backup if a tracker misses
+			something.
 		</p>
 	</header>
 
@@ -634,7 +638,7 @@
 		margin: 0 0 0.3rem;
 	}
 	.head p {
-		max-width: 60ch;
+		margin: 0 0 0.5rem;
 	}
 	.muted {
 		color: var(--muted);
