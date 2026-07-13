@@ -142,8 +142,9 @@
 				Log in to OSRS on <strong>{data.rsn}</strong>, then complete the tile above: kill
 				anything that drops <strong>Bones</strong>.
 				{#if data.selfTestReady}
-					No signup needed — opening this page armed the test for your account (give it a
-					minute to reach your Dink).
+					No signup needed — opening this page armed the test for your account. If you set
+					your config URL up a while ago, restart RuneLite once so Dink re-imports the item
+					list (it refreshes on startup and every few hours).
 				{:else}
 					<span class="warn-inline">⚠ The self-test isn't enabled right now — ask an admin.</span>
 				{/if}
