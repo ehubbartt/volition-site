@@ -67,21 +67,33 @@
 	function tileName(t: Tile): string {
 		return t.kind === 'skill' ? `Gain ${formatXp(t.target_xp ?? 0)}` : (t.item_name ?? '');
 	}
+	// TEMPORARY: shipping without per-tile EHB/EHP numbers (sub-line + hover) — flip to
+	// re-enable. The tile-detail modal keeps its EHB row either way.
+	const SHOW_TILE_EHB = false;
+
 	function tileSub(t: Tile): string {
 		if (t.pending && !t.obtained) return 'Pending review';
 		if (t.rejected && !t.obtained) return 'Rejected — resubmit?';
 		if (t.kind === 'skill') {
 			return locked && !t.obtained && t.progress_xp != null
 				? `${formatXp(t.progress_xp)} / ${formatXp(t.target_xp ?? 0)}`
-				: formatEhb(t.ehb);
+				: SHOW_TILE_EHB
+					? formatEhb(t.ehb)
+					: '';
 		}
 		if (t.kind === 'ca') return `${caTierLabel(t.ca_tier)} CA`;
-		return formatEhb(t.ehb);
+		return SHOW_TILE_EHB ? formatEhb(t.ehb) : '';
 	}
 	function tileTitle(t: Tile): string {
-		if (t.kind === 'skill') return `${t.skill}: gain ${formatXp(t.target_xp ?? 0)} (~${formatEhb(t.ehb)} EHP)`;
+		if (t.kind === 'skill') {
+			return SHOW_TILE_EHB
+				? `${t.skill}: gain ${formatXp(t.target_xp ?? 0)} (~${formatEhb(t.ehb)} EHP)`
+				: `${t.skill}: gain ${formatXp(t.target_xp ?? 0)}`;
+		}
 		if (t.kind === 'ca') return `Combat achievement (${caTierLabel(t.ca_tier)}): ${t.item_name}`;
-		return `${t.item_name} · ${formatEhb(t.ehb)} at ${t.source}`;
+		return SHOW_TILE_EHB
+			? `${t.item_name} · ${formatEhb(t.ehb)} at ${t.source}`
+			: `${t.item_name} · ${t.source}`;
 	}
 
 	// Tile-detail modal: shown for tiles with nothing to submit (obtained/pending/draft).
@@ -482,7 +494,7 @@
 			{/each}
 		</div>
 		<p class="muted small foot">
-				EHB/EHP = efficient hours to obtain a drop / train a skill.
+				{#if SHOW_TILE_EHB}EHB/EHP = efficient hours to obtain a drop / train a skill.{/if}
 				{#if locked}
 					Item tiles auto-complete from your collection log + Dink; skill tiles track XP gained since you locked in (WiseOldMan); combat-achievement tiles complete when you finish the CA (WikiSync) — hit <em>Check progress</em> to refresh.
 					<strong>Skilling XP only updates after you log out of OSRS</strong> — the hiscores (which WiseOldMan reads) refresh on logout, so log out before checking.
