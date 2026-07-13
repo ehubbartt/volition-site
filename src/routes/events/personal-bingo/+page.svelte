@@ -159,7 +159,9 @@
 			Generate a personal PVM bingo board from collection-log items you don't have yet —
 			balanced by EHB so every board runs from quick tiles to grindy ones. Reroll it as much as
 			you like, then <strong>lock it in</strong> to start tracking; a locked board is yours for
-			{data.lockDays} days. Tiles tick off automatically from your collection log and Dink drops.
+			{data.lockDays} days. Tiles tick off automatically from your collection log and Dink drops
+			— set up <a href="/temple-guide">Temple</a> and <a href="/dink-check">Dink</a> once and
+			you're covered.
 		</p>
 	</header>
 
@@ -177,7 +179,8 @@
 	{#if !data.rsn}
 		<div class="panel notice">
 			<p>Set your <strong>OSRS RSN</strong> on your <a href="/me">profile</a> first — we read your
-				collection log from TempleOSRS to know which items you're missing.</p>
+				collection log from TempleOSRS to know which items you're missing. New to Temple? Follow
+				the <a href="/temple-guide">Temple setup guide</a> (2 minutes).</p>
 		</div>
 	{/if}
 
