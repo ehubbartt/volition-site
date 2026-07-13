@@ -1,5 +1,5 @@
 import { selectAll } from '$lib/server/db';
-import { RARITIES, isValidRarity, DEFAULT_RARITY } from '$lib/cards/rarity';
+import { RARITIES, isValidRarity, DEFAULT_RARITY, type CardRarity } from '$lib/cards/rarity';
 
 // Card-tester-gated player stats, built from the vs_pack_opens history log plus
 // current inventory (vs_user_cards / vs_user_packs). Aggregation happens in JS —
@@ -136,7 +136,7 @@ export async function buildPackStats() {
 	const finishPulls = { normal: 0, holo: 0, reverse: 0 };
 	const cardPulls = new Map<
 		string,
-		{ name: string; rarity: string; total: number; normal: number; holo: number; reverse: number }
+		{ name: string; rarity: CardRarity; total: number; normal: number; holo: number; reverse: number }
 	>();
 	for (const c of openCards) {
 		const r = isValidRarity(c.rarity) ? c.rarity : DEFAULT_RARITY;
