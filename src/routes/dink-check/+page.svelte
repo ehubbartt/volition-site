@@ -301,8 +301,8 @@
 		</div>
 
 		<p class="muted small event-note">
-			<strong>Before every event:</strong> toggle Dink off &amp; on once the event opens — the same
-			Success message confirms that event's items were added to your list.
+			That's it — you never need to touch Dink again. Event items are matched on our side, so
+			when you join an event your drops start counting automatically.
 		</p>
 
 		<div class="card">
