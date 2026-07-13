@@ -10,6 +10,7 @@ import {
 import type { SessionUser } from './auth';
 import itemEhbData from './data/itemEhb.json';
 import type { ItemEhb } from '$lib/ehb';
+import { maybeProcessDinkDrops } from './dinkDrops';
 
 // Builds the personal-bingo page dataset for /api/personal-board. The page has NO
 // server load — its universal load fires the fetch without awaiting, so navigating
@@ -19,6 +20,12 @@ import type { ItemEhb } from '$lib/ehb';
 const ITEM_BY_ID = new Map((itemEhbData as ItemEhb[]).map((i) => [i.id, i]));
 
 export async function buildPersonalBoardData(user: SessionUser) {
+	// Poll-on-read backstop (same as the event bingo board): drain any recorded Dink
+	// drops so tiles credited since the last visit show up on this load. Fire-and-forget
+	// + throttled inside; without this, personal-board credits waited for someone to
+	// open an event board or the cron endpoint.
+	maybeProcessDinkDrops();
+
 	const board = await loadPersonalBoard(user.id);
 
 	// Per-item-tile drop rate (raw "1/N" string) for the tile-detail modal, keyed by tile idx.
