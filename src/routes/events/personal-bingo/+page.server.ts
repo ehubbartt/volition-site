@@ -50,8 +50,10 @@ export const actions: Actions = {
 		const pets = form.get('pets') === 'on' || form.get('pets') === 'true';
 		// Skilling sub-option: skip skills the player has already 99'd.
 		const skip99 = form.get('skip99') === 'on' || form.get('skip99') === 'true';
+		// Allow items already in the collection log (they become drop-again loot tiles).
+		const owned = form.get('owned') === 'on' || form.get('owned') === 'true';
 
-		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty, skilling, ca, pets, skip99);
+		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty, skilling, ca, pets, skip99, owned);
 
 		if (!result.ok) {
 			const msg =

@@ -40,6 +40,7 @@
 				toggled = true;
 				skilling = p.board.tiles.some((t) => t.kind === 'skill');
 				ca = p.board.tiles.some((t) => t.kind === 'ca');
+				includeOwned = p.board.tiles.some((t) => t.kind === 'item' && t.match_type === 'loot');
 			}
 		}
 	});
@@ -101,6 +102,7 @@
 	let ca = $state(false);
 	let pets = $state(true); // pets are included by default; unchecking filters pet drops out
 	let skip99 = $state(false); // skilling sub-option: skip skills already at level 99
+	let includeOwned = $state(false); // allow already-owned clog items (as drop-again loot tiles)
 	let generating = $state(false);
 	let refreshing = $state(false);
 	let locking = $state(false);
@@ -271,6 +273,16 @@
 						<input type="checkbox" name="pets" bind:checked={pets} />
 						<span>Include pets</span>
 					</label>
+					<label class="toggle">
+						<input type="checkbox" name="owned" bind:checked={includeOwned} />
+						<span>Include items I already own</span>
+					</label>
+					{#if includeOwned}
+						<p class="muted small">
+							Owned items must <strong>drop again</strong> while your board is locked (tracked
+							by Dink) — your existing collection log won't tick them.
+						</p>
+					{/if}
 				</div>
 			</div>
 

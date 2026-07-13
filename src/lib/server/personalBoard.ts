@@ -60,6 +60,9 @@ export interface PersonalBoardTile {
 	progress_xp: number | null; // skill tiles: last gained-since-lock (display)
 	ca_id: number | null; // ca tiles: WikiSync CA task id
 	ca_tier: string | null; // ca tiles: 'easy'..'grandmaster'
+	// Item tiles: how they auto-complete. 'collection' (default) = clog unlock;
+	// 'loot' = the drop must land while locked (already-owned items, test boards).
+	match_type: 'loot' | 'collection';
 	manual: boolean; // owner-attested via a manual submission (vs auto-tracked)
 	proof_urls: string[] | null; // manual-submission proof screenshots
 	obtained: boolean;
@@ -235,6 +238,7 @@ function rowToTile(
 		progress_xp: num(meta.progress),
 		ca_id: num(meta.ca_id),
 		ca_tier: (meta.ca_tier as string) ?? null,
+		match_type: meta.match_type === 'loot' ? 'loot' : 'collection',
 		manual: comp?.source === 'manual',
 		proof_urls: comp?.proof_urls ?? null,
 		obtained: !!comp,
@@ -356,19 +360,32 @@ interface Candidate {
 	item_name: string;
 	ehb: number;
 	source: string;
+	// Already in the player's collection log. Owned picks become LOOT-matched tiles
+	// (the drop must land again while the board is locked) — a new clog unlock can
+	// never fire for something you already have.
+	owned?: boolean;
 }
 
-// All PVM clog items the player is MISSING, each costed at its cheapest EHB source
-// (with admin overrides applied), sorted easy→hard. Pet drops excluded unless includePets.
-function missingCandidates(owned: Set<string>, overrides?: EhbOverrides, includePets = true, excludedIds?: Set<number>): Candidate[] {
+// Board-eligible PVM clog items, each costed at its cheapest EHB source (with admin
+// overrides applied), sorted easy→hard. Items the player already OWNS are skipped
+// unless includeOwned — then they stay in the pool, flagged. Pet drops excluded
+// unless includePets.
+function missingCandidates(
+	owned: Set<string>,
+	overrides?: EhbOverrides,
+	includePets = true,
+	excludedIds?: Set<number>,
+	includeOwned = false
+): Candidate[] {
 	const out: Candidate[] = [];
 	for (const item of ITEM_EHB) {
-		if (owned.has(item.name.toLowerCase())) continue; // already have it
+		const has = owned.has(item.name.toLowerCase());
+		if (has && !includeOwned) continue; // already have it
 		if (!includePets && isPetItem(item.name)) continue; // pets filtered out
 		if (excludedIds?.has(item.id)) continue; // admin-excluded from the pool
 		const best = bestEhbSource(item, undefined, overrides);
 		if (!best) continue; // no computable EHB source
-		out.push({ item_id: item.id, item_name: item.name, ehb: best.ehb, source: best.src.s });
+		out.push({ item_id: item.id, item_name: item.name, ehb: best.ehb, source: best.src.s, owned: has });
 	}
 	out.sort((a, b) => a.ehb - b.ehb);
 	return out;
@@ -494,7 +511,8 @@ export async function generatePersonalBoard(
 	includeSkilling = false,
 	includeCA = false,
 	includePets = true,
-	excludeMaxedSkills = false
+	excludeMaxedSkills = false,
+	includeOwned = false
 ): Promise<GenerateResult> {
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
 
@@ -537,7 +555,7 @@ export async function generatePersonalBoard(
 
 	const overrides = await getEhbOverrides();
 	const excludedIds = await getExcludedItemIds();
-	const pool = missingCandidates(owned, overrides, includePets, excludedIds);
+	const pool = missingCandidates(owned, overrides, includePets, excludedIds, includeOwned);
 	if (pool.length < itemCount) {
 		return { ok: false, reason: 'too_few', missing: pool.length, need: itemCount };
 	}
@@ -545,7 +563,9 @@ export async function generatePersonalBoard(
 	const items = selectGradient(pool, itemCount, diff);
 
 	const placed: Placed[] = [
-		...items.map((c) => ({ kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null })),
+		// Owned picks are LOOT-matched (drop must land again, credited via Dink);
+		// missing picks stay collection-matched (clog unlock).
+		...items.map((c) => ({ kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null, ...(c.owned ? { match_type: 'loot' as const } : {}) })),
 		...skills.map((s) => ({ kind: 'skill' as const, item_id: null, item_name: null, ehb: s.ehb, source: null, skill: s.skill, target_xp: s.target_xp, ca_id: null, ca_tier: null })),
 		...caPicks.map((c) => ({ kind: 'ca' as const, item_id: null, item_name: c.name, ehb: c.ehb, source: c.monster, skill: null, target_xp: null, ca_id: c.ca_id, ca_tier: c.tier }))
 	];
@@ -754,8 +774,12 @@ export async function refreshPersonalBoard(userId: string): Promise<RefreshResul
 	const eventId = board.id;
 	const newlyObtained: string[] = [];
 
-	// Item tiles: re-poll the collection log.
-	const itemTiles = board.tiles.filter((t) => !t.obtained && t.kind === 'item' && t.item_name);
+	// Item tiles: re-poll the collection log. LOOT-matched tiles (already-owned items,
+	// test boards) are skipped — owning the clog slot is exactly what they don't prove;
+	// they only complete when the drop lands (Dink) or via manual submission.
+	const itemTiles = board.tiles.filter(
+		(t) => !t.obtained && t.kind === 'item' && t.item_name && t.match_type !== 'loot'
+	);
 	if (itemTiles.length) {
 		const owned = await getOwnedClogNames(userId, board.rsn, true); // force a fresh Temple read
 		if (owned == null) return { ok: false, reason: 'clog_unavailable' };
