@@ -387,6 +387,12 @@
 					highlighted={lines.cells.has(tile.idx)}
 					title={tileTitle(tile)}
 					onselect={() => (modalTile = tile)}
+					ontileclick={() => {
+						// Whole tile → submit (with details); icon → details only. Obtained or
+						// draft tiles have nothing to submit, so fall back to the detail modal.
+						if (locked && !tile.obtained) submitTarget = tile;
+						else modalTile = tile;
+					}}
 				/>
 			{/each}
 		</div>
@@ -403,6 +409,44 @@
 	{/if}
 </section>
 
+<!-- Tile details (dl + wiki links) — rendered in BOTH the detail modal (icon click) and
+     inside the submission modal (whole-tile click), so the info is never a click away. -->
+{#snippet tileInfo(t: Tile)}
+	{#if t.kind === 'item'}
+		<dl class="modal-dl">
+			<div><dt>Boss</dt><dd>{t.source ?? '—'}</dd></div>
+			<div><dt>Drop rate</dt><dd>{data.dropRates[t.idx] ?? '—'}</dd></div>
+			<div><dt>EHB</dt><dd>{formatEhb(t.ehb)}</dd></div>
+		</dl>
+		<div class="modal-links">
+			{#if t.source}<a href={wikiPageUrl(t.source)} target="_blank" rel="noreferrer noopener">{t.source} wiki ↗</a>{/if}
+			{#if t.item_name}<a href={wikiPageUrl(t.item_name)} target="_blank" rel="noreferrer noopener">{t.item_name} wiki ↗</a>{/if}
+		</div>
+	{:else if t.kind === 'skill'}
+		<dl class="modal-dl">
+			<div><dt>Skill</dt><dd>{t.skill}</dd></div>
+			<div><dt>Goal</dt><dd>Gain {formatXp(t.target_xp ?? 0)}</dd></div>
+			<div><dt>≈ EHP</dt><dd>{formatEhb(t.ehb)}</dd></div>
+			{#if locked && t.progress_xp != null}
+				<div><dt>Progress</dt><dd>{formatXp(t.progress_xp)} / {formatXp(t.target_xp ?? 0)}</dd></div>
+			{/if}
+		</dl>
+		<div class="modal-links">
+			{#if t.skill}<a href={wikiPageUrl(t.skill)} target="_blank" rel="noreferrer noopener">{t.skill} wiki ↗</a>{/if}
+		</div>
+	{:else}
+		<dl class="modal-dl">
+			<div><dt>Combat achievement</dt><dd>{t.item_name}</dd></div>
+			<div><dt>Tier</dt><dd>{caTierLabel(t.ca_tier)}</dd></div>
+			{#if t.source}<div><dt>Boss</dt><dd>{t.source}</dd></div>{/if}
+		</dl>
+		<div class="modal-links">
+			{#if t.source}<a href={wikiPageUrl(t.source)} target="_blank" rel="noreferrer noopener">{t.source} wiki ↗</a>{/if}
+			<a href="https://oldschool.runescape.wiki/w/Combat_Achievements" target="_blank" rel="noreferrer noopener">Combat Achievements wiki ↗</a>
+		</div>
+	{/if}
+{/snippet}
+
 <!-- Tile-detail modal (opens on clicking a tile's icon disc). -->
 {#if modalTile}
 	{@const t = modalTile}
@@ -414,39 +458,7 @@
 				<h3>{modalHeading}</h3>
 			</div>
 
-			{#if t.kind === 'item'}
-				<dl class="modal-dl">
-					<div><dt>Boss</dt><dd>{t.source ?? '—'}</dd></div>
-					<div><dt>Drop rate</dt><dd>{data.dropRates[t.idx] ?? '—'}</dd></div>
-					<div><dt>EHB</dt><dd>{formatEhb(t.ehb)}</dd></div>
-				</dl>
-				<div class="modal-links">
-					{#if t.source}<a href={wikiPageUrl(t.source)} target="_blank" rel="noreferrer noopener">{t.source} wiki ↗</a>{/if}
-					{#if t.item_name}<a href={wikiPageUrl(t.item_name)} target="_blank" rel="noreferrer noopener">{t.item_name} wiki ↗</a>{/if}
-				</div>
-			{:else if t.kind === 'skill'}
-				<dl class="modal-dl">
-					<div><dt>Skill</dt><dd>{t.skill}</dd></div>
-					<div><dt>Goal</dt><dd>Gain {formatXp(t.target_xp ?? 0)}</dd></div>
-					<div><dt>≈ EHP</dt><dd>{formatEhb(t.ehb)}</dd></div>
-					{#if locked && t.progress_xp != null}
-						<div><dt>Progress</dt><dd>{formatXp(t.progress_xp)} / {formatXp(t.target_xp ?? 0)}</dd></div>
-					{/if}
-				</dl>
-				<div class="modal-links">
-					{#if t.skill}<a href={wikiPageUrl(t.skill)} target="_blank" rel="noreferrer noopener">{t.skill} wiki ↗</a>{/if}
-				</div>
-			{:else}
-				<dl class="modal-dl">
-					<div><dt>Combat achievement</dt><dd>{t.item_name}</dd></div>
-					<div><dt>Tier</dt><dd>{caTierLabel(t.ca_tier)}</dd></div>
-					{#if t.source}<div><dt>Boss</dt><dd>{t.source}</dd></div>{/if}
-				</dl>
-				<div class="modal-links">
-					{#if t.source}<a href={wikiPageUrl(t.source)} target="_blank" rel="noreferrer noopener">{t.source} wiki ↗</a>{/if}
-					<a href="https://oldschool.runescape.wiki/w/Combat_Achievements" target="_blank" rel="noreferrer noopener">Combat Achievements wiki ↗</a>
-				</div>
-			{/if}
+			{@render tileInfo(t)}
 
 			{#if t.obtained}
 				<p class="modal-done">✓ Completed{#if t.manual} · submitted manually{/if}</p>
@@ -466,15 +478,18 @@
 	</div>
 {/if}
 
-<!-- Manual tile submission (reusable component). -->
+<!-- Manual tile submission (reusable component), with the tile's details inline. -->
 {#if submitTarget}
+	{@const st = submitTarget}
 	<TileSubmitModal
-		tile={{ id: submitTarget.idx, name: tileHeading(submitTarget), img: tileImage(submitTarget) }}
+		tile={{ id: st.idx, name: tileHeading(st), img: tileImage(st) }}
 		submitUrl="?/submitTile"
 		note="Add a screenshot as proof (optional), then submit to mark this tile complete."
 		submitLabel="Mark done"
 		onclose={() => (submitTarget = null)}
-	/>
+	>
+		{@render tileInfo(st)}
+	</TileSubmitModal>
 {/if}
 
 <style>

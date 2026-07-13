@@ -16,7 +16,8 @@
 		highlighted = false,
 		title = '',
 		imageSize = 42,
-		onselect
+		onselect,
+		ontileclick
 	}: {
 		image?: string | null;
 		imageAlt?: string;
@@ -28,12 +29,42 @@
 		imageSize?: number;
 		/** When provided, the icon disc becomes a button that calls this on click. */
 		onselect?: () => void;
+		/** When provided, the WHOLE tile is clickable (icon clicks still fire onselect only). */
+		ontileclick?: () => void;
 	} = $props();
 </script>
 
-<div class="tile" class:obtained class:highlighted {title}>
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -- tabindex and role="button" are set
+     together (only when ontileclick makes the tile interactive); the analyzer can't see
+     the conditions match. -->
+<div
+	class="tile"
+	class:obtained
+	class:highlighted
+	class:clickable={!!ontileclick}
+	{title}
+	role={ontileclick ? 'button' : undefined}
+	tabindex={ontileclick ? 0 : undefined}
+	onclick={ontileclick}
+	onkeydown={ontileclick
+		? (e) => {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					ontileclick();
+				}
+			}
+		: undefined}
+>
 	{#if onselect}
-		<button type="button" class="icon" onclick={onselect} aria-label={`${name} — details`}>
+		<button
+			type="button"
+			class="icon"
+			onclick={(e) => {
+				e.stopPropagation();
+				onselect();
+			}}
+			aria-label={`${name} — details`}
+		>
 			{#if image}
 				<WikiImage src={image} alt={imageAlt} size={imageSize} />
 			{/if}
@@ -104,6 +135,18 @@
 	/* The icon settles back once done — the medallion carries the signal. */
 	.tile.obtained .icon {
 		filter: saturate(0.6) brightness(0.88);
+	}
+	/* Whole-tile click affordance (ontileclick). */
+	.tile.clickable {
+		cursor: pointer;
+		transition: filter 0.1s ease;
+	}
+	.tile.clickable:hover {
+		filter: brightness(1.07);
+	}
+	.tile.clickable:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
 	}
 	.tile.highlighted {
 		box-shadow: 0 0 0 2px var(--accent), 0 0 14px -2px var(--accent);

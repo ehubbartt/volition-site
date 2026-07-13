@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import ImageDropper from '$lib/ImageDropper.svelte';
+	import type { Snippet } from 'svelte';
 
 	// Reusable "submit a tile" modal: an optional proof-image dropper + a submit button that
 	// POSTs (multipart) to `submitUrl` with `tile_id` and the `proof` files. Generic so it works
 	// for personal-bingo tiles and other board/event submissions. The caller owns the form
-	// action and closes the modal via `onclose` (called after a successful submit).
+	// action and closes the modal via `onclose` (called after a successful submit). Content
+	// placed inside the component (children) renders between the header and the form — the
+	// personal board uses it to show the tile's details alongside the submit controls.
 	interface Props {
 		tile: { id: string | number; name: string; img?: string | null };
 		submitUrl: string; // form action, e.g. "?/submitTile"
@@ -13,8 +16,9 @@
 		note?: string; // optional helper line under the header
 		requireImage?: boolean; // if true, at least one image is needed to submit
 		submitLabel?: string; // verb on the button (default "Submit")
+		children?: Snippet; // optional extra content (e.g. tile details) above the form
 	}
-	let { tile, submitUrl, onclose, note = '', requireImage = false, submitLabel = 'Submit' }: Props = $props();
+	let { tile, submitUrl, onclose, note = '', requireImage = false, submitLabel = 'Submit', children }: Props = $props();
 
 	let stagedCount = $state(0);
 	let resetKey = $state(0);
@@ -41,6 +45,8 @@
 			{/if}
 			<h2>{tile.name}</h2>
 		</header>
+
+		{#if children}{@render children()}{/if}
 
 		{#if note}<p class="note">{note}</p>{/if}
 
