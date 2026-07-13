@@ -27,6 +27,17 @@
 	--danger: #ff0000;
 	--danger-bg: #3a2420;
 
+	/* Heading colour — separate from --accent so a theme can give headings their own
+	   hue (e.g. gold headings over purple furniture) without recolouring links/buttons. */
+	--heading: var(--accent);
+
+	/* Page background layers (see body below) — themable as tokens. */
+	--bg-solid: #0d0a06;
+	--bg-bloom: rgba(255, 152, 31, 0.1);
+	--bg-pool: rgba(77, 67, 54, 0.4);
+	--bg-top: #15110b;
+	--bg-bottom: #0b0805;
+
 	--font-body: 'rssmall', ui-sans-serif, Arial, sans-serif;
 	--font-heading: 'rsbold', ui-sans-serif, Arial, sans-serif;
 	--ts: 1px 1px #000;
@@ -73,26 +84,18 @@ body {
 }
 
 body {
-	background-color: #0a0805;
+	background-color: var(--bg-solid);
 	background-image:
-		radial-gradient(ellipse 70% 45% at 50% -10%, rgba(255, 152, 31, 0.08) 0%, transparent 65%),
-		radial-gradient(ellipse 55% 40% at 50% 110%, rgba(77, 67, 54, 0.35) 0%, transparent 65%),
-		repeating-linear-gradient(
-			45deg,
-			rgba(255, 152, 31, 0.018) 0,
-			rgba(255, 152, 31, 0.018) 1px,
-			transparent 1px,
-			transparent 4px
-		),
-		repeating-linear-gradient(
-			-45deg,
-			rgba(0, 0, 0, 0.25) 0,
-			rgba(0, 0, 0, 0.25) 1px,
-			transparent 1px,
-			transparent 4px
-		);
-	background-attachment: fixed;
-	background-size: cover;
+		/* warm light bloom top, stone pool bottom */
+		radial-gradient(ellipse 70% 45% at 50% -10%, var(--bg-bloom) 0%, transparent 65%),
+		radial-gradient(ellipse 60% 45% at 50% 110%, var(--bg-pool) 0%, transparent 65%),
+		/* tiled OSRS stone floor */
+		url('/osrs/tile-dark.png'),
+		/* dark stone base */
+		linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+	background-repeat: no-repeat, no-repeat, repeat, no-repeat;
+	background-attachment: fixed, fixed, fixed, fixed;
+	background-size: cover, cover, auto, cover;
 }
 
 body::before {
@@ -101,17 +104,17 @@ body::before {
 	inset: 0;
 	background-image: url('/logo.png');
 	background-repeat: no-repeat;
-	background-position: center 60%;
-	background-size: min(80vmin, 720px);
-	opacity: 0.04;
+	background-position: center 42%;
+	background-size: min(92vmin, 900px);
+	background-attachment: fixed;
+	opacity: 0.1;
 	pointer-events: none;
-	z-index: 0;
-	filter: grayscale(0.3);
-}
-
-body > * {
-	position: relative;
-	z-index: 1;
+	/* Sit behind page content. app.html wraps the app in a `display: contents`
+	   div, which generates no box — so a positive z-index on `body > *` is
+	   ignored and the content can't be lifted above this overlay. A negative
+	   z-index here is what reliably keeps the crest a background watermark
+	   instead of a translucent film painted over every element. */
+	z-index: -1;
 }
 
 a {
@@ -128,7 +131,7 @@ h1,
 h2,
 h3 {
 	font-family: var(--font-heading);
-	color: var(--accent);
+	color: var(--heading);
 	font-weight: normal;
 	letter-spacing: 1px;
 	text-shadow: var(--ts-strong);
@@ -198,25 +201,30 @@ textarea:focus {
 }
 
 button {
-	background: var(--surface);
-	border: 1px solid var(--border-strong);
+	/* OSRS-style button: a bronze beveled frame (border-image) over a tan fill. */
+	background: #4d4336;
+	border: 9px solid transparent;
+	border-image: url('/osrs/button.png') 9 / 9px stretch;
+	border-radius: 5px;
 	color: var(--accent);
 	font-weight: normal;
 	cursor: pointer;
+	padding: 2px 14px;
+	min-height: 38px;
 }
 
 button:hover {
-	background: var(--border);
-	border-color: var(--accent);
+	background: #423726;
 }
 
 button:focus-visible {
 	outline: none;
-	box-shadow: 0 0 0 3px rgba(255, 152, 31, 0.3);
+	box-shadow: 0 0 0 3px rgba(255, 152, 31, 0.45);
 }
 
 button:active {
 	transform: translateY(1px);
+	background: #2f281c;
 }
 
 button:disabled {
@@ -241,10 +249,358 @@ select option {
 	color: var(--accent);
 }
 
+/* Dropdowns wear the same bronze OSRS frame as buttons, with a custom orange
+   chevron (the native arrow is hidden via appearance: none) so they read as
+   part of the interface instead of a plain browser control. */
+select {
+	-webkit-appearance: none;
+	-moz-appearance: none;
+	appearance: none;
+	background-color: #4d4336;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23ff981f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 11px center;
+	background-size: 11px;
+	border: 9px solid transparent;
+	border-image: url('/osrs/button.png') 9 / 9px stretch;
+	border-radius: 5px;
+	padding: 2px 30px 2px 12px;
+	min-height: 38px;
+	cursor: pointer;
+}
+
+select:hover {
+	background-color: #423726;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Engraved value counter — a recessed stone readout for the "headline" numbers
+   (VP balance, wallet value/GP). Reads like an in-game stat panel: dark stone
+   pressed into the interface with a thin gold frame and an inner shadow. Pair
+   the .amount with an osrsTier() class (.t-k/.t-m/.t-b) for the classic OSRS
+   value colours.
+   ────────────────────────────────────────────────────────────────────────── */
+.osrs-counter {
+	display: inline-flex;
+	flex-direction: column;
+	gap: 1px;
+	padding: 0.5rem 1rem;
+	background-color: #221b11;
+	background-image: var(--stone-tile);
+	background-repeat: repeat;
+	background-blend-mode: multiply;
+	border: 4px solid transparent;
+	border-image: url('/osrs/border-tiny.png') 4 / 4px round;
+	border-radius: 4px;
+	box-shadow:
+		inset 0 2px 7px rgba(0, 0, 0, 0.75),
+		inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+	text-shadow: 2px 2px #000;
+}
+
+.osrs-counter .amount {
+	font-family: var(--font-heading);
+	font-size: 1.5rem;
+	line-height: 1;
+	color: var(--yellow);
+}
+
+.osrs-counter .label {
+	font-size: 0.7rem;
+	letter-spacing: 1px;
+	text-transform: uppercase;
+	color: #c9b48a;
+}
+
+/* OSRS stacked-value colour scale (see osrsTier in lib/gp.ts). */
+.t-k {
+	color: #ffec3d;
+}
+.t-m {
+	color: #ffffff;
+}
+.t-b {
+	color: #46e44b;
+}
+
 /* Numeric / value highlight */
 strong,
 .value {
 	color: var(--yellow);
 	font-family: var(--font-heading);
 	text-shadow: var(--ts);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   OSRS interface layer
+   In-game framing: the gold border + bronze button + brown stone tiles in
+   static/osrs/ are the Old School RuneScape interface sprites, applied with CSS
+   `border-image` the way the game client / RuneLite frame their interfaces. The
+   .osrs-* classes are the building blocks; base button/input pick the look up
+   automatically so the whole site reads OSRS without per-page rewrites.
+   ────────────────────────────────────────────────────────────────────────── */
+
+:root {
+	--frame: #0c0904;
+	--gold-line: rgba(150, 124, 80, 0.5);
+	--gold-bright: #d9b65e;
+	--gold-mid: #9c7e3c;
+	--gold-deep: #5f4a22;
+
+	/* Classic warm stone interior fill that lives inside the bordered panels. */
+	--stone-tile: url('/osrs/tile.png');
+	--stone-fill: #4d4030;
+	/* How the stone texture combines with --stone-fill. Themes set `luminosity` so the
+	   tile keeps its grain while taking the theme's hue from the fill colour. */
+	--stone-blend: normal;
+}
+
+/* Raised chiseled panel — the core OSRS interface box: the in-game gold
+   double-line border (rendered at native size so it stays crisp) framing a
+   tiled brown-stone interior. `round` tiles the edge art to any panel size. */
+.osrs-panel {
+	position: relative;
+	background-color: var(--stone-fill);
+	background-image: var(--stone-tile);
+	background-repeat: repeat;
+	background-blend-mode: var(--stone-blend);
+	border: 4px solid transparent;
+	border-image: url('/osrs/border-tiny.png') 4 / 4px round;
+	border-radius: 4px;
+	padding: 0.9rem 1.05rem;
+}
+
+/* Inset/recessed well — thin in-game border for sub-cards and list bodies. */
+.osrs-inset {
+	background-color: #2c2418;
+	background-image: var(--stone-tile);
+	background-repeat: repeat;
+	background-blend-mode: multiply;
+	border: 4px solid transparent;
+	border-image: url('/osrs/border-tiny.png') 4 / 4px round;
+}
+
+/* Title bar — centered orange heading with an in-game gold divider beneath. */
+.osrs-titlebar {
+	margin: 0 0 0.7rem;
+	font-family: var(--font-heading);
+	font-size: 1.25rem;
+	font-weight: normal;
+	letter-spacing: 1px;
+	color: var(--heading);
+	text-align: center;
+	text-shadow: var(--ts-strong);
+	padding: 0 0 0.5rem;
+	border-bottom: 2px solid rgba(0, 0, 0, 0.55);
+	box-shadow: 0 2px 0 rgba(217, 182, 94, 0.22);
+}
+
+/* Decorative chiseled groove — drop in as an in-game divider line. */
+.osrs-groove {
+	height: 4px;
+	border-radius: 2px;
+	background: linear-gradient(180deg, #1a140d, #4a3d2b);
+	box-shadow:
+		inset 0 1px 0 rgba(0, 0, 0, 0.6),
+		inset 0 -1px 0 rgba(255, 224, 168, 0.12);
+}
+
+/* Tab strip — brown tabs with a raised active state. */
+.osrs-tabs {
+	display: flex;
+	gap: 4px;
+}
+
+.osrs-tabs > * {
+	flex: 1;
+	font-family: var(--font-body);
+	color: var(--accent);
+	text-shadow: var(--ts);
+	text-align: center;
+	padding: 0.45rem 0.75rem;
+	background: linear-gradient(180deg, #34291c, #251d12);
+	border: 1px solid var(--frame);
+	border-bottom: none;
+	border-radius: 5px 5px 0 0;
+	cursor: pointer;
+}
+
+.osrs-tabs > .active,
+.osrs-tabs > [aria-selected='true'] {
+	background: linear-gradient(180deg, #4a3d2b, #332817);
+	box-shadow: inset 0 1px 0 rgba(255, 224, 168, 0.16);
+	color: var(--yellow);
+}
+
+/* Stat tile — number-forward card for dashboards. */
+.osrs-stat {
+	text-align: center;
+	padding: 0.25rem 0;
+}
+
+.osrs-stat .osrs-stat-value {
+	display: block;
+	font-family: var(--font-heading);
+	font-size: 1.9rem;
+	line-height: 1;
+	color: var(--yellow);
+	text-shadow: var(--ts-strong);
+}
+
+.osrs-stat .osrs-stat-label {
+	display: block;
+	margin-top: 0.35rem;
+	font-size: 0.8rem;
+	letter-spacing: 0.5px;
+	color: rgba(255, 255, 255, 0.6);
+	text-transform: uppercase;
+}
+
+/* Tables styled like the in-game lists (zebra rows, gold header). */
+.osrs-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.95rem;
+}
+
+.osrs-table thead th {
+	font-family: var(--font-heading);
+	font-weight: normal;
+	color: var(--accent);
+	text-align: left;
+	text-shadow: var(--ts);
+	padding: 0.5rem 0.75rem;
+	border-bottom: 2px solid var(--frame);
+}
+
+.osrs-table tbody td {
+	padding: 0.5rem 0.75rem;
+	border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+}
+
+.osrs-table tbody tr:nth-child(odd) {
+	background: rgba(255, 255, 255, 0.035);
+}
+
+.osrs-table tbody tr:hover {
+	background: rgba(255, 152, 31, 0.1);
+}
+
+/* Pill badge in the OSRS palette. */
+.osrs-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.3rem;
+	padding: 0.15rem 0.55rem;
+	font-size: 0.8rem;
+	color: var(--yellow);
+	background: rgba(0, 0, 0, 0.3);
+	border: 1px solid var(--gold-line);
+	border-radius: 3px;
+	text-shadow: var(--ts);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Site-wide rollout
+   Project the OSRS panel look onto the container classes existing pages
+   already use (.card / .panel / .stat) so the whole site picks up the
+   framed-stone treatment without per-page rewrites. Scoped to in-page content;
+   the framing properties use !important to win over Svelte's component-scoped
+   rules. Page-specific accents (e.g. a "done"/highlight tint) can still layer
+   on top via their own modifier classes where needed.
+   ────────────────────────────────────────────────────────────────────────── */
+.page :is(.card, .panel, .stat) {
+	background-color: var(--stone-fill) !important;
+	background-image: var(--stone-tile) !important;
+	background-repeat: repeat !important;
+	background-blend-mode: var(--stone-blend) !important;
+	border: 4px solid transparent !important;
+	border-image: url('/osrs/border-tiny.png') 4 / 4px round !important;
+	border-radius: 4px !important;
+	box-shadow: none !important;
+}
+
+/* Avoid doubled gold frames when a themed card sits inside an .osrs-panel. */
+.osrs-panel .osrs-panel,
+.osrs-panel :is(.card, .panel, .stat) {
+	box-shadow: none !important;
+}
+
+/* Responsive grid for StatCard tiles (replaces the ~8 bespoke stat grids). */
+.stat-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+	gap: 0.75rem;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Shared progress bar — a recessed track with a gold fill, used for task
+   progress, leaderboard meters, the rank composite, admin histograms, etc.
+   Replaces the per-page .bar-track/.bar-fill copies. Set the fill width inline
+   (style="width:42%"); add .full / a custom colour where a page needs it.
+   ────────────────────────────────────────────────────────────────────────── */
+.osrs-bar {
+	height: 0.55rem;
+	background: var(--surface-alt);
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	overflow: hidden;
+}
+.osrs-bar-fill {
+	/* display:block matters: the fill is often a <span>, and inline elements
+	   ignore width/height — without this the bar renders empty. */
+	display: block;
+	height: 100%;
+	background: var(--accent);
+	border-radius: 999px;
+	transition: width 0.3s ease;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Themes — selectable palettes, applied as <html data-theme="…"> (set from the
+   vs_theme cookie in hooks.server.ts; picker on /me). Each theme is ONLY a
+   token-override block: components read tokens and never know themes exist, so
+   every current and future page re-themes automatically. The user-facing
+   registry lives in src/lib/themes.ts — adding a theme means one entry there
+   plus one block here. Keep themes to hue shifts (no new effects/glows) so the
+   OSRS sprite work (gold borders, bronze buttons, stone tiles) fits them all.
+   The --stone-tile override layers a tinted gradient OVER the stone texture so
+   panels keep their in-game grain while taking the theme's hue.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Emberforge — volcanic reds with molten orange. */
+:root[data-theme='ember'] {
+	--surface: #3a2420;
+	--surface-alt: #251611;
+	--border: #4a2c1c;
+	--border-strong: #63381f;
+	--accent: #ff7a1a;
+	--accent-soft: rgba(255, 122, 26, 0.18);
+	--yellow: #ffd23d;
+	--bg-solid: #0a0607;
+	--bg-bloom: rgba(255, 94, 20, 0.14);
+	--bg-pool: rgba(120, 30, 8, 0.32);
+	--bg-top: #120a08;
+	--bg-bottom: #070404;
+	--stone-fill: #5a3322;
+	--stone-blend: luminosity;
+}
+
+/* Clan Hall — royal purple furniture with gold headings and highlights. */
+:root[data-theme='royal'] {
+	--surface: #332b47;
+	--surface-alt: #221c31;
+	--border: #453a66;
+	--border-strong: #584a85;
+	--accent: #a58cff;
+	--accent-soft: rgba(138, 108, 255, 0.18);
+	--heading: #d9b65e;
+	--yellow: #ffdf87;
+	--bg-solid: #0c0912;
+	--bg-bloom: rgba(138, 108, 255, 0.12);
+	--bg-pool: rgba(60, 48, 90, 0.35);
+	--bg-top: #120e18;
+	--bg-bottom: #0a0710;
+	--stone-fill: #453a66;
+	--stone-blend: luminosity;
 }

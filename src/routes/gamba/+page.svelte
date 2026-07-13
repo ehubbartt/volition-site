@@ -16,11 +16,33 @@
   import { isVideoUrl } from "$lib/cards/config";
   import { prefersReducedMotion, detectWebgl } from "$lib/cards/glCapabilities";
   import { DEFAULT_PACK_FRONT, discountedPrice } from "$lib/cards/packs";
-  import { formatGP } from "$lib/gp";
+  import { formatGP, osrsTier } from "$lib/gp";
   import { rsnToSlug } from "$lib/rsn";
+  import Skeleton from "$lib/Skeleton.svelte";
+  import { swrResource } from "$lib/swrResource.svelte";
   import { page } from "$app/stores";
 
-  let { data }: { data: PageData } = $props();
+  let { data: pageData }: { data: PageData } = $props();
+
+  // The page dataset is STREAMED (see +page.ts) so navigation lands instantly.
+  // Resolve it into state and shadow it under the old `data` name: every existing
+  // reference below keeps working, and while it's loading `data` serves safe
+  // empty defaults behind the skeleton. Revalidations keep the previous data.
+  type Gamba = NonNullable<PageData["gamba"]["cached"]>;
+  const EMPTY_GAMBA: Gamba = {
+    vp_balance: 0,
+    gold_balance: 0,
+    walletGpValue: 0,
+    packs: [],
+    teaserPacks: [],
+    recentRares: [],
+    crate: { spinCost: 5, paidEnabled: false, freeAvailable: false, odds: [], reel: [] },
+    recentCrateDrops: [],
+    weeklyPack: null,
+  } as unknown as Gamba;
+  const gambaRes = swrResource(() => pageData.gamba, EMPTY_GAMBA);
+  const data = $derived(gambaRes.value);
+  const gambaReady = $derived(gambaRes.ready);
 
   // Warn users whose settings make the 3D packs static or slow, and tell them what to
   // change. 'none' = no WebGL, 'software' = no GPU accel (the "loads super slow" case),
@@ -172,7 +194,7 @@
     return name.trim().toLowerCase() === "white pack";
   }
 
-  function canOpen(pack: PageData["packs"][number]): boolean {
+  function canOpen(pack: Gamba["packs"][number]): boolean {
     return (
       opening === null &&
       pack.card_count > 0 &&
@@ -653,18 +675,35 @@
       >
     </div>
     <div class="balances">
-      <div class="vp" title="Volition Points">
-        <span class="vp-amount">{data.vp_balance.toLocaleString()}</span>
-        <span class="vp-label">VP</span>
+      <div class="osrs-counter" title="Volition Points">
+        <span class="amount {osrsTier(data.vp_balance)}"
+          >{gambaReady ? data.vp_balance.toLocaleString() : "—"}</span
+        >
+        <span class="label">VP</span>
       </div>
       {#if data.gold_balance > 0}
-        <div class="vp gp" title="Wallet balance">
-          <span class="vp-amount">{formatGP(data.gold_balance)}</span>
-          <span class="vp-label">Wallet</span>
+        <div class="osrs-counter" title="Wallet balance">
+          <span class="amount {osrsTier(data.gold_balance)}">{formatGP(data.gold_balance)}</span>
+          <span class="label">Wallet</span>
         </div>
       {/if}
     </div>
   </header>
+
+  {#if !gambaReady}
+    <!-- Streamed data still on its way — pack-shaped skeletons in place of the store. -->
+    <div class="gamba-skeleton">
+      <Skeleton height="2.4rem" width="20rem" radius="6px" />
+      <div class="gamba-skeleton-grid">
+        {#each { length: 4 }, i (i)}
+          <Skeleton height="16rem" radius="10px" />
+        {/each}
+      </div>
+      <Skeleton height="6rem" radius="8px" />
+    </div>
+  {/if}
+
+  {#if gambaReady}
 
   {#if perfNotice}
     <div class="perf-notice" role="status">
@@ -1185,6 +1224,7 @@
       {/if}
     </div>
   {/if}
+  {/if}
 </section>
 
 {#if openerOpen && openedPack}
@@ -1217,7 +1257,7 @@
               style="--cc:{cell.colorHex}"
             >
               {#if cell.image}
-                <img src={cell.image} alt="" loading="lazy" />
+                <img src={cell.image} alt="" loading="lazy" decoding="async" />
               {:else}
                 <span class="reel-text">{cell.label}</span>
               {/if}
@@ -1255,6 +1295,19 @@
 {/if}
 
 <style>
+  .gamba-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .gamba-skeleton-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+    gap: 1rem;
+  }
+
   .gamba {
     max-width: 1100px;
     margin: 0 auto;
@@ -1278,26 +1331,26 @@
     flex-wrap: wrap;
     padding: 1.6rem 1.75rem;
     margin-bottom: 1.5rem;
-    background: linear-gradient(
-      135deg,
-      rgba(70, 54, 30, 0.95),
-      rgba(34, 27, 20, 0.95)
-    );
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-card);
+    background-color: var(--stone-fill);
+    background-image: var(--stone-tile);
+    background-repeat: repeat;
+    border: 4px solid transparent;
+    border-image: url("/osrs/border-tiny.png") 4 / 4px round;
+    border-radius: 4px;
     overflow: hidden;
   }
 
+  /* Warm treasure-glow over the stone — keeps the gamba header lively. */
   .hero-glow {
     position: absolute;
     inset: 0;
     pointer-events: none;
     background: radial-gradient(
       120% 140% at 100% 0%,
-      rgba(255, 152, 31, 0.22),
+      rgba(255, 152, 31, 0.28),
       transparent 55%
     );
+    mix-blend-mode: screen;
   }
 
   .hero-text {
@@ -1325,12 +1378,13 @@
     display: inline-block;
     margin-top: 0.7rem;
     padding: 0.4rem 0.85rem;
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     font-size: 0.9rem;
     color: var(--accent);
-    background: var(--accent-soft);
-    border: 1px solid var(--accent);
-    border-radius: 999px;
+    background: #4d4336;
+    border: 9px solid transparent;
+    border-image: url("/osrs/button.png") 9 / 9px stretch;
+    border-radius: 5px;
     text-decoration: none;
     transition:
       background 0.15s,
@@ -1338,33 +1392,8 @@
   }
 
   .collection-link:hover {
-    background: rgba(255, 152, 31, 0.22);
+    background: #423726;
     transform: translateY(-1px);
-  }
-
-  .vp {
-    position: relative;
-    display: flex;
-    align-items: baseline;
-    gap: 0.4rem;
-    padding: 0.55rem 1.2rem;
-    background: var(--accent-soft);
-    border: 1px solid var(--accent);
-    border-radius: 999px;
-    text-shadow: var(--ts);
-    flex: 0 0 auto;
-    box-shadow: 0 0 1.2rem -0.3rem var(--accent);
-  }
-
-  .vp-amount {
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
-    font-size: 1.6rem;
-    color: var(--accent);
-  }
-
-  .vp-label {
-    color: var(--accent);
-    font-size: 0.85rem;
   }
 
   .balances {
@@ -1374,15 +1403,8 @@
     flex: 0 0 auto;
   }
 
-  /* GP balance badge — gold variant of the VP badge. */
-  .vp.gp {
-    background: rgba(255, 215, 0, 0.1);
-    border-color: #e9c349;
-    box-shadow: 0 0 1.2rem -0.3rem #e9c349;
-  }
-  .vp.gp .vp-amount,
-  .vp.gp .vp-label {
-    color: #e9c349;
+  .hero .osrs-counter {
+    font-size: 1.05rem;
   }
 
   .convert-panel {
@@ -1635,7 +1657,7 @@
     padding: 0.1rem 0.5rem;
     background: rgba(0, 0, 0, 0.7);
     border: 1px solid var(--accent);
-    border-radius: 999px;
+    border-radius: 3px;
     font-size: 0.7rem;
     color: var(--accent);
     text-shadow: var(--ts);
@@ -1649,7 +1671,7 @@
     padding: 0.1rem 0.5rem;
     background: var(--accent);
     color: #1a1206;
-    border-radius: 999px;
+    border-radius: 3px;
     font-size: 0.7rem;
     /* The site's fonts (rsbold AND the body rssmall) are PIXEL fonts — only crisp
        near their native ~16px size, so they blur at this small badge size. Use a
@@ -1661,11 +1683,12 @@
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   }
 
-  /* Elemental "event gift" packs — top-left chip marking a non-purchasable pack
-     that only shows because the player was awarded it. */
+  /* Elemental "event gift" packs — chip marking a non-purchasable pack that only
+     shows because the player was awarded it. Sits BELOW the "N per open" tag
+     (both are top-left; same coords stacked them on top of each other). */
   .gift-tag {
     position: absolute;
-    top: 0.5rem;
+    top: 2.15rem;
     left: 0.5rem;
     z-index: 2;
     padding: 0.1rem 0.5rem;
@@ -1707,7 +1730,7 @@
     padding: 0.1rem 0.5rem;
     background: rgba(0, 0, 0, 0.72);
     border: 1px solid var(--border-strong);
-    border-radius: 999px;
+    border-radius: 3px;
     font-size: 0.7rem;
     color: var(--muted);
     font-family: ui-sans-serif, system-ui, Arial, sans-serif;
@@ -1768,7 +1791,7 @@
     display: inline-block;
     margin-left: 0.4rem;
     padding: 0.08rem 0.45rem;
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     font-size: 0.62rem;
     letter-spacing: 1px;
     text-transform: uppercase;
@@ -1794,7 +1817,7 @@
   button.primary {
     width: 100%;
     border-color: var(--accent);
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
   }
 
   button.primary:hover:not(:disabled) {
@@ -1827,27 +1850,25 @@
   /* ---- Packs / Crates view tabs ---- */
   .view-tabs {
     display: inline-flex;
-    gap: 0.25rem;
-    padding: 0.25rem;
-    background: var(--surface-alt);
-    border: 1px solid var(--border);
-    border-radius: 999px;
+    gap: 0.3rem;
   }
 
   .view-tabs button {
     min-height: auto;
-    padding: 0.4rem 1.1rem;
-    border: none;
-    border-radius: 999px;
-    background: transparent;
+    padding: 0.4rem 1.2rem;
+    border: 9px solid transparent;
+    border-image: url("/osrs/button.png") 9 / 9px stretch;
+    border-radius: 5px;
+    background: #2f281c;
     color: var(--muted);
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
+    opacity: 0.8;
   }
 
   .view-tabs button.active {
-    background: var(--accent-soft);
+    background: #4d4336;
     color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
+    opacity: 1;
   }
 
   /* ---- Crate view ---- */
@@ -1861,14 +1882,12 @@
     gap: 1.1rem;
     align-items: center;
     padding: 1.25rem;
-    background: linear-gradient(
-      180deg,
-      rgba(58, 48, 36, 0.85),
-      rgba(40, 32, 24, 0.85)
-    );
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-card);
+    background-color: var(--stone-fill);
+    background-image: var(--stone-tile);
+    background-repeat: repeat;
+    border: 4px solid transparent;
+    border-image: url("/osrs/border-tiny.png") 4 / 4px round;
+    border-radius: 4px;
   }
 
   .crate-icon {
@@ -1947,7 +1966,7 @@
   }
 
   .odds-label {
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
   }
 
   /* ---- Crate reveal modal ---- */
@@ -2084,7 +2103,7 @@
   }
 
   .reel-text {
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     font-size: 0.78rem;
     text-align: center;
     line-height: 1.15;
@@ -2150,7 +2169,7 @@
   .reveal-spinning {
     margin: 0;
     color: var(--muted);
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     letter-spacing: 1px;
   }
 
@@ -2162,7 +2181,7 @@
 
   .reveal-detail {
     margin: 0;
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     font-size: 1.3rem;
   }
 
@@ -2273,7 +2292,7 @@
     border-radius: 3px;
     background: color-mix(in srgb, var(--rare-color) 22%, #000a);
     color: var(--rare-color);
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     font-size: 0.78rem;
   }
 
@@ -2295,7 +2314,7 @@
 
   .drop-rarity {
     font-size: 0.72rem;
-    font-family: "rsbold", ui-sans-serif, Arial, sans-serif;
+    font-family: var(--font-heading);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2356,12 +2375,12 @@
       font-size: 0.82rem;
     }
 
-    .vp {
-      padding: 0.4rem 0.9rem;
+    .hero .osrs-counter {
+      padding: 0.4rem 0.8rem;
     }
 
-    .vp-amount {
-      font-size: 1.25rem;
+    .hero .osrs-counter .amount {
+      font-size: 1.2rem;
     }
 
     .pack-grid {

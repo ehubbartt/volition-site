@@ -61,7 +61,7 @@ export async function claimWeeklyPack(user: {
 	try {
 		const pack = await getWeeklyFreePack();
 		if (!pack) return { ok: false, reason: 'none' };
-		if (!(await isClanMember(user.discord_id, user.rsn))) return { ok: false, reason: 'not_member' };
+		if (!(await isClanMember(user))) return { ok: false, reason: 'not_member' };
 
 		const weekStart = weekStartIso();
 		// Atomic claim: succeed only if not already claimed since this week's start.

@@ -1,4 +1,5 @@
 import { env } from '$env/dynamic/private';
+import { postJson } from '$lib/server/http';
 import { RARITY_BY_KEY, DEFAULT_RARITY, isValidRarity } from '$lib/cards/rarity';
 import { isVideoUrl } from '$lib/cards/config';
 import { rsnToSlug } from '$lib/rsn';
@@ -176,6 +177,40 @@ export async function postCardDrop(d: {
 	// No layers (or flatten failed) → use the front image directly.
 	if (front) embed.image = { url: front }; // big, full-width — the focus of the embed
 	await postEmbed(embed);
+}
+
+// Announce a bingo tile auto-completed by a Dink drop. Posts to the bingo feed webhook
+// if set, else the shared drops webhook. Best-effort (never throws). `by` = display name
+// (RSN), `via` = the item/clog that triggered it.
+export async function postBingoCredit(d: {
+	by: string;
+	rsn?: string | null;
+	tileName: string;
+	eventName: string;
+	eventSlug: string;
+	via?: string | null;
+}): Promise<void> {
+	const url = env.DISCORD_BINGO_WEBHOOK_URL || env.DISCORD_DROPS_WEBHOOK_URL;
+	if (!url) return;
+	const coll = collectionUrl(d.rsn);
+	const boardUrl = `${SITE_URL}/events/${d.eventSlug}`;
+	const viaText = d.via ? ` via **${d.via}**` : '';
+	const base: Record<string, unknown> = {
+		username: 'Volition Bingo',
+		embeds: [
+			{
+				author: { name: `🏁 ${d.by}`, url: coll },
+				title: d.tileName,
+				url: boardUrl,
+				description: `Auto-completed a tile${viaText} in **${d.eventName}**! · [View board](${boardUrl})`,
+				color: hexToInt('#5fc35f')
+			}
+		]
+	};
+	// postJson has a timeout and never throws — a slow/hung Discord webhook can't
+	// pin the awaiting drop-processing request open.
+	const ok = await postJson(url, base);
+	if (!ok) console.error('[bingo-feed] post failed');
 }
 
 // Format a percent for the "Drop Rate" field (up to 2 decimals, no trailing zeros).

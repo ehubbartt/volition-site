@@ -1,12 +1,16 @@
-import { redirect, error, fail } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { nextWeeklyResetIso } from '$lib/tasks';
-import type { Actions, PageServerLoad } from './$types';
+import type { Actions } from './$types';
 
 // Admin task manager for vs_tasks: the weekly rotation POOL (templates) + the
 // active task INSTANCES players submit to. Tasks are separate from full events
 // (vs_events); see CLAUDE.md. isAdmin-gated.
+//
+// ACTIONS ONLY — this page has no server load. Its data comes from
+// /api/admin/tasks (built in $lib/server/admin/tasks.ts) via the universal
+// load in +page.ts, so navigating here never waits on the server.
 
 function kindFromForm(v: FormDataEntryValue | null): 'weekly_task' | 'custom_task' {
 	return v?.toString() === 'custom' ? 'custom_task' : 'weekly_task';
@@ -26,31 +30,6 @@ function activationEndsAt(kind: string, daysField: FormDataEntryValue | null): s
 	if (days === 0) return null;
 	return kind === 'weekly_task' ? nextWeeklyResetIso() : null;
 }
-
-export const load: PageServerLoad = async ({ locals }) => {
-	if (!locals.user) throw redirect(303, '/');
-	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
-
-	const sb = db();
-	const [templatesRes, activeRes] = await Promise.all([
-		sb
-			.from('vs_tasks')
-			.select('id, name, description, kind, vp_reward, pack_reward, in_rotation, created_at')
-			.eq('is_template', true)
-			.order('name', { ascending: true }),
-		sb
-			.from('vs_tasks')
-			.select('id, name, description, kind, vp_reward, pack_reward, starts_at, ends_at, created_at')
-			.eq('is_template', false)
-			.eq('status', 'open')
-			.order('created_at', { ascending: false })
-	]);
-
-	return {
-		templates: templatesRes.data ?? [],
-		active: activeRes.data ?? []
-	};
-};
 
 export const actions: Actions = {
 	// Create a task — either added to the rotation pool (template) or activated now.

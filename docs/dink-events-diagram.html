@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>How Dink Auto Drop-Tracking Works (the dink-proxy)</title>
+		<style>
+			:root {
+				--bg: #14110d; --panel: #1c1813; --panel2: #221d16; --border: #3a3128;
+				--text: #ece6da; --muted: #9a9183; --accent: #ff981f; --green: #5fc35f;
+				--blue: #3aa6ff; --red: #e25656; --purple: #b07cff; --gold: #d9b65e;
+			}
+			* { box-sizing: border-box; }
+			body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 2rem 1rem 5rem; }
+			.wrap { max-width: 1080px; margin: 0 auto; }
+			h1 { font-size: 1.7rem; margin: 0 0 0.2rem; color: var(--accent); }
+			h2 { font-size: 1.2rem; margin: 2.4rem 0 0.8rem; color: var(--gold); border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+			h3 { font-size: 1rem; margin: 1.2rem 0 0.4rem; color: var(--accent); }
+			.sub { color: var(--muted); margin-top: 0; }
+			p { margin: 0.5rem 0; }
+			code { background: #000; padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.85em; color: #ffd9a6; word-break: break-word; }
+			a { color: var(--accent); }
+			.lane { display: flex; align-items: stretch; gap: 0.6rem; flex-wrap: wrap; margin: 0.5rem 0; }
+			.box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.9rem; flex: 1; min-width: 210px; }
+			.box .t { font-weight: 700; display: flex; align-items: center; gap: 0.4rem; }
+			.box .d { color: var(--muted); font-size: 0.85rem; margin-top: 0.25rem; }
+			.box.runelite { border-color: var(--green); }
+			.box.proxy { border-color: var(--accent); }
+			.box.db { border-color: var(--blue); }
+			.box.site { border-color: var(--purple); }
+			.tag { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.05rem 0.4rem; border-radius: 4px; background: #000; color: var(--muted); }
+			.arrow { text-align: center; color: var(--accent); font-size: 1.4rem; line-height: 1; margin: 0.15rem 0; }
+			.arrow small { display: block; color: var(--muted); font-size: 0.72rem; letter-spacing: 0.02em; }
+			.split { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+			.split > .box { flex: 1; }
+			.decision { border-style: dashed; }
+			.legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }
+			.legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+			.dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+			.box-note { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 0.7rem 0.9rem; color: var(--muted); font-size: 0.92rem; }
+			.box-note b { color: var(--text); }
+			.callout { border-left: 4px solid var(--accent); background: #000; padding: 0.7rem 1rem; border-radius: 0 8px 8px 0; margin: 0.8rem 0; color: var(--text); }
+			.callout.warn { border-color: var(--gold); }
+			.callout.good { border-color: var(--green); }
+			table { width: 100%; border-collapse: collapse; margin: 0.7rem 0; font-size: 0.9rem; }
+			th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+			th { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; }
+			td code { font-size: 0.82em; }
+			pre { background: #000; border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem; overflow-x: auto; font-size: 0.82rem; color: #cfe8c0; }
+			.toc { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem 1.1rem; margin: 1.2rem 0; }
+			.toc ol { margin: 0; padding-left: 1.2rem; columns: 2; }
+			.toc li { margin: 0.15rem 0; }
+			@media (max-width: 640px) { .toc ol { columns: 1; } }
+			.foot { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85rem; }
+			.state { font-size: 0.7rem; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+			.state.live { color: var(--green); border-color: #2c7a38; }
+			.state.off { color: var(--gold); border-color: #6b5520; }
+		</style>
+	</head>
+	<body>
+		<div class="wrap">
+			<h1>How Dink Auto Drop-Tracking Works</h1>
+			<p class="sub">A plain-English explanation of the <b>dink-proxy</b> and how an in-game drop turns into a credited bingo tile. <span class="state off">status: not live in prod yet</span></p>
+
+			<div class="legend">
+				<span><span class="dot" style="background: var(--green)"></span> RuneLite / Dink (in the game client)</span>
+				<span><span class="dot" style="background: var(--accent)"></span> dink-proxy (Cloudflare Worker)</span>
+				<span><span class="dot" style="background: var(--blue)"></span> Supabase (shared DB)</span>
+				<span><span class="dot" style="background: var(--purple)"></span> volition-site (SvelteKit)</span>
+			</div>
+
+			<div class="toc">
+				<ol>
+					<li><a href="#tldr">The idea in one paragraph</a></li>
+					<li><a href="#what">What Dink is</a></li>
+					<li><a href="#jobs">The proxy's two jobs</a></li>
+					<li><a href="#flow">End-to-end flow</a></li>
+					<li><a href="#index">The per-player active-tiles index</a></li>
+						<li><a href="#match">How a drop is matched</a></li>
+					<li><a href="#consumer">The site consumer &amp; outcomes</a></li>
+					<li><a href="#tiles">Tile types (loot / collection / collect-N)</a></li>
+					<li><a href="#tokens">Per-user config URLs (tokens)</a></li>
+					<li><a href="#config">Config &amp; env reference</a></li>
+					<li><a href="#hardening">2.0 hardening &amp; the migration</a></li>
+					<li><a href="#testing">How to test it</a></li>
+					<li><a href="#safe">Does it break the old proxy? No</a></li>
+				</ol>
+			</div>
+
+			<!-- ── TL;DR ── -->
+			<h2 id="tldr">The idea in one paragraph</h2>
+			<div class="box-note">
+				The Dink RuneLite plugin already fires a webhook whenever a player gets a notable drop or unlocks a
+				collection-log slot. Instead of pointing Dink straight at a Discord channel, each member points it at the
+				<b>dink-proxy</b> — a small Cloudflare Worker. The proxy does two things: it <b>serves Dink its config</b>
+				(so we control what gets sent) and it <b>receives the drop webhooks</b>. For each incoming drop it makes two
+				independent decisions — forward it to the Discord feed (as before), and, if the dropper is a clan member and
+				the item is tracked by an open event, <b>record the drop in the database</b>. The website then drains those
+				recorded drops and <b>auto-credits the matching tile</b> — matched <b>per player</b> against a single live index of the tiles that player is currently on, spanning both <b>open-event tiles</b> and their <b>personal collection-log board</b>. The proxy stays "dumb" (filter + record);
+				all the crediting logic lives on the site next to the rest of the bingo code.
+			</div>
+
+			<!-- ── What Dink is ── -->
+			<h2 id="what">What Dink is</h2>
+			<p><b>Dink</b> is a popular RuneLite plugin that sends a webhook (HTTP POST with a JSON body) when something
+				notable happens in-game: a valuable <b>LOOT</b> drop, a <b>COLLECTION</b> log unlock, a level-up, a pet, etc.
+				Normally you give Dink a Discord webhook URL and it posts screenshots to a channel. The two settings that
+				matter to us:</p>
+			<div class="lane">
+				<div class="box runelite"><div class="t">Dynamic Config URL</div>
+					<div class="d">A URL Dink periodically fetches to get its settings. Pointing this at the proxy lets us
+						control Dink centrally (which notifiers are on, the loot value threshold, the loot allowlist) and
+						means the webhook target is <b>our</b> proxy, not a raw Discord URL.</div></div>
+				<div class="box runelite"><div class="t">Notifiers</div>
+					<div class="d">LOOT (drops above a gp value), COLLECTION (clog unlocks — pets are clog slots too), and
+						others. The proxy's served config decides which fire and how.</div></div>
+			</div>
+
+			<!-- ── The proxy's two jobs ── -->
+			<h2 id="jobs">The proxy's two jobs</h2>
+			<div class="split">
+				<div class="box proxy"><div class="t">① Serve config <span class="tag">GET /config/&lt;token&gt;</span></div>
+					<div class="d">Returns the Dink settings JSON for that member. It starts from a bundled template
+						(<code>dinkconfig-template.json</code>) — or, if configured, the admin-editable <code>dink_config</code>
+						row in <code>bot_config</code> — substitutes the member's <code>{{TOKEN}}</code>, and <b>injects the
+						tracked-item names of every open event into Dink's loot allowlist</b>. That allowlist is the trick that
+						lets cheap tracked items (e.g. Bones) reach us even though <code>minLootValue</code> stays high — so the
+						feed isn't flooded but tracked items always arrive. Collection unlocks aren't value-gated, so they
+						always come through.</div></div>
+				<div class="box proxy"><div class="t">② Handle hooks <span class="tag">POST /hook/&lt;token&gt;/&lt;channel&gt;</span></div>
+					<div class="d">Dink POSTs each notification here. The proxy validates the token, then makes the two
+						decisions below: <b>forward to Discord</b> and (best-effort, in the background) <b>record a matched
+						drop</b> to <code>vs_dink_drops</code>. It also strips <code>@mentions</code> so member-authored text
+						can't ping the channel.</div></div>
+			</div>
+
+			<!-- ── Flow ── -->
+			<h2 id="flow">End-to-end flow</h2>
+
+			<div class="lane">
+				<div class="box site"><div class="t">🛠️ Admin builds the event <span class="tag">setup</span></div>
+					<div class="d"><code>/admin/events/[slug]/builder</code> — tiles + per-tile <b>tracked items</b>
+						(item id/name → tile, with a match type and optional required quantity). Stored in
+						<code>vs_event_tracked_items</code>. Set the event status to <b>open</b>.</div></div>
+					<div class="box site"><div class="t">🧩 …or a player builds a personal board <span class="tag">setup</span></div>
+						<div class="d"><code>/clog-bingo</code> — a member generates their own collection-log board of items they don't yet own. Its unobtained tiles (<code>vs_personal_board_tiles</code>) are a second source of active tiles, auto-tracked the same way. No admin setup needed.</div></div>
+			</div>
+
+			<div class="lane">
+				<div class="box runelite"><div class="t">🎮 RuneLite + Dink</div>
+					<div class="d">Player gets a drop / unlocks a clog slot / gets a pet. Dink fires a <b>LOOT</b> or
+						<b>COLLECTION</b> notification to the proxy's <code>/hook</code> endpoint.</div></div>
+				<div class="box proxy"><div class="t">⚙️ Proxy served the config that made this possible</div>
+					<div class="d">The member pasted their <b>personal</b> config URL (from Discord <code>/dink</code> or the
+						site's <code>/dink-check</code>) into Dink's Dynamic Config URL. The token is validated against
+						<code>dink_tokens</code> (∪ the legacy <code>VALID_TOKENS</code>) and is revocable/rotatable.</div></div>
+			</div>
+
+			<div class="arrow">⬇<small>POST /hook/&lt;token&gt;/&lt;channel&gt;</small></div>
+
+			<div class="box proxy"><div class="t">⚙️ dink-proxy Worker — <code>handleHook</code></div>
+				<div class="d">Validates the token, parses the payload, then makes two independent decisions:</div>
+				<div class="split" style="margin-top: 0.6rem">
+					<div class="box decision"><div class="t" style="color: var(--accent)">Decision A — Discord feed</div>
+						<div class="d">Forward to the channel webhook exactly as the original proxy did (LOOT only forwards at/above
+							<code>FEED_MIN_VALUE</code>; everything else forwards as before).</div></div>
+					<div class="box decision"><div class="t" style="color: var(--green)">Decision B — record a match</div>
+						<div class="d">If <code>playerName</code> ∈ participants (clan roster ∪ open-event signups) <b>and</b> the
+							item ∈ tracked items <i>of the matching type</i> (LOOT→loot tiles, COLLECTION→collection/pet tiles),
+							write a row to <code>vs_dink_drops</code> with its <code>notif_type</code> + value. Deduped by
+							<code>drop_key</code>, done in the background via <code>ctx.waitUntil</code> so it never blocks the hook.</div></div>
+				</div>
+			</div>
+
+			<div class="arrow">⬇<small>proxy reads a cached manifest (~30s) from these views/tables</small></div>
+			<div class="lane">
+				<div class="box db"><div class="t">🗄️ vs_active_player_tiles <span class="tag">source of truth</span></div><div class="d">live view: one row per <b>tile a player is currently on</b> (open-event tiles + personal boards), each typed <code>item</code>/<code>manual</code>. The two views below derive from its <code>item</code> subset.</div></div>
+					<div class="box db"><div class="t">🗄️ vs_active_participants</div><div class="d">distinct owners of any active item tile (lowercased) — derived</div></div>
+				<div class="box db"><div class="t">🗄️ vs_active_tracked_items</div><div class="d">distinct active item ids (+ <code>match_type</code>) — derived</div></div>
+				<div class="box db"><div class="t">🗄️ vs_dink_drops</div><div class="d">raw matched drops; <code>processed=false</code>, <code>outcome</code> null until the site runs. Durable recent-drops log for race healing.</div></div>
+			</div>
+
+			<div class="arrow">⬇<small>POST /api/dink/process (cron) &nbsp;+&nbsp; throttled backstop on board load</small></div>
+
+			<div class="box site"><div class="t">🧮 Site consumer — <code>processDinkDrops()</code></div>
+				<div class="d">Drains unprocessed drops → matches the tile by type → <b>timing gate</b> (was the tile open at the
+					drop's <code>received_at</code>?) → resolves <code>rsn → vs_users</code> → <b>collect-N</b> accumulation →
+					inserts an <b>approved</b> completion. Every drop is stamped with an <b>outcome</b> so admins can see why it
+					did or didn't credit. Idempotent — it can't double-credit.
+						<br><br>Matching is <b>per player</b> against the <code>vs_active_player_tiles</code> index above (the dropper's own <code>item</code> tiles), so it spans events <b>and</b> personal boards and obeys the activation rule; a personal-board credit flips the tile <code>obtained</code> instead of inserting a completion. The cron path also runs a bounded <b>reconcile</b> to heal ordering races.</div></div>
+
+			<div class="arrow">⬇</div>
+			<div class="lane">
+				<div class="box db"><div class="t">🗄️ vs_bingo_completions <span class="tag">approved</span></div><div class="d">one row per credited player+tile (<code>source='dink'</code>)</div></div>
+				<div class="box site"><div class="t">🏁 <code>/bingo/[slug]</code></div><div class="d">tile shows complete + leaderboard updates, live</div></div>
+				<div class="box site"><div class="t">📣 Discord feed</div><div class="d">"X auto-completed a tile" → <code>DISCORD_BINGO_WEBHOOK_URL</code> (open events only)</div></div>
+			</div>
+
+			<div class="lane">
+				<div class="box site"><div class="t">🔎 <code>/admin/dink-drops</code></div><div class="d">every matched drop + its outcome — debug "why no credit?", <b>reprocess</b> or <b>un-credit</b>.</div></div>
+				<div class="box site"><div class="t">🧪 <code>/admin/dink-test</code></div><div class="d">dry-run / simulate a drop end-to-end; mint the self-test event; revoke tokens.</div></div>
+			</div>
+
+			<!-- ── Matching ── -->
+			<h2 id="index">The per-player active-tiles index</h2>
+				<p>Everything hangs off one <b>live SQL view</b>, <code>vs_active_player_tiles</code> — the single source of
+					truth for <i>"what tile is each player currently on."</i> One row = one tile a player can complete right now.
+					Because it's a view it's <b>always fresh</b>: a closed event, a completed tile, or a regenerated board makes
+					rows appear/disappear automatically — no triggers, no refresh job, nothing to go stale.</p>
+
+				<p>Each row carries a <b>type</b> so every tracker reads only the tiles it understands:</p>
+				<div class="split">
+					<div class="box site"><div class="t">type = <code>item</code> <span class="tag">Dink auto-tracks</span></div>
+						<div class="d">Carries an <code>item_id</code> + <code>match_type</code>. These are what the Dink consumer
+							matches drops against. Sources: open-event tracked-item tiles, and personal-board tiles.</div></div>
+					<div class="box"><div class="t">type = <code>manual</code> <span class="tag">proof only</span></div>
+						<div class="d">Event tiles with no tracked item. Represented for completeness so the index is the whole
+							picture, but Dink ignores <code>type &ne; item</code> — they're completed by manual proof submission.</div></div>
+				</div>
+
+				<p style="margin-top:0.8rem">It unions <b>three producers</b>, each exposing an <code>activated_at</code>:</p>
+				<div class="lane">
+					<div class="box db"><div class="t">🎯 Event item tiles</div><div class="d">each signed-up user × the tile's tracked item(s), minus tiles they've already completed. <code>activated_at</code> = the event's <code>starts_at</code>.</div></div>
+					<div class="box db"><div class="t">📝 Event manual tiles</div><div class="d">signed-up user × event tiles with no tracked item. <code>activated_at</code> = event start.</div></div>
+					<div class="box db"><div class="t">🧩 Personal board tiles</div><div class="d">each owner × their not-yet-obtained tiles on a <b>locked</b> board (a draft isn't tracked; always <code>item</code>, <code>match_type=collection</code>). <code>activated_at</code> = the board's <code>locked_at</code>.</div></div>
+				</div>
+
+				<p style="margin-top:0.8rem">The proxy's allowlist views <code>vs_active_participants</code> /
+					<code>vs_active_tracked_items</code> are <b>derived from the <code>item</code> subset</b> of this index — one
+					source of truth, so a new event or personal board automatically enters the proxy's record allowlist with no
+					other change. (The proxy reads them by name; their column shapes are unchanged.)</p>
+
+				<div class="callout warn">
+					<b>Activation rule (no retroactive credit).</b> A drop credits a tile <b>only if its
+					<code>received_at</code> is at/after that tile's <code>activated_at</code></b> for that player. For events the
+					per-row release timing gate refines it further; for personal boards it means a drop obtained <i>before</i> the
+					board was generated never credits it. Generating a board does <b>not</b> back-fill past drops.
+				</div>
+
+				<div class="split">
+					<div class="box good" style="border:1px solid var(--border); border-left:4px solid var(--green)">
+						<div class="t">Per-user-correct &amp; multi-credit</div>
+						<div class="d">A drop is matched only against the <b>dropper's own</b> active tiles, so it can only complete
+							that player's tiles. One drop may legitimately credit both an <b>event tile</b> and a <b>personal-board
+							tile</b> for that player — every matching candidate that passes its activation check is credited.</div></div>
+					<div class="box" style="border-left:4px solid var(--blue)">
+						<div class="t">Manual submission always coexists</div>
+						<div class="d"><code>type</code> governs <b>auto-tracking only</b>, never whether a tile can be submitted
+							manually. Every event tile keeps its <code>/bingo</code> proof-submission + admin-review path as a safety
+							net; the unique approved index dedupes a double credit (first to approve wins). Personal boards instead
+							re-poll the collection log ("Check collection log").</div></div>
+				</div>
+
+				<div class="box-note" style="margin-top:0.6rem">
+					<b>Race healing.</b> <code>vs_dink_drops</code> stays the durable recent-drops log. The cron/proxy path
+					(<code>POST /api/dink/process</code>) runs a bounded <b>reconcile</b> pass that re-checks recent un-credited
+					drops (the last few days, outcomes <code>no_tile</code>/<code>no_user</code>) against the <i>current</i> view, so
+					a drop that arrived just before a signup or board existed still heals — always subject to the activation rule, so
+					it can never credit a pre-activation drop. The poll-on-read backstop stays drain-only so it remains cheap.
+				</div>
+
+				<!-- ── Matching ── -->
+				<h2 id="match">How a drop is matched</h2>
+			<p>A drop is <b>recorded</b> (by the proxy) when <b>both</b> hold:</p>
+			<ul>
+				<li>the dropper's RSN is in <code>vs_active_participants</code> — the clan roster (<code>players</code>) plus
+					anyone signed up to an open event; and</li>
+				<li>the looted item matches a row in <code>vs_active_tracked_items</code> for an open event — by <b>item id</b>
+					(preferred — robust against noted/charged name variants), else by <b>name</b>, honoring the optional
+					<code>source</code> (NPC/container) constraint, and only against tracked items whose <code>match_type</code>
+					equals the notification type.</li>
+			</ul>
+			<p>Then, when the site processes it, the RSN is resolved to a <code>vs_users</code> row (the dropper must have
+				onboarded on the site) and the drop is matched against <b>that user's own</b> active <code>item</code> tiles in <code>vs_active_player_tiles</code> (their open-event tiles <b>and</b> their personal collection-log board), so credit is always per-user-correct. Bingo tiles are binary, so the first qualifying drop credits
+				the tile (collect-N tiles accumulate first — see below).</p>
+
+			<!-- ── Consumer / outcomes ── -->
+			<h2 id="consumer">The site consumer &amp; outcomes</h2>
+			<p>The consumer (<code>src/lib/server/dinkDrops.ts</code> → <code>processDinkDrops()</code>) is the brain. It runs
+				from a cron hitting <code>POST /api/dink/process</code> (shared-secret guarded) and, as a backstop, a throttled
+				call when a bingo board is loaded. Each drop ends with one verdict, stored on the row so
+				<code>/admin/dink-drops</code> can explain it:</p>
+			<table>
+				<tr><th>Outcome</th><th>Meaning</th></tr>
+				<tr><td><code>credited</code></td><td>Tile credited for this player (an approved completion was inserted).</td></tr>
+				<tr><td><code>partial</code></td><td>A collect-N tile that isn't complete yet — counted toward the total, waiting for more.</td></tr>
+				<tr><td><code>consumed</code></td><td>A prior <code>partial</code> that has now been rolled into a completed collect-N tile, so it can't be double-counted. <span class="state">new in 2.0</span></td></tr>
+				<tr><td><code>duplicate</code></td><td>That player already has an approved completion for the tile (or a concurrent run beat this one).</td></tr>
+				<tr><td><code>timing</code></td><td>The tile wasn't open at the drop's time (event hadn't started, or the row hadn't released) — discarded, same rule as a manual submission.</td></tr>
+				<tr><td><code>no_tile</code></td><td>No tracked item matched (or the event has no tiles / isn't set up).</td></tr>
+				<tr><td><code>no_user</code></td><td>The RSN doesn't resolve to a site user — they haven't onboarded, so we can't attribute it.</td></tr>
+				<tr><td><code>reverted</code></td><td>An admin un-credited it from the drops view; it stays processed so it won't re-credit.</td></tr>
+			</table>
+
+			<!-- ── Tile types ── -->
+			<h2 id="tiles">Tile types you can build</h2>
+			<div class="lane">
+				<div class="box site"><div class="t">💰 Loot tile <span class="tag">match_type=loot</span></div>
+					<div class="d">Completed by a LOOT drop of the item. Reaches the proxy via the injected loot allowlist
+						regardless of value. The default.</div></div>
+				<div class="box site"><div class="t">📖 Collection / 🐾 Pet tile <span class="tag">match_type=collection</span></div>
+					<div class="d">Completed by a collection-log unlock. Pets are clog slots, so a "get the pet" tile uses this
+						with the pet's item id. Needs Dink's collection-log notifier on.</div></div>
+				<div class="box site"><div class="t">🔢 Collect-N <span class="tag">required_qty &gt; 1</span></div>
+					<div class="d">Credits only once the player accumulates that many of the item across drops (e.g. 100 dragon
+						bones). In-progress drops show as <code>partial</code>; when it completes they become <code>consumed</code>.</div></div>
+					<div class="box site"><div class="t">🧩 Personal board tile <span class="tag">per-user</span></div>
+						<div class="d">A tile on a member's own collection-log board (<code>/clog-bingo</code>), not an event. Auto-tracked exactly like a collection tile (<code>match_type=collection</code>) once the board is <b>locked in</b>; crediting flips the tile <code>obtained</code> rather than inserting a completion. Activation = the board's lock time.</div></div>
+			</div>
+			<div class="box-note" style="margin-top: 0.6rem">
+				Combat-achievement / level / KC tiles aren't wired yet — those notifier payloads need to be captured first
+				(do a Dink "Send Test" for each), then they slot into the same framework.
+			</div>
+
+			<!-- ── Tokens ── -->
+			<h2 id="tokens">Per-user config URLs (Dink tokens)</h2>
+			<p>Each member uses a <b>personal</b> config URL — <code>${PROXY_BASE_URL}/config/&lt;token&gt;</code> — pasted into
+				RuneLite → Dink → Advanced → <b>Dynamic Config URL</b>. The token identifies the member and is revocable/rotatable.</p>
+			<p>Tokens live in <code>dink_tokens</code> (<code>token</code>, <code>discord_id</code>, <code>created_at</code>,
+				<code>revoked_at</code>) and are minted two equivalent ways — both write the same table keyed by Discord id, so
+				a member has one active token however they got it:</p>
+			<div class="split">
+				<div class="box"><div class="t">Discord bot</div><div class="d"><code>/dink</code> (mint / fetch), <code>/dink-revoke</code> (admin), and auto-revoke when a member leaves the clan.</div></div>
+				<div class="box"><div class="t">Site</div><div class="d"><code>/dink-check</code> — any member can get / copy / rotate their link; admins revoke from <code>/admin/dink-test</code>. (<code>src/lib/server/dinkTokens.ts</code>)</div></div>
+			</div>
+			<p class="box-note" style="margin-top:0.6rem">The proxy validates an incoming token against the <b>union</b> of active
+				<code>dink_tokens</code> rows and its legacy <code>VALID_TOKENS</code> secret (cached for <code>TOKENS_TTL_MS</code>),
+				so a site-minted token works with no Cloudflare API call and a revoke/rotate takes effect within the cache TTL.</p>
+
+			<!-- ── Config & env ── -->
+			<h2 id="config">Config &amp; env reference</h2>
+			<h3>Proxy (Cloudflare Worker)</h3>
+			<table>
+				<tr><th>Var</th><th>Purpose</th></tr>
+				<tr><td><code>SUPABASE_URL</code> + <code>SUPABASE_KEY</code></td><td>Turn on matching/recording. <b>Until both are set the proxy is a pure pass-through</b> — it serves config, validates <code>VALID_TOKENS</code>, and forwards hooks exactly like the original.</td></tr>
+				<tr><td><code>VALID_TOKENS</code></td><td>Legacy comma-list of tokens; still honored alongside <code>dink_tokens</code>.</td></tr>
+				<tr><td><code>FEED_MIN_VALUE</code></td><td>gp threshold for forwarding LOOT to the Discord feed (Decision A only — doesn't affect tracking).</td></tr>
+				<tr><td><code>WEBHOOK_ACHIEVEMENTS</code> / channel webhooks</td><td>Where forwarded notifications go.</td></tr>
+				<tr><td><code>CONFIG_TTL_MS</code> / <code>TOKENS_TTL_MS</code></td><td>How long the served config and token list are cached.</td></tr>
+			</table>
+			<h3>Site (Fly)</h3>
+			<table>
+				<tr><th>Var</th><th>Purpose</th></tr>
+				<tr><td><code>SUPABASE_URL</code> + <code>SUPABASE_KEY</code> (service-role value — RLS is deny-all for anon)</td><td>DB access (already set).</td></tr>
+				<tr><td><code>PROXY_BASE_URL</code></td><td>e.g. <code>https://dink-proxy.&lt;account&gt;.workers.dev</code> — lets <code>/dink-check</code> show full config URLs. Without it, members fall back to <code>/dink</code>.</td></tr>
+				<tr><td><code>DINK_PROCESS_SECRET</code></td><td>Guards <code>POST /api/dink/process</code>; unset = the endpoint is disabled (403).</td></tr>
+				<tr><td><code>DISCORD_BINGO_WEBHOOK_URL</code></td><td>Tile-complete announcements (falls back to <code>DISCORD_DROPS_WEBHOOK_URL</code>).</td></tr>
+			</table>
+
+			<!-- ── Hardening ── -->
+			<h2 id="hardening">2.0 hardening &amp; the migration</h2>
+			<p>The auto-tracking pipeline was reviewed and hardened on the <code>voli-site-2.0-refactor</code> branch (it isn't
+				live yet, so this was safe to do). What changed in the consumer:</p>
+			<ul>
+				<li><b>The credit insert was likely failing silently.</b> It omitted the legacy <code>proof_url</code>/<code>proof_path</code>
+					columns the manual submit path writes (likely <code>NOT NULL</code>), so every auto-credit could fail its
+					constraint and retry forever. It now mirrors those columns and tags the row <code>source='dink'</code>; errors
+					are logged instead of swallowed.</li>
+				<li><b>Collect-N progress is now scoped to the specific tile</b> (via a new <code>vs_dink_drops.tile_id</code>),
+					so two tiles tracking the same item no longer pool progress, and completed partials are marked
+					<code>consumed</code> so a post-revert drop can't instantly re-credit.</li>
+				<li><b>A unique index</b> on approved <code>(event, user, tile)</code> makes idempotency correct even under
+					concurrent / multi-instance processing — a race now resolves to <code>duplicate</code> instead of a double credit.</li>
+				<li><b>The admin simulator suppresses the public feed</b>, and <code>revertDinkCredit</code> matches by the new
+					<code>source</code> column instead of the human-readable note text.</li>
+			</ul>
+			<div class="callout warn">
+				<b>One DB step before going live:</b> run <code>db/scripts/dink_tracking_hardening.sql</code> in the Supabase SQL
+				editor. It adds <code>vs_dink_drops.tile_id</code>, <code>vs_bingo_completions.source</code>, and the unique
+				index. (The unique index assumes no duplicate approved completions already exist — true for a fresh Dink dataset.)
+					<br><br><b>This branch</b> additionally needs <code>db/scripts/active_tiles.sql</code> (the <code>vs_active_player_tiles</code> index + the derived proxy views) and <code>db/scripts/personal_boards.sql</code>. The proxy's <code>vs_active_participants</code> / <code>vs_active_tracked_items</code> keep the same column shapes, so the proxy needs no change — see <a href="#index">the active-tiles index</a> above.
+			</div>
+
+			<!-- ── Testing ── -->
+			<h2 id="testing">How to test it</h2>
+			<div class="box-note">
+				<b>A) No game needed (proves the site pipeline):</b>
+				<ol style="margin: 0.4rem 0 0.8rem; padding-left: 1.1rem">
+					<li>Build a <b>preview</b> event with tracked items and a start time in the past.</li>
+					<li><code>/admin/dink-test</code> → <b>Dry run</b> (verdict only, writes nothing) → <b>Simulate</b> (inserts a
+						real drop + runs the consumer; the public feed is suppressed), then view the board.</li>
+				</ol>
+				<b>B) Real end-to-end (proves the whole chain):</b>
+				<ol style="margin: 0.4rem 0 0; padding-left: 1.1rem">
+					<li>In <code>/admin/dink-test</code>, create the always-open <b>self-test event</b> (tracks Bones, Cowhide, Feather, Raw chicken, Big bones).</li>
+					<li>Open <code>/dink-check</code>, copy your personal config URL into Dink's Dynamic Config URL.</li>
+					<li>Kill a few cows/chickens. Within ~30s (manifest cache) + the processor interval the drop appears on
+						<code>/dink-check</code> and the tile completes on <code>/bingo/dink-self-test</code>.</li>
+					<li>Nothing showing? <code>/admin/dink-drops</code> → filter <b>Didn't credit</b> for the reason (identity /
+						timing / no tile), fix it, and <b>Reprocess</b>.</li>
+				</ol>
+			</div>
+
+			<!-- ── Safety ── -->
+			<h2 id="safe">Does this break the existing proxy? No</h2>
+			<div class="box-note">
+				The proxy's original job — serve <code>/config/&lt;token&gt;</code> and forward
+				<code>/hook/&lt;token&gt;/&lt;channel&gt;</code> to the Discord webhooks with <code>@mentions</code> stripped — is unchanged:
+				<ul style="margin: 0.4rem 0 0; padding-left: 1.1rem">
+					<li><b>Token validation</b> is the <i>union</i> of <code>VALID_TOKENS</code> and active <code>dink_tokens</code>.
+						If Supabase is unset it falls back to <code>VALID_TOKENS</code> only — identical to before.</li>
+					<li><b>Forwarding</b> is untouched: LOOT still only forwards at/above <code>FEED_MIN_VALUE</code>; everything
+						else forwards exactly as before. The new code only does a background DB write, then falls through to the
+						same forward.</li>
+					<li>All new DB work is <b>best-effort</b> (<code>ctx.waitUntil</code>, errors swallowed) and gated on Supabase
+						being configured, so it can never block or fail a hook/config request.</li>
+				</ul>
+			</div>
+
+			<p class="foot">
+				Companion docs: <code>docs/event-builder-and-dink-tracking.md</code> (admin how-to + the proxy isolation test
+				commands) and the proxy repo's own <code>docs/bingo-auto-tracking.md</code>. Site code:
+				<code>src/lib/server/dinkDrops.ts</code> (consumer), <code>eventStructure.ts</code> (builder + tracked items),
+				<code>dinkTokens.ts</code> (tokens), <code>src/routes/api/dink/process</code> (cron endpoint).
+			</p>
+		</div>
+	</body>
+</html>

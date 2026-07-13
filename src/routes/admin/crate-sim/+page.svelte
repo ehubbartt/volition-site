@@ -441,7 +441,7 @@
 
 	button.primary {
 		border-color: var(--accent);
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 	}
 	button.primary:hover:not(:disabled) {
 		background: var(--accent-soft);
@@ -465,7 +465,7 @@
 		font-size: 0.8rem;
 		background: var(--surface-alt);
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: 3px;
 		color: var(--muted);
 		cursor: pointer;
 	}
@@ -531,7 +531,7 @@
 	.stat strong {
 		font-size: 1.25rem;
 		font-variant-numeric: tabular-nums;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 	}
 	.stat .sub {
 		font-size: 0.72rem;

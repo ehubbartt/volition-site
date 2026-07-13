@@ -24,10 +24,29 @@ const embedTemplateSchema = z.object({
 
 export const commandMessagesSchema = z.record(z.string(), embedTemplateSchema);
 
+// dink_config is the full Dink plugin settings blob served to RuneLite clients. Dink's
+// importer TYPE-CHECKS every setting and silently skips mismatches — a numeric setting
+// saved as the string "1" (easy to do via the raw-JSON editor) simply never applies on
+// clients, which is a miserable bug to chase. Reject digit-only strings at save time:
+// every legit string setting in the Dink config (patterns, messages, webhooks, item
+// lists) contains non-digit characters, so this can't false-positive.
+export const dinkConfigSchema = z.record(z.string(), z.unknown()).superRefine((obj, ctx) => {
+	for (const [k, v] of Object.entries(obj)) {
+		if (typeof v === 'string' && /^-?\d+$/.test(v.trim())) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: [k],
+				message: `looks numeric but is saved as a string — Dink will silently ignore it. Remove the quotes (${v} not "${v}").`
+			});
+		}
+	}
+});
+
 // Registry: config_name -> schema. Extended as more config groups become structured
 // (e.g. `form_definitions` lands with Slice 2's data-driven forms).
 export const configSchemas: Record<string, z.ZodType> = {
-	command_messages: commandMessagesSchema
+	command_messages: commandMessagesSchema,
+	dink_config: dinkConfigSchema
 };
 
 // Validate a parsed config value for the given config_name. Returns a flat, human

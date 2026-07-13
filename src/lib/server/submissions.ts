@@ -141,11 +141,10 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 }> {
 	const sb = db();
 
-	// Duo tile labels/FAQ in resolveTask() read the live tile map — keep admin edits fresh.
-	await ensureDuoTilesFresh();
-
+	// ensureDuoTilesFresh rides in the Promise.all: resolveTask() reads the tile map
+	// only AFTER all the fetches land, so there's no need to sequence it first.
 	const [eventsRes, bingoRes, teamRes, genericRes, approvedRes, rejectedRes] = await Promise.all([
-		sb.from('vs_events').select('id, slug, name'),
+		sb.from('vs_events').select('id, slug, name, kind'),
 		// Paginate the pending queues past the 1000-row cap (a large backlog would otherwise
 		// silently drop the newest pending submissions from the review queue).
 		fetchAllFiltered((f, t) =>
@@ -180,11 +179,19 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 				.range(f, t)
 		),
 		sb.from('vs_submissions').select('id', { count: 'exact', head: true }).eq('status', 'approved'),
-		sb.from('vs_submissions').select('id', { count: 'exact', head: true }).eq('status', 'rejected')
+		sb.from('vs_submissions').select('id', { count: 'exact', head: true }).eq('status', 'rejected'),
+		// Duo tile labels/FAQ in resolveTask() read the live tile map — keep admin edits
+		// fresh. TTL-guarded, so usually a no-op.
+		ensureDuoTilesFresh()
 	]);
 
 	const eventById = new Map<string, { id: string; slug: string; name: string }>(
 		(eventsRes.data ?? []).map((e) => [e.id, { id: e.id, slug: e.slug, name: e.name }])
+	);
+	// Personal boards are reviewed WITHOUT the WOM-codeword checklist (they're not
+	// codeword events) — the UI keys off kind='personal'.
+	const personalEventIds = new Set(
+		(eventsRes.data ?? []).filter((e) => (e as { kind?: string }).kind === 'personal').map((e) => e.id)
 	);
 
 	const raw: RawRow[] = [];
@@ -298,7 +305,7 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 		if (!group) {
 			group = {
 				source: r.source,
-				kind: isTask ? 'task' : 'event',
+				kind: isTask ? 'task' : r.event_id && personalEventIds.has(r.event_id) ? 'personal' : 'event',
 				ids: [],
 				event: context,
 				submitter,
@@ -327,10 +334,12 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 	const countItems = items.filter((it) => it.required != null && it.team);
 	if (countItems.length > 0) {
 		const eventIds = [...new Set(countItems.map((it) => it.event.id))];
+		const targetIds = [...new Set(countItems.map((it) => it.task.id))];
 		const { data: approvedRows } = await db()
 			.from('vs_submissions')
 			.select('event_id, team_id, target_id, quantity')
 			.in('event_id', eventIds)
+			.in('target_id', targetIds)
 			.eq('status', 'approved');
 		const approvedByKey = new Map<string, number>();
 		for (const r of (approvedRows ?? []) as Array<{
@@ -377,9 +386,6 @@ export async function loadReviewedSubmissions({
 }> {
 	const sb = db();
 	const REVIEWED = ['approved', 'rejected'];
-
-	// Duo tile labels in resolveTask() read the live tile map — keep admin edits fresh.
-	await ensureDuoTilesFresh();
 
 	// SERVER-SIDE SEARCH: with a term, match reviewed rows across ALL history (not just the
 	// recent window) by submitter (rsn/discord), team name, event name, and the generic
@@ -453,7 +459,9 @@ export async function loadReviewedSubmissions({
 		// a search can't possibly match them.
 		test || (searching && !bingoOr) ? empty : bingoQ.order('reviewed_at', { ascending: false }).limit(limit),
 		test || (searching && !teamOr) ? empty : teamQ.order('reviewed_at', { ascending: false }).limit(limit),
-		searching && !genericOr ? empty : genericQ.order('reviewed_at', { ascending: false }).limit(limit)
+		searching && !genericOr ? empty : genericQ.order('reviewed_at', { ascending: false }).limit(limit),
+		// Duo tile labels in resolveTask() read the live tile map — keep admin edits fresh.
+		ensureDuoTilesFresh()
 	]);
 
 	const eventById = new Map<string, { id: string; slug: string; name: string }>(
@@ -794,7 +802,10 @@ function extForMime(mime: string): string | null {
 	return EXT_BY_MIME[mime] ?? null;
 }
 
-async function uploadProof(
+// Upload one proof image to the shared bucket, returning its storage path + public URL.
+// `scope`/`ownerKey`/`targetId` just shape the object path (scope is the event id for event
+// submissions, or 'personal' for personal-board self-submissions). Exported for reuse.
+export async function uploadProof(
 	eventId: string,
 	ownerKey: string,
 	targetId: string,

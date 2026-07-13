@@ -18,7 +18,7 @@ export async function ensureWelcomePack(
 ): Promise<boolean> {
 	if (user.welcome_pack_granted) return false;
 	try {
-		const isMember = knownMember ?? (await isClanMember(user.discord_id, user.rsn));
+		const isMember = knownMember ?? (await isClanMember(user));
 		if (!isMember) return false;
 
 		// The welcome pack must exist. If it isn't set up yet, do nothing AND don't

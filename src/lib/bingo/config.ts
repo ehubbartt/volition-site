@@ -1,7 +1,79 @@
+import { TIERS } from '$lib/bingo/tiles';
+
 export const BINGO_EVENT_SLUG = 'echo-rumors';
 
 export const BINGO_ROW_COUNT = 12;
 export const BINGO_ROW_INTERVAL_HOURS = 14;
+
+// Per-event structural config. Builder-created events carry their own copy in
+// vs_events.structure; the legacy echo-rumors event (and anything with no
+// structure stored) falls back to DEFAULT_BINGO_STRUCTURE below.
+export interface BingoTierConfig {
+	// 'skilling' | 'easy' | … for the built-in columns, or an arbitrary slug for
+	// admin-added columns. The special key 'bonus' is the bonus column.
+	key: string;
+	label: string;
+	points: number;
+	color?: string;
+}
+
+// Colours cycled for admin-added columns that don't carry an explicit colour.
+export const COLUMN_PALETTE = [
+	'#3aa6ff',
+	'#5fc35f',
+	'#f0d23c',
+	'#e25656',
+	'#b07cff',
+	'#48c9b0',
+	'#ff8a5c',
+	'#e879b8'
+];
+
+export interface BingoStructure {
+	rowCount: number;
+	rowIntervalHours: number;
+	bonusEnabled: boolean;
+	tiers: BingoTierConfig[];
+}
+
+export const DEFAULT_BINGO_STRUCTURE: BingoStructure = {
+	rowCount: BINGO_ROW_COUNT,
+	rowIntervalHours: BINGO_ROW_INTERVAL_HOURS,
+	bonusEnabled: true,
+	tiers: TIERS.map((t) => ({ key: t.key, label: t.label, points: t.points }))
+};
+
+// Narrow an unknown jsonb value (vs_events.structure / template structure) into a
+// BingoStructure, filling any missing field from the default so callers are safe.
+export function normalizeBingoStructure(raw: unknown): BingoStructure {
+	if (!raw || typeof raw !== 'object') return DEFAULT_BINGO_STRUCTURE;
+	const r = raw as Record<string, unknown>;
+	const rowCount = Number(r.rowCount);
+	const rowIntervalHours = Number(r.rowIntervalHours);
+	const tiers = Array.isArray(r.tiers)
+		? (r.tiers as unknown[])
+				.map((t) => {
+					const o = (t ?? {}) as Record<string, unknown>;
+					const color = typeof o.color === 'string' ? o.color : undefined;
+					return {
+						key: String(o.key ?? ''),
+						label: String(o.label ?? o.key ?? ''),
+						points: Number(o.points) || 0,
+						...(color ? { color } : {})
+					};
+				})
+				.filter((t) => t.key)
+		: DEFAULT_BINGO_STRUCTURE.tiers;
+	return {
+		rowCount: Number.isFinite(rowCount) && rowCount > 0 ? Math.floor(rowCount) : DEFAULT_BINGO_STRUCTURE.rowCount,
+		rowIntervalHours:
+			Number.isFinite(rowIntervalHours) && rowIntervalHours > 0
+				? rowIntervalHours
+				: DEFAULT_BINGO_STRUCTURE.rowIntervalHours,
+		bonusEnabled: r.bonusEnabled !== false,
+		tiers: tiers.length ? tiers : DEFAULT_BINGO_STRUCTURE.tiers
+	};
+}
 
 export const BINGO_BUCKET = 'vs-bingo-proofs';
 

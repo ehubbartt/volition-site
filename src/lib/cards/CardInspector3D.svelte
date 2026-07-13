@@ -742,7 +742,7 @@
 
 	.badge {
 		padding: 0.1rem 0.55rem;
-		border-radius: 999px;
+		border-radius: 3px;
 		border: 1px solid var(--border);
 		background: rgba(0, 0, 0, 0.45);
 		color: var(--muted);

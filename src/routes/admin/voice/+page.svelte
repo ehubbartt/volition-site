@@ -1,8 +1,20 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import StatsTabs from '$lib/admin/StatsTabs.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 
-	let { data }: { data: PageData } = $props();
+	let { data: pageData }: { data: PageData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen panel
+	// instantly; first visits fill in as the fetch lands.
+	const EMPTY_VOICE: NonNullable<PageData['voice']['cached']> = {
+		stats: { totalMinutes: 0, totalUsers: 0, activeToday: 0, peakConcurrentToday: 0 },
+		days: [],
+		users: [],
+		recentActivity: []
+	};
+	const voiceRes = swrResource(() => pageData.voice, EMPTY_VOICE);
+	const data = $derived(voiceRes.value);
 
 	let search = $state('');
 	let tab = $state<'leaderboard' | 'activity'>('leaderboard');
@@ -56,6 +68,10 @@
 	<StatsTabs />
 	<p class="muted">Voice channel tracking and analytics.</p>
 
+	{#if !voiceRes.ready}
+		<p class="muted">Loading…</p>
+	{/if}
+
 	<div class="summary">
 		<div class="stat">
 			<span class="num">{fmt(data.stats.totalMinutes)}</span>
@@ -84,10 +100,12 @@
 				</div>
 			{/each}
 		</div>
-		<div class="chart-axis">
-			<span>{shortDate(data.days[0].date)}</span>
-			<span>{shortDate(data.days[data.days.length - 1].date)}</span>
-		</div>
+		{#if data.days.length}
+			<div class="chart-axis">
+				<span>{shortDate(data.days[0].date)}</span>
+				<span>{shortDate(data.days[data.days.length - 1].date)}</span>
+			</div>
+		{/if}
 	</div>
 
 	<div class="tabs">
@@ -171,7 +189,7 @@
 		text-shadow: var(--ts);
 	}
 	.stat .num {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.5rem;
 		color: var(--accent);
 	}

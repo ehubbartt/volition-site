@@ -51,7 +51,10 @@ export function discord(): Discord {
 
 	const clientId = privateEnv.DISCORD_CLIENT_ID;
 	const clientSecret = privateEnv.DISCORD_CLIENT_SECRET;
-	const siteUrl = publicEnv.PUBLIC_SITE_URL;
+	// Strip any trailing slash so the callback URL can't become a double-slash
+	// (`…fly.dev//auth/discord/callback`), which Discord rejects as an invalid
+	// redirect_uri because it must EXACTLY match the registered one.
+	const siteUrl = publicEnv.PUBLIC_SITE_URL?.replace(/\/+$/, '');
 
 	if (!clientId || !clientSecret || !siteUrl) {
 		throw new Error(

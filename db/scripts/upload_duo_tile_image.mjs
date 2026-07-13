@@ -17,9 +17,9 @@ if (!filePath) {
 }
 
 const url = process.env.SUPABASE_URL;
-const key = process.env.SUPABASE_ANON_KEY;
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 if (!url || !key) {
-	console.error('Missing SUPABASE_URL / SUPABASE_ANON_KEY (run with --env-file=.env)');
+	console.error('Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (run with --env-file=.env)');
 	process.exit(1);
 }
 

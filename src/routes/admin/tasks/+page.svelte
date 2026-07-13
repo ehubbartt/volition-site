@@ -2,8 +2,19 @@
 	import { enhance } from '$app/forms';
 	import type { PageData, ActionData } from './$types';
 	import EventsTasksTabs from '$lib/admin/EventsTasksTabs.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let { data: pageData, form }: { data: PageData; form: ActionData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen lists instantly;
+	// first visits fill in as the fetch lands. Shadowed under the old `data` name so
+	// every reference keeps working.
+	const EMPTY_TASKS: NonNullable<PageData['tasks']['cached']> = {
+		templates: [],
+		active: []
+	};
+	const taskRes = swrResource(() => pageData.tasks, EMPTY_TASKS);
+	const data = $derived(taskRes.value);
 
 	let createMode = $state<'template' | 'active'>('template');
 	let createKind = $state<'weekly' | 'custom'>('weekly');
@@ -33,6 +44,10 @@
 <section class="head">
 	<p class="muted">The weekly rotation pool + active tasks. Tasks are separate from full events.</p>
 </section>
+
+{#if !taskRes.ready}
+	<p class="muted">Loading…</p>
+{/if}
 
 {#if form?.error}<div class="error">{form.error}</div>{/if}
 
@@ -236,7 +251,7 @@
 		color: var(--accent);
 		background: var(--accent-soft);
 		border: 1px solid var(--accent);
-		border-radius: 999px;
+		border-radius: 3px;
 		padding: 0.05rem 0.5rem;
 	}
 	.error {
@@ -346,7 +361,7 @@
 		font-size: 0.68rem;
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
-		border-radius: 999px;
+		border-radius: 3px;
 		padding: 0.05rem 0.45rem;
 		border: 1px solid transparent;
 	}

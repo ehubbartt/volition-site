@@ -1,8 +1,16 @@
 <script lang="ts">
 	import { formatCountdown, type PlayerTask } from '$lib/tasks';
+	import Skeleton from '$lib/Skeleton.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 	import type { PageData } from './$types';
 
-	let { data }: { data: PageData } = $props();
+	let { data: pageData }: { data: PageData } = $props();
+
+	// The task list is STREAMED (see +page.ts) so navigation lands instantly;
+	// swrResource shows cached content synchronously and swaps in fresh data.
+	const tasksRes = swrResource(() => pageData.tasks, [] as PlayerTask[]);
+	const tasks = $derived(tasksRes.value);
+	const tasksReady = $derived(tasksRes.ready);
 
 	// Live clock so the countdowns tick (pattern from the gamba page).
 	let now = $state(Date.now());
@@ -11,7 +19,12 @@
 		return () => clearInterval(id);
 	});
 
-	const todoCount = $derived(data.tasks.filter((t) => t.status === 'todo').length);
+	const todoCount = $derived(tasks.filter((t) => t.status === 'todo').length);
+
+	// First-time setup (Temple/Dink links) renders as its own section above the list
+	// and disappears entirely once both are done (the server omits completed ones).
+	const setupTasks = $derived(tasks.filter((t) => t.kind === 'setup'));
+	const mainTasks = $derived(tasks.filter((t) => t.kind !== 'setup'));
 
 	const STATUS_LABEL: Record<PlayerTask['status'], string> = {
 		todo: 'To do',
@@ -74,28 +87,51 @@
 	</div>
 {/snippet}
 
-{#if data.tasks.length === 0}
+{#snippet taskCard(t: PlayerTask)}
+	<li>
+		<a
+			class="task panel"
+			class:is-done={t.status === 'done'}
+			href={t.href}
+			target={t.external ? '_blank' : undefined}
+			rel={t.external ? 'noopener noreferrer' : undefined}
+		>
+			{@render taskMain(t)}
+			<div class="task-cta">
+				{#if t.resetAt}
+					<span class="reset">{resetLabel(t)} <strong>{countdownFor(t)}</strong></span>
+				{/if}
+				<span class="cta">{t.ctaLabel} →</span>
+			</div>
+		</a>
+	</li>
+{/snippet}
+
+{#if !tasksReady}
+	<ul class="task-list">
+		{#each { length: 4 }, i (i)}
+			<li><Skeleton height="5.5rem" radius="8px" /></li>
+		{/each}
+	</ul>
+{:else if tasks.length === 0}
 	<div class="panel empty">Nothing time-gated right now. Check back later!</div>
 {:else}
+	{#if setupTasks.length > 0}
+		<section class="setup-block">
+			<h2 class="setup-title">⚙️ Finish your setup</h2>
+			<p class="muted setup-sub">
+				Needed for the ranking system and auto-tracked bingo — each takes about 2 minutes.
+			</p>
+			<ul class="task-list">
+				{#each setupTasks as t (t.id)}
+					{@render taskCard(t)}
+				{/each}
+			</ul>
+		</section>
+	{/if}
 	<ul class="task-list">
-		{#each data.tasks as t (t.id)}
-			<li>
-				<a
-					class="task panel"
-					class:is-done={t.status === 'done'}
-					href={t.href}
-					target={t.external ? '_blank' : undefined}
-					rel={t.external ? 'noopener noreferrer' : undefined}
-				>
-					{@render taskMain(t)}
-					<div class="task-cta">
-						{#if t.resetAt}
-							<span class="reset">{resetLabel(t)} <strong>{countdownFor(t)}</strong></span>
-						{/if}
-						<span class="cta">{t.ctaLabel} →</span>
-					</div>
-				</a>
-			</li>
+		{#each mainTasks as t (t.id)}
+			{@render taskCard(t)}
 		{/each}
 	</ul>
 {/if}
@@ -138,6 +174,22 @@
 		padding: 1.5rem;
 		text-align: center;
 		color: var(--muted);
+	}
+
+	/* First-time setup section: its own block above the list, gone once complete. */
+	.setup-block {
+		margin-bottom: 1.5rem;
+		padding-bottom: 1.25rem;
+		border-bottom: 1px solid var(--border);
+	}
+	.setup-title {
+		margin: 0 0 0.15rem;
+		font-size: 1.05rem;
+		color: var(--accent);
+	}
+	.setup-sub {
+		margin: 0 0 0.75rem;
+		font-size: 0.85rem;
 	}
 
 	.task {

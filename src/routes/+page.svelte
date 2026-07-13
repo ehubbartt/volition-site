@@ -6,9 +6,28 @@
 	import { datetimeLocalToIso } from '$lib/datetime';
 	import { rankLabel, rankColor, rankIndex, rankImg } from '$lib/ranks';
 	import { rsnToSlug } from '$lib/rsn';
+	import StatCard from '$lib/StatCard.svelte';
+	import Skeleton from '$lib/Skeleton.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	// ALL page data is stale-while-revalidate pairs (see +page.ts): each section
+	// seeds from the last payload this browser saw (instant real content on
+	// revisits) and swaps in the background refetch when it lands. First-ever
+	// visits show skeletons; revalidations keep the previous value on screen.
+	// Cached fallbacks are SYNCHRONOUS (the ?? in each derived) so revisits —
+	// including back/forward, where scroll restoration needs real content — first-
+	// paint with the last-seen data instead of a skeleton frame.
+	const directoryRes = swrResource<PageData['directory']['cached']>(() => data.directory, null);
+	const taskSummaryRes = swrResource<PageData['taskSummary']['cached']>(() => data.taskSummary, null);
+	const calendarRes = swrResource<CalendarItem[]>(() => data.calendar, []);
+	const statsRes = swrResource<PageData['stats']['cached']>(() => data.stats, null);
+	const directory = $derived(directoryRes.value);
+	const taskSummary = $derived(taskSummaryRes.value);
+	const calendar = $derived(calendarRes.value);
+	const stats = $derived(statsRes.value);
 
 	const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 	const MONTHS = [
@@ -56,7 +75,7 @@
 
 	const itemsByDay = $derived.by(() => {
 		const m = new Map<string, CalendarItem[]>();
-		for (const it of data.calendar) {
+		for (const it of calendar) {
 			const k = dayKey(new Date(it.date));
 			let arr = m.get(k);
 			if (!arr) {
@@ -85,13 +104,13 @@
 		if (selectedKey) return itemsByDay.get(selectedKey) ?? [];
 		const startOfToday = new Date();
 		startOfToday.setHours(0, 0, 0, 0);
-		return data.calendar
+		return calendar
 			.filter((it) => new Date(it.date).getTime() >= startOfToday.getTime())
 			.slice(0, 8);
 	});
 
 	// Soonest upcoming item drives the countdown banner (calendar is sorted asc).
-	const nextItem = $derived(data.calendar.find((it) => new Date(it.date).getTime() >= now) ?? null);
+	const nextItem = $derived(calendar.find((it) => new Date(it.date).getTime() >= now) ?? null);
 	const countdown = $derived.by(() => {
 		if (!nextItem) return '';
 		let ms = new Date(nextItem.date).getTime() - now;
@@ -107,7 +126,7 @@
 
 	const filteredMembers = $derived.by(() => {
 		const q = search.trim().toLowerCase();
-		const list = data.members.filter((m) => !q || m.rsn.toLowerCase().includes(q));
+		const list = (directory?.members ?? []).filter((m) => !q || m.rsn.toLowerCase().includes(q));
 		const sorted = [...list];
 		if (sortBy === 'vp') {
 			sorted.sort((a, b) => b.points - a.points || a.rsn.localeCompare(b.rsn, undefined, { sensitivity: 'base' }));
@@ -119,7 +138,7 @@
 		return sorted;
 	});
 
-	const maxRankCount = $derived(Math.max(1, ...data.rankBreakdown.map((r) => r.count)));
+	const maxRankCount = $derived(Math.max(1, ...(directory?.rankBreakdown ?? []).map((r) => r.count)));
 
 	function prevMonth() {
 		if (viewMonth === 0) {
@@ -265,18 +284,9 @@
 	</section>
 
 	<div class="public-stats">
-		<div class="stat">
-			<span class="stat-value">{data.stats.members}</span>
-			<span class="stat-label">Members</span>
-		</div>
-		<div class="stat">
-			<span class="stat-value">{data.stats.activeEvents}</span>
-			<span class="stat-label">Active events</span>
-		</div>
-		<div class="stat">
-			<span class="stat-value">{data.stats.totalEvents}</span>
-			<span class="stat-label">Events all-time</span>
-		</div>
+		<StatCard value={directory ? directory.memberCount : '—'} label="Members" />
+		<StatCard value={stats ? stats.activeEvents : '—'} label="Active events" />
+		<StatCard value={stats ? stats.totalEvents : '—'} label="Events all-time" />
 	</div>
 
 	{#if agendaItems.length > 0}
@@ -321,32 +331,20 @@
 	</section>
 
 	<div class="stat-strip">
-		<div class="stat">
-			<span class="stat-value">{data.stats.members}</span>
-			<span class="stat-label">Members</span>
-		</div>
-		<div class="stat">
-			<span class="stat-value">{data.stats.activeEvents}</span>
-			<span class="stat-label">Active events</span>
-		</div>
-		<div class="stat">
-			<span class="stat-value">{data.stats.totalEvents}</span>
-			<span class="stat-label">Events all-time</span>
-		</div>
-		<div class="stat">
-			<span class="stat-value">{data.stats.packsOpened}</span>
-			<span class="stat-label">Packs opened</span>
-		</div>
+		<StatCard value={directory ? directory.memberCount : '—'} label="Members" />
+		<StatCard value={stats ? stats.activeEvents : '—'} label="Active events" />
+		<StatCard value={stats ? stats.totalEvents : '—'} label="Events all-time" />
+		<StatCard value={stats ? stats.packsOpened : '—'} label="Packs opened" />
 	</div>
 
-	{#if data.taskSummary}
+	{#if taskSummary}
 		<a class="todo-card" href="/tasks">
 			<div class="todo-text">
 				<span class="todo-label">Your to-do</span>
 				<span class="todo-line">
-					{#if data.taskSummary.todoCount > 0}
-						<strong>{data.taskSummary.todoCount}</strong>
-						{data.taskSummary.todoCount === 1 ? 'thing' : 'things'} to do
+					{#if taskSummary.todoCount > 0}
+						<strong>{taskSummary.todoCount}</strong>
+						{taskSummary.todoCount === 1 ? 'thing' : 'things'} to do
 					{:else}
 						All caught up
 					{/if}
@@ -462,11 +460,17 @@
 		<aside class="side">
 			<section class="panel">
 				<h2>Rank breakdown</h2>
-				{#if data.rankBreakdown.length === 0}
+				{#if !directory}
+					<div class="bars">
+						{#each { length: 5 }, i (i)}
+							<Skeleton height="1.1rem" />
+						{/each}
+					</div>
+				{:else if directory.rankBreakdown.length === 0}
 					<p class="muted small">No ranked members yet.</p>
 				{:else}
 					<div class="bars">
-						{#each data.rankBreakdown as r (r.value)}
+						{#each directory.rankBreakdown as r (r.value)}
 							<div class="bar-row">
 								<span class="bar-label">{@render rankBadge(r.value, r.color, r.label)}{r.label}</span>
 								<div class="bar-track">
@@ -481,11 +485,17 @@
 
 			<section class="panel">
 				<h2>Recently joined</h2>
-				{#if data.recentMembers.length === 0}
+				{#if !directory}
+					<ul class="recent">
+						{#each { length: 5 }, i (i)}
+							<li><Skeleton height="1.1rem" /></li>
+						{/each}
+					</ul>
+				{:else if directory.recentMembers.length === 0}
 					<p class="muted small">No members yet.</p>
 				{:else}
 					<ul class="recent">
-						{#each data.recentMembers as m (m.rsn)}
+						{#each directory.recentMembers as m (m.rsn)}
 							<li>
 								{@render rankBadge(m.rank, rankColor(m.rank), rankLabel(m.rank))}
 								{#if canViewProfiles && m.hasProfile}
@@ -515,7 +525,9 @@
 				</select>
 			</div>
 		</div>
-		<p class="muted small">{filteredMembers.length} of {data.members.length} members</p>
+		<p class="muted small">
+			{directory ? `${filteredMembers.length} of ${directory.members.length} members` : 'Loading members…'}
+		</p>
 
 		<div class="table-wrap">
 			<table>
@@ -527,6 +539,13 @@
 					</tr>
 				</thead>
 				<tbody>
+					{#if !directory}
+						{#each { length: 8 }, i (i)}
+							<tr>
+								<td colspan="3"><Skeleton height="1.2rem" /></td>
+							</tr>
+						{/each}
+					{/if}
 					{#each filteredMembers as m (m.rsn)}
 						<tr>
 							<td class="rsn-cell">
@@ -545,7 +564,7 @@
 							<td class="vp-col value">{m.points.toLocaleString()}</td>
 						</tr>
 					{/each}
-					{#if filteredMembers.length === 0}
+					{#if directory && filteredMembers.length === 0}
 						<tr><td colspan="3" class="muted empty-row">No members match.</td></tr>
 					{/if}
 				</tbody>
@@ -640,7 +659,7 @@
 		margin: 2rem auto 1.5rem;
 		text-align: center;
 		padding: 2rem 1.5rem;
-		background: rgba(58, 48, 36, 0.5);
+		background: #3a3024;
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
 		box-shadow: inset 0 0 0 1px rgba(255, 152, 31, 0.05), 0 4px 24px rgba(0, 0, 0, 0.6);
@@ -763,29 +782,8 @@
 	.public-stats {
 		grid-template-columns: repeat(3, 1fr);
 	}
-	.stat {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.15rem;
-		padding: 0.9rem 0.5rem;
-		background: linear-gradient(180deg, rgba(58, 48, 36, 0.85), rgba(40, 32, 24, 0.85));
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		box-shadow: var(--shadow-card);
-	}
-	.stat-value {
-		font-family: var(--font-heading);
-		font-size: 1.7rem;
-		color: var(--yellow);
-		text-shadow: var(--ts);
-		line-height: 1;
-	}
-	.stat-label {
-		font-size: 0.8rem;
-		color: var(--muted);
-		text-align: center;
-	}
+	/* Individual stat tiles are rendered by StatCard; the wrappers above just lay
+	   them out in a grid. */
 
 	/* ── To-do summary card ── */
 	.todo-card {
@@ -988,7 +986,7 @@
 		text-align: center;
 		color: #1a1208;
 		background: var(--accent);
-		border-radius: 999px;
+		border-radius: 3px;
 		text-shadow: none;
 	}
 
@@ -1331,9 +1329,6 @@
 		}
 		.public-stats {
 			grid-template-columns: repeat(3, 1fr);
-		}
-		.stat-value {
-			font-size: 1.4rem;
 		}
 		.welcome {
 			align-items: flex-start;

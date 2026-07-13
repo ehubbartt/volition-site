@@ -1,190 +1,15 @@
-import { redirect, error, fail } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
-import { db, fetchAllFiltered } from '$lib/server/db';
+import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
-import { ensureWelcomePack } from '$lib/server/welcomePack';
-import { loadCalendarItems } from '$lib/server/calendar';
-import { loadPlayerTasks } from '$lib/server/tasks';
 import { CATEGORY_OPTIONS } from '$lib/calendar';
-import { RANK_ORDER, RANK_LABEL, RANK_COLOR, rankIndex } from '$lib/ranks';
-import type { Actions, PageServerLoad } from './$types';
+import { bustMicroCache } from '$lib/server/microCache';
+import type { Actions } from './$types';
 
-// The Volition clan roster lives in the bot's `players` table (this bot is
-// Volition's). The home page's member-facing sections (count, lookup,
-// recently-joined, rank breakdown) read from it — NOT vs_users, which also holds
-// other-clan members who signed in for cross-clan events.
-interface PlayerRow {
-	id: number;
-	rsn: string;
-	discord_id: string | null;
-	rank: string | null;
-	points: number | null;
-	clan_joined_at: string | null;
-	created_at: string | null;
-}
-
-interface SiteUserRow {
-	discord_id: string | null;
-	rsn: string | null;
-}
-
-interface EventStatusRow {
-	status: string;
-	ends_at: string | null;
-}
-
-function eventCounts(rows: EventStatusRow[], now: number = Date.now()) {
-	// "Active" = open/locked AND not past its own end time. An event with an explicit
-	// ends_at in the past is over even if an admin hasn't flipped it to 'closed' yet
-	// (mirrors the /events list). bingo has no explicit ends_at, so it stays counted.
-	const active = rows.filter((r) => {
-		if (r.status !== 'open' && r.status !== 'locked') return false;
-		if (!r.ends_at) return true;
-		const end = new Date(r.ends_at).getTime();
-		if (Number.isNaN(end)) return true; // unparseable end = no real end → still active
-		return now <= end;
-	}).length;
-	return { active, total: rows.length };
-}
-
-// Mirrors users.ts rsnExactPattern normalization (OSRS treats space/underscore as
-// equal), so a roster rsn can be matched against a site rsn case/spacing-insensitively.
-function normRsn(rsn: string | null | undefined): string {
-	return (rsn ?? '').trim().replace(/_/g, ' ').toLowerCase();
-}
-
-export const load: PageServerLoad = async ({ parent }) => {
-	// Read the user from the layout load (single source of truth) rather than
-	// resolving it again here. Returning our own `user` key would clobber the
-	// layout's and let the two diverge — that's how a stale client after a deploy
-	// ends up with a logged-in nav but a "please sign in" page body.
-	const { user } = await parent();
-	const sb = db();
-
-	// Logged out → public landing (hero + a light upcoming teaser + headline stats).
-	if (!user) {
-		const [calendar, playersRes, eventsRes] = await Promise.all([
-			loadCalendarItems(false),
-			sb.from('players').select('id', { count: 'exact', head: true }),
-			sb.from('vs_events').select('status, ends_at').neq('slug', 'dink-self-test').in('status', ['open', 'locked', 'closed'])
-		]);
-		const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
-		return {
-			calendar,
-			members: [] as never[],
-			rankBreakdown: [] as never[],
-			recentMembers: [] as never[],
-			stats: { members: playersRes.count ?? 0, activeEvents: active, totalEvents: total, packsOpened: 0 },
-			taskSummary: null,
-			categoryOptions: CATEGORY_OPTIONS
-		};
-	}
-
-	// Logged in but not onboarded → finish onboarding first.
-	if (!user.rsn || !user.clan_allegiance || !user.account_type) {
-		throw redirect(303, '/onboarding');
-	}
-
-	const admin = isAdmin(user);
-
-	const [calendar, playersRes, siteUsersRes, eventsRes, packsRes, tasks] = await Promise.all([
-		loadCalendarItems(admin),
-		// Paginate: the full clan roster + all site users can exceed the 1000-row cap.
-		fetchAllFiltered((f, t) =>
-			sb.from('players').select('id, rsn, discord_id, rank, points, clan_joined_at, created_at').range(f, t)
-		),
-		fetchAllFiltered((f, t) => sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null).range(f, t)),
-		sb.from('vs_events').select('status, ends_at').neq('slug', 'dink-self-test').in('status', ['draft', 'preview', 'open', 'locked', 'closed']),
-		sb.from('vs_pack_opens').select('id', { count: 'exact', head: true }),
-		// To-do surface is open to all onboarded users — always aggregate it.
-		loadPlayerTasks(user)
-	]);
-
-	// Ship a light summary (not the full array) for the home "Your to-do" card.
-	const taskSummary = tasks
-		? {
-				todoCount: tasks.filter((t) => t.status === 'todo').length,
-				total: tasks.length,
-				hasActive: tasks.some((t) => t.status === 'active')
-			}
-		: null;
-
-	const playerRows = (playersRes.data ?? []) as PlayerRow[];
-	const siteUsers = (siteUsersRes.data ?? []) as SiteUserRow[];
-
-	// Which roster members have a site profile (→ /u/[rsn] is reachable). Match on
-	// discord_id first, then normalized rsn.
-	const siteDiscordIds = new Set(siteUsers.map((u) => u.discord_id).filter(Boolean) as string[]);
-	const siteRsns = new Set(siteUsers.map((u) => normRsn(u.rsn)).filter(Boolean));
-	const hasProfile = (p: PlayerRow) =>
-		(p.discord_id != null && siteDiscordIds.has(p.discord_id)) || siteRsns.has(normRsn(p.rsn));
-
-	// Welcome pack: if this member hasn't received theirs yet and is now in the
-	// Volition roster (e.g. they signed up before joining, then joined), grant it.
-	// Reuses the roster already loaded above, so it's a no-op (no query) once granted.
-	if (!user.welcome_pack_granted) {
-		const userIsMember = playerRows.some(
-			(p) =>
-				(p.discord_id != null && p.discord_id === user.discord_id) ||
-				normRsn(p.rsn) === normRsn(user.rsn)
-		);
-		await ensureWelcomePack(
-			{
-				id: user.id,
-				discord_id: user.discord_id,
-				rsn: user.rsn,
-				welcome_pack_granted: user.welcome_pack_granted
-			},
-			userIsMember
-		);
-	}
-
-	const members = playerRows
-		.map((p) => ({
-			rsn: p.rsn,
-			rank: p.rank,
-			points: p.points ?? 0,
-			joinedAt: p.clan_joined_at ?? p.created_at,
-			hasProfile: hasProfile(p)
-		}))
-		.sort((a, b) => a.rsn.localeCompare(b.rsn, undefined, { sensitivity: 'base' }));
-
-	// Rank breakdown in ladder order; unrecognized / null ranks collapse to one
-	// "Unranked" bucket appended at the end.
-	const rankCounts = new Map<string, number>();
-	let unranked = 0;
-	for (const p of playerRows) {
-		if (rankIndex(p.rank) === -1) unranked += 1;
-		else rankCounts.set(p.rank as string, (rankCounts.get(p.rank as string) ?? 0) + 1);
-	}
-	const rankBreakdown = RANK_ORDER.filter((r) => (rankCounts.get(r) ?? 0) > 0)
-		.map((r) => ({ value: r as string, label: RANK_LABEL[r], color: RANK_COLOR[r], count: rankCounts.get(r) ?? 0 }));
-	if (unranked > 0) {
-		rankBreakdown.push({ value: 'unranked', label: 'Unranked', color: '#9aa0a6', count: unranked });
-	}
-
-	const recentMembers = [...members]
-		.filter((m) => m.joinedAt)
-		.sort((a, b) => new Date(b.joinedAt!).getTime() - new Date(a.joinedAt!).getTime())
-		.slice(0, 5);
-
-	const { active, total } = eventCounts((eventsRes.data ?? []) as EventStatusRow[]);
-
-	return {
-		calendar,
-		members,
-		rankBreakdown,
-		recentMembers,
-		stats: {
-			members: playerRows.length,
-			activeEvents: active,
-			totalEvents: total,
-			packsOpened: packsRes.count ?? 0
-		},
-		taskSummary,
-		categoryOptions: CATEGORY_OPTIONS
-	};
-};
+// ACTIONS ONLY — the homepage has no server load. Its data comes from /api/home
+// (see src/lib/server/homeData.ts) via the universal load in +page.ts, so
+// navigating home never waits on the server. With no server load here, SvelteKit
+// skips the data round-trip entirely on client-side navigation.
 
 const CATEGORY_VALUES = CATEGORY_OPTIONS.map((c) => c.value) as [string, ...string[]];
 
@@ -243,6 +68,7 @@ export const actions: Actions = {
 		});
 
 		if (insertError) return fail(500, { error: insertError.message });
+		bustMicroCache('home:calendar');
 		return { ok: true, action: 'create' };
 	},
 
@@ -276,6 +102,7 @@ export const actions: Actions = {
 			.eq('id', id);
 
 		if (updateError) return fail(500, { error: updateError.message });
+		bustMicroCache('home:calendar');
 		return { ok: true, action: 'update' };
 	},
 
@@ -288,6 +115,7 @@ export const actions: Actions = {
 
 		const { error: deleteError } = await db().from('vs_calendar_events').delete().eq('id', id);
 		if (deleteError) return fail(500, { error: deleteError.message });
+		bustMicroCache('home:calendar');
 		return { ok: true, action: 'delete' };
 	}
 };

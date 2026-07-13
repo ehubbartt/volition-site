@@ -1374,7 +1374,7 @@
 		border-radius: 0;
 		background: none;
 		text-align: left;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.15rem;
 		color: inherit;
 		cursor: pointer;
@@ -1399,7 +1399,7 @@
 		padding: 0.05rem 0.45rem;
 		background: var(--surface-alt);
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: 3px;
 		font-size: 0.75rem;
 		color: var(--text);
 	}
@@ -1463,7 +1463,7 @@
 	}
 
 	.tile-name {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 0.92rem;
 		line-height: 1.15;
 		overflow: hidden;
@@ -1488,7 +1488,7 @@
 		font-size: 0.62rem;
 		letter-spacing: 0.03em;
 		padding: 0.02rem 0.35rem;
-		border-radius: 999px;
+		border-radius: 3px;
 		border: 1px solid var(--border);
 		background: var(--surface-alt);
 		color: var(--muted);
@@ -1567,12 +1567,12 @@
 
 	.badge {
 		padding: 0.05rem 0.5rem;
-		border-radius: 999px;
+		border-radius: 3px;
 		border: 1px solid var(--border);
 		background: var(--surface-alt);
 		color: var(--muted);
 		font-size: 0.7rem;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		letter-spacing: 0.5px;
 		text-transform: uppercase;
 	}
@@ -1705,7 +1705,7 @@
 	.builder-btn {
 		align-self: flex-start;
 		padding: 0.45rem 0.8rem;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 0.88rem;
 		color: var(--accent);
 		background: var(--accent-soft);
@@ -1852,7 +1852,7 @@
 	.slot-head {
 		display: block;
 		margin-bottom: 0.4rem;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 0.8rem;
 		letter-spacing: 0.5px;
 		color: var(--text);
@@ -2065,7 +2065,7 @@
 
 	button.primary {
 		border-color: var(--accent);
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		align-self: flex-start;
 	}
 

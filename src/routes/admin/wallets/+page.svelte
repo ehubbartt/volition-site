@@ -1,10 +1,21 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import { formatGP } from '$lib/gp';
+	import { formatDate } from '$lib/datetime';
 	import { enhance } from '$app/forms';
 	import StatsTabs from '$lib/admin/StatsTabs.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 
-	let { data }: { data: PageData } = $props();
+	let { data: pageData }: { data: PageData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen roster
+	// instantly; first visits fill in as the fetch lands.
+	const EMPTY_WALLETS: NonNullable<PageData['wallets']['cached']> = {
+		players: [],
+		totals: { members: 0, totalVP: 0, unpaidItems: 0, walletValue: 0, goldBalance: 0 }
+	};
+	const walletsRes = swrResource(() => pageData.wallets, EMPTY_WALLETS);
+	const data = $derived(walletsRes.value);
 
 	let search = $state('');
 	let sortBy = $state<
@@ -15,12 +26,7 @@
 
 	const fmt = (n: number) => n.toLocaleString();
 
-	function ago(iso: string | null): string {
-		if (!iso) return '—';
-		const d = new Date(iso);
-		if (isNaN(d.getTime())) return '—';
-		return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-	}
+	const ago = formatDate;
 
 	function toggleSort(col: typeof sortBy) {
 		if (sortBy === col) {
@@ -62,6 +68,10 @@
 	<p class="muted">
 		VP balances and the GP value of unpaid loot-crate items waiting in members' wallets.
 	</p>
+
+	{#if !walletsRes.ready}
+		<p class="muted">Loading…</p>
+	{/if}
 
 	<div class="summary">
 		<div class="stat">
@@ -238,7 +248,7 @@
 		text-shadow: var(--ts);
 	}
 	.stat .num {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.5rem;
 		color: var(--accent);
 	}
@@ -357,7 +367,7 @@
 	.badge {
 		display: inline-block;
 		padding: 0.05rem 0.45rem;
-		border-radius: 999px;
+		border-radius: 3px;
 		font-size: 0.78rem;
 		background: var(--accent-soft);
 		border: 1px solid var(--accent);
@@ -414,7 +424,7 @@
 	.pill {
 		display: inline-block;
 		padding: 0.05rem 0.45rem;
-		border-radius: 999px;
+		border-radius: 3px;
 		font-size: 0.65rem;
 		text-transform: uppercase;
 		letter-spacing: 0.5px;

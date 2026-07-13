@@ -38,7 +38,7 @@
 	>
 		<div class="art">
 			<div class="face back static">
-				<img src={back} alt="" loading="lazy" />
+				<img src={back} alt="" loading="lazy" decoding="async" />
 			</div>
 		</div>
 		<div class="info">
@@ -55,14 +55,14 @@
 						<!-- svelte-ignore a11y_media_has_caption -->
 						<video src={front} autoplay loop muted playsinline></video>
 					{:else}
-						<img src={front} alt={card.name} loading="lazy" />
+						<img src={front} alt={card.name} loading="lazy" decoding="async" />
 					{/if}
 					{#each card.layers ?? [] as ly}
-						<img class="layer" src={ly.url} alt="" loading="lazy" />
+						<img class="layer" src={ly.url} alt="" loading="lazy" decoding="async" />
 					{/each}
 				</div>
 				<div class="face back">
-					<img src={back} alt="" loading="lazy" />
+					<img src={back} alt="" loading="lazy" decoding="async" />
 				</div>
 			</div>
 			{#if quantity && quantity > 1}
@@ -188,7 +188,7 @@
 		padding: 0.08rem 0.4rem;
 		background: rgba(20, 8, 30, 0.85);
 		border: 1px solid #b06bff;
-		border-radius: 999px;
+		border-radius: 3px;
 		font-size: 0.65rem;
 		color: #e7d3ff;
 		text-shadow: var(--ts);

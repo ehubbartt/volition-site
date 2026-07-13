@@ -1,12 +1,34 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import CardsTabs from '$lib/admin/CardsTabs.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 	import { rsnToSlug } from '$lib/rsn';
-	import { formatGP } from '$lib/gp';
+	import { formatGP, formatPct } from '$lib/gp';
+	import { formatDate } from '$lib/datetime';
 
-	let { data }: { data: PageData } = $props();
+	let { data: pageData }: { data: PageData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen stats
+	// instantly; first visits fill in as the fetch lands.
+	const EMPTY_PACK_STATS: NonNullable<PageData['packStats']['cached']> = {
+		totals: { opens: 0, vpSpent: 0, gpSpent: 0, cardsPulled: 0, openers: 0 },
+		rarityBreak: [],
+		finishPulls: { normal: 0, holo: 0, reverse: 0 },
+		packBreakdown: [],
+		cardBreakdown: [],
+		playerStats: []
+	};
+	const statsRes = swrResource(() => pageData.packStats, EMPTY_PACK_STATS);
+	const data = $derived(statsRes.value);
 
 	const fmt = (n: number) => n.toLocaleString();
+
+	// Per-card table filter (the catalog outgrows a glance once sets accumulate).
+	let cardSearch = $state('');
+	let filteredCards = $derived.by(() => {
+		const q = cardSearch.trim().toLowerCase();
+		return q ? data.cardBreakdown.filter((c) => c.name.toLowerCase().includes(q)) : data.cardBreakdown;
+	});
 
 	// Largest pull count, so the rarity bars scale to fill the row.
 	let maxRarity = $derived(Math.max(1, ...data.rarityBreak.map((r) => r.count)));
@@ -14,16 +36,8 @@
 		data.finishPulls.normal + data.finishPulls.holo + data.finishPulls.reverse
 	);
 
-	function ago(iso: string | null): string {
-		if (!iso) return '—';
-		const d = new Date(iso);
-		return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-	}
-
-	function pct(n: number, total: number): string {
-		if (total <= 0) return '0%';
-		return `${((n / total) * 100).toFixed(1)}%`;
-	}
+	const ago = formatDate;
+	const pct = formatPct;
 </script>
 
 <svelte:head>
@@ -33,6 +47,10 @@
 <section>
 	<CardsTabs />
 	<p class="muted">Card-game activity across all players — pack opens, VP spent, and collections.</p>
+
+	{#if !statsRes.ready}
+		<p class="muted">Loading…</p>
+	{/if}
 
 	<div class="summary">
 		<div class="stat">
@@ -113,6 +131,47 @@
 					<span class="bar-count">{fmt(data.finishPulls.reverse)} · {pct(data.finishPulls.reverse, finishTotal)}</span>
 				</div>
 			</div>
+		</div>
+
+		<div class="card">
+			<div class="card-head">
+				<h2>By card</h2>
+				<input class="card-search" type="search" placeholder="Filter cards…" bind:value={cardSearch} />
+			</div>
+			{#if data.cardBreakdown.length === 0}
+				<p class="muted">No card pulls logged yet.</p>
+			{:else}
+				<div class="table-scroll card-table">
+					<table>
+						<thead>
+							<tr>
+								<th>Card</th>
+								<th>Rarity</th>
+								<th class="r">Normal</th>
+								<th class="r">Holo</th>
+								<th class="r">Reverse</th>
+								<th class="r">Total pulled</th>
+								<th class="r">% of pulls</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each filteredCards as c (c.name + c.rarity)}
+								<tr>
+									<td>{c.name}</td>
+									<td><span style="color:{c.rarityColor}">{c.rarityLabel}</span></td>
+									<td class="r">{fmt(c.normal)}</td>
+									<td class="r">{fmt(c.holo)}</td>
+									<td class="r">{fmt(c.reverse)}</td>
+									<td class="r">{fmt(c.total)}</td>
+									<td class="r">{pct(c.total, data.totals.cardsPulled)}</td>
+								</tr>
+							{:else}
+								<tr><td colspan="7" class="muted">No cards match.</td></tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
 		</div>
 
 		<div class="card">
@@ -213,7 +272,7 @@
 	}
 
 	.stat .num {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.6rem;
 		color: var(--accent);
 	}
@@ -280,6 +339,31 @@
 
 	.table-scroll {
 		overflow-x: auto;
+	}
+
+	.card-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.9rem;
+	}
+
+	.card-head h2 {
+		margin: 0;
+	}
+
+	.card-search {
+		min-width: 12rem;
+		padding: 6px 10px;
+		min-height: 34px;
+	}
+
+	/* Long card lists scroll inside the panel instead of stretching the page. */
+	.card-table {
+		max-height: 24rem;
+		overflow-y: auto;
 	}
 
 	table {

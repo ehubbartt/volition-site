@@ -2,6 +2,8 @@ import { db } from './db';
 import type { SessionUser } from './auth';
 import { isAdmin } from './auth';
 import { isClanMember } from './clan';
+import { rsnExactPattern } from './users';
+import { fetchTempleCollectionLog } from './rankData';
 import { countPendingReview } from './submissions';
 import { getLastLootDate } from './playerStats';
 import { getWeeklyFreePack, getWeeklyClaimAt, claimedThisWeek } from './weeklyPack';
@@ -97,11 +99,17 @@ async function dailyCrateTask(user: SessionUser): Promise<PlayerTask> {
 // daily crate but for a pack. Only shown when an admin has flagged a weekly pack AND
 // the user is a clan member; claimed inline on /tasks (?/claimWeeklyPack).
 async function weeklyPackTask(user: SessionUser): Promise<PlayerTask | null> {
-	const pack = await getWeeklyFreePack();
+	// The three lookups are independent — fetch together and apply the same gates
+	// after (the extra single-row reads when a gate fails are cheaper than chaining).
+	const [pack, member, claimAt] = await Promise.all([
+		getWeeklyFreePack(),
+		isClanMember(user),
+		getWeeklyClaimAt(user.id)
+	]);
 	if (!pack) return null; // no weekly pack configured → nothing to show
-	if (!(await isClanMember(user.discord_id, user.rsn))) return null;
+	if (!member) return null;
 
-	const claimed = claimedThisWeek(await getWeeklyClaimAt(user.id));
+	const claimed = claimedThisWeek(claimAt);
 	return {
 		id: 'weekly-pack',
 		kind: 'packs',
@@ -162,26 +170,43 @@ async function taskInstanceTasks(user: SessionUser): Promise<PlayerTask[]> {
 // (past its start). One card per event; progress = approved objective submissions
 // / total objectives. Submissions match the site account (user_id) OR Discord id.
 async function taskEventTasks(user: SessionUser): Promise<PlayerTask[]> {
-	const { data: events } = await db()
-		.from('vs_events')
-		.select('id, slug, name, status, starts_at, ends_at')
-		.in('kind', [SIMPLE_EVENT_KIND, SEQUENTIAL_EVENT_KIND])
-		.eq('status', 'open');
+	// One query for open tasks + their open parent event via an inner embed (was two
+	// serial queries: events, then tasks by event id). The liveness window is applied
+	// in JS on the embedded event, same as before.
+	const { data: taskRows } = await db()
+		.from('vs_tasks')
+		.select('id, event_id, vs_events!event_id!inner(id, slug, name, status, starts_at, ends_at, kind)')
+		.eq('status', 'open')
+		.eq('vs_events.status', 'open')
+		.in('vs_events.kind', [SIMPLE_EVENT_KIND, SEQUENTIAL_EVENT_KIND]);
+
+	type EventEmbed = {
+		id: string;
+		slug: string;
+		name: string;
+		status: string;
+		starts_at: string | null;
+		ends_at: string | null;
+	};
+	const allTasks = ((taskRows ?? []) as unknown as Array<{
+		id: string;
+		event_id: string;
+		vs_events: EventEmbed;
+	}>);
 
 	// Open AND within its window (skip upcoming AND already-ended ones — neither is
 	// actionable now).
-	const live = ((events ?? []) as Array<Record<string, unknown>>).filter((e) =>
-		isEventLive(e.status as string, e.starts_at as string | null, e.ends_at as string | null)
-	);
+	const liveById = new Map<string, EventEmbed>();
+	for (const t of allTasks) {
+		const e = t.vs_events;
+		if (e && isEventLive(e.status, e.starts_at, e.ends_at)) liveById.set(e.id, e);
+	}
+	const live = [...liveById.values()] as unknown as Array<Record<string, unknown>>;
 	if (live.length === 0) return [];
 
-	const eventIds = live.map((e) => e.id as string);
-	const { data: taskRows } = await db()
-		.from('vs_tasks')
-		.select('id, event_id')
-		.in('event_id', eventIds)
-		.eq('status', 'open');
-	const tasks = (taskRows ?? []) as Array<{ id: string; event_id: string }>;
+	const tasks = allTasks
+		.filter((t) => liveById.has(t.event_id))
+		.map((t) => ({ id: t.id, event_id: t.event_id }));
 	if (tasks.length === 0) return [];
 
 	const taskIds = tasks.map((t) => t.id);
@@ -298,7 +323,7 @@ async function bingoTask(user: SessionUser): Promise<PlayerTask | null> {
 		status: 'active',
 		title: 'Echo Rumors bingo',
 		description: `${done}/${BINGO_TILE_TOTAL} tiles${rowLabel}`,
-		href: `/bingo/${BINGO_EVENT_SLUG}`,
+		href: `/events/${BINGO_EVENT_SLUG}`,
 		ctaLabel: 'Open board',
 		resetAt: state.nextRowAt ? state.nextRowAt.toISOString() : null,
 		reward: 'Leaderboard points',
@@ -309,19 +334,20 @@ async function bingoTask(user: SessionUser): Promise<PlayerTask | null> {
 // --- DuoWolf (lightweight: team membership + raw approved-tile count) -------
 // The full 21-stage progress machine isn't implemented; surface a raw count only.
 async function duoWolfTask(user: SessionUser): Promise<PlayerTask | null> {
-	const { data: ev } = await db()
-		.from('vs_events')
-		.select('id, status')
-		.eq('slug', DUO_WOLF_SLUG)
-		.maybeSingle();
+	// Event row + the user's signup in parallel: the signup is matched to the event
+	// through an inner embed on its slug instead of waiting for the event id.
+	const [{ data: ev }, { data: signupRow }] = await Promise.all([
+		db().from('vs_events').select('id, status').eq('slug', DUO_WOLF_SLUG).maybeSingle(),
+		db()
+			.from('vs_event_signups')
+			.select('team_id, vs_events!event_id!inner(slug)')
+			.eq('vs_events.slug', DUO_WOLF_SLUG)
+			.eq('user_id', user.id)
+			.maybeSingle()
+	]);
 	if (!ev || ev.status !== 'open') return null;
 
-	const { data: signup } = await db()
-		.from('vs_event_signups')
-		.select('team_id')
-		.eq('event_id', ev.id)
-		.eq('user_id', user.id)
-		.maybeSingle();
+	const signup = (signupRow as { team_id: string | null } | null) ?? null;
 
 	if (!signup || !signup.team_id) {
 		return {
@@ -357,6 +383,35 @@ async function duoWolfTask(user: SessionUser): Promise<PlayerTask | null> {
 	};
 }
 
+// --- Personal bingo board (vs_events kind='personal') ------------------------
+// Nudge members who don't have a board RUNNING: no board at all → create one; a
+// generated draft that was never locked → lock it in (nothing tracks until then).
+// A locked board is ongoing ambient progress, not a to-do, so it shows nothing.
+async function personalBoardTask(user: SessionUser): Promise<PlayerTask | null> {
+	const { data: board } = await db()
+		.from('vs_events')
+		.select('id, locked_at')
+		.eq('kind', 'personal')
+		.eq('owner_user_id', user.id)
+		.maybeSingle();
+
+	if (board?.locked_at) return null; // board is running — nothing to do
+
+	const draft = !!board;
+	return {
+		id: 'personal-board',
+		kind: 'event',
+		status: 'todo',
+		title: 'Personal bingo board',
+		description: draft
+			? "Your draft board isn't locked in — nothing is tracking yet"
+			: 'Generate your own collection-log bingo board',
+		href: '/events/personal-bingo',
+		ctaLabel: draft ? 'Lock it in' : 'Create your board',
+		resetAt: null
+	};
+}
+
 // --- Unopened card packs (vs_user_packs) -----------------------------------
 // Nudge to open any packs sitting in the player's inventory (opened at /gamba).
 async function unopenedPacksTask(user: SessionUser): Promise<PlayerTask | null> {
@@ -384,6 +439,101 @@ async function unopenedPacksTask(user: SessionUser): Promise<PlayerTask | null> 
 }
 
 // --- Admin: pending submissions awaiting review ----------------------------
+// --- First-time setup (Temple + Dink) ---------------------------------------
+// The two integrations the new ranking system + auto-tracked bingo require. Each
+// renders in the /tasks page's separate "Finish your setup" section (top of the
+// list) and disappears once its real completion signal is observed:
+//   Temple → their collection log is readable on TempleOSRS by RSN.
+//   Dink   → at least one drop of theirs has been recorded by the proxy (the
+//            /dink-check wizard's own "it works" test) — a token alone is minted
+//            just by VISITING the page, so it proves nothing.
+
+// The Temple check is an external call, so it's cached hard: linked players stay
+// "linked" for a day; unlinked re-checks every 10 minutes so the task clears soon
+// after they finish the guide. `quick` (the nav-badge path, which runs in the root
+// layout load) never blocks a page on Temple: it uses the cached verdict — or
+// assumes linked until a background refresh says otherwise.
+const templeCache = new Map<string, { at: number; linked: boolean }>();
+const TEMPLE_LINKED_TTL_MS = 24 * 60 * 60 * 1000;
+const TEMPLE_UNLINKED_TTL_MS = 10 * 60 * 1000;
+const templeInflight = new Map<string, Promise<boolean>>();
+
+function refreshTempleLinked(rsn: string): Promise<boolean> {
+	const key = rsn.toLowerCase();
+	let p = templeInflight.get(key);
+	if (!p) {
+		p = fetchTempleCollectionLog(rsn)
+			.then((r) => {
+				const linked = r != null;
+				templeCache.set(key, { at: Date.now(), linked });
+				return linked;
+			})
+			.catch(() => templeCache.get(key)?.linked ?? false)
+			.finally(() => templeInflight.delete(key));
+		templeInflight.set(key, p);
+	}
+	return p;
+}
+
+async function templeLinked(rsn: string, quick: boolean): Promise<boolean> {
+	const hit = templeCache.get(rsn.toLowerCase());
+	const ttl = hit?.linked ? TEMPLE_LINKED_TTL_MS : TEMPLE_UNLINKED_TTL_MS;
+	if (hit && Date.now() - hit.at < ttl) return hit.linked;
+	if (quick) {
+		void refreshTempleLinked(rsn);
+		return hit?.linked ?? true; // unknown → no task on the badge until verified
+	}
+	return refreshTempleLinked(rsn);
+}
+
+// Has the proxy ever recorded a drop for this RSN? One indexed row lookup.
+async function hasDinkDrop(rsn: string): Promise<boolean> {
+	const { data } = await db()
+		.from('vs_dink_drops')
+		.select('id')
+		.ilike('rsn', rsnExactPattern(rsn))
+		.limit(1);
+	return !!(data && data.length);
+}
+
+async function setupTasks(user: SessionUser, quick: boolean): Promise<PlayerTask[]> {
+	const [temple, dink] = await Promise.all([
+		user.rsn ? templeLinked(user.rsn, quick) : Promise.resolve(false),
+		user.rsn ? hasDinkDrop(user.rsn) : Promise.resolve(false)
+	]);
+
+	const out: PlayerTask[] = [];
+	if (!temple) {
+		out.push({
+			id: 'setup-temple',
+			kind: 'setup',
+			status: 'todo',
+			title: 'Link TempleOSRS',
+			description: user.rsn
+				? 'Sync your collection log — it powers your rank and personal bingo'
+				: 'Set your RSN on your profile, then sync your collection log',
+			href: '/temple-guide',
+			ctaLabel: 'Follow the guide',
+			resetAt: null
+		});
+	}
+	if (!dink) {
+		out.push({
+			id: 'setup-dink',
+			kind: 'setup',
+			status: 'todo',
+			title: 'Set up Dink',
+			description: user.rsn
+				? 'Auto-post your drops and tick bingo tiles the moment they land'
+				: 'Set your RSN on your profile, then connect the Dink plugin',
+			href: '/dink-check',
+			ctaLabel: 'Follow the guide',
+			resetAt: null
+		});
+	}
+	return out;
+}
+
 // Only for admins, and only when something's actually queued. Surfaces the
 // unified review backlog as a top-of-list to-do so admins don't have to poll
 // /admin/submissions. Counts raw pending rows across all submission sources.
@@ -404,8 +554,10 @@ async function adminReviewTask(user: SessionUser): Promise<PlayerTask | null> {
 }
 
 const STATUS_ORDER: Record<PlayerTask['status'], number> = { todo: 0, active: 1, done: 2 };
-// admin first within a status group (review backlog is the priority for admins).
+// setup before everything (the page renders it as its own section), then admin
+// (review backlog is the priority for admins) within a status group.
 const KIND_ORDER: Record<PlayerTask['kind'], number> = {
+	setup: -2,
 	admin: -1,
 	daily: 0,
 	weekly: 1,
@@ -414,8 +566,12 @@ const KIND_ORDER: Record<PlayerTask['kind'], number> = {
 	packs: 4
 };
 
-export async function loadPlayerTasks(user: SessionUser): Promise<PlayerTask[]> {
+export async function loadPlayerTasks(
+	user: SessionUser,
+	opts: { quick?: boolean } = {}
+): Promise<PlayerTask[]> {
 	const results = await Promise.all([
+		setupTasks(user, opts.quick ?? false),
 		adminReviewTask(user),
 		dailyCrateTask(user),
 		weeklyPackTask(user),
@@ -424,6 +580,7 @@ export async function loadPlayerTasks(user: SessionUser): Promise<PlayerTask[]> 
 		skillOrKillTask(),
 		bingoTask(user),
 		duoWolfTask(user),
+		personalBoardTask(user),
 		unopenedPacksTask(user)
 	]);
 
@@ -447,7 +604,9 @@ export async function loadPlayerTasks(user: SessionUser): Promise<PlayerTask[]> 
 // breaking the nav on every page (this runs in the root layout load).
 export async function loadTodoBadgeCount(user: SessionUser): Promise<number> {
 	try {
-		return countOutstandingTasks(await loadPlayerTasks(user));
+		// quick: the setup section's Temple check must never block a page on an
+		// external call — the badge uses the cached verdict (see templeLinked).
+		return countOutstandingTasks(await loadPlayerTasks(user, { quick: true }));
 	} catch {
 		return 0;
 	}

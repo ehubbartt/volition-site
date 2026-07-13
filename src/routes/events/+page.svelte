@@ -2,14 +2,23 @@
 	import type { PageData } from './$types';
 	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 	import { isTaskEvent } from '$lib/events/simple';
+	import type { EventListItem } from '$lib/eventsList';
+	import Skeleton from '$lib/Skeleton.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
+	import type { EventSections } from '$lib/eventsList';
 
 	let { data }: { data: PageData } = $props();
 
-	// Route by event kind: bingo + duo keep their bespoke pages; task events (open /
-	// sequential) use the generic /event/[slug] page; anything else (legacy/custom)
-	// falls back to the /events/[slug] detail page.
+	// The event list is STREAMED (see +page.ts); swrResource shows the last-seen
+	// list synchronously on revisits and swaps in the fresh one. Null = first
+	// visit, skeletons below.
+	const sectionsRes = swrResource<EventSections | null>(() => data.sections, null);
+	const sections = $derived(sectionsRes.value);
+
+	// Route by event kind: task events (open/sequential) use the generic
+	// /event/[slug] page; everything else — bingo, duo, legacy/custom — lives on
+	// the unified /events/[slug] detail page.
 	function hrefFor(ev: { slug: string; kind?: string | null }): string {
-		if (ev.slug === BINGO_EVENT_SLUG || ev.kind === 'bingo') return `/bingo/${ev.slug}`;
 		if (isTaskEvent(ev.kind)) return `/event/${ev.slug}`;
 		return `/events/${ev.slug}`;
 	}
@@ -33,7 +42,7 @@
 	<title>Events · Volition</title>
 </svelte:head>
 
-{#snippet eventCard(ev: PageData['activeEvents'][number], section: 'active' | 'upcoming' | 'past')}
+{#snippet eventCard(ev: EventListItem, section: 'active' | 'upcoming' | 'past')}
 	{@const past = section === 'past'}
 	{@const isBingo = ev.slug === BINGO_EVENT_SLUG}
 	{@const isDraft = ev.status === 'draft'}
@@ -92,35 +101,91 @@
 {/snippet}
 
 <section>
-	<h1>Active events</h1>
+	<div class="head">
+		<h1>Active events</h1>
+			<div class="head-actions">
+				<a class="dink-link" href="/dink-check">Test your Dink setup</a>
+			</div>
+	</div>
 
-	{#if data.activeEvents.length === 0}
-		<p class="muted">No events need your attention right now.</p>
+	{#if !sections}
+		<ul class="events">
+			{#each { length: 3 }, i (i)}
+				<li><Skeleton height="8rem" radius="8px" /></li>
+			{/each}
+		</ul>
 	{:else}
 		<ul class="events">
-			{#each data.activeEvents as ev (ev.id)}
+			<!-- Personal Bingo: always-present card — the entry point to create your own
+			     board (or get back to the one you're running). -->
+			<li>
+				<a href="/events/personal-bingo" class="event-card personal">
+					<div class="event-name">Personal Bingo</div>
+					{#if sections.personal.state === 'running'}
+						<p class="desc muted">
+							Your own collection-log board is running — items, skilling goals, and combat
+							achievements tick off automatically.
+						</p>
+					{:else if sections.personal.state === 'draft'}
+						<p class="desc muted">
+							You generated a board but haven't locked it in — nothing is tracking yet.
+						</p>
+					{:else}
+						<p class="desc muted">
+							Roll your own collection-log bingo board — item drops, skilling goals, and combat
+							achievements, tracked automatically. Just for you.
+						</p>
+					{/if}
+					<div class="event-foot">
+						{#if sections.personal.state === 'running'}
+							<div class="status-line">
+								<span class="label">
+									{sections.personal.obtained} / {sections.personal.total} tiles complete
+								</span>
+							</div>
+							<div class="foot-tags">
+								<div class="badge open">View your board →</div>
+							</div>
+						{:else if sections.personal.state === 'draft'}
+							<div class="status-line"><span class="label">Draft — not tracking</span></div>
+							<div class="foot-tags">
+								<div class="badge personal-cta">Lock it in →</div>
+							</div>
+						{:else}
+							<div class="status-line"><span class="label">Not started</span></div>
+							<div class="foot-tags">
+								<div class="badge personal-cta">Create your board →</div>
+							</div>
+						{/if}
+					</div>
+				</a>
+			</li>
+			{#each sections.activeEvents as ev (ev.id)}
 				{@render eventCard(ev, 'active')}
 			{/each}
 		</ul>
+		{#if sections.activeEvents.length === 0}
+			<p class="muted">No clan events need your attention right now.</p>
+		{/if}
 	{/if}
 </section>
 
-{#if data.upcomingEvents.length > 0}
+{#if sections && sections.upcomingEvents.length > 0}
 	<section class="upcoming-section">
 		<h2>Upcoming events</h2>
 		<ul class="events">
-			{#each data.upcomingEvents as ev (ev.id)}
+			{#each sections.upcomingEvents as ev (ev.id)}
 				{@render eventCard(ev, 'upcoming')}
 			{/each}
 		</ul>
 	</section>
 {/if}
 
-{#if data.pastEvents.length > 0}
+{#if sections && sections.pastEvents.length > 0}
 	<section class="past-section">
 		<h2>Past events</h2>
 		<ul class="events">
-			{#each data.pastEvents as ev (ev.id)}
+			{#each sections.pastEvents as ev (ev.id)}
 				{@render eventCard(ev, 'past')}
 			{/each}
 		</ul>
@@ -130,6 +195,40 @@
 <style>
 	h1 {
 		margin-bottom: 1.25rem;
+	}
+
+	.head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.head h1 {
+		margin-bottom: 1.25rem;
+	}
+
+	.head-actions {
+		display: flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.dink-link {
+		font-size: 0.85rem;
+		padding: 0.4rem 0.75rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		color: var(--accent);
+		text-decoration: none;
+		white-space: nowrap;
+		transition: border-color 0.15s;
+	}
+
+	.dink-link:hover {
+		border-color: var(--accent);
+		text-decoration: none;
 	}
 
 	.upcoming-section {
@@ -186,24 +285,25 @@
 		width: 100%;
 		min-height: 11rem;
 		padding: 1.25rem;
-		background: linear-gradient(180deg, rgba(58, 48, 36, 0.85), rgba(40, 32, 24, 0.85));
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
+		background-color: var(--stone-fill);
+		background-image: var(--stone-tile);
+		background-repeat: repeat;
+		border: 4px solid transparent;
+		border-image: url('/osrs/border-tiny.png') 4 / 4px round;
+		border-radius: 4px;
 		text-decoration: none;
 		color: inherit;
-		box-shadow: var(--shadow-card);
-		transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+		transition: transform 0.15s, box-shadow 0.15s;
 	}
 
 	.event-card:hover {
-		border-color: var(--accent);
 		transform: translateY(-2px);
-		box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 152, 31, 0.25);
+		box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(255, 152, 31, 0.4);
 		text-decoration: none;
 	}
 
 	.event-name {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.2rem;
 		color: var(--accent);
 		text-shadow: 2px 2px #000;
@@ -271,7 +371,7 @@
 	.signed {
 		padding: 0.1rem 0.5rem;
 		font-size: 0.72rem;
-		border-radius: 999px;
+		border-radius: 3px;
 		background: var(--accent-soft);
 		border: 1px solid var(--accent);
 		color: var(--accent);
@@ -313,6 +413,19 @@
 
 	.event-card.bingo .event-name {
 		color: var(--yellow);
+	}
+
+	/* Personal Bingo entry card: same frame as events, with a gold name + a bright
+	   call-to-action badge so "this is where you start your own board" is obvious. */
+	.event-card.personal .event-name {
+		color: var(--yellow);
+	}
+
+	.badge.personal-cta {
+		background: var(--yellow, #d9b65e);
+		border-color: var(--yellow, #d9b65e);
+		color: #1a1208;
+		text-shadow: none;
 	}
 
 	.event-card.draft {

@@ -57,7 +57,7 @@ The accept-invite flow goes through the `vs_accept_invite` Postgres function so 
 
 ```sh
 flyctl launch        # first time only — accept the existing Dockerfile/fly.toml
-flyctl secrets set SUPABASE_URL=… SUPABASE_ANON_KEY=… \
+flyctl secrets set SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… \
                    DISCORD_CLIENT_ID=… DISCORD_CLIENT_SECRET=… \
                    PUBLIC_SITE_URL=https://volition-site.fly.dev \
                    ADMIN_DISCORD_IDS=1234567890,…

@@ -362,7 +362,7 @@
 
 		<header class="head">
 			{#if tile.img}
-				<img class="tile-img" src={tile.img} alt={tile.name} loading="lazy" referrerpolicy="no-referrer" />
+				<img class="tile-img" src={tile.img} alt={tile.name} loading="lazy" decoding="async" referrerpolicy="no-referrer" />
 			{/if}
 			<div class="head-text">
 				<h2 id="modal-title">{tile.name}</h2>
@@ -468,7 +468,7 @@
 									title={`Swap to ${opt.name}`}
 									onclick={() => (confirmSwap = opt)}
 								>
-									{#if opt.img}<img src={opt.img} alt={opt.name} loading="lazy" referrerpolicy="no-referrer" />{/if}
+									{#if opt.img}<img src={opt.img} alt={opt.name} loading="lazy" decoding="async" referrerpolicy="no-referrer" />{/if}
 									<span class="swap-opt-name">{opt.name}</span>
 								</button>
 							{/each}

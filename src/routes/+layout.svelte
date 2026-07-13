@@ -1,13 +1,27 @@
 <script lang="ts">
 	import '../app.css';
-	import { page } from '$app/state';
+	import { page, navigating } from '$app/state';
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import type { LayoutData } from './$types';
 
 	let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
 	let path = $derived(page.url.pathname);
+	let menuOpen = $state(false);
+
+	// Collapse the mobile menu whenever the route changes.
+	$effect(() => {
+		path;
+		menuOpen = false;
+	});
 </script>
+
+<!-- Feedback while a navigation's data is in flight — but only for SLOW ones: the
+     bar stays invisible for its first 150ms, so fast navigations show nothing and
+     feel instant instead of flashing a loading bar. -->
+{#if navigating.to}
+	<div class="nav-progress" aria-hidden="true"></div>
+{/if}
 
 <header>
 	<div class="container nav">
@@ -17,12 +31,33 @@
 		</a>
 
 		{#if data.user && !data.banned}
-			<nav class="primary-nav">
+			<button
+				type="button"
+				class="menu-toggle"
+				aria-label="Toggle menu"
+				aria-expanded={menuOpen}
+				onclick={() => (menuOpen = !menuOpen)}
+			>
+				<span class="bars" class:open={menuOpen}></span>
+			</button>
+
+			<nav class="primary-nav" class:open={menuOpen}>
 				<a href="/events" class:active={path.startsWith('/events')}>Events</a>
 				<a href="/tasks" class:active={path.startsWith('/tasks')}>To Do</a>
 				<a href="/gamba" class:active={path.startsWith('/gamba')}>Gamba</a>
 				{#if data.isAdmin || data.isCardTester}
 					<a href="/admin" class:active={path.startsWith('/admin')}>Admin</a>
+				{/if}
+				<!-- Shown ONLY while a view-as preview is active (started from /admin —
+				     which is unreachable in a preview, so this chip is the way back).
+				     NATIVE form on purpose: the full reload wipes the client swr cache. -->
+				{#if data.viewAs}
+					<form method="POST" action="/admin/view-as" class="view-as" title="Exit the role preview">
+						<input type="hidden" name="role" value="super" />
+						<button type="submit">
+							Viewing as {data.viewAs === 'admin' ? 'Admin' : data.viewAs === 'member' ? 'Member' : 'Non-member'} ✕
+						</button>
+					</form>
 				{/if}
 			</nav>
 
@@ -37,11 +72,7 @@
 </header>
 
 <main class="container page">
-	{#key path}
-		<div class="page-fade">
-			{@render children()}
-		</div>
-	{/key}
+	{@render children()}
 </main>
 
 <footer>
@@ -69,8 +100,11 @@
 		position: sticky;
 		top: 0;
 		z-index: 50;
-		border-bottom: 1px solid #4d4336;
-		background: rgba(0, 0, 0, 0.7);
+		border-bottom: 2px solid var(--gold-mid);
+		background-color: rgba(20, 16, 10, 0.98);
+		background-image: url('/osrs/tile-dark.png');
+		background-repeat: repeat;
+		box-shadow: inset 0 1px 0 rgba(255, 232, 180, 0.16);
 		backdrop-filter: blur(8px);
 		-webkit-backdrop-filter: blur(8px);
 	}
@@ -87,10 +121,10 @@
 		display: flex;
 		align-items: center;
 		gap: 0.6rem;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.7rem;
 		letter-spacing: 1px;
-		color: #ff981f;
+		color: var(--accent);
 		text-decoration: none;
 		text-shadow: 2px 2px #000;
 		flex: 0 0 auto;
@@ -127,35 +161,90 @@
 	}
 
 	.primary-nav a:hover {
-		color: #ff981f;
+		color: var(--accent);
 		background: rgba(255, 152, 31, 0.08);
 	}
 
 	.primary-nav a.active {
-		color: #ff981f;
-		background: rgba(255, 152, 31, 0.12);
-		border-color: rgba(255, 152, 31, 0.4);
+		color: var(--accent);
+		background: #4d4336;
+		border: 9px solid transparent;
+		border-image: url('/osrs/button.png') 9 / 9px stretch;
+		padding: 0 0.55rem;
+	}
+
+	/* Mobile hamburger — hidden on desktop, shown in the narrow media query below. */
+	.menu-toggle {
+		display: none;
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 0.45rem;
+		margin-left: 0.25rem;
+	}
+
+	.bars,
+	.bars::before,
+	.bars::after {
+		display: block;
+		width: 22px;
+		height: 2px;
+		background: var(--accent);
+		border-radius: 2px;
+		transition: transform 0.2s ease, top 0.2s ease, background 0.2s ease;
+	}
+
+	.bars {
+		position: relative;
+	}
+
+	.bars::before,
+	.bars::after {
+		content: '';
+		position: absolute;
+		left: 0;
+	}
+
+	.bars::before {
+		top: -7px;
+	}
+
+	.bars::after {
+		top: 7px;
+	}
+
+	.bars.open {
+		background: transparent;
+	}
+
+	.bars.open::before {
+		top: 0;
+		transform: rotate(45deg);
+	}
+
+	.bars.open::after {
+		top: 0;
+		transform: rotate(-45deg);
 	}
 
 	.user-pill {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		padding: 0.4rem 0.85rem;
-		background: rgba(58, 48, 36, 0.7);
-		border: 1px solid #5d5346;
-		border-radius: 999px;
-		color: #ff981f;
+		padding: 0.2rem 0.85rem;
+		background: #4d4336;
+		border: 9px solid transparent;
+		border-image: url('/osrs/button.png') 9 / 9px stretch;
+		color: var(--accent);
 		text-decoration: none;
 		text-shadow: 1px 1px #000;
 		font-size: 0.95rem;
-		transition: background 0.15s, border-color 0.15s;
+		transition: background 0.15s;
 	}
 
 	.user-pill:hover,
 	.user-pill.active {
-		background: rgba(77, 67, 54, 0.9);
-		border-color: #ff981f;
+		background: #423726;
 		text-decoration: none;
 	}
 
@@ -169,17 +258,16 @@
 	}
 
 	.cta {
-		background: #3a3024;
-		border: 1px solid #5d5346;
-		color: #ff981f;
-		padding: 0.5rem 1rem;
-		border-radius: 4px;
+		background: #4d4336;
+		border: 9px solid transparent;
+		border-image: url('/osrs/button.png') 9 / 9px stretch;
+		color: var(--accent);
+		padding: 0.3rem 1rem;
 		text-decoration: none;
 	}
 
 	.cta:hover {
-		background: #4d4336;
-		border-color: #ff981f;
+		background: #423726;
 		text-decoration: none;
 	}
 
@@ -188,24 +276,47 @@
 		min-height: calc(100vh - 8rem);
 	}
 
-	.page-fade {
-		animation: fade-in 0.25s ease-out;
+	.nav-progress {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 3px;
+		z-index: 1000;
+		background: linear-gradient(90deg, transparent, #d9b65e, transparent);
+		background-size: 40% 100%;
+		background-repeat: no-repeat;
+		/* Invisible for the first 150ms (sub-150ms navigations never show it), then
+		   fade in and slide. */
+		opacity: 0;
+		animation:
+			nav-progress-appear 0.15s linear 0.15s forwards,
+			nav-progress-slide 1s ease-in-out infinite;
 	}
 
-	@keyframes fade-in {
-		from {
-			opacity: 0;
-			transform: translateY(4px);
-		}
+	@keyframes nav-progress-appear {
 		to {
 			opacity: 1;
-			transform: none;
+		}
+	}
+
+	@keyframes nav-progress-slide {
+		from {
+			background-position: -40% 0;
+		}
+		to {
+			background-position: 140% 0;
 		}
 	}
 
 	footer {
-		border-top: 1px solid #4d4336;
+		border-top: 2px solid #0c0904;
+		background-color: rgba(20, 16, 10, 0.98);
+		background-image: url('/osrs/tile-dark.png');
+		background-repeat: repeat;
+		box-shadow: inset 0 2px 0 rgba(217, 182, 94, 0.22);
 		padding: 1rem 0;
+		margin-top: 2rem;
 	}
 
 	.footer-row {
@@ -217,7 +328,7 @@
 	}
 
 	.discord-link {
-		color: #ff981f;
+		color: var(--accent);
 		font-size: 0.9rem;
 		text-decoration: none;
 		text-shadow: 1px 1px #000;
@@ -254,9 +365,42 @@
 			height: 30px;
 		}
 
+		.menu-toggle {
+			display: inline-flex;
+			align-items: center;
+		}
+
+		/* Collapse the links into a dropdown panel under the header. */
+		.primary-nav {
+			display: none;
+			position: absolute;
+			top: 100%;
+			left: 0;
+			right: 0;
+			flex-direction: column;
+			align-items: stretch;
+			gap: 0.15rem;
+			padding: 0.5rem;
+			background-color: rgba(20, 16, 10, 0.99);
+			background-image: url('/osrs/tile-dark.png');
+			background-repeat: repeat;
+			border-bottom: 2px solid var(--gold-mid);
+			box-shadow: 0 10px 18px rgba(0, 0, 0, 0.45);
+		}
+
+		.primary-nav.open {
+			display: flex;
+		}
+
 		.primary-nav a {
-			padding: 0.4rem 0.6rem;
-			font-size: 0.95rem;
+			padding: 0.65rem 0.8rem;
+			font-size: 1.05rem;
+		}
+
+		.primary-nav a.active {
+			border: 1px solid var(--gold-mid);
+			background: rgba(255, 152, 31, 0.12);
+			padding: 0.65rem 0.8rem;
 		}
 
 		.user-name {
@@ -286,5 +430,26 @@
 		main.page {
 			padding: 1.25rem 0.75rem 3rem;
 		}
+	}
+
+	/* View-as exit chip: only exists while a preview is active (the picker lives
+	   on /admin). Accent so the not-your-real-role state is unmissable. */
+	.view-as {
+		display: flex;
+		align-items: center;
+	}
+	.view-as button {
+		background: transparent;
+		color: var(--accent);
+		border: 1px solid var(--accent);
+		border-radius: 999px;
+		padding: 0.25rem 0.7rem;
+		font: inherit;
+		font-size: 0.78rem;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.view-as button:hover {
+		background: rgba(255, 152, 31, 0.12);
 	}
 </style>

@@ -36,7 +36,8 @@
 		features: 'Features',
 		economy: 'Economy',
 		lootcrates: 'Loot Crates',
-		events: 'Events'
+		events: 'Events',
+		dink: 'Dink'
 	};
 
 	function label(key: string): string {
@@ -318,7 +319,7 @@
 	.pill {
 		display: inline-block;
 		padding: 0.05rem 0.45rem;
-		border-radius: 999px;
+		border-radius: 3px;
 		font-size: 0.7rem;
 		text-transform: uppercase;
 		letter-spacing: 0.5px;

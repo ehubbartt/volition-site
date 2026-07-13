@@ -1,8 +1,23 @@
 <script lang="ts">
 	import ModerationTabs from '$lib/admin/ModerationTabs.svelte';
+	import { swrResource } from '$lib/swrResource.svelte';
 	import type { PageData } from './$types';
 
-	let { data }: { data: PageData } = $props();
+	let { data: pageData }: { data: PageData } = $props();
+
+	// Streamed payload (see +page.ts): revisits render the last-seen page
+	// instantly; first visits fill in as the fetch lands.
+	const EMPTY_AUDIT: NonNullable<PageData['audit']['cached']> = {
+		rows: [],
+		userNames: {},
+		actors: [],
+		routes: [],
+		pageSize: 0,
+		hasMore: false,
+		nextBefore: null
+	};
+	const auditRes = swrResource(() => pageData.audit, EMPTY_AUDIT);
+	const data = $derived(auditRes.value);
 
 	let search = $state('');
 	let actorFilter = $state('all');
@@ -10,7 +25,8 @@
 	let statusFilter = $state<'all' | 'ok' | 'fail'>('all');
 
 	// Stable per-row actor key, matching the load's actor dropdown ids.
-	const actorKey = (r: PageData['rows'][number]) => r.actor_discord_id ?? r.actor_name ?? 'anonymous';
+	const actorKey = (r: NonNullable<PageData['audit']['cached']>['rows'][number]) =>
+		r.actor_discord_id ?? r.actor_name ?? 'anonymous';
 
 	let filtered = $derived(
 		data.rows.filter((r) => {
@@ -109,6 +125,10 @@
 		Every privileged action (admin routes + anything an admin / card tester does) is recorded
 		automatically. Showing the {data.rows.length} most recent entries.
 	</p>
+
+	{#if !auditRes.ready}
+		<p class="muted">Loading…</p>
+	{/if}
 
 	<div class="toolbar">
 		<input class="search" type="search" placeholder="Search actor, route, action, payload…" bind:value={search} aria-label="Search audit log" />
@@ -329,7 +349,7 @@
 		padding: 0.1rem 0.45rem;
 		background: var(--accent-soft);
 		border: 1px solid var(--accent);
-		border-radius: 999px;
+		border-radius: 3px;
 		color: var(--text);
 	}
 

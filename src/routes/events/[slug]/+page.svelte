@@ -4,8 +4,62 @@
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import BoardLeaderboard from '$lib/board/BoardLeaderboard.svelte';
 	import { CLAN_OPTIONS } from '$lib/clans';
+	import { createBusy } from '$lib/busy.svelte';
+	import Skeleton from '$lib/Skeleton.svelte';
+	import { swrRouted } from '$lib/swrResource.svelte';
+	import BingoBoardPage from '$lib/bingo/BingoBoardPage.svelte';
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let { data: pageData, form }: { data: PageData; form: ActionData } = $props();
+
+	// One shared pending-state for all the plain signup/team/invite forms below: any
+	// in-flight action disables the whole group (no double-submits) and swaps the
+	// clicked button's label so the round-trip is visible.
+	const busy = createBusy();
+
+	// The whole event payload is STREAMED (see +page.ts) so navigation lands
+	// instantly on a skeleton event. Resolve it into state and shadow it under the
+	// old `data` name so every reference below keeps working; not-found and
+	// redirect outcomes are acted on when the payload arrives. Revalidations after
+	// form actions keep the previous data on screen.
+	type Detail = Extract<NonNullable<PageData['detail']['cached']>, { kind: 'ok' }>;
+	const EMPTY_DETAIL = {
+		kind: 'ok',
+		isAdmin: false,
+		isDuo: false,
+		eventLive: false,
+		teamsView: false,
+		standings: null,
+		adminSignups: [],
+		event: {
+			id: '',
+			slug: '',
+			name: '',
+			kind: 'custom',
+			description: null,
+			description_html: '',
+			status: 'open',
+			signup_opens_at: null,
+			signup_closes_at: null,
+			starts_at: null,
+			team_size: null,
+			owner_user_id: null
+		},
+		host: null,
+		mySignup: null,
+		myTeam: [],
+		soloPool: [],
+		incomingInvites: [],
+		outgoingInvites: [],
+		teams: [],
+		stats: { totalSignups: 0, teamCount: 0, soloCount: 0, clanBreakdown: [] }
+	} as unknown as Detail;
+	const detailRes = swrRouted(() => pageData.detail);
+	const notFound = $derived(detailRes.notFound);
+	const detail = $derived(detailRes.payload?.kind === 'ok' ? detailRes.payload : null);
+	const bingo = $derived(detailRes.payload?.kind === 'bingo' ? detailRes.payload : null);
+	const data = $derived(detail ?? EMPTY_DETAIL);
+	const ready = $derived(detailRes.ready);
+	const standings = $derived(data.standings);
 
 	let signedUp = $derived(!!data.mySignup);
 	let onTeam = $derived(!!data.mySignup?.team_id);
@@ -98,11 +152,45 @@
 	<a href="/events">← All events</a>
 </nav>
 
+{#if notFound}
+	<section class="hero">
+		<div class="hero-head">
+			<h1>Event not found</h1>
+		</div>
+		<p class="muted">This event doesn't exist or isn't visible to you.</p>
+	</section>
+{:else if !ready}
+	<!-- Streamed payload still on its way — an empty "fake event" holds the layout. -->
+	<section class="hero">
+		<div class="hero-head">
+			<Skeleton height="2.2rem" width="18rem" radius="6px" />
+		</div>
+		<div class="detail-skeleton-lines">
+			<Skeleton height="1rem" width="90%" />
+			<Skeleton height="1rem" width="70%" />
+		</div>
+	</section>
+	<section class="grid">
+		<div class="main">
+			<Skeleton height="10rem" radius="8px" />
+			<Skeleton height="14rem" radius="8px" />
+		</div>
+		<aside class="side">
+			<Skeleton height="8rem" radius="8px" />
+		</aside>
+	</section>
+{:else if bingo}
+	<!-- Bingo events render the full board page body on this same URL. -->
+	<BingoBoardPage detail={bingo} user={pageData.user} isAdmin={pageData.isAdmin} />
+{:else}
 <section class="hero">
 	<div class="hero-head">
 		<h1>{data.event.name}</h1>
 		<span class="badge {data.event.status}">{data.event.status}</span>
 	</div>
+	{#if data.host && (data.host.discord_username || data.host.rsn)}
+		<p class="host muted small">Hosted by {data.host.discord_username ? `@${data.host.discord_username}` : data.host.rsn} — message them with questions.</p>
+	{/if}
 	{#if data.event.description_html}
 		{@const isLong = (data.event.description?.length ?? 0) > 220}
 		<div
@@ -215,8 +303,10 @@
 							Signups are closed and you didn't pair into a duo — no problem. Join the climb as a
 							team of one and play solo.
 						</p>
-						<form method="POST" action="?/goSolo" use:enhance>
-							<button type="submit" class="primary">Play solo (team of one)</button>
+						<form method="POST" action="?/goSolo" use:enhance={busy.submit('solo')}>
+							<button type="submit" class="primary" disabled={busy.active}>
+								{busy.is('solo') ? 'Joining…' : 'Play solo (team of one)'}
+							</button>
 						</form>
 					{:else}
 						<p class="muted">
@@ -229,14 +319,14 @@
 			<div class="teams-view-head">
 				<div>
 					<h2>Teams &amp; progress</h2>
-					{#if data.standings?.myEntry}
+					{#if standings?.myEntry}
 						<p class="muted">
-							Your team <strong>{data.standings.myEntry.name}</strong> —
+							Your team <strong>{standings.myEntry.name}</strong> —
 							<strong class="my-stage"
-								>{data.standings.myEntry.finished
+								>{standings.myEntry.finished
 									? '🏁 Finished'
-									: data.standings.myEntry.stageLabel}</strong
-							> (rank #{data.standings.myEntry.rank} of {data.standings.teamCount})
+									: standings.myEntry.stageLabel}</strong
+							> (rank #{standings.myEntry.rank} of {standings.teamCount})
 						</p>
 					{/if}
 				</div>
@@ -244,13 +334,20 @@
 					<a class="board-open" href="/events/{data.event.slug}/board">Go to board →</a>
 				{/if}
 			</div>
-			{#if data.standings}
+			{#if standings}
 				<BoardLeaderboard
-					leaderboard={data.standings.leaderboard}
-					byClan={data.standings.byClan}
-					teamCount={data.standings.teamCount}
+					leaderboard={standings.leaderboard}
+					byClan={standings.byClan}
+					teamCount={standings.teamCount}
 					maxHeight="40rem"
 				/>
+			{:else if data.standings}
+				<!-- Standings still streaming in -->
+				<div class="standings-skeleton">
+					{#each { length: 6 }, i (i)}
+						<Skeleton height="2.2rem" />
+					{/each}
+				</div>
 			{/if}
 		{/if}
 
@@ -262,8 +359,10 @@
 						Once you join, you'll show up in the player pool. Other players can invite you to
 						duo, or you can invite them.
 					</p>
-					<form method="POST" action="?/joinEvent" use:enhance>
-						<button type="submit" class="primary">Join event</button>
+					<form method="POST" action="?/joinEvent" use:enhance={busy.submit('join')}>
+						<button type="submit" class="primary" disabled={busy.active}>
+							{busy.is('join') ? 'Joining…' : 'Join event'}
+						</button>
 					</form>
 				</div>
 			{/if}
@@ -327,8 +426,10 @@
 						</li>
 					{/each}
 				</ul>
-				<form method="POST" action="?/leaveTeam" use:enhance>
-					<button type="submit" class="danger">Leave team</button>
+				<form method="POST" action="?/leaveTeam" use:enhance={busy.submit('leaveTeam')}>
+					<button type="submit" class="danger" disabled={busy.active}>
+						{busy.is('leaveTeam') ? 'Leaving…' : 'Leave team'}
+					</button>
 				</form>
 			</div>
 		{:else if !data.eventLive}
@@ -342,11 +443,15 @@
 						</p>
 					</div>
 					<div class="signup-actions">
-						<form method="POST" action="?/goSolo" use:enhance>
-							<button type="submit" class="primary">Play solo</button>
+						<form method="POST" action="?/goSolo" use:enhance={busy.submit('solo')}>
+							<button type="submit" class="primary" disabled={busy.active}>
+								{busy.is('solo') ? 'Joining…' : 'Play solo'}
+							</button>
 						</form>
-						<form method="POST" action="?/leaveEvent" use:enhance>
-							<button type="submit" class="danger">Leave event</button>
+						<form method="POST" action="?/leaveEvent" use:enhance={busy.submit('leaveEvent')}>
+							<button type="submit" class="danger" disabled={busy.active}>
+								{busy.is('leaveEvent') ? 'Leaving…' : 'Leave event'}
+							</button>
 						</form>
 					</div>
 				</div>
@@ -366,13 +471,17 @@
 									{/if}
 								</div>
 								<div class="actions">
-									<form method="POST" action="?/acceptInvite" use:enhance>
+									<form method="POST" action="?/acceptInvite" use:enhance={busy.submit(`accept:${inv.id}`)}>
 										<input type="hidden" name="invite_id" value={inv.id} />
-										<button type="submit" class="primary">Accept</button>
+										<button type="submit" class="primary" disabled={busy.active}>
+											{busy.is(`accept:${inv.id}`) ? 'Accepting…' : 'Accept'}
+										</button>
 									</form>
-									<form method="POST" action="?/declineInvite" use:enhance>
+									<form method="POST" action="?/declineInvite" use:enhance={busy.submit(`decline:${inv.id}`)}>
 										<input type="hidden" name="invite_id" value={inv.id} />
-										<button type="submit">Decline</button>
+										<button type="submit" disabled={busy.active}>
+											{busy.is(`decline:${inv.id}`) ? 'Declining…' : 'Decline'}
+										</button>
 									</form>
 								</div>
 							</li>
@@ -392,9 +501,11 @@
 									<AccountIcon type={inv.to?.account_type} />
 									<strong>{inv.to?.rsn ?? inv.to?.discord_username ?? 'Unknown'}</strong>
 								</div>
-								<form method="POST" action="?/cancelInvite" use:enhance>
+								<form method="POST" action="?/cancelInvite" use:enhance={busy.submit(`cancel:${inv.id}`)}>
 									<input type="hidden" name="invite_id" value={inv.id} />
-									<button type="submit">Cancel</button>
+									<button type="submit" disabled={busy.active}>
+										{busy.is(`cancel:${inv.id}`) ? 'Cancelling…' : 'Cancel'}
+									</button>
 								</form>
 							</li>
 						{/each}
@@ -442,9 +553,11 @@
 											<span class="muted">— {p.discord_username}</span>
 										</div>
 										{#if !onTeam}
-											<form method="POST" action="?/inviteUser" use:enhance>
+											<form method="POST" action="?/inviteUser" use:enhance={busy.submit(`invite:${p.user_id}`)}>
 												<input type="hidden" name="user_id" value={p.user_id} />
-												<button type="submit" class="primary">Invite</button>
+												<button type="submit" class="primary" disabled={busy.active}>
+													{busy.is(`invite:${p.user_id}`) ? 'Inviting…' : 'Invite'}
+												</button>
 											</form>
 										{/if}
 									</li>
@@ -538,6 +651,7 @@
 	</aside>
 </section>
 
+{/if}
 <style>
 	.crumbs {
 		margin-bottom: 0.75rem;
@@ -745,7 +859,7 @@
 		letter-spacing: 0.06em;
 		color: var(--accent);
 		border: 1px solid rgba(255, 152, 31, 0.5);
-		border-radius: 999px;
+		border-radius: 3px;
 		padding: 0.05rem 0.4rem;
 		vertical-align: middle;
 	}
@@ -899,7 +1013,7 @@
 	}
 
 	.team-name {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1.1rem;
 		color: var(--yellow);
 		text-shadow: var(--ts-strong);
@@ -914,7 +1028,7 @@
 	}
 
 	.team-name-form input {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		font-size: 1rem;
 	}
 
@@ -992,7 +1106,7 @@
 	.clan-count {
 		font-size: 0.85rem;
 		color: var(--muted);
-		font-family: 'rssmall', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-body);
 	}
 
 	.team-row {
@@ -1012,7 +1126,7 @@
 	}
 
 	.team-row-name {
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		color: var(--yellow);
 		text-shadow: var(--ts);
 	}
@@ -1148,6 +1262,19 @@
 		margin-bottom: 0.75rem;
 	}
 
+	.standings-skeleton {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.detail-skeleton-lines {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
+	}
+
 	.teams-view-head h2 {
 		margin: 0;
 	}
@@ -1163,7 +1290,7 @@
 	.board-open {
 		flex-shrink: 0;
 		padding: 0.5rem 1rem;
-		font-family: 'rsbold', ui-sans-serif, Arial, sans-serif;
+		font-family: var(--font-heading);
 		background: var(--accent-soft);
 		border: 1px solid var(--accent);
 		border-radius: var(--radius);
