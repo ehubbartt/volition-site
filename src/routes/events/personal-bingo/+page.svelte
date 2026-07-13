@@ -122,24 +122,27 @@
 	const DIFF_LABELS = ['', 'Casual', 'Easy', 'Easy+', 'Light', 'Moderate', 'Spicy', 'Hard', 'Hard+', 'Brutal', 'Insane'];
 	let diffLabel = $derived(DIFF_LABELS[difficulty] ?? 'Moderate');
 
-	// Completed bingo lines (rows / cols / diagonals) from the obtained tiles.
+	// Completed bingo lines (rows / cols / diagonals) from the obtained tiles. `keys`
+	// mirrors the server's award keys (r0.., c0.., d0, d1) and drives the VP gutter chips.
 	let lines = $derived.by(() => {
-		if (!board) return { count: 0, cells: new Set<number>() };
+		if (!board) return { count: 0, cells: new Set<number>(), keys: new Set<string>() };
 		const n = board.size;
 		const got = new Set(board.tiles.filter((t) => t.obtained).map((t) => t.idx));
 		const cells = new Set<number>();
+		const keys = new Set<string>();
 		let count = 0;
-		const mark = (idxs: number[]) => {
+		const mark = (key: string, idxs: number[]) => {
 			if (idxs.every((i) => got.has(i))) {
 				count++;
+				keys.add(key);
 				idxs.forEach((i) => cells.add(i));
 			}
 		};
-		for (let r = 0; r < n; r++) mark(Array.from({ length: n }, (_, c) => r * n + c));
-		for (let c = 0; c < n; c++) mark(Array.from({ length: n }, (_, r) => r * n + c));
-		mark(Array.from({ length: n }, (_, i) => i * n + i));
-		mark(Array.from({ length: n }, (_, i) => i * n + (n - 1 - i)));
-		return { count, cells };
+		for (let r = 0; r < n; r++) mark(`r${r}`, Array.from({ length: n }, (_, c) => r * n + c));
+		for (let c = 0; c < n; c++) mark(`c${c}`, Array.from({ length: n }, (_, r) => r * n + c));
+		mark('d0', Array.from({ length: n }, (_, i) => i * n + i));
+		mark('d1', Array.from({ length: n }, (_, i) => i * n + (n - 1 - i)));
+		return { count, cells, keys };
 	});
 
 	let obtainedCount = $derived(board ? board.tiles.filter((t) => t.obtained).length : 0);
@@ -409,24 +412,54 @@
 			</div>
 		{/if}
 
-		<div class="grid" style="--n:{board.size}">
+		{@const showVp = !!(data.vp && !data.vp.test)}
+		<!-- VP gutter: each row/column/diagonal wears a chip with its VP at the edge of the
+		     board (top = columns + the two diagonals on the corners, left = rows), lighting
+		     up green once that line is complete; the blackout bonus runs along the bottom. -->
+		<div class="grid" class:with-vp={showVp} style="--n:{board.size}">
+			{#if showVp && data.vp}
+				{@const lv = data.vp.line}
+				<div class="vpchip corner" class:done={lines.keys.has('d0')} style="grid-row: 1; grid-column: 1" title="Diagonal (top-left → bottom-right): {lv} VP">↘{lv}</div>
+				{#each Array.from({ length: board.size }) as _, c (c)}
+					<div class="vpchip" class:done={lines.keys.has(`c${c}`)} style="grid-row: 1; grid-column: {c + 2}" title="Column {c + 1}: {lv} VP">{lv}</div>
+				{/each}
+				<div class="vpchip corner" class:done={lines.keys.has('d1')} style="grid-row: 1; grid-column: {board.size + 2}" title="Diagonal (top-right → bottom-left): {lv} VP">↙{lv}</div>
+				{#each Array.from({ length: board.size }) as _, r (r)}
+					<div class="vpchip" class:done={lines.keys.has(`r${r}`)} style="grid-row: {r + 2}; grid-column: 1" title="Row {r + 1}: {lv} VP">{lv}</div>
+				{/each}
+				<div
+					class="vpbar"
+					class:done={obtainedCount === board.size * board.size}
+					style="grid-row: {board.size + 2}; grid-column: 2 / span {board.size}"
+					title="Complete every tile for a +{data.vp.blackout} VP bonus"
+				>
+					Blackout · +{data.vp.blackout} VP
+				</div>
+			{/if}
 			{#each board.tiles as tile (tile.idx)}
-				<BingoTile
-					image={tileImage(tile)}
-					name={tileName(tile)}
-					sub={tileSub(tile)}
-					obtained={tile.obtained}
-					highlighted={lines.cells.has(tile.idx)}
-					title={tileTitle(tile)}
-					onselect={() => (modalTile = tile)}
-					ontileclick={() => {
-						// Whole tile → submit (with details); icon → details only. Obtained,
-						// pending-review, or draft tiles have nothing to submit, so fall back
-						// to the detail modal.
-						if (locked && !tile.obtained && !tile.pending) submitTarget = tile;
-						else modalTile = tile;
-					}}
-				/>
+				<div
+					class="cell"
+					style={showVp
+						? `grid-row:${Math.floor(tile.idx / board.size) + 2};grid-column:${(tile.idx % board.size) + 2}`
+						: undefined}
+				>
+					<BingoTile
+						image={tileImage(tile)}
+						name={tileName(tile)}
+						sub={tileSub(tile)}
+						obtained={tile.obtained}
+						highlighted={lines.cells.has(tile.idx)}
+						title={tileTitle(tile)}
+						onselect={() => (modalTile = tile)}
+						ontileclick={() => {
+							// Whole tile → submit (with details); icon → details only. Obtained,
+							// pending-review, or draft tiles have nothing to submit, so fall back
+							// to the detail modal.
+							if (locked && !tile.obtained && !tile.pending) submitTarget = tile;
+							else modalTile = tile;
+						}}
+					/>
+				</div>
 			{/each}
 		</div>
 		<p class="muted small foot">
@@ -743,6 +776,61 @@
 		grid-template-columns: repeat(var(--n), minmax(0, 1fr));
 		gap: 0.5rem;
 		max-width: 100%;
+	}
+	/* With VP chips the board grows a slim gutter on the top/left/right (line chips) and a
+	   bottom bar (blackout). Tiles are explicitly placed into the inner n×n window. */
+	.grid.with-vp {
+		grid-template-columns: minmax(1.6rem, auto) repeat(var(--n), minmax(0, 1fr)) minmax(1.6rem, auto);
+	}
+	.cell {
+		min-width: 0;
+		display: grid;
+	}
+	.vpchip {
+		align-self: center;
+		justify-self: center;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 1.8rem;
+		height: 1.8rem;
+		padding: 0 0.35rem;
+		border-radius: 999px;
+		font-family: var(--font-heading);
+		font-size: 0.72rem;
+		line-height: 1;
+		color: #cbb78b;
+		background: rgba(0, 0, 0, 0.28);
+		box-shadow: inset 0 0 0 1.5px #5c4d35;
+		cursor: default;
+		white-space: nowrap;
+	}
+	.vpchip.done {
+		color: #eef7e0;
+		background: radial-gradient(circle at 35% 30%, #6f9c4c, #46672f);
+		box-shadow:
+			inset 0 0 0 1.5px rgba(24, 42, 12, 0.6),
+			0 0 8px -2px var(--success);
+	}
+	.vpbar {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.35rem 0.5rem;
+		border-radius: 5px;
+		font-family: var(--font-heading);
+		font-size: 0.8rem;
+		color: #cbb78b;
+		background: rgba(0, 0, 0, 0.24);
+		box-shadow: inset 0 0 0 1.5px #5c4d35;
+		cursor: default;
+	}
+	.vpbar.done {
+		color: #eef7e0;
+		background: linear-gradient(165deg, #55673f, #46672f);
+		box-shadow:
+			inset 0 0 0 1.5px rgba(24, 42, 12, 0.6),
+			0 0 10px -2px var(--success);
 	}
 	/* Individual tiles are the reusable <BingoTile> component ($lib/BingoTile.svelte). */
 	.foot {
