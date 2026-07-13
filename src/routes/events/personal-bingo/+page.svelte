@@ -277,15 +277,21 @@
 						<input type="checkbox" name="pets" bind:checked={pets} />
 						<span>Include pets</span>
 					</label>
-					<label class="toggle">
-						<input type="checkbox" name="owned" bind:checked={includeOwned} />
-						<span>Include items I already own</span>
-					</label>
-					{#if includeOwned}
-						<p class="muted small">
-							Owned items must <strong>drop again</strong> while your board is locked (tracked
-							by Dink) — your existing collection log won't tick them.
-						</p>
+					<!-- HIDDEN for launch: owned items must drop again to credit, but a handful of
+					     clog items are once-per-account and would make a tile impossible. Re-enable
+					     once a curated owned-pool exclusion list exists — the server plumbing
+					     (match_type 'loot' tiles, the generator's includeOwned param) is live. -->
+					{#if false}
+						<label class="toggle">
+							<input type="checkbox" name="owned" bind:checked={includeOwned} />
+							<span>Include items I already own</span>
+						</label>
+						{#if includeOwned}
+							<p class="muted small">
+								Owned items must <strong>drop again</strong> while your board is locked (tracked
+								by Dink) — your existing collection log won't tick them.
+							</p>
+						{/if}
 					{/if}
 				</div>
 			</div>
@@ -305,8 +311,8 @@
 	<!-- TEMPORARY (admins only): easiest-possible 3x3 for verifying Dink/XP/CA tracking
 	     end to end. Rendered OUTSIDE the generator block on purpose: it must stay
 	     reachable while a board is locked (the test path bypasses the lock window).
-	     Remove once personal-board tracking is confirmed working. -->
-	{#if pageData.isAdmin && pbReady}
+	     HIDDEN for launch (flip the false to bring it back for more testing). -->
+	{#if false && pageData.isAdmin && pbReady}
 		<form
 			method="POST"
 			action="?/generateTest"
