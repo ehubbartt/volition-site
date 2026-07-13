@@ -165,14 +165,38 @@
 				anything that drops <strong>Bones</strong>.
 				{#if data.selfTestReady}
 					No signup needed — opening this page armed the test for your account. If you set
-					your config URL up a while ago, restart RuneLite once so Dink re-imports the item
-					list (it refreshes on startup and every few hours).
+					your config URL up a while ago, re-import your config first (see below).
 				{:else}
 					<span class="warn-inline">⚠ The self-test isn't enabled right now — ask an admin.</span>
 				{/if}
 			</li>
 			<li>Leave this page open — the tile ticks within ~10 seconds of the drop.</li>
 		</ol>
+
+		<details class="guide">
+			<summary>Not working? Re-import your config (takes 10 seconds)</summary>
+			<p class="muted small">
+				Dink only re-reads your config URL when RuneLite starts (or on login every few hours).
+				To force it right now, toggle the <strong>Dink</strong> plugin off and back on in
+				RuneLite's plugin list:
+			</p>
+			<img
+				class="guide-img"
+				src="/dink-guide/toggle-dink.gif"
+				alt="Toggling the Dink plugin off and back on in RuneLite"
+				loading="lazy"
+			/>
+			<p class="muted small">
+				Then check your in-game chatbox for Dink's confirmation message — seeing it means the
+				latest item list (including the test items) is loaded:
+			</p>
+			<img
+				class="guide-img"
+				src="/dink-guide/config-imported.png"
+				alt="Dink chat message: Success: Updated config settings from import"
+				loading="lazy"
+			/>
+		</details>
 	</div>
 
 	<div class="card">
@@ -222,6 +246,13 @@
 	.quest-tile { flex-shrink: 0; width: 8.5rem; display: grid; }
 	.warn-inline { color: var(--yellow); }
 	.reset-btn { margin-top: 0.6rem; padding: 0.3rem 0.8rem; min-height: 0; font-size: 0.85rem; }
+	.guide { margin-top: 0.9rem; border-top: 1px solid var(--border); padding-top: 0.7rem; }
+	.guide summary { cursor: pointer; color: var(--accent); font-size: 0.92rem; }
+	.guide[open] summary { margin-bottom: 0.5rem; }
+	.guide-img {
+		display: block; max-width: 100%; margin: 0.4rem 0 0.8rem;
+		border: 1px solid var(--border); border-radius: var(--radius);
+	}
 	.dot { color: var(--success); animation: pulse 1s infinite; }
 	@keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 	.card {
