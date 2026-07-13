@@ -239,7 +239,8 @@ async function creditTile(
 		status: 'approved',
 		source,
 		test: false, // vs_submissions.test is set on every createSubmission insert (may be NOT NULL)
-		proof_urls: opts?.proofUrls ?? null,
+		proof_urls: opts?.proofUrls ?? [], // NOT NULL column — a dink/clog credit has no proofs
+
 		submitted_at: now,
 		reviewed_at: now
 	});
