@@ -17,6 +17,8 @@ interface OpenRow {
 }
 
 interface OpenCardRow {
+	card_id: string | null;
+	card_name: string | null;
 	rarity: string;
 	finish: string;
 }
@@ -59,7 +61,7 @@ export async function buildPackStats() {
 	const [userRows, opens, openCards, cardRows, packRows] = await Promise.all([
 		selectAll<UserRow>('vs_users', 'id, rsn, discord_username'),
 		selectAll<OpenRow>('vs_pack_opens', 'user_id, pack_id, pack_name, cost_vp, cost_gp, card_count, opened_at'),
-		selectAll<OpenCardRow>('vs_pack_open_cards', 'rarity, finish'),
+		selectAll<OpenCardRow>('vs_pack_open_cards', 'card_id, card_name, rarity, finish'),
 		selectAll<UserCardRow>('vs_user_cards', 'user_id, quantity, card_id'),
 		selectAll<UserPackRow>('vs_user_packs', 'user_id, quantity')
 	]);
@@ -129,15 +131,34 @@ export async function buildPackStats() {
 		packBreak.set(key, pb);
 	}
 
-	// Line items → the rarity / finish pull breakdown.
+	// Line items → the rarity / finish pull breakdowns, plus per-card pull counts.
 	const rarityPulls: Record<string, number> = {};
 	const finishPulls = { normal: 0, holo: 0, reverse: 0 };
+	const cardPulls = new Map<
+		string,
+		{ name: string; rarity: string; total: number; normal: number; holo: number; reverse: number }
+	>();
 	for (const c of openCards) {
 		const r = isValidRarity(c.rarity) ? c.rarity : DEFAULT_RARITY;
 		rarityPulls[r] = (rarityPulls[r] ?? 0) + 1;
 		if (c.finish === 'holo') finishPulls.holo += 1;
 		else if (c.finish === 'reverse') finishPulls.reverse += 1;
 		else finishPulls.normal += 1;
+
+		const key = c.card_id ?? c.card_name ?? 'unknown';
+		const cp = cardPulls.get(key) ?? {
+			name: c.card_name ?? 'Unknown card',
+			rarity: r,
+			total: 0,
+			normal: 0,
+			holo: 0,
+			reverse: 0
+		};
+		cp.total += 1;
+		if (c.finish === 'holo') cp.holo += 1;
+		else if (c.finish === 'reverse') cp.reverse += 1;
+		else cp.normal += 1;
+		cardPulls.set(key, cp);
 	}
 
 	// Current inventory.
@@ -170,6 +191,18 @@ export async function buildPackStats() {
 
 	const packBreakdown = [...packBreak.values()].sort((a, b) => b.opens - a.opens);
 
+	// Per-card pull counts (most-pulled first), with the rarity's label/colour for
+	// display. Rarity comes from the logged line rows, so it reflects what was
+	// actually pulled even if a card's rarity is later re-tuned.
+	const rarityMeta = new Map(RARITIES.map((r) => [r.key, r]));
+	const cardBreakdown = [...cardPulls.values()]
+		.map((c) => ({
+			...c,
+			rarityLabel: rarityMeta.get(c.rarity)?.label ?? c.rarity,
+			rarityColor: rarityMeta.get(c.rarity)?.color ?? 'var(--muted)'
+		}))
+		.sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+
 	return {
 		totals: {
 			opens: totalOpens,
@@ -181,6 +214,7 @@ export async function buildPackStats() {
 		rarityBreak,
 		finishPulls,
 		packBreakdown,
+		cardBreakdown,
 		playerStats
 	};
 }
