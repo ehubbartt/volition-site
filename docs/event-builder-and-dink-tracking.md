@@ -81,8 +81,11 @@ that passes its activation check is credited.
 only*, never whether a tile can be submitted manually. Every event tile keeps its
 `/bingo` proof-submission + admin-review path as a safety net if Dink misses or mis-fires;
 the unique approved index on `vs_bingo_completions(event_id,user_id,tile_id)` dedupes a
-double credit (first to approve wins). Personal boards have no review flow — their manual
-check is the existing "Check collection log" re-poll button.
+double credit (first to approve wins). Personal-board manual claims go through the same
+review: "Mark done" files a PENDING `vs_submissions` row (source `manual`) that surfaces
+in `/admin/submissions`; the tile shows "Pending review" and only ticks once approved.
+Dink/clog/WoM/WikiSync auto-credits skip review (they insert approved, source `dink`/
+`clog`/etc.). The automatic manual-free check remains the "Check progress" re-poll button.
 
 **Race healing.** `vs_dink_drops` stays the durable recent-drops log. The cron/proxy path
 (`POST /api/dink/process`) runs a bounded **reconcile** pass that re-checks recent

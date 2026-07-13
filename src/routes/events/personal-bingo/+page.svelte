@@ -66,6 +66,7 @@
 		return t.kind === 'skill' ? `Gain ${formatXp(t.target_xp ?? 0)}` : (t.item_name ?? '');
 	}
 	function tileSub(t: Tile): string {
+		if (t.pending && !t.obtained) return 'Pending review';
 		if (t.kind === 'skill') {
 			return locked && !t.obtained && t.progress_xp != null
 				? `${formatXp(t.progress_xp)} / ${formatXp(t.target_xp ?? 0)}`
@@ -189,6 +190,11 @@
 		<div class="panel ok">
 			Board locked in — progress now tracks automatically from your collection log and Dink. You
 			can make a new board on {fmtDate(data.resettableAt)}.
+		</div>
+	{/if}
+	{#if form?.submitted}
+		<div class="panel ok">
+			Submitted for review — the tile will tick off once an admin approves it.
 		</div>
 	{/if}
 
@@ -388,9 +394,10 @@
 					title={tileTitle(tile)}
 					onselect={() => (modalTile = tile)}
 					ontileclick={() => {
-						// Whole tile → submit (with details); icon → details only. Obtained or
-						// draft tiles have nothing to submit, so fall back to the detail modal.
-						if (locked && !tile.obtained) submitTarget = tile;
+						// Whole tile → submit (with details); icon → details only. Obtained,
+						// pending-review, or draft tiles have nothing to submit, so fall back
+						// to the detail modal.
+						if (locked && !tile.obtained && !tile.pending) submitTarget = tile;
 						else modalTile = tile;
 					}}
 				/>
@@ -469,6 +476,8 @@
 						{/each}
 					</div>
 				{/if}
+			{:else if t.pending}
+				<p class="modal-done">⏳ Submitted — awaiting admin review</p>
 			{:else if locked}
 				<button type="button" class="modal-submit" onclick={() => { submitTarget = t; modalTile = null; }}>
 					Mark done / submit proof

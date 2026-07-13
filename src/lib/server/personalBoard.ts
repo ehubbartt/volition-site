@@ -64,6 +64,7 @@ export interface PersonalBoardTile {
 	proof_urls: string[] | null; // manual-submission proof screenshots
 	obtained: boolean;
 	obtained_at: string | null;
+	pending: boolean; // a manual submission is awaiting admin review (not yet credited)
 }
 
 export interface PersonalBoard {
@@ -115,6 +116,18 @@ async function getCompletions(eventId: string, userId: string): Promise<Map<stri
 		if (!out.has(r.target_id)) out.set(r.target_id, { source: r.source ?? null, proof_urls: r.proof_urls ?? null, at: r.submitted_at });
 	}
 	return out;
+}
+
+// Tile keys with a manual submission awaiting admin review (drives the tile's
+// "pending" state and blocks duplicate submissions).
+async function getPendingTileKeys(eventId: string, userId: string): Promise<Set<string>> {
+	const { data } = await db()
+		.from('vs_submissions')
+		.select('target_id')
+		.eq('event_id', eventId)
+		.eq('user_id', userId)
+		.eq('status', 'pending');
+	return new Set(((data ?? []) as { target_id: string }[]).map((r) => r.target_id));
 }
 
 // A generated/placed tile (kind + all kind-specific fields), before it's a DB row.
@@ -178,7 +191,7 @@ interface TileRow {
 }
 
 // vs_tiles row (+ its ledger completion, if any) → the PersonalBoardTile the page renders.
-function rowToTile(r: TileRow, comp?: Completion): PersonalBoardTile {
+function rowToTile(r: TileRow, comp?: Completion, pending = false): PersonalBoardTile {
 	const meta = (r.meta ?? {}) as Record<string, unknown>;
 	const kind = (r.kind as 'item' | 'skill' | 'ca') ?? 'item';
 	const num = (v: unknown): number | null => (v == null ? null : Number(v));
@@ -198,7 +211,8 @@ function rowToTile(r: TileRow, comp?: Completion): PersonalBoardTile {
 		manual: comp?.source === 'manual',
 		proof_urls: comp?.proof_urls ?? null,
 		obtained: !!comp,
-		obtained_at: comp?.at ?? null
+		obtained_at: comp?.at ?? null,
+		pending: !comp && pending
 	};
 }
 
@@ -636,7 +650,10 @@ export async function loadPersonalBoard(userId: string): Promise<PersonalBoard |
 		.select('tile_key, kind, name, position, meta')
 		.eq('event_id', ev.id)
 		.order('position', { ascending: true });
-	const comp = await getCompletions(ev.id, userId);
+	const [comp, pendingKeys] = await Promise.all([
+		getCompletions(ev.id, userId),
+		getPendingTileKeys(ev.id, userId)
+	]);
 	return {
 		id: ev.id,
 		size: Number(structure.size ?? 5),
@@ -644,7 +661,9 @@ export async function loadPersonalBoard(userId: string): Promise<PersonalBoard |
 		rsn: String(structure.rsn ?? ''),
 		created_at: ev.created_at,
 		locked_at: ev.locked_at,
-		tiles: ((tileRows ?? []) as TileRow[]).map((r) => rowToTile(r, comp.get(r.tile_key)))
+		tiles: ((tileRows ?? []) as TileRow[]).map((r) =>
+			rowToTile(r, comp.get(r.tile_key), pendingKeys.has(r.tile_key))
+		)
 	};
 }
 
@@ -758,11 +777,13 @@ export async function refreshPersonalBoard(userId: string): Promise<RefreshResul
 
 export type SubmitTileResult =
 	| { ok: true }
-	| { ok: false; reason: 'no_board' | 'not_locked' | 'no_tile' | 'upload_failed'; error?: string };
+	| { ok: false; reason: 'no_board' | 'not_locked' | 'no_tile' | 'already_pending' | 'upload_failed'; error?: string };
 
-// Manual, owner-attested completion of a tile (for drops/goals the auto-trackers miss). Uploads any
-// proof to the shared bingo bucket, then appends an approved manual credit. Self-serve (personal
-// boards have no review). Only on a LOCKED board; proof optional; idempotent.
+// Manual completion claim for a tile (for drops/goals the auto-trackers miss). Uploads any
+// proof to the shared bingo bucket, then files a PENDING submission — it surfaces in
+// /admin/submissions for approve/reject and only credits the tile once approved. (Dink/clog
+// auto-credits skip review; only manual claims are reviewed.) Only on a LOCKED board;
+// proof optional; one open claim per tile.
 export async function submitPersonalTile(userId: string, idx: number, files: File[]): Promise<SubmitTileResult> {
 	const board = await loadPersonalBoard(userId);
 	if (!board) return { ok: false, reason: 'no_board' };
@@ -771,6 +792,7 @@ export async function submitPersonalTile(userId: string, idx: number, files: Fil
 	const tile = board.tiles.find((t) => t.idx === idx);
 	if (!tile) return { ok: false, reason: 'no_tile' };
 	if (tile.obtained) return { ok: true }; // already done
+	if (tile.pending) return { ok: false, reason: 'already_pending' };
 
 	const valid = files.filter((f) => f instanceof File && f.size > 0).slice(0, MAX_IMAGES_PER_SUBMISSION);
 	const urls: string[] = [];
@@ -786,11 +808,20 @@ export async function submitPersonalTile(userId: string, idx: number, files: Fil
 		paths.push(res.path);
 	}
 
-	const r = await creditTile(board.id, userId, String(idx), 'manual', {
-		proofUrls: urls.length ? urls : undefined,
-		targetLabel: tile.item_name ?? tile.skill ?? undefined
+	const { error } = await sb.from('vs_submissions').insert({
+		event_id: board.id,
+		user_id: userId,
+		target_id: String(idx),
+		target_label: tile.item_name ?? tile.skill ?? null,
+		quantity: 1,
+		status: 'pending',
+		source: 'manual',
+		test: false,
+		proof_urls: urls,
+		submitted_at: new Date().toISOString()
 	});
-	if (r === 'error') {
+	if (error) {
+		console.error('[personalBoard] pending submission failed', board.id, idx, error.message);
 		if (paths.length) await sb.storage.from(BINGO_BUCKET).remove(paths);
 		return { ok: false, reason: 'upload_failed', error: 'Could not save your submission' };
 	}

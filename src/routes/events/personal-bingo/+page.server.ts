@@ -147,8 +147,13 @@ export const actions: Actions = {
 						? 'Lock your board in first — drafts aren’t tracked until you commit to them.'
 						: result.reason === 'no_tile'
 							? 'That tile is no longer on your board.'
-							: (result.error ?? "Couldn't save your submission. Try again shortly.");
-			return fail(result.reason === 'not_locked' ? 400 : result.reason === 'no_tile' ? 404 : 502, { error: msg });
+							: result.reason === 'already_pending'
+								? 'This tile already has a submission awaiting admin review.'
+								: (result.error ?? "Couldn't save your submission. Try again shortly.");
+			return fail(
+				result.reason === 'not_locked' || result.reason === 'already_pending' ? 400 : result.reason === 'no_tile' ? 404 : 502,
+				{ error: msg }
+			);
 		}
 		return { ok: true, submitted: true };
 	}
