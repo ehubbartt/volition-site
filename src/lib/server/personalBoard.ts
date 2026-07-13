@@ -582,13 +582,10 @@ export async function generateTestPersonalBoard(
 ): Promise<GenerateResult> {
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
 
+	// Unlike the normal generator, the LOCK window is NOT enforced: this is an
+	// admin-only test tool, and being stuck behind a 30-day commitment on a stale
+	// board would defeat its purpose. Regenerating still wipes the old board.
 	const existing = await loadPersonalEvent(userId);
-	if (existing?.locked_at) {
-		const reset = boardResettableAt(existing.locked_at);
-		if (reset && Date.now() < new Date(reset).getTime()) {
-			return { ok: false, reason: 'locked', resettable_at: reset };
-		}
-	}
 
 	const completed = await getCompletedCAs(userId, rsn);
 	if (completed == null) return { ok: false, reason: 'ca_unavailable' };
