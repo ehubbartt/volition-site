@@ -84,7 +84,7 @@
 		return `${t.item_name} · ${formatEhb(t.ehb)} at ${t.source}`;
 	}
 
-	// Tile-detail modal: clicking a tile's icon disc opens it.
+	// Tile-detail modal: shown for tiles with nothing to submit (obtained/pending/draft).
 	let modalTile = $state<Tile | null>(null);
 	const modalHeading = $derived(
 		modalTile ? (modalTile.kind === 'skill' ? (modalTile.skill ?? 'Skill') : (modalTile.item_name ?? '')) : ''
@@ -450,11 +450,10 @@
 						obtained={tile.obtained}
 						highlighted={lines.cells.has(tile.idx)}
 						title={tileTitle(tile)}
-						onselect={() => (modalTile = tile)}
 						ontileclick={() => {
-							// Whole tile → submit (with details); icon → details only. Obtained,
-							// pending-review, or draft tiles have nothing to submit, so fall back
-							// to the detail modal.
+							// One click surface: submittable tiles open the submission modal
+							// (which includes the tile's details); obtained, pending-review, and
+							// draft tiles open the detail modal (status/proof, nothing to submit).
 							if (locked && !tile.obtained && !tile.pending) submitTarget = tile;
 							else modalTile = tile;
 						}}
@@ -513,7 +512,7 @@
 	{/if}
 {/snippet}
 
-<!-- Tile-detail modal (opens on clicking a tile's icon disc). -->
+<!-- Tile-detail modal (obtained / pending-review / draft tiles — status, proof, wiki info). -->
 {#if modalTile}
 	{@const t = modalTile}
 	<div class="modal-backdrop" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) modalTile = null; }}>
