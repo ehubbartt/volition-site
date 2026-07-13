@@ -431,6 +431,14 @@ function missingCandidates(
 	return out;
 }
 
+// Minimum EHB per item tile by difficulty — the gradient used to start at the very
+// cheapest items in the pool, so even Insane boards carried two-minute tiles.
+// Quadratic ramp: 0 @d1-2, ~0.4h @d3, ~1.6h @d5, ~3.6h @d7, ~8.1h @d10.
+function minTileEhb(difficulty: number): number {
+	const d = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, difficulty));
+	return 0.1 * (d - 1) * (d - 1);
+}
+
 // Pick N tiles as an easy→hard GRADIENT scaled by difficulty.
 function selectGradient(pool: Candidate[], count: number, difficulty: number): Candidate[] {
 	if (pool.length <= count) return pool.slice(); // take everything we have
@@ -600,7 +608,15 @@ export async function generatePersonalBoard(
 		return { ok: false, reason: 'too_few', missing: pool.length, need: itemCount };
 	}
 
-	const items = selectGradient(pool, itemCount, diff);
+	// Enforce the difficulty's per-item EHB floor (pool is sorted easy→hard). If the
+	// player's log can't fill the board above the floor, fall back to their hardest
+	// remaining items (2× the need, so the gradient keeps some spread) rather than fail.
+	const floor = minTileEhb(diff);
+	const floored = pool.filter((c) => c.ehb >= floor);
+	const itemsPool =
+		floored.length >= itemCount ? floored : pool.slice(-Math.min(pool.length, itemCount * 2));
+
+	const items = selectGradient(itemsPool, itemCount, diff);
 
 	const placed: Placed[] = [
 		// Owned picks are LOOT-matched (drop must land again, credited via Dink);
