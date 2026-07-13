@@ -4,8 +4,9 @@
 	// A reusable board tile for bingo / event / personal-board grids: the site's bronze OSRS
 	// button frame over a tan fill, an icon on a light parchment disc (so even dark/black wiki
 	// glyphs stay visible), a clamped name, and an optional sub-line. Completion shows as a
-	// green inner ring; `highlighted` adds the accent glow used for completed bingo lines. Drop
-	// it into a CSS grid — it renders a single grid item.
+	// soft green wash + a gold-rimmed check medallion on the corner; `highlighted` adds the
+	// accent glow used for completed bingo lines. Drop it into a CSS grid — it renders a
+	// single grid item.
 	let {
 		image = null,
 		imageAlt = '',
@@ -71,18 +72,45 @@
 		border-image: url('/osrs/button.png') 9 / 9px stretch;
 		border-radius: 5px;
 	}
-	/* Completed: a green inner ring + faint green wash. The frame is unchanged so a tile never
-	   resizes when it ticks off. */
+	/* Completed: a soft green wash breathing out from the edges (no hard inner rectangle)
+	   plus a gold-rimmed check medallion on the corner. The frame is unchanged so a tile
+	   never resizes when it ticks off. */
 	.tile.obtained {
-		background: #3b4a2c;
-		box-shadow: inset 0 0 0 3px var(--success);
+		background: linear-gradient(165deg, #445138 0%, #37432d 100%);
+		box-shadow: inset 0 0 26px -4px rgba(120, 190, 90, 0.45);
+	}
+	.tile.obtained::after {
+		content: '✓';
+		position: absolute;
+		top: -10px;
+		right: -10px;
+		width: 24px;
+		height: 24px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		background: radial-gradient(circle at 35% 30%, #8fce6a, #4c7a2f 75%);
+		color: #f7f3e4;
+		font-size: 0.85rem;
+		font-weight: 700;
+		line-height: 1;
+		box-shadow:
+			inset 0 0 0 1.5px rgba(24, 42, 12, 0.65),
+			0 0 0 2px #8a6d3b,
+			0 2px 5px rgba(0, 0, 0, 0.55);
+		pointer-events: none;
+	}
+	/* The icon settles back once done — the medallion carries the signal. */
+	.tile.obtained .icon {
+		filter: saturate(0.6) brightness(0.88);
 	}
 	.tile.highlighted {
 		box-shadow: 0 0 0 2px var(--accent), 0 0 14px -2px var(--accent);
 	}
 	.tile.obtained.highlighted {
 		box-shadow:
-			inset 0 0 0 3px var(--success),
+			inset 0 0 26px -4px rgba(120, 190, 90, 0.45),
 			0 0 0 2px var(--accent),
 			0 0 14px -2px var(--accent);
 	}

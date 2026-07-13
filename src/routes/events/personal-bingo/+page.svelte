@@ -394,6 +394,7 @@
 				EHB/EHP = efficient hours to obtain a drop / train a skill.
 				{#if locked}
 					Item tiles auto-complete from your collection log + Dink; skill tiles track XP gained since you locked in (WiseOldMan); combat-achievement tiles complete when you finish the CA (WikiSync) — hit <em>Check progress</em> to refresh.
+					<strong>Skilling XP only updates after you log out of OSRS</strong> — the hiscores (which WiseOldMan reads) refresh on logout, so log out before checking.
 				{:else}
 					This is a <strong>draft preview</strong> — nothing is tracked until you lock it in.
 				{/if}
