@@ -128,6 +128,9 @@ type Placed = {
 	target_xp: number | null;
 	ca_id: number | null;
 	ca_tier: string | null;
+	// Item tiles only: how Dink drops match this tile. Omitted = 'collection' (clog
+	// unlock). The admin test board sets 'loot' so plain ground drops (bones) credit it.
+	match_type?: 'loot' | 'collection';
 };
 
 // Placed tile → vs_tiles insert row. Display/config extras go in `meta`; auto-track rules in
@@ -139,6 +142,9 @@ function tileToRow(eventId: string, p: Placed, idx: number) {
 		meta.item_id = p.item_id;
 		meta.item_name = p.item_name;
 		meta.source = p.source;
+		// The active-tiles view reads meta.match_type (default 'collection') to decide
+		// which Dink notification kind credits this tile.
+		if (p.match_type) meta.match_type = p.match_type;
 		triggers.push({ type: 'dink_item', match_key: String(p.item_id), required_qty: 1 });
 		triggers.push({ type: 'clog', match_key: p.item_name, required_qty: 1 });
 	} else if (p.kind === 'skill') {
@@ -561,9 +567,15 @@ async function persistPersonalBoard(
 }
 
 // TEMPORARY admin test board: the easiest possible 3x3 for end-to-end tracking checks —
-// the player's 3 cheapest missing clog items (credit via Dink collection-log notifs),
+// 3 trivially-farmable LOOT drops (bones/feather/cowhide, matched as plain loot rather
+// than clog unlocks — requires the meta->match_type view change in active_tiles.sql),
 // 3 skill tiles at 1 XP each (any XP gain after locking completes them), and the 3
 // easiest-tier CAs the player hasn't done. Admin-gated on the page action.
+const TEST_LOOT_ITEMS: { item_id: number; item_name: string; source: string }[] = [
+	{ item_id: 526, item_name: 'Bones', source: 'Chicken' },
+	{ item_id: 314, item_name: 'Feather', source: 'Chicken' },
+	{ item_id: 1739, item_name: 'Cowhide', source: 'Cow' }
+];
 export async function generateTestPersonalBoard(
 	userId: string,
 	rsn: string | null
@@ -605,20 +617,10 @@ export async function generateTestPersonalBoard(
 		.slice(0, 3)
 		.map((skill) => ({ skill, target_xp: 1, ehb: 0 }));
 
-	const owned = await getOwnedClogNames(userId, rsn);
-	if (owned == null) return { ok: false, reason: 'clog_unavailable' };
-	const overrides = await getEhbOverrides();
-	const excludedIds = await getExcludedItemIds();
-	const pool = missingCandidates(owned, overrides, true, excludedIds);
-	const itemCount = 9 - skills.length - caPicks.length;
-	if (pool.length < itemCount) {
-		return { ok: false, reason: 'too_few', missing: pool.length, need: itemCount };
-	}
-	// Easiest first — no gradient, this board is meant to be completable in minutes.
-	const items = pool.slice(0, itemCount);
-
+	// Fixed common drops matched as plain LOOT (not clog unlocks), so killing a
+	// chicken/cow ticks them — completable in minutes regardless of the player's log.
 	const placed: Placed[] = [
-		...items.map((c) => ({ kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null })),
+		...TEST_LOOT_ITEMS.map((c) => ({ kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: 0, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null, match_type: 'loot' as const })),
 		...skills.map((s) => ({ kind: 'skill' as const, item_id: null, item_name: null, ehb: s.ehb, source: null, skill: s.skill, target_xp: s.target_xp, ca_id: null, ca_tier: null })),
 		...caPicks.map((c) => ({ kind: 'ca' as const, item_id: null, item_name: c.name, ehb: c.ehb, source: c.monster, skill: null, target_xp: null, ca_id: c.ca_id, ca_tier: c.tier }))
 	];

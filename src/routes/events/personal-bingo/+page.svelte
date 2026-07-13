@@ -294,11 +294,10 @@
 				}}
 			>
 				<p class="muted small">
-					<strong>Admin test:</strong> generates a 3×3 with your 3 cheapest missing collection-log
-					items, 3 skill goals of 1 XP, and your 3 easiest uncompleted combat achievements —
-					lock it in, then any clog unlock / XP drop / CA completion should tick tiles off
-					automatically. (Item tiles credit from collection-log notifications, not ground drops,
-					so common drops like bones or feathers can't be used here.)
+					<strong>Admin test:</strong> generates a 3×3 with Bones, Feather and Cowhide as plain
+					loot tiles (kill a chicken/cow), 3 skill goals of 1 XP, and your 3 easiest
+					uncompleted combat achievements — lock it in, then any matching drop / XP gain /
+					CA completion should tick tiles off automatically.
 				</p>
 				<button type="submit" class="ghost" disabled={generatingTest || !data.rsn}>
 					{generatingTest ? 'Building test board…' : 'Generate easy test board'}

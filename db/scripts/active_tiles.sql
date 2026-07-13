@@ -71,12 +71,15 @@ union all
 --     activation time is the LOCK time (structure->>'rsn' carries the board's RSN). `board_id` =
 --     the event id and `board_idx` = the tile position, so the Dink `p:<id>:<idx>` marker is
 --     unchanged. Only item tiles with an item_id are Dink-trackable; skill/ca are WoM/WikiSync.
+--     match_type comes from tile meta so a tile can opt into plain-loot matching (the admin
+--     test board uses this for bones/feather-style drops); normal clog tiles omit it and
+--     default to 'collection'.
 select e.owner_user_id, (e.structure->>'rsn'),
        'personal'::text, 'item'::text,
        null::uuid, null::text,
        e.id, t.position,
        t.name,
-       (t.meta->>'item_id')::int, t.name, 'collection'::text, 1,
+       (t.meta->>'item_id')::int, t.name, coalesce(t.meta->>'match_type', 'collection'), 1,
        e.locked_at
 from vs_tiles t
 join vs_events e on e.id = t.event_id
