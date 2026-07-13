@@ -16,9 +16,11 @@ export type ReviewDecision = 'approve' | 'reject';
 // decision: it updates those rows in that source's table.
 export interface ReviewItem {
 	source: SubmissionSource;
-	// 'event' = a bingo/team/event-scoped proof (needs the pre-approval checklist);
-	// 'task'  = a weekly/custom task submission (no checklist).
-	kind: 'event' | 'task';
+	// 'event'    = a bingo/team/event-scoped proof (needs the pre-approval checklist);
+	// 'task'     = a weekly/custom task submission (no checklist);
+	// 'personal' = a personal-board manual claim (reviewed, but no WOM-codeword
+	//              checklist — personal boards aren't codeword events).
+	kind: 'event' | 'task' | 'personal';
 	ids: string[]; // the pending row ids this group covers
 	event: { id: string; slug: string; name: string };
 	submitter: {

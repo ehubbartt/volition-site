@@ -65,6 +65,8 @@ export interface PersonalBoardTile {
 	obtained: boolean;
 	obtained_at: string | null;
 	pending: boolean; // a manual submission is awaiting admin review (not yet credited)
+	rejected: boolean; // the latest manual submission was rejected (resubmission allowed)
+	rejection_note: string | null; // reviewer's reason, shown to the player
 }
 
 export interface PersonalBoard {
@@ -130,6 +132,24 @@ async function getPendingTileKeys(eventId: string, userId: string): Promise<Set<
 	return new Set(((data ?? []) as { target_id: string }[]).map((r) => r.target_id));
 }
 
+// Latest rejected manual submission per tile (target_id → reviewer note), so the board
+// can tell the player their claim was turned down instead of silently reopening the tile.
+// Superseded by any approved credit or newer pending claim at render time.
+async function getRejections(eventId: string, userId: string): Promise<Map<string, string | null>> {
+	const { data } = await db()
+		.from('vs_submissions')
+		.select('target_id, review_note, submitted_at')
+		.eq('event_id', eventId)
+		.eq('user_id', userId)
+		.eq('status', 'rejected')
+		.order('submitted_at', { ascending: false });
+	const out = new Map<string, string | null>();
+	for (const r of (data ?? []) as { target_id: string; review_note: string | null }[]) {
+		if (!out.has(r.target_id)) out.set(r.target_id, r.review_note ?? null);
+	}
+	return out;
+}
+
 // A generated/placed tile (kind + all kind-specific fields), before it's a DB row.
 type Placed = {
 	kind: 'item' | 'skill' | 'ca';
@@ -191,7 +211,14 @@ interface TileRow {
 }
 
 // vs_tiles row (+ its ledger completion, if any) → the PersonalBoardTile the page renders.
-function rowToTile(r: TileRow, comp?: Completion, pending = false): PersonalBoardTile {
+// `rejection` = the latest rejected claim's reviewer note (undefined if never rejected);
+// it only surfaces while the tile is neither completed nor pending again.
+function rowToTile(
+	r: TileRow,
+	comp?: Completion,
+	pending = false,
+	rejection?: string | null
+): PersonalBoardTile {
 	const meta = (r.meta ?? {}) as Record<string, unknown>;
 	const kind = (r.kind as 'item' | 'skill' | 'ca') ?? 'item';
 	const num = (v: unknown): number | null => (v == null ? null : Number(v));
@@ -212,7 +239,9 @@ function rowToTile(r: TileRow, comp?: Completion, pending = false): PersonalBoar
 		proof_urls: comp?.proof_urls ?? null,
 		obtained: !!comp,
 		obtained_at: comp?.at ?? null,
-		pending: !comp && pending
+		pending: !comp && pending,
+		rejected: !comp && !pending && rejection !== undefined,
+		rejection_note: !comp && !pending && rejection !== undefined ? rejection : null
 	};
 }
 
@@ -650,9 +679,10 @@ export async function loadPersonalBoard(userId: string): Promise<PersonalBoard |
 		.select('tile_key, kind, name, position, meta')
 		.eq('event_id', ev.id)
 		.order('position', { ascending: true });
-	const [comp, pendingKeys] = await Promise.all([
+	const [comp, pendingKeys, rejections] = await Promise.all([
 		getCompletions(ev.id, userId),
-		getPendingTileKeys(ev.id, userId)
+		getPendingTileKeys(ev.id, userId),
+		getRejections(ev.id, userId)
 	]);
 	return {
 		id: ev.id,
@@ -662,7 +692,12 @@ export async function loadPersonalBoard(userId: string): Promise<PersonalBoard |
 		created_at: ev.created_at,
 		locked_at: ev.locked_at,
 		tiles: ((tileRows ?? []) as TileRow[]).map((r) =>
-			rowToTile(r, comp.get(r.tile_key), pendingKeys.has(r.tile_key))
+			rowToTile(
+				r,
+				comp.get(r.tile_key),
+				pendingKeys.has(r.tile_key),
+				rejections.has(r.tile_key) ? rejections.get(r.tile_key) : undefined
+			)
 		)
 	};
 }

@@ -144,7 +144,7 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 	// ensureDuoTilesFresh rides in the Promise.all: resolveTask() reads the tile map
 	// only AFTER all the fetches land, so there's no need to sequence it first.
 	const [eventsRes, bingoRes, teamRes, genericRes, approvedRes, rejectedRes] = await Promise.all([
-		sb.from('vs_events').select('id, slug, name'),
+		sb.from('vs_events').select('id, slug, name, kind'),
 		// Paginate the pending queues past the 1000-row cap (a large backlog would otherwise
 		// silently drop the newest pending submissions from the review queue).
 		fetchAllFiltered((f, t) =>
@@ -187,6 +187,11 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 
 	const eventById = new Map<string, { id: string; slug: string; name: string }>(
 		(eventsRes.data ?? []).map((e) => [e.id, { id: e.id, slug: e.slug, name: e.name }])
+	);
+	// Personal boards are reviewed WITHOUT the WOM-codeword checklist (they're not
+	// codeword events) — the UI keys off kind='personal'.
+	const personalEventIds = new Set(
+		(eventsRes.data ?? []).filter((e) => (e as { kind?: string }).kind === 'personal').map((e) => e.id)
 	);
 
 	const raw: RawRow[] = [];
@@ -300,7 +305,7 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 		if (!group) {
 			group = {
 				source: r.source,
-				kind: isTask ? 'task' : 'event',
+				kind: isTask ? 'task' : r.event_id && personalEventIds.has(r.event_id) ? 'personal' : 'event',
 				ids: [],
 				event: context,
 				submitter,

@@ -67,6 +67,7 @@
 	}
 	function tileSub(t: Tile): string {
 		if (t.pending && !t.obtained) return 'Pending review';
+		if (t.rejected && !t.obtained) return 'Rejected — resubmit?';
 		if (t.kind === 'skill') {
 			return locked && !t.obtained && t.progress_xp != null
 				? `${formatXp(t.progress_xp)} / ${formatXp(t.target_xp ?? 0)}`
@@ -478,6 +479,16 @@
 				{/if}
 			{:else if t.pending}
 				<p class="modal-done">⏳ Submitted — awaiting admin review</p>
+			{:else if t.rejected}
+				<p class="modal-rejected">
+					✗ Your submission was rejected{#if t.rejection_note}: “{t.rejection_note}”{/if} — you
+					can submit again.
+				</p>
+				{#if locked}
+					<button type="button" class="modal-submit" onclick={() => { submitTarget = t; modalTile = null; }}>
+						Resubmit proof
+					</button>
+				{/if}
 			{:else if locked}
 				<button type="button" class="modal-submit" onclick={() => { submitTarget = t; modalTile = null; }}>
 					Mark done / submit proof
@@ -498,6 +509,11 @@
 		onclose={() => (submitTarget = null)}
 	>
 		{@render tileInfo(st)}
+		{#if st.rejected}
+			<p class="modal-rejected">
+				✗ Your previous submission was rejected{#if st.rejection_note}: “{st.rejection_note}”{/if}.
+			</p>
+		{/if}
 	</TileSubmitModal>
 {/if}
 
@@ -800,6 +816,11 @@
 		margin: 0.8rem 0 0;
 		color: var(--success);
 		font-weight: bold;
+		font-size: 0.9rem;
+	}
+	.modal-rejected {
+		margin: 0.8rem 0 0;
+		color: var(--danger, #e06666);
 		font-size: 0.9rem;
 	}
 	.modal-submit {
