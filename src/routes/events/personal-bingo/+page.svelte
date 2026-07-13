@@ -729,19 +729,37 @@
 		gap: 0.75rem;
 		margin: 1.25rem 0 0.75rem;
 	}
+	/* Uniform stat chips: one height, one type scale, numbers highlighted inline — the
+	   previous mix of large heading numerals and plain/muted text sat at ragged heights. */
 	.stats {
 		display: flex;
-		gap: 1rem;
+		gap: 0.5rem;
 		flex-wrap: wrap;
-		align-items: baseline;
+		align-items: center;
 	}
 	.stat {
-		font-size: 0.95rem;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		height: 1.9rem;
+		padding: 0 0.65rem;
+		border-radius: 999px;
+		background: rgba(0, 0, 0, 0.24);
+		box-shadow: inset 0 0 0 1.5px #5c4d35;
+		font-family: var(--font-heading);
+		font-size: 0.78rem;
+		line-height: 1;
+		color: #cbb78b;
+		white-space: nowrap;
 	}
 	.stat strong {
 		color: var(--yellow);
 		font-family: var(--font-heading);
-		font-size: 1.15rem;
+		font-size: 0.92rem;
+		line-height: 1;
+	}
+	.stat.muted {
+		color: var(--muted);
 	}
 	.bar-actions {
 		display: flex;
