@@ -152,9 +152,35 @@
 	</div>
 
 	<div class="card">
-		<h3>How to test</h3>
+		<h3>How to set up &amp; test</h3>
+		<p class="backup-note">
+			<strong>Already use Dink with your own settings?</strong> Back them up first: type
+			<code>::dinkexport</code> in the game chat — Dink copies your full current settings —
+			and paste that somewhere safe. You can restore it any time, so guests joining us for
+			an event can go right back to their own setup afterwards.
+		</p>
 		<ol>
 			<li>Install <strong>RuneLite</strong> and enable the <strong>Dink</strong> plugin.</li>
+			<li>
+				<strong>Reset Dink's settings</strong> so old values don't linger under ours:
+				<img
+					class="guide-img"
+					src="/dink-guide/reset.png"
+					alt="Resetting the Dink plugin settings in RuneLite"
+					loading="lazy"
+				/>
+			</li>
+			<li>
+				In Dink → Advanced Settings, set <strong>Import Policy</strong> to
+				<strong>Overwrite Item Lists</strong> — this keeps your tracked-item list exactly in
+				sync with ours as events come and go:
+				<img
+					class="guide-img"
+					src="/dink-guide/overwrite.png"
+					alt="Setting Dink's import policy to overwrite item lists"
+					loading="lazy"
+				/>
+			</li>
 			<li>
 				Paste your personal config URL (above) into Dink → Advanced Settings →
 				<strong>Dynamic Config URL</strong>. That's all the wiring it needs — the webhooks come from
@@ -253,6 +279,12 @@
 		display: block; max-width: 100%; margin: 0.4rem 0 0.8rem;
 		border: 1px solid var(--border); border-radius: var(--radius);
 	}
+	.backup-note {
+		margin: 0 0 0.9rem; padding: 0.6rem 0.8rem; font-size: 0.9rem;
+		background: var(--accent-soft); border: 1px solid var(--accent);
+		border-radius: var(--radius); color: var(--text);
+	}
+	.backup-note code { background: var(--surface-alt); padding: 0.05rem 0.35rem; border-radius: 3px; }
 	.dot { color: var(--success); animation: pulse 1s infinite; }
 	@keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 	.card {
