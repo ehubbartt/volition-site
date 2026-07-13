@@ -277,33 +277,38 @@
 			</div>
 		</form>
 
-		<!-- TEMPORARY (admins only): easiest-possible 3x3 for verifying Dink/XP/CA tracking
-		     end to end. Remove once personal-board tracking is confirmed working. -->
-		{#if pageData.isAdmin}
-			<form
-				method="POST"
-				action="?/generateTest"
-				class="panel testgen"
-				use:enhance={() => {
-					generatingTest = true;
-					return async ({ update }) => {
-						await update({ reset: false });
-						generatingTest = false;
-						showRegen = false;
-					};
-				}}
-			>
-				<p class="muted small">
-					<strong>Admin test:</strong> generates a 3×3 with Bones, Feather and Cowhide as plain
-					loot tiles (kill a chicken/cow), 3 skill goals of 1 XP, and your 3 easiest
-					uncompleted combat achievements — lock it in, then any matching drop / XP gain /
-					CA completion should tick tiles off automatically.
-				</p>
-				<button type="submit" class="ghost" disabled={generatingTest || !data.rsn}>
-					{generatingTest ? 'Building test board…' : 'Generate easy test board'}
-				</button>
-			</form>
-		{/if}
+	{/if}
+
+	<!-- TEMPORARY (admins only): easiest-possible 3x3 for verifying Dink/XP/CA tracking
+	     end to end. Rendered OUTSIDE the generator block on purpose: it must stay
+	     reachable while a board is locked (the test path bypasses the lock window).
+	     Remove once personal-board tracking is confirmed working. -->
+	{#if pageData.isAdmin && pbReady}
+		<form
+			method="POST"
+			action="?/generateTest"
+			class="panel testgen"
+			use:enhance={() => {
+				generatingTest = true;
+				return async ({ update }) => {
+					await update({ reset: false });
+					generatingTest = false;
+					showRegen = false;
+				};
+			}}
+		>
+			<p class="muted small">
+				<strong>Admin test:</strong> generates a 3×3 with Bones, Feather and Cowhide as plain
+				loot tiles (kill a chicken/cow), 3 skill goals of 1 XP, and your 3 easiest
+				uncompleted combat achievements — lock it in, then any matching drop / XP gain /
+				CA completion should tick tiles off automatically.
+				{#if board}<strong>Replaces your current board</strong> (even a locked one) and clears
+				its progress.{/if}
+			</p>
+			<button type="submit" class="ghost" disabled={generatingTest || !data.rsn}>
+				{generatingTest ? 'Building test board…' : 'Generate easy test board'}
+			</button>
+		</form>
 	{/if}
 
 	<!-- ── Draft: lock-in bar ── -->
