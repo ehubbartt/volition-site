@@ -8,10 +8,26 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	const working = $derived(data.drops.length > 0);
+	// "Reset test" stamps a cutoff (per browser) so the tile + list only count drops
+	// after it — re-arms the test instantly without touching the tracking ledger.
+	let resetAt = $state<string | null>(null);
+	const RESET_KEY = 'dink-check-reset';
+	function resetTest() {
+		resetAt = new Date().toISOString();
+		try {
+			localStorage.setItem(RESET_KEY, resetAt);
+		} catch {
+			/* private mode etc. — reset just won't persist */
+		}
+	}
+
+	const shownDrops = $derived(
+		resetAt ? data.drops.filter((d) => d.received_at > resetAt!) : data.drops
+	);
+	const working = $derived(shownDrops.length > 0);
 	// The test tile completes on a Bones drop — the one item every combat kill can supply.
 	const bonesDone = $derived(
-		data.drops.some((d) => d.item_id === 526 || d.item_name?.toLowerCase() === 'bones')
+		shownDrops.some((d) => d.item_id === 526 || d.item_name?.toLowerCase() === 'bones')
 	);
 
 	// After a rotate the action returns the fresh URL; otherwise use the loaded one.
@@ -33,6 +49,11 @@
 	// refresh needed while the player is killing something to test their setup.
 	let refreshing = $state(false);
 	onMount(() => {
+		try {
+			resetAt = localStorage.getItem(RESET_KEY);
+		} catch {
+			/* ignore */
+		}
 		const t = setInterval(async () => {
 			refreshing = true;
 			try {
@@ -110,6 +131,7 @@
 					Your Bones made it all the way to the tracker. During events, your drops will credit
 					your tiles exactly like this — no screenshots needed.
 				</p>
+				<button type="button" class="reset-btn" onclick={resetTest}>Reset test</button>
 			</div>
 		{:else}
 			<div>
@@ -155,11 +177,11 @@
 
 	<div class="card">
 		<h3>Recent drops <span class="muted small">(last {data.windowMinutes} min)</span></h3>
-		{#if data.drops.length === 0}
-			<p class="muted">Nothing yet.</p>
+		{#if shownDrops.length === 0}
+			<p class="muted">Nothing yet{resetAt ? ' since your last reset' : ''}.</p>
 		{:else}
 			<ul class="drops">
-				{#each data.drops as d (d.id)}
+				{#each shownDrops as d (d.id)}
 					<li>
 						<span class="item">{d.item_name ?? `#${d.item_id}`}{#if d.quantity > 1} ×{d.quantity}{/if}</span>
 						{#if d.source}<span class="src muted">from {d.source}</span>{/if}
@@ -199,6 +221,7 @@
 	/* The single quest tile: give the grid-item tile a fixed footprint. */
 	.quest-tile { flex-shrink: 0; width: 8.5rem; display: grid; }
 	.warn-inline { color: var(--yellow); }
+	.reset-btn { margin-top: 0.6rem; padding: 0.3rem 0.8rem; min-height: 0; font-size: 0.85rem; }
 	.dot { color: var(--success); animation: pulse 1s infinite; }
 	@keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 	.card {
