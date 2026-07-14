@@ -1,7 +1,8 @@
 import { redirect, error, fail } from '@sveltejs/kit';
 import { isAdmin } from '$lib/server/auth';
 import itemEhb from '$lib/server/data/itemEhb.json';
-import type { ItemEhb } from '$lib/ehb';
+import itemEhc from '$lib/server/data/itemEhc.json';
+import type { ItemEhb, ItemEhc } from '$lib/ehb';
 import {
 	getEhbOverrides,
 	setBossOverride,
@@ -20,6 +21,10 @@ import type { Actions, PageServerLoad } from './$types';
 // personal collection-log bingo generator). Admins can also pin manual overrides (a boss's
 // rate, or a specific item's EHB) which layer on top of itemEhb.json — see ehbOverrides.ts.
 const ITEMS = itemEhb as ItemEhb[];
+// Non-boss clog items valued by Temple EHC (build_item_ehc.mjs). They share the same
+// id-keyed pin/exclude overrides as boss items; there's no per-source math to explore,
+// so the page lists them with their Temple EHC as the computed value.
+const EHC_ITEMS = itemEhc as ItemEhc[];
 
 // Distinct overridable bosses: every (mechanic, source) with a base rate `r`. Doom is
 // excluded (it's driven by the doomKph assumption, not a per-source rate).
@@ -39,12 +44,16 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) throw redirect(303, '/');
 	if (!isAdmin(locals.user)) throw error(403, 'Not allowed');
 	const excludedIds = await getExcludedItemIds(true);
-	const nameById = new Map(ITEMS.map((i) => [i.id, i.name]));
+	const nameById = new Map<number, string>([
+		...ITEMS.map((i) => [i.id, i.name] as const),
+		...EHC_ITEMS.map((i) => [i.id, i.name] as const)
+	]);
 	const excludedItems = [...excludedIds]
 		.map((id) => ({ id, name: nameById.get(id) ?? `#${id}` }))
 		.sort((a, b) => a.name.localeCompare(b.name));
 	return {
 		items: ITEMS,
+		ehcItems: EHC_ITEMS,
 		bossSources: bossSources(),
 		overrides: await getEhbOverrides(true),
 		excludedItems

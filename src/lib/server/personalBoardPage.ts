@@ -12,7 +12,8 @@ import {
 } from './personalBoard';
 import type { SessionUser } from './auth';
 import itemEhbData from './data/itemEhb.json';
-import type { ItemEhb } from '$lib/ehb';
+import itemEhcData from './data/itemEhc.json';
+import type { ItemEhb, ItemEhc } from '$lib/ehb';
 import { maybeProcessDinkDrops } from './dinkDrops';
 
 // Builds the personal-bingo page dataset for /api/personal-board. The page has NO
@@ -21,6 +22,10 @@ import { maybeProcessDinkDrops } from './dinkDrops';
 
 // For the tile-detail modal: look up an item tile's drop-rate string by its board boss.
 const ITEM_BY_ID = new Map((itemEhbData as ItemEhb[]).map((i) => [i.id, i]));
+
+// Non-boss (Temple EHC) item ids — the page re-seeds its "include non-PVM collection
+// log" toggle from whether any board tile came from this pool (tiles carry no marker).
+const EHC_IDS = new Set((itemEhcData as ItemEhc[]).map((i) => i.id));
 
 export async function buildPersonalBoardData(user: SessionUser) {
 	// Poll-on-read backstop (same as the event bingo board): drain any recorded Dink
@@ -63,6 +68,8 @@ export async function buildPersonalBoardData(user: SessionUser) {
 		board,
 		vp,
 		dropRates,
+		includesClogItems:
+			board?.tiles.some((t) => t.kind === 'item' && t.item_id != null && EHC_IDS.has(t.item_id)) ?? false,
 		locked: !!board?.locked_at,
 		resettableAt,
 		canReset,

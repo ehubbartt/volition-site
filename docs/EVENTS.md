@@ -117,3 +117,8 @@ and one `vs_active_tiles` accessor + a single "participant key" helper (`coalesc
     achievements) and `diary` (WikiSync achievement-diary tiers, `meta.diary_region`/`diary_tier`,
     catalogue in `src/lib/diary.ts` — at most one region per board). CA + diary state share one
     WikiSync read (`getWikiSyncState`); only `item` tiles are Dink-trackable (`active_tiles.sql`).
+  - Item pool: boss drops from `itemEhb.json` (curated EHB math, `build_item_ehb.mjs`) always;
+    plus non-boss clog items from `itemEhc.json` (Temple per-item EHC, `build_item_ehc.mjs` —
+    maintainer-run) behind the "Include non-PVM collection log items" toggle. Both pools share
+    the id-keyed pin/exclude overrides (`vs_ehb_overrides`, /admin/ehb) and the same completion
+    paths (Temple clog poll + Dink COLLECTION).
