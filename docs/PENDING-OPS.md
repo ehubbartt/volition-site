@@ -113,6 +113,7 @@ inferred from what's live — each row has a check query if you're unsure.
 | `db/scripts/events_v2.sql` | likely applied | Personal boards run on this spine in prod. Check: `select 1 from vs_event_participants limit 1;` Safe to re-run (additive + idempotent). |
 | `db/scripts/events_unlisted.sql` | **RUN with Dink go-live** | Adds `vs_events.unlisted` + creates the permanent Dink Self-Test event that `/dink-check` auto-enrolls into. Run BEFORE deploying the site build that filters on `unlisted`, and before the bot's unlisted-filter branch merges. |
 | `db/scripts/vs_rank_sim.sql` | applied | The `gear_detail`/`ca_detail` alters were run while fixing "Check my rank" (which now saves fine). Check: `select gear_detail from vs_rank_sim limit 1;` |
+| `db/scripts/vs_rank_sim_dedupe.sql` | **PENDING** | Removes case/underscore-variant duplicate rows that made the /me Rank tab show nothing for some members. Safe to re-run. Check for remaining dups: `select lower(replace(rsn,'_',' ')) k, count(*) from vs_rank_sim group by 1 having count(*) > 1;` |
 | `db/scripts/create_vs_admin_roles.sql` | applied | DB role grants are live. |
 | `db/functions/vs_accept_invite.sql` | applied | Team invites work in prod. |
 | `db/scripts/grant_white_pack.sql` | one-off utility | Run only when granting. |
