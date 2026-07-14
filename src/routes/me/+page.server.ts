@@ -107,7 +107,10 @@ export const actions: Actions = {
 				);
 			if (cacheErr) {
 				lastRankCheck.delete(locals.user.id);
-				return fail(500, { rankError: 'Could not save your rank breakdown — try again later.' });
+				console.error(`[rank] vs_rank_sim upsert failed for "${rsn}": ${cacheErr.message}${cacheErr.code ? ` (${cacheErr.code})` : ''}`);
+				return fail(500, {
+					rankError: `Could not save your rank breakdown — ${cacheErr.message}${cacheErr.code ? ` (${cacheErr.code})` : ''}. Screenshot this and ping an admin.`
+				});
 			}
 
 			// If a stats source was down (Temple/WikiSync), its component degrades to 0 and
@@ -137,7 +140,11 @@ export const actions: Actions = {
 			};
 		} catch (e) {
 			lastRankCheck.delete(locals.user.id); // let them retry a transient failure now
-			return fail(500, { rankError: e instanceof Error ? e.message : 'Rank check failed.' });
+			const detail = e instanceof Error ? e.message : String(e);
+			console.error(`[rank] check failed for "${rsn}":`, e);
+			return fail(500, {
+				rankError: `Rank check failed — ${detail}. Screenshot this and ping an admin.`
+			});
 		}
 	},
 
