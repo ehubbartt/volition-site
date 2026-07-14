@@ -281,8 +281,7 @@
 		<p class="tagline">An OSRS clan home for events, sign-ups, and bragging rights.</p>
 		<a href="/auth/discord/login" class="cta">Sign in with Discord</a>
 		<p class="small muted reassure">
-			Signing in is safe — we <strong>can't</strong> see your password, email, or messages,
-			and we can't post as you. Discord only tells us who you are.
+			Your data is safe — we <strong>can't</strong> access or store your Discord or RuneScape account.
 		</p>
 		<details class="privacy">
 			<summary>Is my data safe? How does signing in work?</summary>
