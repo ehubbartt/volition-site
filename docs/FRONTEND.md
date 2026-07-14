@@ -64,14 +64,20 @@ bugs that used to recur per feature):
   `name`, `sub`, `obtained`, `highlighted`, `title`, `imageSize`. Drop it into a CSS grid; the
   personal collection-log board (`/events/personal-bingo`) maps its item/skill/CA tiles onto
   it, and event/bingo grids should do the same.
+- **`src/lib/InfoTip.svelte`** — the ⓘ button with an instant CSS tooltip (hover/focus/tap;
+  used for the rank-component explainers and the personal-bingo toggle data-source tips).
+  Safe inside a `<label>` — it doesn't toggle the control.
 - **`src/lib/Skeleton.svelte`** — the shimmer placeholder used behind streamed page data
   (see [`PAGES.md`](PAGES.md)).
 - **`src/lib/profile/*`** — the shared profile-page kit that keeps `/me` and `/u/[rsn]`
   pixel-identical: `ProfileBanner` (stone/gold identity header + VP counter),
   `ProfileTabs` (underline tab strip with count chips), `ProfilePanel` (tab-body wrapper
   with the standard padding + fade-in), `RankPanel` (rank badge + composite, next-rank
-  progress, weighted component breakdown, gear/CA detail — read-only; /me injects its
-  "Check my rank" form via the `actions`/`status` snippets), `CollectionPanel` (packs +
+  progress, weighted component breakdown with a ⓘ data-source/scoring explainer per
+  component, gear/CA detail — read-only; /me injects its "Check my rank" form via the
+  `actions`/`status` snippets and passes `showSetupTips` so zero-score components tell
+  the owner what to set up: Temple for gear/clog, WOM for EHB/time/level, WikiSync for
+  CAs), `CollectionPanel` (packs +
   card grid incl. locked/mystery slots), `StatsPanel` (VP/cards/packs/crates/wallet
   mini-stats), and `EmptyState`. If a profile section needs a style change, change the
   component — don't re-style it per page.

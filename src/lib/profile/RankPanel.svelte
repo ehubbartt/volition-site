@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import RankBadge from '$lib/RankBadge.svelte';
+	import InfoTip from '$lib/InfoTip.svelte';
 	import { rankLabel, rankColor, type RankValue } from '$lib/ranks';
 	import { itemIconUrl } from '$lib/osrsItems';
 
@@ -53,6 +54,7 @@
 		rank,
 		currentRank = null,
 		emptyText = '',
+		showSetupTips = false,
 		actions,
 		status
 	}: {
@@ -60,6 +62,8 @@
 		currentRank?: string | null;
 		/** Shown when there's no breakdown yet; pass '' to show nothing. */
 		emptyText?: string;
+		/** Second-person "set this up" hints under zero-score components (/me only). */
+		showSetupTips?: boolean;
 		actions?: Snippet;
 		status?: Snippet;
 	} = $props();
@@ -85,6 +89,80 @@
 					minute: '2-digit'
 				})
 			: null;
+
+	// ⓘ explainer per component: where the number comes from + how it's scored.
+	// Keys match rankScoring's ComponentKey.
+	const COMP_TIPS: Record<string, string> = {
+		gear: "Read from your TempleOSRS collection log: each set or piece in the clan's gear table is worth points — alternatives of an item count once, and multi-quantity pieces give partial credit. The bar is your gear points out of the table's total.",
+		ehb: "Efficient hours bossed, read from the clan's WiseOldMan group roster. The bar fills toward the configured EHB cap; hours past the cap don't add more score.",
+		ca: 'Scored on tier-completion rewards, not in-game CA points: fully finishing a tier (Easy → Grandmaster, in order) banks that tier\'s reward — partly-finished tiers count for nothing. The cap is all six tier rewards, so this bar only moves when you complete a whole tier. Task completion is read from the RuneLite WikiSync plugin.',
+		time: "Months since you were added to the clan's WiseOldMan group. The bar fills toward the configured months cap.",
+		clog: 'Collection-log slots completed, read from your TempleOSRS profile. The bar fills toward the configured slots cap.',
+		level: 'Total level from your latest WiseOldMan snapshot. Only levels above the configured minimum score — the bar measures where you sit between that minimum and the cap.'
+	};
+
+	// "Set this up" hint for a zero-score component: what's missing and where to fix it.
+	// Temple/WikiSync availability separates "source unreachable/unsynced" from a genuine 0.
+	interface SetupTip {
+		text: string;
+		href?: string;
+		link?: string;
+		ext?: boolean;
+	}
+	function setupTip(key: string): SetupTip | null {
+		if (!rank) return null;
+		const temple = rank.templeAvailable;
+		switch (key) {
+			case 'gear':
+				return {
+					text: temple
+						? 'No gear points yet — your Temple collection log looks empty. Sync your collection log to TempleOSRS, then re-check.'
+						: "Couldn't read your TempleOSRS profile. Sync your collection log to Temple, then re-check.",
+					href: '/temple-guide',
+					link: 'Temple setup guide'
+				};
+			case 'clog':
+				return {
+					text: temple
+						? 'No collection-log slots found — sync your collection log to TempleOSRS, then re-check.'
+						: "Couldn't read your TempleOSRS profile. Sync your collection log to Temple, then re-check.",
+					href: '/temple-guide',
+					link: 'Temple setup guide'
+				};
+			case 'ca':
+				return rank.wikisyncAvailable
+					? { text: 'No fully-completed tier yet — finish every task in a tier (Easy first) to bank its reward.' }
+					: {
+							text: "Couldn't read your combat achievements — install RuneLite's WikiSync plugin and log in once so your progress syncs, then re-check.",
+							href: 'https://runelite.net/plugin-hub/show/wikisync',
+							link: 'Get WikiSync',
+							ext: true
+						};
+			case 'ehb':
+				return {
+					text: "No EHB found — you may not be on the clan's WiseOldMan group yet, or your WOM profile has never been updated. Ask a staff member to add you, then re-check.",
+					href: 'https://wiseoldman.net',
+					link: 'wiseoldman.net',
+					ext: true
+				};
+			case 'time':
+				return {
+					text: "No clan join date found — you may not be on the clan's WiseOldMan group yet. Ask a staff member to add you, then re-check.",
+					href: 'https://wiseoldman.net',
+					link: 'wiseoldman.net',
+					ext: true
+				};
+			case 'level':
+				return {
+					text: 'No total level found — your WiseOldMan profile has no snapshot yet. Look yourself up on wiseoldman.net and hit Update, then re-check.',
+					href: 'https://wiseoldman.net',
+					link: 'wiseoldman.net',
+					ext: true
+				};
+			default:
+				return null;
+		}
+	}
 </script>
 
 <section class="rank-panel">
@@ -135,14 +213,8 @@
 					<div class="comp-top">
 						<span class="comp-label">
 							{c.label}
-							{#if c.key === 'ca'}
-								<button
-									type="button"
-									class="info-tip"
-									aria-label="How combat achievements are scored"
-									data-tip="Scored on tier-completion rewards, not in-game CA points: fully finishing a tier (Easy → Grandmaster, in order) banks that tier's reward — partly-finished tiers count for nothing. The cap is all six tier rewards, so this bar only moves when you complete a whole tier."
-									>ⓘ</button
-								>
+							{#if COMP_TIPS[c.key]}
+								<InfoTip tip={COMP_TIPS[c.key]} label="How {c.label.toLowerCase()} is scored" />
 							{/if}
 						</span>
 						<span class="comp-weight">{pct(c.weight)} of score</span>
@@ -152,6 +224,21 @@
 						<span class="comp-raw">{num(c.raw)} / {num(c.cap)}</span>
 						<span class="comp-norm">{pct(c.normalized)}</span>
 					</div>
+					{#if showSetupTips && c.raw <= 0}
+						{@const fix = setupTip(c.key)}
+						{#if fix}
+							<p class="comp-fix">
+								{fix.text}
+								{#if fix.href}
+									{#if fix.ext}
+										<a href={fix.href} target="_blank" rel="noreferrer noopener">{fix.link} ↗</a>
+									{:else}
+										<a href={fix.href}>{fix.link} →</a>
+									{/if}
+								{/if}
+							</p>
+						{/if}
+					{/if}
 				</div>
 			{/each}
 		</div>
@@ -307,54 +394,24 @@
 		font-size: 0.92rem;
 		color: var(--text);
 	}
-	/* Instant CSS tooltip (native title needs a long motionless hover and is dead on
-	   touch). A <button> so keyboard focus and mobile tap both open it. */
-	.info-tip {
-		position: relative;
-		margin-left: 0.25rem;
-		color: var(--muted);
-		cursor: help;
-		font-size: 0.85em;
-		/* resets for the global bronze button styling */
-		background: none;
-		border: none;
-		border-image: none;
-		min-height: 0;
-		padding: 0 0.15rem;
-		line-height: 1;
-	}
-	.info-tip:hover,
-	.info-tip:focus {
-		color: var(--accent);
-	}
-	.info-tip::after {
-		content: attr(data-tip);
-		position: absolute;
-		left: 0;
-		bottom: calc(100% + 0.5rem);
-		width: min(320px, 78vw);
-		padding: 0.55rem 0.7rem;
-		background: #2a2418;
-		border: 1px solid var(--border);
-		border-radius: 6px;
-		box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
-		color: var(--text);
-		font-size: 0.78rem;
-		line-height: 1.45;
-		text-align: left;
-		white-space: normal;
-		opacity: 0;
-		pointer-events: none;
-		transition: opacity 0.12s ease;
-		z-index: 30;
-	}
-	.info-tip:hover::after,
-	.info-tip:focus::after {
-		opacity: 1;
-	}
 	.comp-weight {
 		font-size: 0.74rem;
 		color: var(--muted);
+	}
+	/* Zero-score setup hint: what's missing for this component and where to fix it. */
+	.comp-fix {
+		margin: 0.35rem 0 0;
+		padding: 0.4rem 0.6rem;
+		background: var(--danger-bg);
+		border: 1px solid var(--border);
+		border-left: 3px solid var(--accent);
+		border-radius: 4px;
+		font-size: 0.78rem;
+		line-height: 1.45;
+		color: var(--muted);
+	}
+	.comp-fix a {
+		white-space: nowrap;
 	}
 	/* composite bars use the shared .osrs-bar / .osrs-bar-fill utility (app.css) */
 	.comp-foot {

@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import BingoTile from '$lib/BingoTile.svelte';
+	import InfoTip from '$lib/InfoTip.svelte';
 	import WikiImage from '$lib/WikiImage.svelte';
 	import TileSubmitModal from '$lib/TileSubmitModal.svelte';
 	import { formatEhb } from '$lib/ehb';
 	import { formatXp } from '$lib/ehp';
 	import { caTierLabel } from '$lib/ca';
-	import { itemImageUrl, skillImageUrl, monsterImageUrl, caTierImageUrl, wikiPageUrl } from '$lib/wikiImage';
+	import { diaryWikiPage } from '$lib/diary';
+	import { itemImageUrl, skillImageUrl, monsterImageUrl, caTierImageUrl, diaryImageUrl, wikiPageUrl } from '$lib/wikiImage';
 	import Skeleton from '$lib/Skeleton.svelte';
 	import { swrResource } from '$lib/swrResource.svelte';
 	import type { PageData, ActionData } from './$types';
@@ -27,8 +29,8 @@
 		dropRates: {},
 		locked: false,
 		resettableAt: null,
-		canReset: false,
-		lockDays: 0,
+		canReset: true,
+		resetDays: null,
 		sizeRange: { min: 3, max: 7 },
 		difficultyRange: { min: 1, max: 10 }
 	} as unknown as PB;
@@ -41,6 +43,8 @@
 				toggled = true;
 				skilling = p.board.tiles.some((t) => t.kind === 'skill');
 				ca = p.board.tiles.some((t) => t.kind === 'ca');
+				diaries = p.board.tiles.some((t) => t.kind === 'diary');
+				clogItems = p.includesClogItems;
 				includeOwned = p.board.tiles.some((t) => t.kind === 'item' && t.match_type === 'loot');
 			}
 		}
@@ -58,10 +62,11 @@
 	// TEMPORARY: busy flag for the admin-only easy-test-board generator.
 	let generatingTest = $state(false);
 
-	// Map a personal-board tile (item / skill / ca) onto the generic BingoTile props.
+	// Map a personal-board tile (item / skill / ca / diary) onto the generic BingoTile props.
 	function tileImage(t: Tile): string {
 		if (t.kind === 'skill') return skillImageUrl(t.skill ?? '');
 		if (t.kind === 'ca') return t.source ? monsterImageUrl(t.source) : caTierImageUrl(t.ca_tier);
+		if (t.kind === 'diary') return diaryImageUrl();
 		return itemImageUrl(t.item_name ?? '');
 	}
 	function tileName(t: Tile): string {
@@ -82,6 +87,7 @@
 					: '';
 		}
 		if (t.kind === 'ca') return `${caTierLabel(t.ca_tier)} CA`;
+		if (t.kind === 'diary') return `${t.diary_tier} diary`;
 		return SHOW_TILE_EHB ? formatEhb(t.ehb) : '';
 	}
 	function tileTitle(t: Tile): string {
@@ -91,6 +97,7 @@
 				: `${t.skill}: gain ${formatXp(t.target_xp ?? 0)}`;
 		}
 		if (t.kind === 'ca') return `Combat achievement (${caTierLabel(t.ca_tier)}): ${t.item_name}`;
+		if (t.kind === 'diary') return `Achievement diary: ${t.item_name}`;
 		return SHOW_TILE_EHB
 			? `${t.item_name} · ${formatEhb(t.ehb)} at ${t.source}`
 			: `${t.item_name} · ${t.source}`;
@@ -113,6 +120,8 @@
 	let difficulty = $state(5);
 	let skilling = $state(false); // re-seeded from the board when it arrives (onFresh)
 	let ca = $state(false);
+	let diaries = $state(false);
+	let clogItems = $state(false); // widen the pool beyond boss drops (Temple EHC valued)
 	let pets = $state(true); // pets are included by default; unchecking filters pet drops out
 	let skip99 = $state(false); // skilling sub-option: skip skills already at level 99
 	let includeOwned = $state(false); // allow already-owned clog items (as drop-again loot tiles)
@@ -185,14 +194,18 @@
 		<p class="muted">
 			Generate a personal PVM bingo board from collection-log items you don't have yet —
 			balanced so every board runs from quick tiles to grindy ones. Reroll it as much as you
-			like, then <strong>lock it in</strong>; a locked board is yours for {data.lockDays} days.
+			like, then <strong>lock it in</strong> to start tracking. A locked board is yours for as
+			long as you want to keep working it; resetting for a new one wipes the old board's
+			progress{#if data.resetDays}&nbsp;and unlocks {data.resetDays} days after you lock in{/if}.
 		</p>
 		<p class="muted">
 			<strong>Everything tracks automatically.</strong> With
 			<a href="/temple-guide">Temple</a> and <a href="/dink-check">Dink</a> linked (one-time,
-			~2 minutes each), item drops, XP gains and combat achievements tick off on their own —
-			no screenshots, no forms. Manual submission exists only as a backup if a tracker misses
-			something.
+			~2 minutes each), item drops and XP gains tick off on their own — no screenshots, no
+			forms. Combat-achievement and diary tiles additionally need the free
+			<a href="https://runelite.net/plugin-hub/show/wikisync" target="_blank" rel="noreferrer noopener">WikiSync</a>
+			RuneLite plugin, which syncs those in the background while you play. Manual submission
+			exists only as a backup if a tracker misses something.
 		</p>
 	</header>
 
@@ -240,8 +253,7 @@
 	{/if}
 	{#if form?.locked}
 		<div class="panel ok">
-			Board locked in — progress now tracks automatically from your collection log and Dink. You
-			can make a new board on {fmtDate(data.resettableAt)}.
+			Board locked in — progress now tracks automatically from your collection log and Dink.
 		</div>
 	{/if}
 	{#if form?.submitted}
@@ -256,7 +268,12 @@
 			method="POST"
 			action="?/generate"
 			class="panel generator"
-			use:enhance={() => {
+			use:enhance={({ cancel }) => {
+				// Replacing a LOCKED board is destructive — everything tracked so far is wiped.
+				if (locked && !confirm('Generate a new board? Your current board and all its tracked progress will be wiped.')) {
+					cancel();
+					return;
+				}
 				generating = true;
 				return async ({ update }) => {
 					await update({ reset: false });
@@ -310,20 +327,52 @@
 					<label class="toggle">
 						<input type="checkbox" name="skilling" bind:checked={skilling} />
 						<span>Include skilling goals</span>
+						<InfoTip
+							label="How skilling goals are tracked"
+							tip="Adds XP-goal tiles. Progress is read from WiseOldMan — only XP gained after you lock in counts, so keep your WOM profile updating while you play."
+						/>
 					</label>
 					{#if skilling}
 						<label class="toggle sub">
 							<input type="checkbox" name="skip99" bind:checked={skip99} />
 							<span>Exclude maxed skills</span>
+							<InfoTip
+								label="How maxed skills are detected"
+								tip="Reads your current levels from WiseOldMan and leaves out any skill that's already 99."
+							/>
 						</label>
 					{/if}
 					<label class="toggle">
 						<input type="checkbox" name="ca" bind:checked={ca} />
 						<span>Include combat achievements</span>
+						<InfoTip
+							label="How combat achievements are tracked"
+							tip="Adds combat-achievement tiles. Completion is read from RuneLite's WikiSync plugin — install it and log in once so your progress syncs. Without it these tiles can't be generated or tracked."
+						/>
+					</label>
+					<label class="toggle">
+						<input type="checkbox" name="diaries" bind:checked={diaries} />
+						<span>Include achievement diaries</span>
+						<InfoTip
+							label="How achievement diaries are tracked"
+							tip="Adds diary tiles (finish a region's tier). Completion is read from RuneLite's WikiSync plugin — install it and log in once so your progress syncs. Without it these tiles can't be generated or tracked."
+						/>
+					</label>
+					<label class="toggle">
+						<input type="checkbox" name="clog_items" bind:checked={clogItems} />
+						<span>Include non-PVM collection log items</span>
+						<InfoTip
+							label="What non-PVM collection log items adds"
+							tip="Widens the item pool beyond boss drops to clues, minigames, skilling activities and other collection-log items. Tracked the same way as boss items: your TempleOSRS collection log + Dink."
+						/>
 					</label>
 					<label class="toggle">
 						<input type="checkbox" name="pets" bind:checked={pets} />
 						<span>Include pets</span>
+						<InfoTip
+							label="How pets are tracked"
+							tip="Allows pet drops as tiles. Tracked like other items — your TempleOSRS collection log + Dink."
+						/>
 					</label>
 					<!-- HIDDEN for launch: owned items must drop again to credit, but a handful of
 					     clog items are once-per-account and would make a tile impossible. Re-enable
@@ -400,19 +449,25 @@
 	{#if board && !locked}
 		<div class="panel lockbar">
 			<p class="muted small">
-				Happy with this board? <strong>Lock it in</strong> to start tracking — it'll be committed
-				for {data.lockDays} days. Item tiles tick off from your collection log + Dink; skilling
-				tiles count XP gained from now on. Progress you already had before locking doesn't count.
+				Happy with this board? <strong>Lock it in</strong> to start tracking. Item tiles tick
+				off from your collection log + Dink; skilling tiles count XP gained from now on.
+				Progress you already had before locking doesn't count. The board stays yours as long
+				as you like — resetting for a new one wipes this one's progress{#if data.resetDays}&nbsp;and
+				only unlocks {data.resetDays} days after locking{/if}.
 				{#if data.vp && !data.vp.test}
-					Completed rows, columns and diagonals pay <strong>{data.vp.line} VP</strong> each, and
-					blacking out the whole board pays a <strong>+{data.vp.blackout} VP</strong> bonus.
+					Every completed tile pays <strong>{data.vp.tile} VP</strong>, completed rows, columns
+					and diagonals pay <strong>{data.vp.line} VP</strong> each, and blacking out the whole
+					board pays a <strong>+{data.vp.blackout} VP</strong> bonus.
 				{/if}
 			</p>
 			<form
 				method="POST"
 				action="?/lock"
 				use:enhance={({ cancel }) => {
-					if (!confirm(`Lock this board in for ${data.lockDays} days? You won't be able to reroll until then.`)) {
+					const cooldown = data.resetDays
+						? ` You'll be able to reset for a new board ${data.resetDays} days from now.`
+						: ' You can reset for a new board later, but that wipes this one\'s progress.';
+					if (!confirm(`Lock this board in? Tracking starts now.${cooldown}`)) {
 						cancel();
 						return;
 					}
@@ -443,7 +498,7 @@
 							<span class="stat muted">test board · no VP</span>
 						{:else}
 							<span class="stat"><strong>{data.vp.earned}</strong> VP earned</span>
-							<span class="stat muted">line {data.vp.line} VP · blackout +{data.vp.blackout} VP</span>
+							<span class="stat muted">tile {data.vp.tile} · line {data.vp.line} · blackout +{data.vp.blackout} VP</span>
 						{/if}
 					{/if}
 				</div>
@@ -468,7 +523,7 @@
 							<button type="button" class="ghost" onclick={() => (showRegen = true)}>New board</button>
 						{/if}
 					{:else}
-						<span class="muted small lock-note">Locked · new board {fmtDate(data.resettableAt)}</span>
+						<span class="muted small lock-note">Reset unlocks {fmtDate(data.resettableAt)}</span>
 					{/if}
 				</div>
 			</div>
@@ -540,7 +595,7 @@
 		<p class="muted small foot">
 				{#if SHOW_TILE_EHB}EHB/EHP = efficient hours to obtain a drop / train a skill.{/if}
 				{#if locked}
-					Item tiles auto-complete from your collection log + Dink; skill tiles track XP gained since you locked in (WiseOldMan); combat-achievement tiles complete when you finish the CA (WikiSync) — hit <em>Check progress</em> to refresh.
+					Item tiles auto-complete from your collection log + Dink; skill tiles track XP gained since you locked in (WiseOldMan); combat-achievement and diary tiles complete when you finish them (WikiSync) — hit <em>Check progress</em> to refresh.
 					<strong>Skilling XP only updates after you log out of OSRS</strong> — the hiscores (which WiseOldMan reads) refresh on logout, so log out before checking.
 				{:else}
 					This is a <strong>draft preview</strong> — nothing is tracked until you lock it in.
@@ -555,9 +610,9 @@
 {#snippet tileInfo(t: Tile)}
 	{#if t.kind === 'item'}
 		<dl class="modal-dl">
-			<div><dt>Boss</dt><dd>{t.source ?? '—'}</dd></div>
+			<div><dt>Source</dt><dd>{t.source ?? '—'}</dd></div>
 			<div><dt>Drop rate</dt><dd>{data.dropRates[t.idx] ?? '—'}</dd></div>
-			<div><dt>EHB</dt><dd>{formatEhb(t.ehb)}</dd></div>
+			<div><dt>≈ Hours</dt><dd>{formatEhb(t.ehb)}</dd></div>
 		</dl>
 		<div class="modal-links">
 			{#if t.source}<a href={wikiPageUrl(t.source)} target="_blank" rel="noreferrer noopener">{t.source} wiki ↗</a>{/if}
@@ -574,6 +629,15 @@
 		</dl>
 		<div class="modal-links">
 			{#if t.skill}<a href={wikiPageUrl(t.skill)} target="_blank" rel="noreferrer noopener">{t.skill} wiki ↗</a>{/if}
+		</div>
+	{:else if t.kind === 'diary'}
+		<dl class="modal-dl">
+			<div><dt>Region</dt><dd>{t.diary_region}</dd></div>
+			<div><dt>Tier</dt><dd>{t.diary_tier}</dd></div>
+			<div><dt>≈ Hours</dt><dd>{formatEhb(t.ehb)}</dd></div>
+		</dl>
+		<div class="modal-links">
+			{#if t.diary_region}<a href={wikiPageUrl(diaryWikiPage(t.diary_region))} target="_blank" rel="noreferrer noopener">{t.diary_region} Diary wiki ↗</a>{/if}
 		</div>
 	{:else}
 		<dl class="modal-dl">

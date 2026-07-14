@@ -33,8 +33,8 @@ function clogCooldownLeft(userId: string): number {
 
 export const actions: Actions = {
 	// Generate / reroll a DRAFT board. Free to repeat (the owned-clog set is cached in
-	// personalBoard, so rerolls reshuffle without hammering Temple); refused while a board
-	// is locked and inside its commitment window.
+	// personalBoard, so rerolls reshuffle without hammering Temple). Replacing a LOCKED
+	// board is allowed — it wipes that board's progress, so the client confirms first.
 	generate: async ({ locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
 		if (!locals.user.rsn) {
@@ -44,33 +44,48 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const size = Number(form.get('size') ?? 5);
 		const difficulty = Number(form.get('difficulty') ?? 5);
-		const skilling = form.get('skilling') === 'on' || form.get('skilling') === 'true';
-		const ca = form.get('ca') === 'on' || form.get('ca') === 'true';
+		const flag = (name: string) => form.get(name) === 'on' || form.get(name) === 'true';
+		const skilling = flag('skilling');
+		const ca = flag('ca');
+		// A diary tile = complete a specific region tier (WikiSync-tracked, like CAs).
+		const diaries = flag('diaries');
 		// "Include pets" is a checkbox — absent from the form data means unchecked (exclude pets).
-		const pets = form.get('pets') === 'on' || form.get('pets') === 'true';
+		const pets = flag('pets');
 		// Skilling sub-option: skip skills the player has already 99'd.
-		const skip99 = form.get('skip99') === 'on' || form.get('skip99') === 'true';
+		const skip99 = flag('skip99');
 		// Allow items already in the collection log (they become drop-again loot tiles).
-		const owned = form.get('owned') === 'on' || form.get('owned') === 'true';
+		const owned = flag('owned');
+		// Widen the item pool beyond boss drops to the full clog (Temple EHC valued).
+		const clogItems = flag('clog_items');
 		// Keep-line reroll: hold one row/column of the current draft (e.g. 'r2', 'c0').
 		const keepRaw = (form.get('keep') ?? '').toString();
 		const keep = /^[rc][0-9]+$/.test(keepRaw) ? keepRaw : null;
 
-		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty, skilling, ca, pets, skip99, owned, keep);
+		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty, {
+			includeSkilling: skilling,
+			includeCA: ca,
+			includeDiaries: diaries,
+			includePets: pets,
+			excludeMaxedSkills: skip99,
+			includeOwned: owned,
+			includeClogItems: clogItems,
+			keepLineKey: keep
+		});
 
 		if (!result.ok) {
 			const msg =
 				result.reason === 'no_rsn'
 					? 'Set your OSRS RSN on your profile first.'
 					: result.reason === 'locked'
-						? `Your board is locked in until ${result.resettable_at ? fmtResetDate(result.resettable_at) : 'later'}. You can make a new one after that.`
+						? `Your board can't be reset yet — resets unlock on ${result.resettable_at ? fmtResetDate(result.resettable_at) : 'a later date'}. Keep working it until then!`
 						: result.reason === 'ca_unavailable'
 							? "Couldn't read your combat achievements from WikiSync. Make sure your RSN is synced in RuneLite's WikiSync plugin and try again, or turn off combat achievements."
-							: result.reason === 'too_few'
-								? `You're only missing ${result.missing} eligible PVM clog items — not enough to fill this board (needs ${result.need}). Nice log! Try a smaller grid${skilling && ca && pets ? '' : ', or enable more options (skilling, combat achievements, pets)'}.`
-								: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
-			const status =
-				result.reason === 'too_few' ? 400 : result.reason === 'locked' ? 403 : 502;
+							: result.reason === 'diary_unavailable'
+								? "Couldn't read your achievement diaries from WikiSync. Make sure your RSN is synced in RuneLite's WikiSync plugin and try again, or turn off achievement diaries."
+								: result.reason === 'too_few'
+									? `You're only missing ${result.missing} eligible clog items — not enough to fill this board (needs ${result.need}). Nice log! Try a smaller grid${skilling && ca && pets && clogItems ? '' : ', or enable more options (skilling, combat achievements, diaries, pets, the full collection log)'}.`
+									: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
+			const status = result.reason === 'too_few' ? 400 : result.reason === 'locked' ? 403 : 502;
 			return fail(status, { error: msg });
 		}
 		return { ok: true, generated: true };
@@ -88,20 +103,18 @@ export const actions: Actions = {
 			const msg =
 				result.reason === 'no_rsn'
 					? 'Set your OSRS RSN on your profile first.'
-					: result.reason === 'locked'
-						? `Your board is locked in until ${result.resettable_at ? fmtResetDate(result.resettable_at) : 'later'}. You can make a new one after that.`
-						: result.reason === 'ca_unavailable'
-							? "Couldn't read your combat achievements from WikiSync. Make sure your RSN is synced in RuneLite's WikiSync plugin and try again."
-							: result.reason === 'too_few'
-								? `You're only missing ${result.missing} eligible clog items — not enough to fill the test board (needs ${result.need}).`
-								: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
-			const status = result.reason === 'too_few' ? 400 : result.reason === 'locked' ? 403 : 502;
+					: result.reason === 'ca_unavailable'
+						? "Couldn't read your combat achievements from WikiSync. Make sure your RSN is synced in RuneLite's WikiSync plugin and try again."
+						: result.reason === 'too_few'
+							? `You're only missing ${result.missing} eligible clog items — not enough to fill the test board (needs ${result.need}).`
+							: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
+			const status = result.reason === 'too_few' ? 400 : 502;
 			return fail(status, { error: msg });
 		}
 		return { ok: true, generated: true };
 	},
 
-	// Lock the current draft in: starts tracking + the commitment window.
+	// Lock the current draft in: starts tracking.
 	lock: async ({ locals }) => {
 		if (!locals.user) throw redirect(303, '/');
 		const res = await lockPersonalBoard(locals.user.id);

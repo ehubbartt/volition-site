@@ -45,14 +45,26 @@ Every credit is one row: `event_id, target_id (=tile_key), user_id|team_id, quan
 Manual → `pending` (reviewed) or `approved` (self-serve). Auto-track → `approved`. **Progress is
 derived from this ledger; there is no per-tile `obtained` flag to keep in sync.**
 
-**Personal-board VP.** Completed rows/columns/diagonals and a blackout pay VP, scaled by the
-board's size + difficulty with a quadratic hard-end bump (`personalVpAmounts` in
-`personalBoard.ts`). Settlement is poll-on-read (`settlePersonalVp`, run on every board view):
-each paid line/blackout is itself a `vs_submissions` row — `target_id 'vp:<lineKey>'`, source
-`'vp'`, the granted amount in `quantity` — so the awarded set and the earned total are read
-straight from the ledger, and a reroll wipes them with the board. An in-process per-user guard
-prevents concurrent views double-paying; the grant goes through `grantPlayerVp`
-(players.points). Admin test boards carry `structure.test = true` and never pay.
+**Personal-board VP.** Every completed tile pays a small amount (difficulty-scaled);
+completed rows/columns/diagonals and a blackout pay on top, scaled by the board's size +
+difficulty with a quadratic hard-end bump (`personalVpAmounts` in `personalBoard.ts`).
+Settlement is poll-on-read (`settlePersonalVp`, run on every board view): each paid
+tile/line/blackout is itself a `vs_submissions` row — `target_id 'vp:t<idx>'` /
+`'vp:<lineKey>'` / `'vp:blackout'`, source `'vp'`, the granted amount in `quantity` — so the
+awarded set and the earned total are read straight from the ledger, and a reroll wipes them
+with the board. An in-process per-user guard prevents concurrent views double-paying; the
+grant goes through `grantPlayerVp` (players.points). Admin test boards carry
+`structure.test = true` and never pay.
+
+**Personal-board lifecycle.** Locking starts tracking, and a locked board never expires —
+the owner keeps it as long as they want. Resetting (generating a replacement) wipes the
+board + its ledger (the UI confirms) and is gated by `RESET_COOLDOWN_DAYS` (30) behind
+`RESET_COOLDOWN_ENABLED` in `personalBoard.ts` — **currently `false`** (resets allowed
+anytime) as a migration window for boards that predate the newer tile kinds; flip it to
+`true` to require the wait, and the server gate + all page copy/buttons follow. VP farming
+is self-limiting: item tiles need drops the player is still missing, so completed content
+leaves the pool. The non-boss (Temple EHC) item pool excludes gilded and 3rd age pieces
+outright (`COSMETIC_EXCLUDE` in `personalBoard.ts`).
 
 ### `vs_active_tiles` — the view (only interface the trackers read)
 One row per **(participant × not-yet-complete tile × trigger)**, expanding each tile's `triggers`
@@ -113,3 +125,12 @@ and one `vs_active_tiles` accessor + a single "participant key" helper (`coalesc
   `dink`/`clog`/`wom`/`wikisync`, manual = `manual`). They're the reference implementation of the
   standard (see `src/lib/server/personalBoard.ts`). Public/admin event lists filter
   `owner_user_id is null` to keep personal boards out.
+  - Personal tile kinds: `item` (clog/Dink), `skill` (WoM XP since lock), `ca` (WikiSync combat
+    achievements) and `diary` (WikiSync achievement-diary tiers, `meta.diary_region`/`diary_tier`,
+    catalogue in `src/lib/diary.ts` — at most one region per board). CA + diary state share one
+    WikiSync read (`getWikiSyncState`); only `item` tiles are Dink-trackable (`active_tiles.sql`).
+  - Item pool: boss drops from `itemEhb.json` (curated EHB math, `build_item_ehb.mjs`) always;
+    plus non-boss clog items from `itemEhc.json` (Temple per-item EHC, `build_item_ehc.mjs` —
+    maintainer-run) behind the "Include non-PVM collection log items" toggle. Both pools share
+    the id-keyed pin/exclude overrides (`vs_ehb_overrides`, /admin/ehb) and the same completion
+    paths (Temple clog poll + Dink COLLECTION).

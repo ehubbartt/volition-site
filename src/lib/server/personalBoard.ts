@@ -13,12 +13,14 @@
 // `vs_tiles.meta`; auto-track rules live in `vs_tiles.triggers`.
 //
 // LIFECYCLE: a board starts as a DRAFT (locked_at = null) — the owner can reroll it freely and it
-// is NOT tracked. LOCKING it (sets vs_events.locked_at) starts tracking and commits it for
-// LOCK_DAYS; only after that window can it be reset and regenerated.
+// is NOT tracked. LOCKING it (sets vs_events.locked_at) starts tracking. A locked board never
+// expires — the owner keeps it as long as they want. RESETTING (generating a replacement) wipes
+// the board + its ledger rows (the UI confirms first) and is gated by the reset cooldown below
+// when that's enabled.
 
 import { db } from './db';
-import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer, fetchWikiSyncCA } from './rankData';
-import { bestEhbSource, isPetItem, type ItemEhb, type EhbOverrides } from '$lib/ehb';
+import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer, fetchWikiSyncPlayer } from './rankData';
+import { bestEhbSource, isPetItem, type ItemEhb, type ItemEhc, type EhbOverrides } from '$lib/ehb';
 import { getEhbOverrides, getExcludedItemIds } from './ehbOverrides';
 import { uploadProof } from './submissions';
 import { grantPlayerVp } from './playerStats';
@@ -26,9 +28,39 @@ import { MAX_IMAGES_PER_SUBMISSION, BINGO_BUCKET } from '$lib/bingo/config';
 import { TILE_SKILLS, SKILL_EHP_RATES, MAX_SKILL_XP, roundXp, skillTileHours, type Skill } from '$lib/ehp';
 import { CA_TIERS, caTierForDifficulty } from '$lib/ca';
 import { getCATasks, type CaTask } from './caNames';
+import { DIARY_REGIONS, DIARY_TIERS, diaryKey, diaryLabel, diaryHours, diaryTierForDifficulty } from '$lib/diary';
 import itemEhbData from './data/itemEhb.json';
+import itemEhcData from './data/itemEhc.json';
 
 const ITEM_EHB = itemEhbData as ItemEhb[];
+// Cosmetic prestige lines are excluded outright: gilded and 3rd age pieces are
+// astronomically rare clue uniques nobody can realistically target for a bingo tile.
+// (Substring match, not prefix — catches "Ring of 3rd age".)
+const COSMETIC_EXCLUDE = /3rd age|gilded/i;
+// Non-boss clog items (Temple EHC) — the "include full collection log" pool. Empty
+// until the maintainer runs db/scripts/build_item_ehc.mjs (the toggle is then a no-op).
+const ITEM_EHC = (itemEhcData as ItemEhc[]).filter(
+	(i) => !COSMETIC_EXCLUDE.test(i.name) && !ITEM_EHB.some((b) => b.id === i.id)
+);
+// Pets in the EHC pool are flagged by Temple's category at build time — no manual
+// PET_ITEM_NAMES upkeep for non-boss (skilling/minigame) pets.
+const EHC_PET_NAMES = new Set(ITEM_EHC.filter((i) => i.pet).map((i) => i.name.toLowerCase()));
+
+// ── Reset cooldown ─────────────────────────────────────────────────────────────
+// How long after locking before the owner may reset for a new board. TEMPORARILY
+// DISABLED (resets allowed anytime) so members whose boards predate the newer tile
+// kinds/pools can rebuild; flip RESET_COOLDOWN_ENABLED to true to require the wait.
+export const RESET_COOLDOWN_DAYS = 30;
+export const RESET_COOLDOWN_ENABLED = false;
+const RESET_COOLDOWN_MS = RESET_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+
+// When a locked board can be reset. Null while it's a draft — or always, while the
+// cooldown is disabled (callers read null as "resettable now").
+export function boardResettableAt(lockedAt: string | null): string | null {
+	return RESET_COOLDOWN_ENABLED && lockedAt
+		? new Date(new Date(lockedAt).getTime() + RESET_COOLDOWN_MS).toISOString()
+		: null;
+}
 
 export const MIN_SIZE = 3;
 export const MAX_SIZE = 5;
@@ -40,18 +72,25 @@ const PERSONAL_KIND = 'personal';
 const personalSlug = (userId: string) => `personal-${userId}`;
 
 // ── VP rewards ────────────────────────────────────────────────────────────────
-// Completing a full row/column/diagonal pays LINE VP; completing every tile pays the
-// BLACKOUT bonus on top. Both scale with the board's difficulty (1-10) — with a
-// quadratic term so the hard end pays disproportionately more — and with size (a 7×7
-// line is longer and a 7×7 blackout far bigger than a 3×3). Tune the formulas here.
-//   line(size, diff)     = (4 + 1.5·diff + 0.15·diff²) × size/5   → 5×5: 6 @d1, 15 @d5, 34 @d10
-//   blackout(size, diff) = (20 + 7·diff + diff²)       × size/5   → 5×5: 28 @d1, 80 @d5, 190 @d10
-export function personalVpAmounts(size: number, difficulty: number): { line: number; blackout: number } {
+// Every completed TILE pays a little; completing a full row/column/diagonal pays LINE
+// VP on top; completing every tile pays the BLACKOUT bonus on top of that. Line and
+// blackout scale with the board's difficulty (1-10) — with a quadratic term so the
+// hard end pays disproportionately more — and with size (a 7×7 line is longer and a
+// 7×7 blackout far bigger than a 3×3). Tiles scale with difficulty only (bigger boards
+// already have more of them). Tune the formulas here.
+//   tile(diff)           = 0.5 + 0.25·diff (min 1)                 → 1 @d1, 2 @d5, 3 @d10
+//   line(size, diff)     = (5 + 1.7·diff + 0.2·diff²) × size/5    → 5×5: 7 @d1, 19 @d5, 42 @d10
+//   blackout(size, diff) = (22 + 8·diff + 1.4·diff²)  × size/5    → 5×5: 31 @d1, 97 @d5, 242 @d10
+export function personalVpAmounts(
+	size: number,
+	difficulty: number
+): { tile: number; line: number; blackout: number } {
 	const s = Math.max(1, size) / 5;
 	const d = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, difficulty));
 	return {
-		line: Math.max(1, Math.round((4 + 1.5 * d + 0.15 * d * d) * s)),
-		blackout: Math.max(1, Math.round((20 + 7 * d + d * d) * s))
+		tile: Math.max(1, Math.round(0.5 + 0.25 * d)),
+		line: Math.max(1, Math.round((5 + 1.7 * d + 0.2 * d * d) * s)),
+		blackout: Math.max(1, Math.round((22 + 8 * d + 1.4 * d * d) * s))
 	};
 }
 
@@ -78,21 +117,12 @@ function completedLineKeys(size: number, obtained: Set<number>): string[] {
 	return out;
 }
 
-// A locked board is committed for this long before the owner can reset and make a new one.
-export const LOCK_DAYS = 30;
-const LOCK_MS = LOCK_DAYS * 24 * 60 * 60 * 1000;
-
-// When a locked board can be reset (null while it's still a draft).
-export function boardResettableAt(lockedAt: string | null): string | null {
-	return lockedAt ? new Date(new Date(lockedAt).getTime() + LOCK_MS).toISOString() : null;
-}
-
 export interface PersonalBoardTile {
 	idx: number;
-	kind: 'item' | 'skill' | 'ca';
+	kind: 'item' | 'skill' | 'ca' | 'diary';
 	item_id: number | null; // item tiles
-	item_name: string | null; // item tiles (also reused as the CA display name on ca tiles)
-	ehb: number; // cost in efficient hours (EHB for items, EHP for skills, nominal per-tier for CAs) — drives the gradient
+	item_name: string | null; // item tiles (also reused as the CA/diary display name on those tiles)
+	ehb: number; // cost in efficient hours (EHB for items, EHP for skills, nominal per-tier for CAs/diaries) — drives the gradient
 	source: string | null; // boss/raid the EHB is costed from (item tiles) / boss for CA image
 	skill: string | null; // skill tiles
 	target_xp: number | null; // skill tiles: XP goal
@@ -100,6 +130,8 @@ export interface PersonalBoardTile {
 	progress_xp: number | null; // skill tiles: last gained-since-lock (display)
 	ca_id: number | null; // ca tiles: WikiSync CA task id
 	ca_tier: string | null; // ca tiles: 'easy'..'grandmaster'
+	diary_region: string | null; // diary tiles: 'Ardougne'..'Wilderness'
+	diary_tier: string | null; // diary tiles: 'Easy'..'Elite' (WikiSync casing)
 	// Item tiles: how they auto-complete. 'collection' (default) = clog unlock;
 	// 'loot' = the drop must land while locked (already-owned items, test boards).
 	match_type: 'loot' | 'collection';
@@ -195,7 +227,7 @@ async function getRejections(eventId: string, userId: string): Promise<Map<strin
 
 // A generated/placed tile (kind + all kind-specific fields), before it's a DB row.
 type Placed = {
-	kind: 'item' | 'skill' | 'ca';
+	kind: 'item' | 'skill' | 'ca' | 'diary';
 	item_id: number | null;
 	item_name: string | null;
 	ehb: number;
@@ -204,6 +236,8 @@ type Placed = {
 	target_xp: number | null;
 	ca_id: number | null;
 	ca_tier: string | null;
+	diary_region?: string | null;
+	diary_tier?: string | null;
 	// Item tiles only: how Dink drops match this tile. Omitted = 'collection' (clog
 	// unlock). The admin test board sets 'loot' so plain ground drops (bones) credit it.
 	match_type?: 'loot' | 'collection';
@@ -227,6 +261,12 @@ function tileToRow(eventId: string, p: Placed, idx: number) {
 		meta.skill = p.skill;
 		meta.target_xp = p.target_xp;
 		triggers.push({ type: 'skill_xp', match_key: p.skill, required_qty: p.target_xp });
+	} else if (p.kind === 'diary') {
+		meta.diary_region = p.diary_region;
+		meta.diary_tier = p.diary_tier;
+		// Informational (nothing consumes it) — completion is the WikiSync re-poll,
+		// same as CA tiles.
+		triggers.push({ type: 'diary', match_key: diaryKey(p.diary_region ?? '', p.diary_tier ?? ''), required_qty: 1 });
 	} else {
 		meta.ca_id = p.ca_id;
 		meta.ca_tier = p.ca_tier;
@@ -263,7 +303,7 @@ function rowToTile(
 	rejection?: string | null
 ): PersonalBoardTile {
 	const meta = (r.meta ?? {}) as Record<string, unknown>;
-	const kind = (r.kind as 'item' | 'skill' | 'ca') ?? 'item';
+	const kind = (r.kind as 'item' | 'skill' | 'ca' | 'diary') ?? 'item';
 	const num = (v: unknown): number | null => (v == null ? null : Number(v));
 	return {
 		idx: r.position ?? Number(r.tile_key),
@@ -278,6 +318,8 @@ function rowToTile(
 		progress_xp: num(meta.progress),
 		ca_id: num(meta.ca_id),
 		ca_tier: (meta.ca_tier as string) ?? null,
+		diary_region: (meta.diary_region as string) ?? null,
+		diary_tier: (meta.diary_tier as string) ?? null,
 		match_type: meta.match_type === 'loot' ? 'loot' : 'collection',
 		manual: comp?.source === 'manual',
 		proof_urls: comp?.proof_urls ?? null,
@@ -367,19 +409,37 @@ async function getOwnedClogNames(userId: string, rsn: string, force = false): Pr
 	return owned;
 }
 
-const caDoneCache = new Map<string, { at: number; done: Set<number> }>();
-const CA_TTL_MS = 5 * 60 * 1000;
+// One cached WikiSync read serving both CA and diary state — generation and refresh
+// make a single HTTP call even with both tile kinds on the board. `diaries` is the
+// set of completed 'Region|Tier' keys, or NULL when the response lacked the diaries
+// block: callers must treat null as UNAVAILABLE, never "nothing completed" (a board
+// would otherwise deal players diaries they've already finished).
+interface WikiSyncState {
+	ca: Set<number>;
+	diaries: Set<string> | null;
+}
+const wikiSyncCache = new Map<string, { at: number; state: WikiSyncState }>();
+const WIKISYNC_TTL_MS = 5 * 60 * 1000;
 
-async function getCompletedCAs(userId: string, rsn: string, force = false): Promise<Set<number> | null> {
+async function getWikiSyncState(userId: string, rsn: string, force = false): Promise<WikiSyncState | null> {
 	if (!force) {
-		const hit = caDoneCache.get(userId);
-		if (hit && Date.now() - hit.at < CA_TTL_MS) return hit.done;
+		const hit = wikiSyncCache.get(userId);
+		if (hit && Date.now() - hit.at < WIKISYNC_TTL_MS) return hit.state;
 	}
-	const ids = await fetchWikiSyncCA(rsn);
-	if (ids == null) return null;
-	const done = new Set(ids);
-	caDoneCache.set(userId, { at: Date.now(), done });
-	return done;
+	const player = await fetchWikiSyncPlayer(rsn);
+	if (player == null) return null;
+	let diaries: Set<string> | null = null;
+	if (player.diaries) {
+		diaries = new Set<string>();
+		for (const [region, tiers] of Object.entries(player.diaries)) {
+			for (const [tier, done] of Object.entries(tiers)) {
+				if (done) diaries.add(diaryKey(region, tier));
+			}
+		}
+	}
+	const state: WikiSyncState = { ca: new Set(player.caIds), diaries };
+	wikiSyncCache.set(userId, { at: Date.now(), state });
+	return state;
 }
 
 const skillXpCache = new Map<string, { at: number; xp: Record<Skill, number> | null }>();
@@ -406,16 +466,18 @@ interface Candidate {
 	owned?: boolean;
 }
 
-// Board-eligible PVM clog items, each costed at its cheapest EHB source (with admin
-// overrides applied), sorted easy→hard. Items the player already OWNS are skipped
-// unless includeOwned — then they stay in the pool, flagged. Pet drops excluded
-// unless includePets.
+// Board-eligible clog items, each costed in hours (boss items at their cheapest EHB
+// source, non-boss items at Temple's EHC when includeClogItems), with admin overrides
+// applied, sorted easy→hard. Items the player already OWNS are skipped unless
+// includeOwned — then they stay in the pool, flagged. Pet drops excluded unless
+// includePets.
 function missingCandidates(
 	owned: Set<string>,
 	overrides?: EhbOverrides,
 	includePets = true,
 	excludedIds?: Set<number>,
-	includeOwned = false
+	includeOwned = false,
+	includeClogItems = false
 ): Candidate[] {
 	const out: Candidate[] = [];
 	for (const item of ITEM_EHB) {
@@ -426,6 +488,20 @@ function missingCandidates(
 		const best = bestEhbSource(item, undefined, overrides);
 		if (!best) continue; // no computable EHB source
 		out.push({ item_id: item.id, item_name: item.name, ehb: best.ehb, source: best.src.s, owned: has });
+	}
+	if (includeClogItems) {
+		// Non-boss pool: same gates; the admin item-pin override wins over Temple's EHC
+		// (matching bestEhbSource's semantics for boss items). Completion paths are
+		// identical — Temple clog poll by name, Dink COLLECTION by id/name.
+		for (const item of ITEM_EHC) {
+			const has = owned.has(item.name.toLowerCase());
+			if (has && !includeOwned) continue;
+			if (!includePets && (item.pet || isPetItem(item.name) || EHC_PET_NAMES.has(item.name.toLowerCase()))) continue;
+			if (excludedIds?.has(item.id)) continue;
+			const ehb = overrides?.itemEhb[item.id] ?? item.ehc;
+			if (!(ehb > 0)) continue;
+			out.push({ item_id: item.id, item_name: item.name, ehb, source: item.category, owned: has });
+		}
 	}
 	out.sort((a, b) => a.ehb - b.ehb);
 	return out;
@@ -539,34 +615,108 @@ function selectCATiles(count: number, difficulty: number, completed: Set<number>
 	return picks;
 }
 
+interface DiaryPick {
+	region: string;
+	tier: string;
+	ehb: number;
+}
+
+// Pick `count` diary tiles for UNCOMPLETED region tiers, banded easy→hard by
+// difficulty — the diary analogue of selectCATiles. At most ONE tile per region per
+// board (players complete lower tiers en route to higher ones, so two tiers of one
+// region would double-pay a single grind); `excludedRegions` carries kept tiles'
+// regions into the same rule.
+function selectDiaryTiles(
+	count: number,
+	difficulty: number,
+	completed: Set<string>,
+	excludedRegions: Set<string>
+): DiaryPick[] {
+	if (count <= 0) return [];
+	const byTier: { region: string; tier: string }[][] = DIARY_TIERS.map(() => []);
+	for (const region of DIARY_REGIONS) {
+		if (excludedRegions.has(region)) continue;
+		for (let ti = 0; ti < DIARY_TIERS.length; ti++) {
+			const tier = DIARY_TIERS[ti];
+			if (!completed.has(diaryKey(region, tier))) byTier[ti].push({ region, tier });
+		}
+	}
+	for (const arr of byTier) shuffle(arr);
+
+	const picks: DiaryPick[] = [];
+	const usedRegions = new Set<string>();
+	for (let i = 0; i < count; i++) {
+		const target = diaryTierForDifficulty(difficulty, i, count);
+		let chosen: { region: string; tier: string } | null = null;
+		for (let radius = 0; radius < DIARY_TIERS.length && chosen == null; radius++) {
+			const tiers = radius === 0 ? [target] : [target - radius, target + radius];
+			for (const ti of tiers) {
+				if (ti < 0 || ti >= DIARY_TIERS.length) continue;
+				while (byTier[ti].length) {
+					const cand = byTier[ti].pop() as { region: string; tier: string };
+					if (!usedRegions.has(cand.region)) {
+						chosen = cand;
+						break;
+					}
+				}
+				if (chosen) break;
+			}
+		}
+		if (chosen == null) break;
+		usedRegions.add(chosen.region);
+		picks.push({ region: chosen.region, tier: chosen.tier, ehb: diaryHours(chosen.region, chosen.tier) });
+	}
+	return picks;
+}
+
 export type GenerateResult =
 	| { ok: true; board: PersonalBoard }
 	| {
 			ok: false;
-			reason: 'no_rsn' | 'clog_unavailable' | 'ca_unavailable' | 'too_few' | 'locked';
+			reason: 'no_rsn' | 'clog_unavailable' | 'ca_unavailable' | 'diary_unavailable' | 'too_few' | 'locked';
 			missing?: number;
 			need?: number;
 			resettable_at?: string;
 	  };
 
-// Generate (and persist, replacing any existing) a DRAFT board for the user. Refuses if the
-// current board is LOCKED and still inside its commitment window.
+// Generate (and persist, replacing any existing) a DRAFT board for the user. Replacing a
+// LOCKED board wipes that board's progress and ledger (the UI confirms first) and is refused
+// while the reset cooldown (if enabled) hasn't elapsed.
+// Generation options — an object rather than a boolean parade so new toggles can't
+// transpose. Only caller: the personal-bingo `generate` action.
+export interface GenerateOptions {
+	includeSkilling?: boolean;
+	includeCA?: boolean;
+	includeDiaries?: boolean;
+	includePets?: boolean;
+	excludeMaxedSkills?: boolean;
+	includeOwned?: boolean;
+	// Widen the item pool beyond boss drops to the full clog (Temple EHC valued).
+	includeClogItems?: boolean;
+	keepLineKey?: string | null;
+}
+
 export async function generatePersonalBoard(
 	userId: string,
 	rsn: string | null,
 	size: number,
 	difficulty: number,
-	includeSkilling = false,
-	includeCA = false,
-	includePets = true,
-	excludeMaxedSkills = false,
-	includeOwned = false,
-	keepLineKey: string | null = null
+	opts: GenerateOptions = {}
 ): Promise<GenerateResult> {
+	const {
+		includeSkilling = false,
+		includeCA = false,
+		includeDiaries = false,
+		includePets = true,
+		excludeMaxedSkills = false,
+		includeOwned = false,
+		includeClogItems = false,
+		keepLineKey = null
+	} = opts;
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
 
-	// A locked board can't be rerolled/reset until its commitment window elapses.
 	const existing = await loadPersonalEvent(userId);
+	// Reset cooldown (no-op while disabled): a locked board can't be replaced until it elapses.
 	if (existing?.locked_at) {
 		const reset = boardResettableAt(existing.locked_at);
 		if (reset && Date.now() < new Date(reset).getTime()) {
@@ -610,6 +760,8 @@ export async function generatePersonalBoard(
 					target_xp: t.target_xp,
 					ca_id: t.ca_id,
 					ca_tier: t.ca_tier,
+					diary_region: t.diary_region,
+					diary_tier: t.diary_tier,
 					...(t.match_type === 'loot' ? { match_type: 'loot' as const } : {})
 				});
 			}
@@ -619,6 +771,7 @@ export async function generatePersonalBoard(
 	const keptSkillSet = new Set(keptTiles.filter((p) => p.kind === 'skill').map((p) => p.skill));
 	const keptCaIds = keptTiles.filter((p) => p.kind === 'ca').map((p) => p.ca_id as number);
 	const keptItemIds = new Set(keptTiles.filter((p) => p.kind === 'item').map((p) => p.item_id));
+	const keptDiaries = keptTiles.filter((p) => p.kind === 'diary');
 	const newCount = tileCount - kept.size;
 
 	// Composition targets are for the WHOLE board; held tiles count toward their kind.
@@ -630,15 +783,41 @@ export async function generatePersonalBoard(
 		0,
 		Math.min(newCount - skillCount, (includeCA ? Math.round(tileCount / 4) : 0) - keptCaIds.length)
 	);
+	const diaryTarget = Math.max(
+		0,
+		Math.min(
+			newCount - skillCount - caTarget,
+			(includeDiaries ? Math.round(tileCount / 4) : 0) - keptDiaries.length
+		)
+	);
 
-	// CA tiles: needs the player's completed-CA set (WikiSync) + the id→name→tier catalogue.
+	// CA + diary tiles share one WikiSync read (completed CA ids + completed diary tiers).
+	let wikiSync: WikiSyncState | null = null;
+	if (caTarget > 0 || diaryTarget > 0) {
+		wikiSync = await getWikiSyncState(userId, rsn);
+		if (wikiSync == null) {
+			return { ok: false, reason: caTarget > 0 ? 'ca_unavailable' : 'diary_unavailable' };
+		}
+	}
+
 	let caPicks: CaPick[] = [];
-	if (caTarget > 0) {
-		const completed = await getCompletedCAs(userId, rsn);
-		if (completed == null) return { ok: false, reason: 'ca_unavailable' };
+	if (caTarget > 0 && wikiSync) {
 		const catalogue = await getCATasks();
 		// Held CA tiles count as "completed" here so the refill can't duplicate them.
-		caPicks = selectCATiles(caTarget, diff, new Set([...completed, ...keptCaIds]), catalogue);
+		caPicks = selectCATiles(caTarget, diff, new Set([...wikiSync.ca, ...keptCaIds]), catalogue);
+	}
+
+	let diaryPicks: DiaryPick[] = [];
+	if (diaryTarget > 0 && wikiSync) {
+		// A response WITHOUT the diaries block means "unavailable", not "none done" —
+		// generating from it would deal tiles the player already finished.
+		if (wikiSync.diaries == null) return { ok: false, reason: 'diary_unavailable' };
+		const completed = new Set([
+			...wikiSync.diaries,
+			...keptDiaries.map((p) => diaryKey(p.diary_region ?? '', p.diary_tier ?? ''))
+		]);
+		const keptRegions = new Set(keptDiaries.map((p) => p.diary_region ?? ''));
+		diaryPicks = selectDiaryTiles(diaryTarget, diff, completed, keptRegions);
 	}
 
 	// Optionally drop skills the player has already 99'd (best-effort).
@@ -650,14 +829,14 @@ export async function generatePersonalBoard(
 	if (keptSkillSet.size) allowedSkills = allowedSkills.filter((s) => !keptSkillSet.has(s));
 
 	const skills = selectSkillTiles(skillCount, diff, allowedSkills);
-	const itemCount = newCount - skills.length - caPicks.length;
+	const itemCount = newCount - skills.length - caPicks.length - diaryPicks.length;
 
 	const owned = await getOwnedClogNames(userId, rsn);
 	if (owned == null) return { ok: false, reason: 'clog_unavailable' };
 
 	const overrides = await getEhbOverrides();
 	const excludedIds = await getExcludedItemIds();
-	const pool = missingCandidates(owned, overrides, includePets, excludedIds, includeOwned).filter(
+	const pool = missingCandidates(owned, overrides, includePets, excludedIds, includeOwned, includeClogItems).filter(
 		(c) => !keptItemIds.has(c.item_id)
 	);
 	if (pool.length < itemCount) {
@@ -679,7 +858,8 @@ export async function generatePersonalBoard(
 		// missing picks stay collection-matched (clog unlock).
 		...items.map((c) => ({ kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null, ...(c.owned ? { match_type: 'loot' as const } : {}) })),
 		...skills.map((s) => ({ kind: 'skill' as const, item_id: null, item_name: null, ehb: s.ehb, source: null, skill: s.skill, target_xp: s.target_xp, ca_id: null, ca_tier: null })),
-		...caPicks.map((c) => ({ kind: 'ca' as const, item_id: null, item_name: c.name, ehb: c.ehb, source: c.monster, skill: null, target_xp: null, ca_id: c.ca_id, ca_tier: c.tier }))
+		...caPicks.map((c) => ({ kind: 'ca' as const, item_id: null, item_name: c.name, ehb: c.ehb, source: c.monster, skill: null, target_xp: null, ca_id: c.ca_id, ca_tier: c.tier })),
+		...diaryPicks.map((d) => ({ kind: 'diary' as const, item_id: null, item_name: diaryLabel(d.region, d.tier), ehb: d.ehb, source: null, skill: null, target_xp: null, ca_id: null, ca_tier: null, diary_region: d.region, diary_tier: d.tier }))
 	];
 	shuffle(fresh);
 
@@ -774,8 +954,9 @@ export async function generateTestPersonalBoard(
 	// board would defeat its purpose. Regenerating still wipes the old board.
 	const existing = await loadPersonalEvent(userId);
 
-	const completed = await getCompletedCAs(userId, rsn);
-	if (completed == null) return { ok: false, reason: 'ca_unavailable' };
+	const wikiSync = await getWikiSyncState(userId, rsn);
+	if (wikiSync == null) return { ok: false, reason: 'ca_unavailable' };
+	const completed = wikiSync.ca;
 	const catalogue = await getCATasks();
 	const caPool = catalogue
 		.filter((t) => !completed.has(t.id))
@@ -846,19 +1027,20 @@ export async function loadPersonalBoard(userId: string): Promise<PersonalBoard |
 }
 
 // ── VP settlement ──────────────────────────────────────────────────────────────
-// Awarded state IS the ledger: every paid line/blackout is a vs_submissions row with
-// target_id 'vp:<lineKey>' (or 'vp:blackout'), source 'vp', and the VP amount granted
-// in `quantity` — auditable in the DB, and wiped with the board on a reroll like every
-// other board row. Settling compares the CURRENTLY completed lines/blackout against
-// those rows and pays only the difference, so it's safe to run on every board view
-// (poll-on-read, like the drop consumer). An in-process per-user guard stops two
-// concurrent views double-paying (single adapter-node process, owner-only trigger).
-// Test boards never pay.
+// Awarded state IS the ledger: every paid tile/line/blackout is a vs_submissions row
+// with target_id 'vp:t<idx>' / 'vp:<lineKey>' / 'vp:blackout', source 'vp', and the VP
+// amount granted in `quantity` — auditable in the DB, and wiped with the board on a
+// reroll like every other board row. Settling compares the CURRENTLY completed
+// tiles/lines/blackout against those rows and pays only the difference, so it's safe
+// to run on every board view (poll-on-read, like the drop consumer). An in-process
+// per-user guard stops two concurrent views double-paying (single adapter-node
+// process, owner-only trigger). Test boards never pay.
 
 const VP_KEY_PREFIX = 'vp:';
 const vpSettleInflight = new Set<string>();
 
 export interface PersonalVpState {
+	tile: number; // VP per completed tile on this board
 	line: number; // VP per completed row/column/diagonal on this board
 	blackout: number; // bonus VP for completing every tile
 	earned: number; // VP this board has paid out so far
@@ -887,7 +1069,7 @@ export async function settlePersonalVp(
 	const paid = (vpRows ?? []) as { target_id: string; quantity: number }[];
 	const awarded = new Set(paid.map((r) => r.target_id));
 	const earned = paid.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
-	const base = { line: amounts.line, blackout: amounts.blackout, test: isTest };
+	const base = { tile: amounts.tile, line: amounts.line, blackout: amounts.blackout, test: isTest };
 
 	if (readErr) {
 		console.error('[personalBoard] vp ledger read failed', board.id, readErr.message);
@@ -896,9 +1078,28 @@ export async function settlePersonalVp(
 	if (!board.locked_at || isTest) return { ...base, earned };
 
 	const obtained = new Set(board.tiles.filter((t) => t.obtained).map((t) => t.idx));
-	const wanted: { key: string; vp: number; label: string }[] = completedLineKeys(board.size, obtained)
-		.map((k) => ({ key: VP_KEY_PREFIX + k, vp: amounts.line, label: `Bingo line ${k}` }))
-		.filter((w) => !awarded.has(w.key));
+	// Human-readable tile label for the ledger row (admins see target_label in reviews).
+	const tileLabel = (idx: number): string => {
+		const t = board.tiles.find((x) => x.idx === idx);
+		const what =
+			t?.item_name ??
+			(t?.skill
+				? `${t.skill} XP goal`
+				: t?.kind === 'diary'
+					? `${t.diary_region ?? ''} ${t.diary_tier ?? ''} diary`.trim()
+					: t?.kind === 'ca'
+						? 'combat achievement'
+						: `#${idx + 1}`);
+		return `Bingo tile: ${what}`;
+	};
+	const wanted: { key: string; vp: number; label: string }[] = [
+		...[...obtained]
+			.filter((idx) => !awarded.has(`${VP_KEY_PREFIX}t${idx}`))
+			.map((idx) => ({ key: `${VP_KEY_PREFIX}t${idx}`, vp: amounts.tile, label: tileLabel(idx) })),
+		...completedLineKeys(board.size, obtained)
+			.map((k) => ({ key: VP_KEY_PREFIX + k, vp: amounts.line, label: `Bingo line ${k}` }))
+			.filter((w) => !awarded.has(w.key))
+	];
 	if (obtained.size >= board.size * board.size && !awarded.has(`${VP_KEY_PREFIX}blackout`)) {
 		wanted.push({ key: `${VP_KEY_PREFIX}blackout`, vp: amounts.blackout, label: 'Bingo blackout' });
 	}
@@ -937,7 +1138,7 @@ export async function settlePersonalVp(
 	}
 }
 
-// Lock a draft board in: starts tracking + the LOCK_DAYS commitment. Idempotent.
+// Lock a draft board in: starts tracking. Idempotent.
 export type LockResult = { ok: true; board: PersonalBoard } | { ok: false; reason: 'no_board' };
 
 export async function lockPersonalBoard(userId: string): Promise<LockResult> {
@@ -1030,16 +1231,30 @@ export async function refreshPersonalBoard(userId: string): Promise<RefreshResul
 		}
 	}
 
-	// CA tiles: re-poll WikiSync's completed-CA set. Best-effort.
+	// CA + diary tiles: one forced WikiSync re-poll covers both. Best-effort — a
+	// WikiSync outage just leaves them unchanged this round.
 	const caTiles = board.tiles.filter((t) => !t.obtained && t.kind === 'ca' && t.ca_id != null);
-	if (caTiles.length) {
-		const done = await getCompletedCAs(userId, board.rsn, true); // force a fresh WikiSync read
-		if (done) {
+	const diaryTiles = board.tiles.filter(
+		(t) => !t.obtained && t.kind === 'diary' && t.diary_region && t.diary_tier
+	);
+	if (caTiles.length || diaryTiles.length) {
+		const state = await getWikiSyncState(userId, board.rsn, true); // force a fresh WikiSync read
+		if (state) {
 			for (const t of caTiles) {
-				if (done.has(t.ca_id as number)) {
+				if (state.ca.has(t.ca_id as number)) {
 					const label = t.item_name ?? `Combat achievement #${t.ca_id}`;
 					const r = await creditTile(eventId, userId, String(t.idx), 'wikisync', { targetLabel: label });
 					if (r === 'credited') newlyObtained.push(label);
+				}
+			}
+			// diaries == null means the response lacked the block — skip, don't credit.
+			if (state.diaries) {
+				for (const t of diaryTiles) {
+					if (state.diaries.has(diaryKey(t.diary_region as string, t.diary_tier as string))) {
+						const label = `${t.item_name ?? diaryLabel(t.diary_region as string, t.diary_tier as string)} diary`;
+						const r = await creditTile(eventId, userId, String(t.idx), 'wikisync', { targetLabel: label });
+						if (r === 'credited') newlyObtained.push(label);
+					}
 				}
 			}
 		}

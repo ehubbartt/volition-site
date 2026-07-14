@@ -1,9 +1,10 @@
 import {
 	loadPersonalBoard,
-	boardResettableAt,
 	settlePersonalVp,
 	personalVpAmounts,
-	LOCK_DAYS,
+	boardResettableAt,
+	RESET_COOLDOWN_DAYS,
+	RESET_COOLDOWN_ENABLED,
 	MIN_SIZE,
 	MAX_SIZE,
 	MIN_DIFFICULTY,
@@ -12,7 +13,8 @@ import {
 } from './personalBoard';
 import type { SessionUser } from './auth';
 import itemEhbData from './data/itemEhb.json';
-import type { ItemEhb } from '$lib/ehb';
+import itemEhcData from './data/itemEhc.json';
+import type { ItemEhb, ItemEhc } from '$lib/ehb';
 import { maybeProcessDinkDrops } from './dinkDrops';
 
 // Builds the personal-bingo page dataset for /api/personal-board. The page has NO
@@ -21,6 +23,10 @@ import { maybeProcessDinkDrops } from './dinkDrops';
 
 // For the tile-detail modal: look up an item tile's drop-rate string by its board boss.
 const ITEM_BY_ID = new Map((itemEhbData as ItemEhb[]).map((i) => [i.id, i]));
+
+// Non-boss (Temple EHC) item ids — the page re-seeds its "include non-PVM collection
+// log" toggle from whether any board tile came from this pool (tiles carry no marker).
+const EHC_IDS = new Set((itemEhcData as ItemEhc[]).map((i) => i.id));
 
 export async function buildPersonalBoardData(user: SessionUser) {
 	// Poll-on-read backstop (same as the event bingo board): drain any recorded Dink
@@ -55,18 +61,21 @@ export async function buildPersonalBoardData(user: SessionUser) {
 		}
 	}
 
+	// Reset-cooldown surface: resettableAt is null while the cooldown is disabled or the
+	// board is a draft; resetDays is null while disabled (the UI keys its copy off it).
 	const resettableAt = board?.locked_at ? boardResettableAt(board.locked_at) : null;
-	const canReset =
-		!board || !board.locked_at || (resettableAt != null && Date.now() >= new Date(resettableAt).getTime());
+	const canReset = resettableAt == null || Date.now() >= new Date(resettableAt).getTime();
 	return {
 		rsn: user.rsn,
 		board,
 		vp,
 		dropRates,
+		includesClogItems:
+			board?.tiles.some((t) => t.kind === 'item' && t.item_id != null && EHC_IDS.has(t.item_id)) ?? false,
 		locked: !!board?.locked_at,
 		resettableAt,
 		canReset,
-		lockDays: LOCK_DAYS,
+		resetDays: RESET_COOLDOWN_ENABLED ? RESET_COOLDOWN_DAYS : null,
 		sizeRange: { min: MIN_SIZE, max: MAX_SIZE },
 		difficultyRange: { min: MIN_DIFFICULTY, max: MAX_DIFFICULTY }
 	};
