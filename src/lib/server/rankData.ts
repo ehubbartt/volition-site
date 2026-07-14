@@ -97,12 +97,44 @@ export async function fetchTempleCollectionLog(
 	};
 }
 
-export async function fetchWikiSyncCA(rsn: string): Promise<number[] | null> {
+// One WikiSync request serving both CA and achievement-diary state. `diaries` maps
+// region → tier → done and is null when the response lacked the diaries block — the
+// caller must treat that as UNAVAILABLE, never as "nothing completed" (a board would
+// otherwise deal players diaries they've already finished).
+export interface WikiSyncPlayer {
+	caIds: number[];
+	diaries: Record<string, Record<string, boolean>> | null;
+}
+
+export async function fetchWikiSyncPlayer(rsn: string): Promise<WikiSyncPlayer | null> {
 	const data = (await getJson(`${WIKISYNC_BASE}/${encodeURIComponent(rsn)}/STANDARD`)) as
-		| { combat_achievements?: number[] }
+		| { combat_achievements?: number[]; achievement_diaries?: Record<string, unknown> }
 		| null;
 	if (!data) return null;
-	return data.combat_achievements || [];
+
+	// Parse the diaries block defensively: WikiSync reports region → tier →
+	// { complete, tasks } (accept a bare boolean too, in case the shape ever slims).
+	let diaries: WikiSyncPlayer['diaries'] = null;
+	const raw = data.achievement_diaries;
+	if (raw && typeof raw === 'object') {
+		diaries = {};
+		for (const [region, tiers] of Object.entries(raw)) {
+			if (!tiers || typeof tiers !== 'object') continue;
+			const out: Record<string, boolean> = {};
+			for (const [tier, v] of Object.entries(tiers as Record<string, unknown>)) {
+				out[tier] =
+					v === true || (typeof v === 'object' && v !== null && (v as { complete?: unknown }).complete === true);
+			}
+			diaries[region] = out;
+		}
+	}
+
+	return { caIds: data.combat_achievements || [], diaries };
+}
+
+export async function fetchWikiSyncCA(rsn: string): Promise<number[] | null> {
+	const player = await fetchWikiSyncPlayer(rsn);
+	return player ? player.caIds : null;
 }
 
 // Piece-level detail surfaced for the on-profile rank breakdown (and cached in
