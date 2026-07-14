@@ -580,13 +580,16 @@ export async function generatePersonalBoard(
 
 	// Keep-line reroll: hold one row ('r2') or column ('c0') of the current DRAFT in
 	// place and refill only the other tiles. Silently ignored when it can't apply
-	// (no draft, size changed, malformed key) — the reroll then behaves as a full one.
+	// (no draft, size OR DIFFICULTY changed, malformed key) — the reroll then behaves
+	// as a full one. The difficulty check is load-bearing: VP payouts scale with the
+	// board's difficulty, so carrying tiles generated at an easier difficulty into a
+	// harder board would let a held easy line collect the harder board's VP.
 	const kept = new Map<number, Placed>(); // board position → held tile
 	const keyMatch = keepLineKey ? /^([rc])([0-9]+)$/.exec(keepLineKey) : null;
 	if (keyMatch && existing && !existing.locked_at) {
 		const line = Number(keyMatch[2]);
 		const current = await loadPersonalBoard(userId);
-		if (current && current.size === n && line < n) {
+		if (current && current.size === n && current.difficulty === diff && line < n) {
 			const idxs =
 				keyMatch[1] === 'r'
 					? Array.from({ length: n }, (_, c) => line * n + c)
