@@ -64,6 +64,10 @@ bugs that used to recur per feature):
   `name`, `sub`, `obtained`, `highlighted`, `title`, `imageSize`. Drop it into a CSS grid; the
   personal collection-log board (`/events/personal-bingo`) maps its item/skill/CA tiles onto
   it, and event/bingo grids should do the same.
+- **`src/lib/RankUpCelebration.svelte`** — full-screen confetti + badge overlay shown when
+  a "Check my rank" on /me SAVES a higher rank than the player had (the checkRank action
+  returns `form.rankUp {from,to}`). Click/Escape/8s dismisses; confetti honors
+  prefers-reduced-motion.
 - **`src/lib/InfoTip.svelte`** — the ⓘ button with an instant CSS tooltip (hover/focus/tap;
   used for the rank-component explainers and the personal-bingo toggle data-source tips).
   Safe inside a `<label>` — it doesn't toggle the control.

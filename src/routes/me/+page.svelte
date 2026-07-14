@@ -12,6 +12,7 @@
 	import Skeleton from '$lib/Skeleton.svelte';
 	import ProfileBanner from '$lib/profile/ProfileBanner.svelte';
 	import RankPanel from '$lib/profile/RankPanel.svelte';
+	import RankUpCelebration from '$lib/RankUpCelebration.svelte';
 	import ProfileTabs from '$lib/profile/ProfileTabs.svelte';
 	import ProfilePanel from '$lib/profile/ProfilePanel.svelte';
 	import CollectionPanel from '$lib/profile/CollectionPanel.svelte';
@@ -85,6 +86,13 @@
 	// After the action, the page load re-runs and data.rankBreakdown re-renders below.
 	let checkingRank = $state(false);
 	let rank = $derived(data.rankBreakdown);
+
+	// Rank-up celebration: the checkRank action reports a saved climb as form.rankUp
+	// — mirror it into state so dismissing sticks even though `form` doesn't change.
+	let rankUp = $state<{ from: string; to: string } | null>(null);
+	$effect(() => {
+		if (form && 'rankUp' in form && form.rankUp) rankUp = form.rankUp;
+	});
 
 	// Site theme picker: flip <html data-theme> instantly for live feedback, then
 	// submit to ?/saveTheme so the vs_theme cookie makes it stick across visits
@@ -359,6 +367,10 @@
 
 {#if viewing}
 	<CardInspector3D card={viewing} onClose={() => (viewing = null)} />
+{/if}
+
+{#if rankUp}
+	<RankUpCelebration from={rankUp.from} to={rankUp.to} onclose={() => (rankUp = null)} />
 {/if}
 
 <style>

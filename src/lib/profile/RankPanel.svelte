@@ -69,6 +69,11 @@
 	} = $props();
 
 	const pct = (n: number) => `${Math.round(n * 100)}%`;
+	// Near-threshold honesty: the composite gets one decimal so 34.9% can't display as
+	// the 35% threshold it hasn't crossed, and next-rank progress FLOORS so 99.6% reads
+	// 99% — never a premature 100% while the rank genuinely hasn't ticked over.
+	const pct1 = (n: number) => `${Math.round(n * 1000) / 10}%`;
+	const pctFloor = (n: number) => `${Math.floor(n * 100)}%`;
 	const num = (n: number) => Math.round(n).toLocaleString();
 	const TIER_LABEL: Record<string, string> = {
 		none: 'None',
@@ -175,7 +180,7 @@
 					{rank ? rankLabel(rank.rank) : currentRank ? rankLabel(currentRank) : 'Not calculated yet'}
 				</strong>
 				{#if rank}
-					<span class="composite">Composite score {pct(rank.composite)}</span>
+					<span class="composite">Composite score {pct1(rank.composite)}</span>
 				{/if}
 			</div>
 		</div>
@@ -195,14 +200,14 @@
 						Max rank achieved
 					{/if}
 				</span>
-				<span class="comp-weight">{pct(rank.nextRankProgress)}</span>
+				<span class="comp-weight">{pctFloor(rank.nextRankProgress)}</span>
 			</div>
 			<div class="osrs-bar next-bar">
 				<span class="osrs-bar-fill" style="width:{pct(rank.nextRankProgress)}"></span>
 			</div>
 			{#if rank.nextRank && rank.nextThreshold !== null}
 				<span class="next-hint muted"
-					>Composite {pct(rank.composite)} · {rankLabel(rank.nextRank)} at {pct(rank.nextThreshold)}</span
+					>Composite {pct1(rank.composite)} · {rankLabel(rank.nextRank)} at {pct1(rank.nextThreshold)}</span
 				>
 			{/if}
 		</div>

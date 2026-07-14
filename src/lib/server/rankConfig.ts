@@ -21,7 +21,7 @@ export interface RankWeights {
 
 export interface RankCaps {
 	ehb: number; // EHB at which the ehb component maxes (default 3000)
-	months: number; // months-in-clan cap (default 24)
+	months: number; // months-in-clan cap (default 12)
 	clog: number; // collection-log slots cap (default 1200)
 	levelMin: number; // total level floor before any credit (default 2000)
 	levelRange: number; // level span above the floor for full credit (default 376 → 2376)
@@ -46,7 +46,7 @@ export interface RankScoringConfig {
 // them in sync by hand if the bot's tables change.
 export const DEFAULT_RANK_CONFIG: RankScoringConfig = {
 	weights: { gear: 0.35, ehb: 0.25, ca: 0.1, time: 0.1, clog: 0.1, level: 0.1 },
-	caps: { ehb: 3000, months: 24, clog: 1200, levelMin: 2000, levelRange: 376 },
+	caps: { ehb: 3000, months: 12, clog: 1200, levelMin: 2000, levelRange: 376 },
 	thresholds: [
 		{ scoreMin: 0.0, womRole: 'bronze' },
 		{ scoreMin: 0.08, womRole: 'iron' },

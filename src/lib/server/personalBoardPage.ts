@@ -71,11 +71,16 @@ export async function buildPersonalBoardData(user: SessionUser) {
 		vp,
 		dropRates,
 		includesClogItems:
-			board?.tiles.some((t) => t.kind === 'item' && t.item_id != null && EHC_IDS.has(t.item_id)) ?? false,
+			board?.tiles.some(
+				(t) => t.kind === 'clue' || (t.kind === 'item' && t.item_id != null && EHC_IDS.has(t.item_id))
+			) ?? false,
 		locked: !!board?.locked_at,
 		resettableAt,
 		canReset,
 		resetDays: RESET_COOLDOWN_ENABLED ? RESET_COOLDOWN_DAYS : null,
+		// The wait the cooldown WILL enforce — free-period copy uses it to tell players
+		// what's coming ("no time limit on the board; resets will require a 30-day wait").
+		resetDaysPlanned: RESET_COOLDOWN_DAYS,
 		sizeRange: { min: MIN_SIZE, max: MAX_SIZE },
 		difficultyRange: { min: MIN_DIFFICULTY, max: MAX_DIFFICULTY }
 	};

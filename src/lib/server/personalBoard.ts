@@ -46,6 +46,27 @@ const ITEM_EHC = (itemEhcData as ItemEhc[]).filter(
 // PET_ITEM_NAMES upkeep for non-boss (skilling/minigame) pets.
 const EHC_PET_NAMES = new Set(ITEM_EHC.filter((i) => i.pet).map((i) => i.name.toLowerCase()));
 
+// ── Grouped clue tiles ─────────────────────────────────────────────────────────
+// With the "group clue items" option, clue uniques leave the individual item pool and
+// become one tile per clue tier: "gain N new uniques from <tier> clues" — any N NEW
+// collection-log unlocks among the tier's items the player was missing at generation.
+const CLUE_TIER_RE = /^(beginner|easy|medium|hard|elite|master)_treasure_trails$/;
+const clueTierOf = (category: string): string | null => CLUE_TIER_RE.exec(category)?.[1] ?? null;
+const clueTierLabel = (tier: string): string => tier.charAt(0).toUpperCase() + tier.slice(1);
+// Synthetic NEGATIVE item ids keep grouped tiles clear of real item ids (keep-line
+// dedupe, admin excludes) — one per tier.
+const CLUE_GROUP_IDS: Record<string, number> = {
+	beginner: -101,
+	easy: -102,
+	medium: -103,
+	hard: -104,
+	elite: -105,
+	master: -106
+};
+// How many NEW uniques a grouped tile asks for: 3 @d1 → 5 @d5 → 7 @d10.
+const clueTarget = (difficulty: number): number =>
+	Math.min(7, Math.max(3, 2 + Math.round(difficulty / 2)));
+
 // ── Reset cooldown ─────────────────────────────────────────────────────────────
 // How long after locking before the owner may reset for a new board. TEMPORARILY
 // DISABLED (resets allowed anytime) so members whose boards predate the newer tile
@@ -78,7 +99,7 @@ const personalSlug = (userId: string) => `personal-${userId}`;
 // hard end pays disproportionately more — and with size (a 7×7 line is longer and a
 // 7×7 blackout far bigger than a 3×3). Tiles scale with difficulty only (bigger boards
 // already have more of them). Tune the formulas here.
-//   tile(diff)           = 0.5 + 0.25·diff (min 1)                 → 1 @d1, 2 @d5, 3 @d10
+//   tile(diff)           = 5 + 5·(diff−1)/9                        → 5 @d1, 7 @d5, 10 @d10
 //   line(size, diff)     = (5 + 1.7·diff + 0.2·diff²) × size/5    → 5×5: 7 @d1, 19 @d5, 42 @d10
 //   blackout(size, diff) = (22 + 8·diff + 1.4·diff²)  × size/5    → 5×5: 31 @d1, 97 @d5, 242 @d10
 export function personalVpAmounts(
@@ -88,7 +109,7 @@ export function personalVpAmounts(
 	const s = Math.max(1, size) / 5;
 	const d = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, difficulty));
 	return {
-		tile: Math.max(1, Math.round(0.5 + 0.25 * d)),
+		tile: Math.round(5 + (5 * (d - 1)) / 9),
 		line: Math.max(1, Math.round((5 + 1.7 * d + 0.2 * d * d) * s)),
 		blackout: Math.max(1, Math.round((22 + 8 * d + 1.4 * d * d) * s))
 	};
@@ -119,7 +140,7 @@ function completedLineKeys(size: number, obtained: Set<number>): string[] {
 
 export interface PersonalBoardTile {
 	idx: number;
-	kind: 'item' | 'skill' | 'ca' | 'diary';
+	kind: 'item' | 'skill' | 'ca' | 'diary' | 'clue';
 	item_id: number | null; // item tiles
 	item_name: string | null; // item tiles (also reused as the CA/diary display name on those tiles)
 	ehb: number; // cost in efficient hours (EHB for items, EHP for skills, nominal per-tier for CAs/diaries) — drives the gradient
@@ -132,6 +153,10 @@ export interface PersonalBoardTile {
 	ca_tier: string | null; // ca tiles: 'easy'..'grandmaster'
 	diary_region: string | null; // diary tiles: 'Ardougne'..'Wilderness'
 	diary_tier: string | null; // diary tiles: 'Easy'..'Elite' (WikiSync casing)
+	clue_tier: string | null; // clue tiles: 'beginner'..'master'
+	clue_target: number | null; // clue tiles: NEW uniques needed
+	clue_progress: number | null; // clue tiles: candidates unlocked so far (display)
+	clue_candidates: string[] | null; // clue tiles: lowercase names missing at generation
 	// Item tiles: how they auto-complete. 'collection' (default) = clog unlock;
 	// 'loot' = the drop must land while locked (already-owned items, test boards).
 	match_type: 'loot' | 'collection';
@@ -227,7 +252,7 @@ async function getRejections(eventId: string, userId: string): Promise<Map<strin
 
 // A generated/placed tile (kind + all kind-specific fields), before it's a DB row.
 type Placed = {
-	kind: 'item' | 'skill' | 'ca' | 'diary';
+	kind: 'item' | 'skill' | 'ca' | 'diary' | 'clue';
 	item_id: number | null;
 	item_name: string | null;
 	ehb: number;
@@ -238,6 +263,8 @@ type Placed = {
 	ca_tier: string | null;
 	diary_region?: string | null;
 	diary_tier?: string | null;
+	// Clue tiles: tier + how many NEW uniques + which names count (missing at generation).
+	clue?: { tier: string; target: number; candidates: string[] } | null;
 	// Item tiles only: how Dink drops match this tile. Omitted = 'collection' (clog
 	// unlock). The admin test board sets 'loot' so plain ground drops (bones) credit it.
 	match_type?: 'loot' | 'collection';
@@ -267,6 +294,13 @@ function tileToRow(eventId: string, p: Placed, idx: number) {
 		// Informational (nothing consumes it) — completion is the WikiSync re-poll,
 		// same as CA tiles.
 		triggers.push({ type: 'diary', match_key: diaryKey(p.diary_region ?? '', p.diary_tier ?? ''), required_qty: 1 });
+	} else if (p.kind === 'clue') {
+		meta.clue_tier = p.clue?.tier;
+		meta.clue_target = p.clue?.target;
+		meta.clue_candidates = p.clue?.candidates;
+		// Informational (pollers filter to their own types) — completion is the Temple
+		// clog re-poll counting NEW unlocks among the candidates.
+		triggers.push({ type: 'clue_group', match_key: p.clue?.tier ?? '', required_qty: p.clue?.target ?? 1 });
 	} else {
 		meta.ca_id = p.ca_id;
 		meta.ca_tier = p.ca_tier;
@@ -303,7 +337,7 @@ function rowToTile(
 	rejection?: string | null
 ): PersonalBoardTile {
 	const meta = (r.meta ?? {}) as Record<string, unknown>;
-	const kind = (r.kind as 'item' | 'skill' | 'ca' | 'diary') ?? 'item';
+	const kind = (r.kind as 'item' | 'skill' | 'ca' | 'diary' | 'clue') ?? 'item';
 	const num = (v: unknown): number | null => (v == null ? null : Number(v));
 	return {
 		idx: r.position ?? Number(r.tile_key),
@@ -320,6 +354,10 @@ function rowToTile(
 		ca_tier: (meta.ca_tier as string) ?? null,
 		diary_region: (meta.diary_region as string) ?? null,
 		diary_tier: (meta.diary_tier as string) ?? null,
+		clue_tier: (meta.clue_tier as string) ?? null,
+		clue_target: num(meta.clue_target),
+		clue_progress: num(meta.clue_progress),
+		clue_candidates: Array.isArray(meta.clue_candidates) ? (meta.clue_candidates as string[]) : null,
 		match_type: meta.match_type === 'loot' ? 'loot' : 'collection',
 		manual: comp?.source === 'manual',
 		proof_urls: comp?.proof_urls ?? null,
@@ -464,6 +502,8 @@ interface Candidate {
 	// (the drop must land again while the board is locked) — a new clog unlock can
 	// never fire for something you already have.
 	owned?: boolean;
+	// Grouped clue tile (synthetic candidate): becomes a kind 'clue' tile.
+	clue?: { tier: string; target: number; candidates: string[] };
 }
 
 // Board-eligible clog items, each costed in hours (boss items at their cheapest EHB
@@ -477,7 +517,9 @@ function missingCandidates(
 	includePets = true,
 	excludedIds?: Set<number>,
 	includeOwned = false,
-	includeClogItems = false
+	includeClogItems = false,
+	groupClues = false,
+	difficulty = 5
 ): Candidate[] {
 	const out: Candidate[] = [];
 	for (const item of ITEM_EHB) {
@@ -493,14 +535,43 @@ function missingCandidates(
 		// Non-boss pool: same gates; the admin item-pin override wins over Temple's EHC
 		// (matching bestEhbSource's semantics for boss items). Completion paths are
 		// identical — Temple clog poll by name, Dink COLLECTION by id/name.
+		// With groupClues, clue uniques leave the individual pool and collect per tier.
+		const clueByTier = new Map<string, { name: string; ehc: number }[]>();
 		for (const item of ITEM_EHC) {
 			const has = owned.has(item.name.toLowerCase());
+			const tier = groupClues ? clueTierOf(item.category) : null;
+			if (tier) {
+				// Grouped candidates must be MISSING (a new unlock can't fire for an owned
+				// slot, so includeOwned never applies here) and pass the same admin gate.
+				if (has || excludedIds?.has(item.id)) continue;
+				const ehc = overrides?.itemEhb[item.id] ?? item.ehc;
+				const list = clueByTier.get(tier) ?? [];
+				list.push({ name: item.name.toLowerCase(), ehc: Math.max(0, ehc) });
+				clueByTier.set(tier, list);
+				continue;
+			}
 			if (has && !includeOwned) continue;
 			if (!includePets && (item.pet || isPetItem(item.name) || EHC_PET_NAMES.has(item.name.toLowerCase()))) continue;
 			if (excludedIds?.has(item.id)) continue;
 			const ehb = overrides?.itemEhb[item.id] ?? item.ehc;
 			if (!(ehb > 0)) continue;
 			out.push({ item_id: item.id, item_name: item.name, ehb, source: item.category, owned: has });
+		}
+		// One synthetic candidate per tier that still has enough missing uniques. Cost =
+		// the sum of the N cheapest marginal hours (Temple's per-item hours are additive
+		// toward category completion), floored so the tile never reads as literally free.
+		const target = clueTarget(difficulty);
+		for (const [tier, items] of clueByTier) {
+			if (items.length < target) continue;
+			const cheapest = items.map((i) => i.ehc).sort((a, b) => a - b).slice(0, target);
+			const hours = Math.max(0.05, Math.round(cheapest.reduce((s, v) => s + v, 0) * 100) / 100);
+			out.push({
+				item_id: CLUE_GROUP_IDS[tier],
+				item_name: `${target} new ${clueTierLabel(tier)} clue uniques`,
+				ehb: hours,
+				source: `${clueTierLabel(tier)} clues`,
+				clue: { tier, target, candidates: items.map((i) => i.name) }
+			});
 		}
 	}
 	out.sort((a, b) => a.ehb - b.ehb);
@@ -693,6 +764,8 @@ export interface GenerateOptions {
 	includeOwned?: boolean;
 	// Widen the item pool beyond boss drops to the full clog (Temple EHC valued).
 	includeClogItems?: boolean;
+	// Group clue uniques into per-tier "gain N new uniques" tiles (needs includeClogItems).
+	groupClueItems?: boolean;
 	keepLineKey?: string | null;
 }
 
@@ -711,6 +784,7 @@ export async function generatePersonalBoard(
 		excludeMaxedSkills = false,
 		includeOwned = false,
 		includeClogItems = false,
+		groupClueItems = false,
 		keepLineKey = null
 	} = opts;
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
@@ -762,6 +836,9 @@ export async function generatePersonalBoard(
 					ca_tier: t.ca_tier,
 					diary_region: t.diary_region,
 					diary_tier: t.diary_tier,
+					...(t.kind === 'clue' && t.clue_tier && t.clue_target
+						? { clue: { tier: t.clue_tier, target: t.clue_target, candidates: t.clue_candidates ?? [] } }
+						: {}),
 					...(t.match_type === 'loot' ? { match_type: 'loot' as const } : {})
 				});
 			}
@@ -770,7 +847,10 @@ export async function generatePersonalBoard(
 	const keptTiles = [...kept.values()];
 	const keptSkillSet = new Set(keptTiles.filter((p) => p.kind === 'skill').map((p) => p.skill));
 	const keptCaIds = keptTiles.filter((p) => p.kind === 'ca').map((p) => p.ca_id as number);
-	const keptItemIds = new Set(keptTiles.filter((p) => p.kind === 'item').map((p) => p.item_id));
+	// Includes kept clue tiles' synthetic ids so a held tier can't be dealt twice.
+	const keptItemIds = new Set(
+		keptTiles.filter((p) => p.kind === 'item' || p.kind === 'clue').map((p) => p.item_id)
+	);
 	const keptDiaries = keptTiles.filter((p) => p.kind === 'diary');
 	const newCount = tileCount - kept.size;
 
@@ -829,16 +909,47 @@ export async function generatePersonalBoard(
 	if (keptSkillSet.size) allowedSkills = allowedSkills.filter((s) => !keptSkillSet.has(s));
 
 	const skills = selectSkillTiles(skillCount, diff, allowedSkills);
-	const itemCount = newCount - skills.length - caPicks.length - diaryPicks.length;
 
 	const owned = await getOwnedClogNames(userId, rsn);
 	if (owned == null) return { ok: false, reason: 'clog_unavailable' };
 
 	const overrides = await getEhbOverrides();
 	const excludedIds = await getExcludedItemIds();
-	const pool = missingCandidates(owned, overrides, includePets, excludedIds, includeOwned, includeClogItems).filter(
-		(c) => !keptItemIds.has(c.item_id)
+	const rawPool = missingCandidates(
+		owned,
+		overrides,
+		includePets,
+		excludedIds,
+		includeOwned,
+		includeClogItems,
+		groupClueItems,
+		diff
+	).filter((c) => !keptItemIds.has(c.item_id));
+
+	const floor = minTileEhb(diff);
+
+	// Grouped clue tiles get RESERVED slots (like the skill/CA/diary quotas): at most 6
+	// tier candidates would drown in a ~900-item lottery pool and effectively never roll.
+	// Eligible tiers respect the same difficulty floor as items and are capped at the
+	// pool's ~90th-percentile hours so an Elite-clue monster can't land on an easy board;
+	// the gradient then spreads the reserved picks across the eligible tiers.
+	const cluePool = rawPool.filter((c) => c.clue);
+	const pool = rawPool.filter((c) => !c.clue);
+	const keptClueCount = keptTiles.filter((p) => p.kind === 'clue').length;
+	const clueWanted = Math.max(
+		0,
+		(groupClueItems && includeClogItems ? Math.min(3, Math.max(1, Math.round(tileCount / 8))) : 0) -
+			keptClueCount
 	);
+	const clueCeiling = pool.length ? pool[Math.min(pool.length - 1, Math.floor(pool.length * 0.9))].ehb : Infinity;
+	const clueBanded = cluePool.filter((c) => c.ehb >= floor && c.ehb <= clueCeiling);
+	const clueBelowCeil = cluePool.filter((c) => c.ehb <= clueCeiling);
+	// Band-first fallback: in-band tiers, else anything under the ceiling, else the
+	// cheapest tiers that exist — the toggle should always yield a tile if ANY tier can.
+	const clueChoices = clueBanded.length ? clueBanded : clueBelowCeil.length ? clueBelowCeil : cluePool;
+	const cluePicks = selectGradient(clueChoices, Math.min(clueWanted, clueChoices.length), diff);
+
+	const itemCount = newCount - skills.length - caPicks.length - diaryPicks.length - cluePicks.length;
 	if (pool.length < itemCount) {
 		return { ok: false, reason: 'too_few', missing: pool.length, need: itemCount };
 	}
@@ -846,7 +957,6 @@ export async function generatePersonalBoard(
 	// Enforce the difficulty's per-item EHB floor (pool is sorted easy→hard). If the
 	// player's log can't fill the board above the floor, fall back to their hardest
 	// remaining items (2× the need, so the gradient keeps some spread) rather than fail.
-	const floor = minTileEhb(diff);
 	const floored = pool.filter((c) => c.ehb >= floor);
 	const itemsPool =
 		floored.length >= itemCount ? floored : pool.slice(-Math.min(pool.length, itemCount * 2));
@@ -857,6 +967,7 @@ export async function generatePersonalBoard(
 		// Owned picks are LOOT-matched (drop must land again, credited via Dink);
 		// missing picks stay collection-matched (clog unlock).
 		...items.map((c) => ({ kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null, ...(c.owned ? { match_type: 'loot' as const } : {}) })),
+		...cluePicks.map((c) => ({ kind: 'clue' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null, clue: c.clue })),
 		...skills.map((s) => ({ kind: 'skill' as const, item_id: null, item_name: null, ehb: s.ehb, source: null, skill: s.skill, target_xp: s.target_xp, ca_id: null, ca_tier: null })),
 		...caPicks.map((c) => ({ kind: 'ca' as const, item_id: null, item_name: c.name, ehb: c.ehb, source: c.monster, skill: null, target_xp: null, ca_id: c.ca_id, ca_tier: c.tier })),
 		...diaryPicks.map((d) => ({ kind: 'diary' as const, item_id: null, item_name: diaryLabel(d.region, d.tier), ehb: d.ehb, source: null, skill: null, target_xp: null, ca_id: null, ca_tier: null, diary_region: d.region, diary_tier: d.tier }))
@@ -1190,17 +1301,31 @@ export async function refreshPersonalBoard(userId: string): Promise<RefreshResul
 	const eventId = board.id;
 	const newlyObtained: string[] = [];
 
-	// Item tiles: re-poll the collection log. LOOT-matched tiles (already-owned items,
-	// test boards) are skipped — owning the clog slot is exactly what they don't prove;
-	// they only complete when the drop lands (Dink) or via manual submission.
+	// Item + grouped-clue tiles: re-poll the collection log. LOOT-matched tiles
+	// (already-owned items, test boards) are skipped — owning the clog slot is exactly
+	// what they don't prove; they only complete when the drop lands (Dink) or via
+	// manual submission.
 	const itemTiles = board.tiles.filter(
 		(t) => !t.obtained && t.kind === 'item' && t.item_name && t.match_type !== 'loot'
 	);
-	if (itemTiles.length) {
+	// Clue tiles count NEW unlocks among the candidate names that were missing at
+	// generation — owning any `clue_target` of them completes the tile.
+	const clueTiles = board.tiles.filter(
+		(t) => !t.obtained && t.kind === 'clue' && t.clue_target != null && t.clue_candidates?.length
+	);
+	if (itemTiles.length || clueTiles.length) {
 		const owned = await getOwnedClogNames(userId, board.rsn, true); // force a fresh Temple read
 		if (owned == null) return { ok: false, reason: 'clog_unavailable' };
 		for (const t of itemTiles) {
 			if (owned.has((t.item_name as string).toLowerCase())) {
+				const r = await creditTile(eventId, userId, String(t.idx), 'clog', { targetLabel: t.item_name ?? undefined });
+				if (r === 'credited') newlyObtained.push(t.item_name as string);
+			}
+		}
+		for (const t of clueTiles) {
+			const have = (t.clue_candidates as string[]).filter((n) => owned.has(n)).length;
+			if (have !== t.clue_progress) await updateTileMeta(eventId, String(t.idx), { clue_progress: have });
+			if (have >= (t.clue_target as number)) {
 				const r = await creditTile(eventId, userId, String(t.idx), 'clog', { targetLabel: t.item_name ?? undefined });
 				if (r === 'credited') newlyObtained.push(t.item_name as string);
 			}

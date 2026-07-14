@@ -126,9 +126,14 @@ and one `vs_active_tiles` accessor + a single "participant key" helper (`coalesc
   standard (see `src/lib/server/personalBoard.ts`). Public/admin event lists filter
   `owner_user_id is null` to keep personal boards out.
   - Personal tile kinds: `item` (clog/Dink), `skill` (WoM XP since lock), `ca` (WikiSync combat
-    achievements) and `diary` (WikiSync achievement-diary tiers, `meta.diary_region`/`diary_tier`,
-    catalogue in `src/lib/diary.ts` — at most one region per board). CA + diary state share one
-    WikiSync read (`getWikiSyncState`); only `item` tiles are Dink-trackable (`active_tiles.sql`).
+    achievements), `diary` (WikiSync achievement-diary tiers, `meta.diary_region`/`diary_tier`,
+    catalogue in `src/lib/diary.ts` — at most one region per board) and `clue` (grouped clue
+    tiles behind the "group clue items" sub-toggle: `meta.clue_tier`/`clue_target`/
+    `clue_candidates` — any `clue_target` NEW unlocks among the candidate names, which were
+    the player's missing tier uniques at generation; synthetic negative item ids per tier;
+    completion + `meta.clue_progress` come from the Temple clog re-poll, not Dink). CA + diary
+    state share one WikiSync read (`getWikiSyncState`); only `item` tiles are Dink-trackable
+    (`active_tiles.sql`).
   - Item pool: boss drops from `itemEhb.json` (curated EHB math, `build_item_ehb.mjs`) always;
     plus non-boss clog items from `itemEhc.json` (Temple per-item EHC, `build_item_ehc.mjs` —
     maintainer-run) behind the "Include non-PVM collection log items" toggle. Both pools share
