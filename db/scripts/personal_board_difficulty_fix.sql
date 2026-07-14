@@ -103,10 +103,10 @@ where e2.id = b.id
 -- adjust the member's points via the bot/admin tools; deleting the ledger row would
 -- make the line settle AGAIN at the corrected rate, so prefer a points adjustment.
 select e.structure->>'rsn' as rsn, s.target_id, s.quantity as vp_paid,
-       s.created_at, e.id as board_id
+       s.submitted_at, e.id as board_id
 from public.vs_submissions s
 join public.vs_events e on e.id = s.event_id
 where s.source = 'vp'
   and s.status = 'approved'
   and e.kind = 'personal'
-order by s.created_at desc;
+order by s.submitted_at desc;
