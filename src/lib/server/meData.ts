@@ -4,6 +4,7 @@ import { CLAN_OPTIONS } from '$lib/clans';
 import { ACCOUNT_TYPES } from '$lib/accountTypes';
 import { loadCardProfile } from './cardProfile';
 import { getPlayerRank } from './playerStats';
+import { rsnExactPattern } from './users';
 import { getRankConfig, type RankScoringConfig } from './rankConfig';
 import type { GearDetail, CADetail } from './rankData';
 import {
@@ -163,14 +164,24 @@ function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
 // Load a player's rank breakdown from their cached vs_rank_sim row, recomputed with
 // the live config. Null when they've never been fetched (no "Check my rank" and no
 // admin rank-sim refresh yet). Shared by /me's Rank tab and the public /u/[rsn] one.
+// Freshest-first with limit(1), NOT maybeSingle: two writers key this table (the
+// admin rank-sim uses the WOM canonical rsn, "Check my rank" the profile rsn), so a
+// case/underscore variant can leave two rows for one player — maybeSingle errors on
+// that and the tab silently shows nothing.
 export async function loadRankBreakdown(
 	rsn: string | null
 ): Promise<ReturnType<typeof buildRankBreakdown> | null> {
 	if (!rsn) return null;
-	const [config, { data: simRow }] = await Promise.all([
+	const [config, { data: simRows }] = await Promise.all([
 		getRankConfig(),
-		db().from('vs_rank_sim').select(SIM_ROW_COLUMNS).ilike('rsn', rsn).maybeSingle()
+		db()
+			.from('vs_rank_sim')
+			.select(SIM_ROW_COLUMNS)
+			.ilike('rsn', rsnExactPattern(rsn))
+			.order('fetched_at', { ascending: false })
+			.limit(1)
 	]);
+	const simRow = simRows?.[0];
 	return simRow ? buildRankBreakdown(simRow as RankSimRow, config) : null;
 }
 
