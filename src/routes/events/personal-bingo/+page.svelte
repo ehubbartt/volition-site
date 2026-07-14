@@ -398,8 +398,7 @@
 		<div class="panel lockbar">
 			<p class="muted small">
 				Happy with this board? <strong>Lock it in</strong> to start tracking — it'll be committed
-				for {data.lockDays} days. Like one row or column but not the rest? Click its
-				<strong>VP chip</strong> on the board's edge to hold that line, then reroll. Item tiles tick off from your collection log + Dink; skilling
+				for {data.lockDays} days. Item tiles tick off from your collection log + Dink; skilling
 				tiles count XP gained from now on. Progress you already had before locking doesn't count.
 				{#if data.vp && !data.vp.test}
 					Completed rows, columns and diagonals pay <strong>{data.vp.line} VP</strong> each, and
@@ -482,7 +481,7 @@
 				<div class="vpchip corner" class:done={lines.keys.has('d0')} style="grid-row: 1; grid-column: 1" title="Diagonal (top-left → bottom-right): {lv} VP">↘{lv}</div>
 				{#each Array.from({ length: board.size }) as _, c (c)}
 					{#if !locked}
-						<button type="button" class="vpchip keepable" class:keep={keepLine === `c${c}`} style="grid-row: 1; grid-column: {c + 2}" title="Column {c + 1}: {lv} VP — click to keep this column on reroll" onclick={() => toggleKeep(`c${c}`)}>{keepLine === `c${c}` ? '🔒' : ''}{lv}</button>
+						<button type="button" class="vpchip keepable" class:keep={keepLine === `c${c}`} style="grid-row: 1; grid-column: {c + 2}" title="Column {c + 1}: {lv} VP — click to keep this column on reroll" onclick={() => toggleKeep(`c${c}`)}>{keepLine === `c${c}` ? '🔒' : '🔓'}{lv}</button>
 					{:else}
 						<div class="vpchip" class:done={lines.keys.has(`c${c}`)} style="grid-row: 1; grid-column: {c + 2}" title="Column {c + 1}: {lv} VP">{lv}</div>
 					{/if}
@@ -490,7 +489,7 @@
 				<div class="vpchip corner" class:done={lines.keys.has('d1')} style="grid-row: 1; grid-column: {board.size + 2}" title="Diagonal (top-right → bottom-left): {lv} VP">↙{lv}</div>
 				{#each Array.from({ length: board.size }) as _, r (r)}
 					{#if !locked}
-						<button type="button" class="vpchip keepable" class:keep={keepLine === `r${r}`} style="grid-row: {r + 2}; grid-column: 1" title="Row {r + 1}: {lv} VP — click to keep this row on reroll" onclick={() => toggleKeep(`r${r}`)}>{keepLine === `r${r}` ? '🔒' : ''}{lv}</button>
+						<button type="button" class="vpchip keepable" class:keep={keepLine === `r${r}`} style="grid-row: {r + 2}; grid-column: 1" title="Row {r + 1}: {lv} VP — click to keep this row on reroll" onclick={() => toggleKeep(`r${r}`)}>{keepLine === `r${r}` ? '🔒' : '🔓'}{lv}</button>
 					{:else}
 						<div class="vpchip" class:done={lines.keys.has(`r${r}`)} style="grid-row: {r + 2}; grid-column: 1" title="Row {r + 1}: {lv} VP">{lv}</div>
 					{/if}
@@ -529,6 +528,12 @@
 				</div>
 			{/each}
 		</div>
+		{#if board && !locked && data.vp && !data.vp.test}
+			<p class="muted small keep-hint">
+				💡 <strong>Like a line?</strong> Click a row or column's 🔓 chip to lock it — rerolling
+				then replaces only the other tiles.
+			</p>
+		{/if}
 		<p class="muted small foot">
 				{#if SHOW_TILE_EHB}EHB/EHP = efficient hours to obtain a drop / train a skill.{/if}
 				{#if locked}
@@ -915,6 +920,9 @@
 		box-shadow:
 			inset 0 0 0 1.5px rgba(24, 42, 12, 0.6),
 			0 0 8px -2px var(--success);
+	}
+	.keep-hint {
+		margin: 0.5rem 0 0;
 	}
 	.linklike {
 		background: none;
