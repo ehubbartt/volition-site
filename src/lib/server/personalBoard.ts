@@ -78,7 +78,7 @@ const personalSlug = (userId: string) => `personal-${userId}`;
 // hard end pays disproportionately more — and with size (a 7×7 line is longer and a
 // 7×7 blackout far bigger than a 3×3). Tiles scale with difficulty only (bigger boards
 // already have more of them). Tune the formulas here.
-//   tile(diff)           = 0.5 + 0.25·diff (min 1)                 → 1 @d1, 2 @d5, 3 @d10
+//   tile(diff)           = 5 + 5·(diff−1)/9                        → 5 @d1, 7 @d5, 10 @d10
 //   line(size, diff)     = (5 + 1.7·diff + 0.2·diff²) × size/5    → 5×5: 7 @d1, 19 @d5, 42 @d10
 //   blackout(size, diff) = (22 + 8·diff + 1.4·diff²)  × size/5    → 5×5: 31 @d1, 97 @d5, 242 @d10
 export function personalVpAmounts(
@@ -88,7 +88,7 @@ export function personalVpAmounts(
 	const s = Math.max(1, size) / 5;
 	const d = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, difficulty));
 	return {
-		tile: Math.max(1, Math.round(0.5 + 0.25 * d)),
+		tile: Math.round(5 + (5 * (d - 1)) / 9),
 		line: Math.max(1, Math.round((5 + 1.7 * d + 0.2 * d * d) * s)),
 		blackout: Math.max(1, Math.round((22 + 8 * d + 1.4 * d * d) * s))
 	};
