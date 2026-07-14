@@ -21,6 +21,18 @@ export interface ItemEhb {
 	sources: EhbSource[];
 }
 
+// A NON-BOSS clog item valued by TempleOSRS's per-item EHC (efficient hours clogged) —
+// the itemEhc.json shape (see db/scripts/build_item_ehc.mjs). `ehc` is already hours,
+// so it slots straight into the same difficulty gradient as computed EHB. `category`
+// is Temple's activity/category name — it plays the `source` role on tiles.
+export interface ItemEhc {
+	id: number;
+	name: string;
+	ehc: number;
+	category: string;
+	pet?: boolean;
+}
+
 // Boss/raid/wildy pet drops in the clog universe (lowercased). Used to optionally exclude pet
 // tiles from personal boards ("Include pets" toggle). Kept as a data-driven allow-set so it's
 // easy to extend when a new boss pet is added to itemEhb.json.

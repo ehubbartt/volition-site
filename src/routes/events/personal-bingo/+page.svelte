@@ -43,6 +43,7 @@
 				skilling = p.board.tiles.some((t) => t.kind === 'skill');
 				ca = p.board.tiles.some((t) => t.kind === 'ca');
 				diaries = p.board.tiles.some((t) => t.kind === 'diary');
+				clogItems = p.includesClogItems;
 				includeOwned = p.board.tiles.some((t) => t.kind === 'item' && t.match_type === 'loot');
 			}
 		}
@@ -119,6 +120,7 @@
 	let skilling = $state(false); // re-seeded from the board when it arrives (onFresh)
 	let ca = $state(false);
 	let diaries = $state(false);
+	let clogItems = $state(false); // widen the pool beyond boss drops (Temple EHC valued)
 	let pets = $state(true); // pets are included by default; unchecking filters pet drops out
 	let skip99 = $state(false); // skilling sub-option: skip skills already at level 99
 	let includeOwned = $state(false); // allow already-owned clog items (as drop-again loot tiles)
@@ -331,6 +333,16 @@
 						<input type="checkbox" name="diaries" bind:checked={diaries} />
 						<span>Include achievement diaries</span>
 					</label>
+					<label class="toggle">
+						<input type="checkbox" name="clog_items" bind:checked={clogItems} />
+						<span>Include non-PVM collection log items</span>
+					</label>
+					{#if clogItems}
+						<p class="muted small">
+							Adds clues, minigames, skilling activities and other collection-log items to the
+							pool — not just boss drops.
+						</p>
+					{/if}
 					<label class="toggle">
 						<input type="checkbox" name="pets" bind:checked={pets} />
 						<span>Include pets</span>
@@ -565,9 +577,9 @@
 {#snippet tileInfo(t: Tile)}
 	{#if t.kind === 'item'}
 		<dl class="modal-dl">
-			<div><dt>Boss</dt><dd>{t.source ?? '—'}</dd></div>
+			<div><dt>Source</dt><dd>{t.source ?? '—'}</dd></div>
 			<div><dt>Drop rate</dt><dd>{data.dropRates[t.idx] ?? '—'}</dd></div>
-			<div><dt>EHB</dt><dd>{formatEhb(t.ehb)}</dd></div>
+			<div><dt>≈ Hours</dt><dd>{formatEhb(t.ehb)}</dd></div>
 		</dl>
 		<div class="modal-links">
 			{#if t.source}<a href={wikiPageUrl(t.source)} target="_blank" rel="noreferrer noopener">{t.source} wiki ↗</a>{/if}

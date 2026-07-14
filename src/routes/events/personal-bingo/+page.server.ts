@@ -55,6 +55,8 @@ export const actions: Actions = {
 		const skip99 = flag('skip99');
 		// Allow items already in the collection log (they become drop-again loot tiles).
 		const owned = flag('owned');
+		// Widen the item pool beyond boss drops to the full clog (Temple EHC valued).
+		const clogItems = flag('clog_items');
 		// Keep-line reroll: hold one row/column of the current draft (e.g. 'r2', 'c0').
 		const keepRaw = (form.get('keep') ?? '').toString();
 		const keep = /^[rc][0-9]+$/.test(keepRaw) ? keepRaw : null;
@@ -66,6 +68,7 @@ export const actions: Actions = {
 			includePets: pets,
 			excludeMaxedSkills: skip99,
 			includeOwned: owned,
+			includeClogItems: clogItems,
 			keepLineKey: keep
 		});
 
@@ -80,7 +83,7 @@ export const actions: Actions = {
 							: result.reason === 'diary_unavailable'
 								? "Couldn't read your achievement diaries from WikiSync. Make sure your RSN is synced in RuneLite's WikiSync plugin and try again, or turn off achievement diaries."
 								: result.reason === 'too_few'
-									? `You're only missing ${result.missing} eligible PVM clog items — not enough to fill this board (needs ${result.need}). Nice log! Try a smaller grid${skilling && ca && pets ? '' : ', or enable more options (skilling, combat achievements, diaries, pets)'}.`
+									? `You're only missing ${result.missing} eligible clog items — not enough to fill this board (needs ${result.need}). Nice log! Try a smaller grid${skilling && ca && pets && clogItems ? '' : ', or enable more options (skilling, combat achievements, diaries, pets, the full collection log)'}.`
 									: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
 			const status =
 				result.reason === 'too_few' ? 400 : result.reason === 'locked' ? 403 : 502;

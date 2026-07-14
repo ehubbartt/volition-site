@@ -18,7 +18,7 @@
 
 import { db } from './db';
 import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer, fetchWikiSyncPlayer } from './rankData';
-import { bestEhbSource, isPetItem, type ItemEhb, type EhbOverrides } from '$lib/ehb';
+import { bestEhbSource, isPetItem, type ItemEhb, type ItemEhc, type EhbOverrides } from '$lib/ehb';
 import { getEhbOverrides, getExcludedItemIds } from './ehbOverrides';
 import { uploadProof } from './submissions';
 import { grantPlayerVp } from './playerStats';
@@ -28,8 +28,15 @@ import { CA_TIERS, caTierForDifficulty } from '$lib/ca';
 import { getCATasks, type CaTask } from './caNames';
 import { DIARY_REGIONS, DIARY_TIERS, diaryKey, diaryLabel, diaryHours, diaryTierForDifficulty } from '$lib/diary';
 import itemEhbData from './data/itemEhb.json';
+import itemEhcData from './data/itemEhc.json';
 
 const ITEM_EHB = itemEhbData as ItemEhb[];
+// Non-boss clog items (Temple EHC) — the "include full collection log" pool. Empty
+// until the maintainer runs db/scripts/build_item_ehc.mjs (the toggle is then a no-op).
+const ITEM_EHC = (itemEhcData as ItemEhc[]).filter((i) => !ITEM_EHB.some((b) => b.id === i.id));
+// Pets in the EHC pool are flagged by Temple's category at build time — no manual
+// PET_ITEM_NAMES upkeep for non-boss (skilling/minigame) pets.
+const EHC_PET_NAMES = new Set(ITEM_EHC.filter((i) => i.pet).map((i) => i.name.toLowerCase()));
 
 export const MIN_SIZE = 3;
 export const MAX_SIZE = 5;
@@ -437,16 +444,18 @@ interface Candidate {
 	owned?: boolean;
 }
 
-// Board-eligible PVM clog items, each costed at its cheapest EHB source (with admin
-// overrides applied), sorted easy→hard. Items the player already OWNS are skipped
-// unless includeOwned — then they stay in the pool, flagged. Pet drops excluded
-// unless includePets.
+// Board-eligible clog items, each costed in hours (boss items at their cheapest EHB
+// source, non-boss items at Temple's EHC when includeClogItems), with admin overrides
+// applied, sorted easy→hard. Items the player already OWNS are skipped unless
+// includeOwned — then they stay in the pool, flagged. Pet drops excluded unless
+// includePets.
 function missingCandidates(
 	owned: Set<string>,
 	overrides?: EhbOverrides,
 	includePets = true,
 	excludedIds?: Set<number>,
-	includeOwned = false
+	includeOwned = false,
+	includeClogItems = false
 ): Candidate[] {
 	const out: Candidate[] = [];
 	for (const item of ITEM_EHB) {
@@ -457,6 +466,20 @@ function missingCandidates(
 		const best = bestEhbSource(item, undefined, overrides);
 		if (!best) continue; // no computable EHB source
 		out.push({ item_id: item.id, item_name: item.name, ehb: best.ehb, source: best.src.s, owned: has });
+	}
+	if (includeClogItems) {
+		// Non-boss pool: same gates; the admin item-pin override wins over Temple's EHC
+		// (matching bestEhbSource's semantics for boss items). Completion paths are
+		// identical — Temple clog poll by name, Dink COLLECTION by id/name.
+		for (const item of ITEM_EHC) {
+			const has = owned.has(item.name.toLowerCase());
+			if (has && !includeOwned) continue;
+			if (!includePets && (item.pet || isPetItem(item.name) || EHC_PET_NAMES.has(item.name.toLowerCase()))) continue;
+			if (excludedIds?.has(item.id)) continue;
+			const ehb = overrides?.itemEhb[item.id] ?? item.ehc;
+			if (!(ehb > 0)) continue;
+			out.push({ item_id: item.id, item_name: item.name, ehb, source: item.category, owned: has });
+		}
 	}
 	out.sort((a, b) => a.ehb - b.ehb);
 	return out;
@@ -645,6 +668,8 @@ export interface GenerateOptions {
 	includePets?: boolean;
 	excludeMaxedSkills?: boolean;
 	includeOwned?: boolean;
+	// Widen the item pool beyond boss drops to the full clog (Temple EHC valued).
+	includeClogItems?: boolean;
 	keepLineKey?: string | null;
 }
 
@@ -662,6 +687,7 @@ export async function generatePersonalBoard(
 		includePets = true,
 		excludeMaxedSkills = false,
 		includeOwned = false,
+		includeClogItems = false,
 		keepLineKey = null
 	} = opts;
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
@@ -787,7 +813,7 @@ export async function generatePersonalBoard(
 
 	const overrides = await getEhbOverrides();
 	const excludedIds = await getExcludedItemIds();
-	const pool = missingCandidates(owned, overrides, includePets, excludedIds, includeOwned).filter(
+	const pool = missingCandidates(owned, overrides, includePets, excludedIds, includeOwned, includeClogItems).filter(
 		(c) => !keptItemIds.has(c.item_id)
 	);
 	if (pool.length < itemCount) {

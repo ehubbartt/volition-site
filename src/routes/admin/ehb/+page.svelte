@@ -88,6 +88,13 @@
 		if (q.length < 2) return [];
 		return data.items.filter((i) => i.name.toLowerCase().includes(q)).slice(0, 40);
 	});
+	// Non-boss (Temple EHC) items match the same search; they have no per-source math,
+	// so they list with category + Temple EHC and the same pin/exclude controls.
+	const ehcLookup = $derived.by(() => {
+		const q = query.trim().toLowerCase();
+		if (q.length < 2) return [];
+		return data.ehcItems.filter((i) => i.name.toLowerCase().includes(q)).slice(0, 40);
+	});
 
 	// ── EHB target filter ──────────────────────────────────────────────────────
 	let target = $state(20);
@@ -267,9 +274,9 @@
 			<h2>Item lookup</h2>
 			<input type="text" placeholder="Search item name…" bind:value={query} />
 			{#if query.trim().length >= 2}
-				{#if lookup.length === 0}
+				{#if lookup.length === 0 && ehcLookup.length === 0}
 					<p class="muted small">No EHB-trackable item matches “{query}”.</p>
-				{:else}
+				{:else if lookup.length}
 					<table>
 						<thead><tr><th>Item</th><th>Source</th><th>Drop rate</th><th>EHB</th><th>Override</th></tr></thead>
 						<tbody>
@@ -307,6 +314,43 @@
 										</td>
 									</tr>
 								{/each}
+							{/each}
+						</tbody>
+					</table>
+				{/if}
+				{#if ehcLookup.length}
+					<h3>Non-PVM collection log <span class="muted small">(Temple EHC)</span></h3>
+					<table>
+						<thead><tr><th>Item</th><th>Category</th><th>EHC</th><th>Override</th></tr></thead>
+						<tbody>
+							{#each ehcLookup as i (i.id)}
+								{@const ov = overrides.itemEhb[i.id]}
+								<tr class:ov-row={ov != null}>
+									<td>{i.name}</td>
+									<td>{i.category}</td>
+									<td class="ehb">{fmt(i.ehc)}{#if ov != null} <span class="muted small">→ {fmt(ov)}</span>{/if}</td>
+									<td>
+										<div class="ov-actions">
+											{#if excludedIds.has(i.id)}
+												<span class="excluded-tag">excluded</span>
+												<form method="POST" action="?/unexcludeItem" use:enhance class="ov-inline">
+													<input type="hidden" name="item_id" value={i.id} />
+													<button type="submit" class="link-btn">restore</button>
+												</form>
+											{:else}
+												<form method="POST" action="?/saveItemOverride" use:enhance class="ov-inline">
+													<input type="hidden" name="item_id" value={i.id} />
+													<input type="number" min="0" step="0.5" name="ehb_hours" placeholder="h" value={ov ?? ''} />
+													<button type="submit" class="link-btn">set</button>
+												</form>
+												<form method="POST" action="?/excludeItem" use:enhance class="ov-inline">
+													<input type="hidden" name="item_id" value={i.id} />
+													<button type="submit" class="link-btn">exclude</button>
+												</form>
+											{/if}
+										</div>
+									</td>
+								</tr>
 							{/each}
 						</tbody>
 					</table>
