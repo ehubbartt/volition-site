@@ -32,7 +32,7 @@ export const PET_ITEM_NAMES: ReadonlySet<string> = new Set([
 	"pet k'ril tsutsaroth", 'pet kraken', "pet kree'arra", 'pet smoke devil', 'pet snakeling',
 	'pet zilyana', 'prince black dragon', "scorpia's offspring", 'scurry', 'skotos', 'smol heredit',
 	'sraracha', 'tangleroot', 'tzrek-jad', 'venenatis spiderling', "vet'ion jr.", 'vorki', 'wisp',
-	'youngllef', 'abyssal orphan', "lil' zik", "tumeken's guardian"
+	'youngllef', 'abyssal orphan', "lil' zik", "tumeken's guardian", 'gull', 'yami'
 ]);
 
 export const isPetItem = (name: string): boolean =>
