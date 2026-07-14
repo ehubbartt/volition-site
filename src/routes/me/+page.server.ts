@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isValidClan } from '$lib/clans';
 import { isValidAccountType } from '$lib/accountTypes';
-import { isRsnTaken } from '$lib/server/users';
+import { isRsnTaken, rsnExactPattern } from '$lib/server/users';
 import { setPlayerRank } from '$lib/server/playerStats';
 import { getRankConfig } from '$lib/server/rankConfig';
 import { fetchPlayerRankInputs } from '$lib/server/rankData';
@@ -71,15 +71,23 @@ export const actions: Actions = {
 			// Cache the freshly-fetched inputs + piece-level detail in vs_rank_sim (same
 			// shape the admin rank-sim writes). The page load re-runs after this action and
 			// rebuilds the Rank tab breakdown from this row — one rendering path.
+			//
+			// The upsert's onConflict key (rsn) is CASE-SENSITIVE, but the admin rank-sim
+			// keys rows by the WOM canonical rsn while this action uses the profile rsn.
+			// Reuse the exact key of any case/underscore-variant row that already exists,
+			// so a member whose profile spelling differs from WOM updates that row instead
+			// of minting a duplicate (loadRankBreakdown reads the table case-insensitively).
+			const { data: existingRows } = await db()
+				.from('vs_rank_sim')
+				.select('rsn')
+				.ilike('rsn', rsnExactPattern(rsn))
+				.order('fetched_at', { ascending: false })
+				.limit(1);
 			const { error: cacheErr } = await db()
 				.from('vs_rank_sim')
 				.upsert(
 					{
-						// Key the row by the member's PROFILE rsn — the exact value buildMeData
-						// reads back (.ilike('rsn', user.rsn)). inputs.rsn is the WiseOldMan
-						// canonical name, which differs after a rename/alt spelling, so keying
-						// on it wrote a row the page could never find.
-						rsn,
+						rsn: existingRows?.[0]?.rsn ?? rsn,
 						wom_id: inputs.womId,
 						ehb: inputs.ehb,
 						total_level: inputs.totalLevel,
