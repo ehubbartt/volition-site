@@ -68,12 +68,13 @@ export function formatXp(xp: number): string {
 
 // Target efficient-hours for a skill tile, by the difficulty dial (1–10) and the tile's band
 // (so a board still runs easy→hard), with a little jitter for variety. The XP goal is then
-// hours × the skill's EHP rate, rounded. The FLOOR fraction rises with difficulty (12% → 48%
-// of the ceiling) so hard boards can't roll trivial XP goals — mirrors the item-tile EHB floor:
-//   easiest skill tile ≈ 0.16h @d1, ≈ 1.3h @d5, ≈ 4.3h @d10 (ceiling 1.35h / 4.75h / 9h).
+// hours × the skill's EHP rate, rounded. Both ends scale hard with difficulty (quadratic
+// ceiling; the floor fraction rises 12% → 48% of it) so hard boards can't roll trivial XP
+// goals — mirrors the item-tile EHB floor:
+//   d1:  ≈ 0.14h  → ≈ 1.2h      d5: ≈ 2.2h → ≈ 8h      d10: ≈ 12.2h → ≈ 25.5h
 export function skillTileHours(difficulty: number, band: number, bands: number): number {
 	const d = Math.min(10, Math.max(1, difficulty));
-	const hi = 0.5 + d * 0.85; // ceiling EHP-hours at this difficulty (d=1 ≈ 1.35h, d=10 ≈ 9h)
+	const hi = 0.5 + 0.5 * d + 0.2 * d * d; // ceiling EHP-hours (d1 ≈ 1.2h, d5 ≈ 8h, d10 ≈ 25.5h)
 	const lo = hi * (0.12 + 0.04 * (d - 1)); // easiest tile on the board, difficulty-scaled
 	const t = bands <= 1 ? 0.5 : band / (bands - 1);
 	const base = lo + (hi - lo) * t;
