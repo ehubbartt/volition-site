@@ -70,8 +70,11 @@ bugs that used to recur per feature):
   pixel-identical: `ProfileBanner` (stone/gold identity header + VP counter),
   `ProfileTabs` (underline tab strip with count chips), `ProfilePanel` (tab-body wrapper
   with the standard padding + fade-in), `RankPanel` (rank badge + composite, next-rank
-  progress, weighted component breakdown, gear/CA detail — read-only; /me injects its
-  "Check my rank" form via the `actions`/`status` snippets), `CollectionPanel` (packs +
+  progress, weighted component breakdown with a ⓘ data-source/scoring explainer per
+  component, gear/CA detail — read-only; /me injects its "Check my rank" form via the
+  `actions`/`status` snippets and passes `showSetupTips` so zero-score components tell
+  the owner what to set up: Temple for gear/clog, WOM for EHB/time/level, WikiSync for
+  CAs), `CollectionPanel` (packs +
   card grid incl. locked/mystery slots), `StatsPanel` (VP/cards/packs/crates/wallet
   mini-stats), and `EmptyState`. If a profile section needs a style change, change the
   component — don't re-style it per page.
