@@ -22,8 +22,24 @@
 		url: false,
 		import: false
 	});
-	const doneCount = $derived(STEP_IDS.filter((id) => steps[id]).length);
-	const setupComplete = $derived(doneCount === STEP_IDS.length);
+
+	// ── Multi-server mode ─────────────────────────────────────────────────────
+	// Members whose Dink also posts to OTHER Discord servers get a different config
+	// from the proxy: instead of a 1 gp loot threshold (which fires their other
+	// webhooks on every drop), it whitelists exactly their active tracked items.
+	// Trade-off: the whitelist only refreshes when Dink reloads the config, so they
+	// must toggle the plugin off/on whenever their board or event tiles change.
+	let multi = $state(false);
+	let savingMulti = $state(false);
+	let multiForm = $state<HTMLFormElement>();
+	$effect(() => {
+		multi = data.multiServer;
+	});
+	// The 'reset' step only applies to the standard flow — multi-server members keep
+	// their own settings.
+	const activeStepIds = $derived(STEP_IDS.filter((id) => !(multi && id === 'reset')));
+	const doneCount = $derived(activeStepIds.filter((id) => steps[id]).length);
+	const setupComplete = $derived(doneCount === activeStepIds.length);
 
 	function saveSteps() {
 		try {
@@ -152,8 +168,49 @@
 	<div class="card">
 		<div class="setup-head">
 			<h3>1 · Set up Dink</h3>
-			<span class="muted small">{doneCount}/{STEP_IDS.length} steps done</span>
+			<span class="muted small">{doneCount}/{activeStepIds.length} steps done</span>
 		</div>
+
+		<form
+			class="multi-toggle"
+			method="POST"
+			action="?/setMultiServer"
+			bind:this={multiForm}
+			use:enhance={() => {
+				savingMulti = true;
+				return async ({ update }) => {
+					await update({ reset: false });
+					savingMulti = false;
+				};
+			}}
+		>
+			<input type="hidden" name="multi" value={multi ? 'false' : 'true'} />
+			<label>
+				<input
+					type="checkbox"
+					checked={multi}
+					disabled={savingMulti}
+					onchange={() => multiForm?.requestSubmit()}
+				/>
+				<span>I use Dink with <strong>multiple Discord servers</strong></span>
+			</label>
+			{#if multi}
+				<div class="multi-note">
+					<p>
+						You'll get a different config: your own webhooks and settings stay, and instead of
+						dropping your loot threshold to 1 gp (which would spam your other servers with every
+						drop), it <strong>whitelists exactly the items on your active boards and events</strong>.
+						Everything else keeps respecting your normal threshold.
+					</p>
+					<p>
+						<strong>The one rule:</strong> whenever you get a <strong>new board or new tiles</strong>
+						(a fresh personal bingo, joining an event), toggle the Dink plugin off and back on so it
+						loads the updated whitelist — new tiles won't track until you do. And when a whitelisted
+						item drops, your other servers will see that one notification too.
+					</p>
+				</div>
+			{/if}
+		</form>
 
 		{#if setupComplete}
 			<p class="ok-note">
@@ -170,6 +227,10 @@
 				<code>::dinkexport</code> in the game chat — Dink copies your full current settings —
 				and paste that somewhere safe. You can restore it any time, so guests joining us for
 				an event can go right back to their own setup afterwards.
+				{#if !multi}
+					And if those settings feed <strong>other Discord servers</strong>, tick the
+					multi-server box above before you continue.
+				{/if}
 			</p>
 
 			<ol class="steps">
@@ -185,18 +246,20 @@
 					{/if}
 				</li>
 
-				<li class="step" class:done={steps.reset}>
-					<label class="step-head">
-						<input type="checkbox" checked={steps.reset} onchange={(e) => setStep('reset', e.currentTarget.checked)} />
-						<span class="step-title">Reset Dink's settings</span>
-					</label>
-					{#if !steps.reset}
-						<div class="step-body">
-							<p class="muted small">A clean slate means no old values linger under our config:</p>
-							<img class="guide-img" src="/dink-guide/reset.png" alt="Resetting the Dink plugin settings in RuneLite" loading="lazy" />
-						</div>
-					{/if}
-				</li>
+				{#if !multi}
+					<li class="step" class:done={steps.reset}>
+						<label class="step-head">
+							<input type="checkbox" checked={steps.reset} onchange={(e) => setStep('reset', e.currentTarget.checked)} />
+							<span class="step-title">Reset Dink's settings</span>
+						</label>
+						{#if !steps.reset}
+							<div class="step-body">
+								<p class="muted small">A clean slate means no old values linger under our config:</p>
+								<img class="guide-img" src="/dink-guide/reset.png" alt="Resetting the Dink plugin settings in RuneLite" loading="lazy" />
+							</div>
+						{/if}
+					</li>
+				{/if}
 
 				<li class="step" class:done={steps.overwrite}>
 					<label class="step-head">
@@ -245,6 +308,12 @@
 								test items — is loaded:
 							</p>
 							<img class="guide-img" src="/dink-guide/config-imported.png" alt="Dink chat message: Success: Updated config settings from import" loading="lazy" />
+							{#if multi}
+								<p class="warn small">
+									Multi-server config: make this toggle a habit — repeat it whenever you get a new
+									board or new event tiles, so the updated item whitelist loads.
+								</p>
+							{/if}
 						</div>
 					{/if}
 				</li>
@@ -301,8 +370,14 @@
 		</div>
 
 		<p class="muted small event-note">
-			That's it — you never need to touch Dink again. Event items are matched on our side, so
-			when you join an event your drops start counting automatically.
+			{#if multi}
+				Almost hands-off: drops are matched on our side, but you're on the
+				<strong>multi-server config</strong> — toggle the Dink plugin off and on whenever you get a
+				new board or new event tiles, so your item whitelist stays current.
+			{:else}
+				That's it — you never need to touch Dink again. Event items are matched on our side, so
+				when you join an event your drops start counting automatically.
+			{/if}
 		</p>
 
 		<div class="card">
@@ -351,6 +426,20 @@
 
 	/* ── setup wizard ── */
 	.setup-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.8rem; }
+	.multi-toggle {
+		margin: 0.2rem 0 0.9rem; padding: 0.6rem 0.8rem;
+		background: var(--surface-alt); border: 1px solid var(--border);
+		border-radius: var(--radius); font-size: 0.92rem;
+	}
+	.multi-toggle label { display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; }
+	.multi-toggle input[type='checkbox'] {
+		width: 1.1rem; height: 1.1rem; margin-top: 0.15rem; min-height: 0;
+		accent-color: var(--accent); flex-shrink: 0; cursor: pointer;
+	}
+	.multi-note { margin: 0.6rem 0 0.1rem 1.7rem; font-size: 0.88rem; color: var(--muted); }
+	.multi-note p { margin: 0 0 0.45rem; }
+	.multi-note p:last-child { margin-bottom: 0; }
+	.multi-note strong { color: var(--text); }
 	.backup-note {
 		margin: 0.2rem 0 0.9rem; padding: 0.6rem 0.8rem; font-size: 0.9rem;
 		background: var(--accent-soft); border: 1px solid var(--accent);
