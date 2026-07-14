@@ -20,7 +20,7 @@ secret ever touches this chat or the repo**:
 2. **Fly dashboard → Account → Access Tokens** → create a token.
 3. **GitHub → repo Settings → Secrets and variables → Actions** → add a secret named
    **`FLY_API_TOKEN`** with that token.
-4. Trigger a deploy: push to `voli-site-2.0-refactor`, or use the workflow's **Run
+4. Trigger a deploy: merge/push to `staging` (the long-lived pre-prod branch), or use the workflow's **Run
    workflow** button (Actions tab). The first auto-run before step 3 will fail with a
    clear "FLY_API_TOKEN not set" message — just add the secret and re-run.
 5. Still required (also phone-doable): add the Discord redirect URI (below) and apply the

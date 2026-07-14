@@ -8,13 +8,14 @@
 #   2. Fly dashboard → Account → Access Tokens → create a token.
 #   3. GitHub → repo Settings → Secrets and variables → Actions → add secret
 #      FLY_API_TOKEN with that token.
-# Then: push to voli-site-2.0-refactor, or use the "Run workflow" button, to deploy.
+# Then: push (or merge feature branches) to `staging`, or use the "Run workflow"
+# button on any branch, to deploy.
 name: Deploy staging (Fly)
 
 on:
   workflow_dispatch:
   push:
-    branches: [voli-site-2.0-refactor]
+    branches: [staging]
 
 concurrency:
   group: deploy-staging
