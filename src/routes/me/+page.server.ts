@@ -4,7 +4,8 @@ import { db } from '$lib/server/db';
 import { isValidClan } from '$lib/clans';
 import { isValidAccountType } from '$lib/accountTypes';
 import { isRsnTaken, rsnExactPattern } from '$lib/server/users';
-import { setPlayerRank } from '$lib/server/playerStats';
+import { setPlayerRank, getPlayerRank } from '$lib/server/playerStats';
+import { rankIndex } from '$lib/ranks';
 import { getRankConfig } from '$lib/server/rankConfig';
 import { fetchPlayerRankInputs } from '$lib/server/rankData';
 import { scorePlayer } from '$lib/server/rankScoring';
@@ -128,10 +129,16 @@ export const actions: Actions = {
 
 			// Mirror the computed rank to the clan player record (the bot syncs it to
 			// Discord). A missing player record isn't fatal — the breakdown still renders.
+			// The pre-write rank feeds the rank-up celebration: only a genuine climb that
+			// was actually SAVED celebrates (rankIndex compares positions in RANK_ORDER).
+			const prevRank = await getPlayerRank(locals.user.discord_id, rsn);
 			const write = await setPlayerRank(locals.user.discord_id, rsn, rank);
+			const rankedUp =
+				write.ok && prevRank != null && rankIndex(rank) > rankIndex(prevRank);
 			return {
 				rankOk: true,
 				rankSaved: write.ok,
+				rankUp: rankedUp ? { from: prevRank, to: rank } : null,
 				rankNote: write.ok
 					? null
 					: write.reason === 'no_player'

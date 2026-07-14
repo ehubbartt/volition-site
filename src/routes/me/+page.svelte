@@ -12,6 +12,7 @@
 	import Skeleton from '$lib/Skeleton.svelte';
 	import ProfileBanner from '$lib/profile/ProfileBanner.svelte';
 	import RankPanel from '$lib/profile/RankPanel.svelte';
+	import RankUpCelebration from '$lib/RankUpCelebration.svelte';
 	import ProfileTabs from '$lib/profile/ProfileTabs.svelte';
 	import ProfilePanel from '$lib/profile/ProfilePanel.svelte';
 	import CollectionPanel from '$lib/profile/CollectionPanel.svelte';
@@ -85,6 +86,13 @@
 	// After the action, the page load re-runs and data.rankBreakdown re-renders below.
 	let checkingRank = $state(false);
 	let rank = $derived(data.rankBreakdown);
+
+	// Rank-up celebration: the checkRank action reports a saved climb as form.rankUp
+	// — mirror it into state so dismissing sticks even though `form` doesn't change.
+	let rankUp = $state<{ from: string; to: string } | null>(null);
+	$effect(() => {
+		if (form && 'rankUp' in form && form.rankUp) rankUp = form.rankUp;
+	});
 
 	// Site theme picker: flip <html data-theme> instantly for live feedback, then
 	// submit to ?/saveTheme so the vs_theme cookie makes it stick across visits
@@ -261,6 +269,20 @@
 					{/if}
 				{/snippet}
 			</RankPanel>
+			<!-- TEMPORARY (admins only): preview the rank-up celebration without waiting for
+			     a real rank change. Remove once the animation is signed off. -->
+			{#if pageData.isAdmin}
+				<button
+					type="button"
+					class="ghost preview-rankup"
+					onclick={() => (rankUp = {
+						from: data.currentRank ?? rank?.rank ?? 'adamant',
+						to: rank?.nextRank ?? 'mithril'
+					})}
+				>
+					Preview rank-up animation
+				</button>
+			{/if}
 		</ProfilePanel>
 	{:else if tab === 'collection'}
 		<ProfilePanel>
@@ -359,6 +381,10 @@
 
 {#if viewing}
 	<CardInspector3D card={viewing} onClose={() => (viewing = null)} />
+{/if}
+
+{#if rankUp}
+	<RankUpCelebration from={rankUp.from} to={rankUp.to} onclose={() => (rankUp = null)} />
 {/if}
 
 <style>
@@ -598,6 +624,11 @@
 		text-align: right;
 	}
 
+	/* TEMPORARY: admin-only rank-up animation preview button. */
+	.preview-rankup {
+		margin-top: 1rem;
+		font-size: 0.82rem;
+	}
 	/* .check-btn uses the base OSRS bronze button styling from app.css. */
 	.rank-error {
 		margin: 0 0 0.85rem;
