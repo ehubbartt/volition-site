@@ -909,14 +909,13 @@ export async function generatePersonalBoard(
 	if (keptSkillSet.size) allowedSkills = allowedSkills.filter((s) => !keptSkillSet.has(s));
 
 	const skills = selectSkillTiles(skillCount, diff, allowedSkills);
-	const itemCount = newCount - skills.length - caPicks.length - diaryPicks.length;
 
 	const owned = await getOwnedClogNames(userId, rsn);
 	if (owned == null) return { ok: false, reason: 'clog_unavailable' };
 
 	const overrides = await getEhbOverrides();
 	const excludedIds = await getExcludedItemIds();
-	const pool = missingCandidates(
+	const rawPool = missingCandidates(
 		owned,
 		overrides,
 		includePets,
@@ -926,6 +925,31 @@ export async function generatePersonalBoard(
 		groupClueItems,
 		diff
 	).filter((c) => !keptItemIds.has(c.item_id));
+
+	const floor = minTileEhb(diff);
+
+	// Grouped clue tiles get RESERVED slots (like the skill/CA/diary quotas): at most 6
+	// tier candidates would drown in a ~900-item lottery pool and effectively never roll.
+	// Eligible tiers respect the same difficulty floor as items and are capped at the
+	// pool's ~90th-percentile hours so an Elite-clue monster can't land on an easy board;
+	// the gradient then spreads the reserved picks across the eligible tiers.
+	const cluePool = rawPool.filter((c) => c.clue);
+	const pool = rawPool.filter((c) => !c.clue);
+	const keptClueCount = keptTiles.filter((p) => p.kind === 'clue').length;
+	const clueWanted = Math.max(
+		0,
+		(groupClueItems && includeClogItems ? Math.min(3, Math.max(1, Math.round(tileCount / 8))) : 0) -
+			keptClueCount
+	);
+	const clueCeiling = pool.length ? pool[Math.min(pool.length - 1, Math.floor(pool.length * 0.9))].ehb : Infinity;
+	const clueBanded = cluePool.filter((c) => c.ehb >= floor && c.ehb <= clueCeiling);
+	const clueBelowCeil = cluePool.filter((c) => c.ehb <= clueCeiling);
+	// Band-first fallback: in-band tiers, else anything under the ceiling, else the
+	// cheapest tiers that exist — the toggle should always yield a tile if ANY tier can.
+	const clueChoices = clueBanded.length ? clueBanded : clueBelowCeil.length ? clueBelowCeil : cluePool;
+	const cluePicks = selectGradient(clueChoices, Math.min(clueWanted, clueChoices.length), diff);
+
+	const itemCount = newCount - skills.length - caPicks.length - diaryPicks.length - cluePicks.length;
 	if (pool.length < itemCount) {
 		return { ok: false, reason: 'too_few', missing: pool.length, need: itemCount };
 	}
@@ -933,7 +957,6 @@ export async function generatePersonalBoard(
 	// Enforce the difficulty's per-item EHB floor (pool is sorted easy→hard). If the
 	// player's log can't fill the board above the floor, fall back to their hardest
 	// remaining items (2× the need, so the gradient keeps some spread) rather than fail.
-	const floor = minTileEhb(diff);
 	const floored = pool.filter((c) => c.ehb >= floor);
 	const itemsPool =
 		floored.length >= itemCount ? floored : pool.slice(-Math.min(pool.length, itemCount * 2));
@@ -942,13 +965,9 @@ export async function generatePersonalBoard(
 
 	const fresh: Placed[] = [
 		// Owned picks are LOOT-matched (drop must land again, credited via Dink);
-		// missing picks stay collection-matched (clog unlock). Grouped clue candidates
-		// become kind 'clue' tiles.
-		...items.map((c) =>
-			c.clue
-				? { kind: 'clue' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null, clue: c.clue }
-				: { kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null, ...(c.owned ? { match_type: 'loot' as const } : {}) }
-		),
+		// missing picks stay collection-matched (clog unlock).
+		...items.map((c) => ({ kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null, ...(c.owned ? { match_type: 'loot' as const } : {}) })),
+		...cluePicks.map((c) => ({ kind: 'clue' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null, clue: c.clue })),
 		...skills.map((s) => ({ kind: 'skill' as const, item_id: null, item_name: null, ehb: s.ehb, source: null, skill: s.skill, target_xp: s.target_xp, ca_id: null, ca_tier: null })),
 		...caPicks.map((c) => ({ kind: 'ca' as const, item_id: null, item_name: c.name, ehb: c.ehb, source: c.monster, skill: null, target_xp: null, ca_id: c.ca_id, ca_tier: c.tier })),
 		...diaryPicks.map((d) => ({ kind: 'diary' as const, item_id: null, item_name: diaryLabel(d.region, d.tier), ehb: d.ehb, source: null, skill: null, target_xp: null, ca_id: null, ca_tier: null, diary_region: d.region, diary_tier: d.tier }))
