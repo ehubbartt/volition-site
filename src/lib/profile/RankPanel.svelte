@@ -133,7 +133,16 @@
 			{#each rank.components as c (c.key)}
 				<div class="comp">
 					<div class="comp-top">
-						<span class="comp-label">{c.label}</span>
+						<span class="comp-label">
+							{c.label}
+							{#if c.key === 'ca'}
+								<span
+									class="info-tip"
+									title="Scored on TIER-COMPLETION rewards, not in-game CA points: fully finishing a tier (Easy → Grandmaster, in order) banks that tier's reward, and partly-finished tiers count for nothing. The cap is all six tier rewards — so this bar only moves when you complete a whole tier."
+									>ⓘ</span
+								>
+							{/if}
+						</span>
 						<span class="comp-weight">{pct(c.weight)} of score</span>
 					</div>
 					<div class="osrs-bar"><span class="osrs-bar-fill" style="width:{pct(c.normalized)}"></span></div>
@@ -186,7 +195,7 @@
 					</div>
 					<div
 						class="ca-stat"
-						title="Total combat-achievement points as tracked in-game — each completed CA task awards points based on its tier."
+						title="Total combat-achievement points as tracked in-game — each completed CA task awards points based on its tier. This is a different number from the rank score above, which only counts fully-completed tier rewards."
 					>
 						<span class="ca-num">{num(rank.caDetail.wikiPoints)}</span>
 						<span class="ca-lbl">CA points</span>
@@ -284,6 +293,15 @@
 	.comp-label {
 		font-size: 0.92rem;
 		color: var(--text);
+	}
+	.info-tip {
+		margin-left: 0.25rem;
+		color: var(--muted);
+		cursor: help;
+		font-size: 0.85em;
+	}
+	.info-tip:hover {
+		color: var(--accent);
 	}
 	.comp-weight {
 		font-size: 0.74rem;
