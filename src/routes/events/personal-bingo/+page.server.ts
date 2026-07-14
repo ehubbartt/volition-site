@@ -52,8 +52,11 @@ export const actions: Actions = {
 		const skip99 = form.get('skip99') === 'on' || form.get('skip99') === 'true';
 		// Allow items already in the collection log (they become drop-again loot tiles).
 		const owned = form.get('owned') === 'on' || form.get('owned') === 'true';
+		// Keep-line reroll: hold one row/column of the current draft (e.g. 'r2', 'c0').
+		const keepRaw = (form.get('keep') ?? '').toString();
+		const keep = /^[rc][0-9]+$/.test(keepRaw) ? keepRaw : null;
 
-		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty, skilling, ca, pets, skip99, owned);
+		const result = await generatePersonalBoard(locals.user.id, locals.user.rsn, size, difficulty, skilling, ca, pets, skip99, owned, keep);
 
 		if (!result.ok) {
 			const msg =

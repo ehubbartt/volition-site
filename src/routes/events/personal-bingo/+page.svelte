@@ -116,6 +116,13 @@
 	let pets = $state(true); // pets are included by default; unchecking filters pet drops out
 	let skip99 = $state(false); // skilling sub-option: skip skills already at level 99
 	let includeOwned = $state(false); // allow already-owned clog items (as drop-again loot tiles)
+	// Keep-line reroll: on a DRAFT board, one row/column can be held ('r2' / 'c0') so a
+	// reroll only refills the other tiles. Cleared automatically if the size changes
+	// (the kept line can't survive a different grid).
+	let keepLine = $state<string | null>(null);
+	function toggleKeep(key: string) {
+		keepLine = keepLine === key ? null : key;
+	}
 	let generating = $state(false);
 	let refreshing = $state(false);
 	let locking = $state(false);
@@ -158,6 +165,11 @@
 	});
 
 	let obtainedCount = $derived(board ? board.tiles.filter((t) => t.obtained).length : 0);
+
+	// A held line only survives a same-size reroll of the current draft.
+	$effect(() => {
+		if (!board || locked || size !== board.size) keepLine = null;
+	});
 </script>
 
 <svelte:head><title>Personal Bingo · Volition</title></svelte:head>
@@ -284,6 +296,9 @@
 					<div class="slider-ends"><span>Easier items</span><span>Rarer items</span></div>
 					<p class="muted small">
 						Higher difficulty pulls in rarer drops (and bigger XP goals); every board still runs easy → hard.
+						Boards only use items you're <em>missing</em> — if your collection log runs deep, the
+						quick items may be long gone, so even easy difficulties can roll grindy tiles (and
+						very full logs may not fill a large board at all).
 					</p>
 				</div>
 
@@ -326,9 +341,17 @@
 				</div>
 			</div>
 
+			{#if keepLine && board && !locked && size === board.size}
+				<input type="hidden" name="keep" value={keepLine} />
+				<p class="muted small">
+					🔒 Keeping <strong>{keepLine.startsWith('r') ? `row ${Number(keepLine.slice(1)) + 1}` : `column ${Number(keepLine.slice(1)) + 1}`}</strong>
+					— rerolling only replaces the other tiles.
+					<button type="button" class="linklike" onclick={() => (keepLine = null)}>Unlock it</button>
+				</p>
+			{/if}
 			<div class="actions">
 				<button type="submit" class="primary" disabled={generating || !data.rsn}>
-					{generating ? 'Reading your collection log…' : !board ? 'Generate board' : locked ? 'Generate new board' : 'Reroll'}
+					{generating ? 'Reading your collection log…' : !board ? 'Generate board' : locked ? 'Generate new board' : keepLine ? 'Reroll the rest' : 'Reroll'}
 				</button>
 				{#if locked}
 					<button type="button" class="ghost" onclick={() => (showRegen = false)}>Cancel</button>
@@ -375,7 +398,8 @@
 		<div class="panel lockbar">
 			<p class="muted small">
 				Happy with this board? <strong>Lock it in</strong> to start tracking — it'll be committed
-				for {data.lockDays} days. Item tiles tick off from your collection log + Dink; skilling
+				for {data.lockDays} days. Like one row or column but not the rest? Click its
+				<strong>VP chip</strong> on the board's edge to hold that line, then reroll. Item tiles tick off from your collection log + Dink; skilling
 				tiles count XP gained from now on. Progress you already had before locking doesn't count.
 				{#if data.vp && !data.vp.test}
 					Completed rows, columns and diagonals pay <strong>{data.vp.line} VP</strong> each, and
@@ -457,11 +481,19 @@
 				{@const lv = data.vp.line}
 				<div class="vpchip corner" class:done={lines.keys.has('d0')} style="grid-row: 1; grid-column: 1" title="Diagonal (top-left → bottom-right): {lv} VP">↘{lv}</div>
 				{#each Array.from({ length: board.size }) as _, c (c)}
-					<div class="vpchip" class:done={lines.keys.has(`c${c}`)} style="grid-row: 1; grid-column: {c + 2}" title="Column {c + 1}: {lv} VP">{lv}</div>
+					{#if !locked}
+						<button type="button" class="vpchip keepable" class:keep={keepLine === `c${c}`} style="grid-row: 1; grid-column: {c + 2}" title="Column {c + 1}: {lv} VP — click to keep this column on reroll" onclick={() => toggleKeep(`c${c}`)}>{keepLine === `c${c}` ? '🔒' : ''}{lv}</button>
+					{:else}
+						<div class="vpchip" class:done={lines.keys.has(`c${c}`)} style="grid-row: 1; grid-column: {c + 2}" title="Column {c + 1}: {lv} VP">{lv}</div>
+					{/if}
 				{/each}
 				<div class="vpchip corner" class:done={lines.keys.has('d1')} style="grid-row: 1; grid-column: {board.size + 2}" title="Diagonal (top-right → bottom-left): {lv} VP">↙{lv}</div>
 				{#each Array.from({ length: board.size }) as _, r (r)}
-					<div class="vpchip" class:done={lines.keys.has(`r${r}`)} style="grid-row: {r + 2}; grid-column: 1" title="Row {r + 1}: {lv} VP">{lv}</div>
+					{#if !locked}
+						<button type="button" class="vpchip keepable" class:keep={keepLine === `r${r}`} style="grid-row: {r + 2}; grid-column: 1" title="Row {r + 1}: {lv} VP — click to keep this row on reroll" onclick={() => toggleKeep(`r${r}`)}>{keepLine === `r${r}` ? '🔒' : ''}{lv}</button>
+					{:else}
+						<div class="vpchip" class:done={lines.keys.has(`r${r}`)} style="grid-row: {r + 2}; grid-column: 1" title="Row {r + 1}: {lv} VP">{lv}</div>
+					{/if}
 				{/each}
 				<div
 					class="vpbar"
@@ -858,12 +890,42 @@
 		cursor: default;
 		white-space: nowrap;
 	}
+	/* Draft-mode chips are buttons (click = hold that line on reroll). Resets undo the
+	   global bronze button styling; .keep marks the held line. */
+	button.vpchip {
+		border: none;
+		border-image: none;
+		min-height: 0;
+	}
+	.vpchip.keepable {
+		cursor: pointer;
+	}
+	.vpchip.keepable:hover {
+		box-shadow: inset 0 0 0 1.5px var(--accent);
+		color: var(--accent);
+	}
+	.vpchip.keep {
+		color: #1a1206;
+		background: var(--accent);
+		box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+	}
 	.vpchip.done {
 		color: #eef7e0;
 		background: radial-gradient(circle at 35% 30%, #6f9c4c, #46672f);
 		box-shadow:
 			inset 0 0 0 1.5px rgba(24, 42, 12, 0.6),
 			0 0 8px -2px var(--success);
+	}
+	.linklike {
+		background: none;
+		border: none;
+		border-image: none;
+		min-height: 0;
+		padding: 0;
+		color: var(--accent);
+		text-decoration: underline;
+		cursor: pointer;
+		font-size: inherit;
 	}
 	.vpbar {
 		display: flex;

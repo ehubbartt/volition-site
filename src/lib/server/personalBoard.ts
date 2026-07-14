@@ -560,7 +560,8 @@ export async function generatePersonalBoard(
 	includeCA = false,
 	includePets = true,
 	excludeMaxedSkills = false,
-	includeOwned = false
+	includeOwned = false,
+	keepLineKey: string | null = null
 ): Promise<GenerateResult> {
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
 
@@ -576,8 +577,56 @@ export async function generatePersonalBoard(
 	const n = Math.min(MAX_SIZE, Math.max(MIN_SIZE, Math.floor(size)));
 	const diff = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, Math.floor(difficulty)));
 	const tileCount = n * n;
-	const skillCount = includeSkilling ? Math.round(tileCount / 4) : 0;
-	const caTarget = includeCA ? Math.round(tileCount / 4) : 0;
+
+	// Keep-line reroll: hold one row ('r2') or column ('c0') of the current DRAFT in
+	// place and refill only the other tiles. Silently ignored when it can't apply
+	// (no draft, size changed, malformed key) — the reroll then behaves as a full one.
+	const kept = new Map<number, Placed>(); // board position → held tile
+	const keyMatch = keepLineKey ? /^([rc])([0-9]+)$/.exec(keepLineKey) : null;
+	if (keyMatch && existing && !existing.locked_at) {
+		const line = Number(keyMatch[2]);
+		const current = await loadPersonalBoard(userId);
+		if (current && current.size === n && line < n) {
+			const idxs =
+				keyMatch[1] === 'r'
+					? Array.from({ length: n }, (_, c) => line * n + c)
+					: Array.from({ length: n }, (_, r) => r * n + line);
+			for (const idx of idxs) {
+				const t = current.tiles.find((x) => x.idx === idx);
+				if (!t) {
+					kept.clear();
+					break;
+				}
+				kept.set(idx, {
+					kind: t.kind,
+					item_id: t.item_id,
+					item_name: t.item_name,
+					ehb: t.ehb,
+					source: t.source,
+					skill: t.skill,
+					target_xp: t.target_xp,
+					ca_id: t.ca_id,
+					ca_tier: t.ca_tier,
+					...(t.match_type === 'loot' ? { match_type: 'loot' as const } : {})
+				});
+			}
+		}
+	}
+	const keptTiles = [...kept.values()];
+	const keptSkillSet = new Set(keptTiles.filter((p) => p.kind === 'skill').map((p) => p.skill));
+	const keptCaIds = keptTiles.filter((p) => p.kind === 'ca').map((p) => p.ca_id as number);
+	const keptItemIds = new Set(keptTiles.filter((p) => p.kind === 'item').map((p) => p.item_id));
+	const newCount = tileCount - kept.size;
+
+	// Composition targets are for the WHOLE board; held tiles count toward their kind.
+	const skillCount = Math.max(
+		0,
+		Math.min(newCount, (includeSkilling ? Math.round(tileCount / 4) : 0) - keptSkillSet.size)
+	);
+	const caTarget = Math.max(
+		0,
+		Math.min(newCount - skillCount, (includeCA ? Math.round(tileCount / 4) : 0) - keptCaIds.length)
+	);
 
 	// CA tiles: needs the player's completed-CA set (WikiSync) + the id→name→tier catalogue.
 	let caPicks: CaPick[] = [];
@@ -585,7 +634,8 @@ export async function generatePersonalBoard(
 		const completed = await getCompletedCAs(userId, rsn);
 		if (completed == null) return { ok: false, reason: 'ca_unavailable' };
 		const catalogue = await getCATasks();
-		caPicks = selectCATiles(caTarget, diff, completed, catalogue);
+		// Held CA tiles count as "completed" here so the refill can't duplicate them.
+		caPicks = selectCATiles(caTarget, diff, new Set([...completed, ...keptCaIds]), catalogue);
 	}
 
 	// Optionally drop skills the player has already 99'd (best-effort).
@@ -594,16 +644,19 @@ export async function generatePersonalBoard(
 		const xp = await getPlayerSkillXpCached(userId, rsn);
 		if (xp) allowedSkills = TILE_SKILLS.filter((s) => (xp[s] ?? 0) < MAX_SKILL_XP);
 	}
+	if (keptSkillSet.size) allowedSkills = allowedSkills.filter((s) => !keptSkillSet.has(s));
 
 	const skills = selectSkillTiles(skillCount, diff, allowedSkills);
-	const itemCount = tileCount - skills.length - caPicks.length;
+	const itemCount = newCount - skills.length - caPicks.length;
 
 	const owned = await getOwnedClogNames(userId, rsn);
 	if (owned == null) return { ok: false, reason: 'clog_unavailable' };
 
 	const overrides = await getEhbOverrides();
 	const excludedIds = await getExcludedItemIds();
-	const pool = missingCandidates(owned, overrides, includePets, excludedIds, includeOwned);
+	const pool = missingCandidates(owned, overrides, includePets, excludedIds, includeOwned).filter(
+		(c) => !keptItemIds.has(c.item_id)
+	);
 	if (pool.length < itemCount) {
 		return { ok: false, reason: 'too_few', missing: pool.length, need: itemCount };
 	}
@@ -618,14 +671,24 @@ export async function generatePersonalBoard(
 
 	const items = selectGradient(itemsPool, itemCount, diff);
 
-	const placed: Placed[] = [
+	const fresh: Placed[] = [
 		// Owned picks are LOOT-matched (drop must land again, credited via Dink);
 		// missing picks stay collection-matched (clog unlock).
 		...items.map((c) => ({ kind: 'item' as const, item_id: c.item_id, item_name: c.item_name, ehb: c.ehb, source: c.source, skill: null, target_xp: null, ca_id: null, ca_tier: null, ...(c.owned ? { match_type: 'loot' as const } : {}) })),
 		...skills.map((s) => ({ kind: 'skill' as const, item_id: null, item_name: null, ehb: s.ehb, source: null, skill: s.skill, target_xp: s.target_xp, ca_id: null, ca_tier: null })),
 		...caPicks.map((c) => ({ kind: 'ca' as const, item_id: null, item_name: c.name, ehb: c.ehb, source: c.monster, skill: null, target_xp: null, ca_id: c.ca_id, ca_tier: c.tier }))
 	];
-	shuffle(placed);
+	shuffle(fresh);
+
+	// Held tiles stay at their exact positions; fresh picks fill the rest in order.
+	let placed: Placed[];
+	if (kept.size > 0) {
+		placed = [];
+		let j = 0;
+		for (let idx = 0; idx < tileCount; idx++) placed.push(kept.get(idx) ?? fresh[j++]);
+	} else {
+		placed = fresh;
+	}
 	return persistPersonalBoard(existing, userId, rsn, n, diff, placed);
 }
 
