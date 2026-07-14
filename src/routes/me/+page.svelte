@@ -269,20 +269,6 @@
 					{/if}
 				{/snippet}
 			</RankPanel>
-			<!-- TEMPORARY (admins only): preview the rank-up celebration without waiting for
-			     a real rank change. Remove once the animation is signed off. -->
-			{#if pageData.isAdmin}
-				<button
-					type="button"
-					class="ghost preview-rankup"
-					onclick={() => (rankUp = {
-						from: data.currentRank ?? rank?.rank ?? 'adamant',
-						to: rank?.nextRank ?? 'mithril'
-					})}
-				>
-					Preview rank-up animation
-				</button>
-			{/if}
 		</ProfilePanel>
 	{:else if tab === 'collection'}
 		<ProfilePanel>
@@ -624,11 +610,6 @@
 		text-align: right;
 	}
 
-	/* TEMPORARY: admin-only rank-up animation preview button. */
-	.preview-rankup {
-		margin-top: 1rem;
-		font-size: 0.82rem;
-	}
 	/* .check-btn uses the base OSRS bronze button styling from app.css. */
 	.rank-error {
 		margin: 0 0 0.85rem;
