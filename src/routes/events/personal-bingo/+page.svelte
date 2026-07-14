@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import BingoTile from '$lib/BingoTile.svelte';
+	import InfoTip from '$lib/InfoTip.svelte';
 	import WikiImage from '$lib/WikiImage.svelte';
 	import TileSubmitModal from '$lib/TileSubmitModal.svelte';
 	import { formatEhb } from '$lib/ehb';
@@ -326,42 +327,52 @@
 					<label class="toggle">
 						<input type="checkbox" name="skilling" bind:checked={skilling} />
 						<span>Include skilling goals</span>
+						<InfoTip
+							label="How skilling goals are tracked"
+							tip="Adds XP-goal tiles. Progress is read from WiseOldMan — only XP gained after you lock in counts, so keep your WOM profile updating while you play."
+						/>
 					</label>
 					{#if skilling}
 						<label class="toggle sub">
 							<input type="checkbox" name="skip99" bind:checked={skip99} />
 							<span>Exclude maxed skills</span>
+							<InfoTip
+								label="How maxed skills are detected"
+								tip="Reads your current levels from WiseOldMan and leaves out any skill that's already 99."
+							/>
 						</label>
 					{/if}
 					<label class="toggle">
 						<input type="checkbox" name="ca" bind:checked={ca} />
 						<span>Include combat achievements</span>
+						<InfoTip
+							label="How combat achievements are tracked"
+							tip="Adds combat-achievement tiles. Completion is read from RuneLite's WikiSync plugin — install it and log in once so your progress syncs. Without it these tiles can't be generated or tracked."
+						/>
 					</label>
 					<label class="toggle">
 						<input type="checkbox" name="diaries" bind:checked={diaries} />
 						<span>Include achievement diaries</span>
+						<InfoTip
+							label="How achievement diaries are tracked"
+							tip="Adds diary tiles (finish a region's tier). Completion is read from RuneLite's WikiSync plugin — install it and log in once so your progress syncs. Without it these tiles can't be generated or tracked."
+						/>
 					</label>
-					{#if ca || diaries}
-						<p class="muted small">
-							Combat achievements and diaries are read from the
-							<a href="https://runelite.net/plugin-hub/show/wikisync" target="_blank" rel="noreferrer noopener">WikiSync</a>
-							RuneLite plugin — install it and log in once so your progress syncs. Without it
-							these tiles can't be generated or tracked.
-						</p>
-					{/if}
 					<label class="toggle">
 						<input type="checkbox" name="clog_items" bind:checked={clogItems} />
 						<span>Include non-PVM collection log items</span>
+						<InfoTip
+							label="What non-PVM collection log items adds"
+							tip="Widens the item pool beyond boss drops to clues, minigames, skilling activities and other collection-log items. Tracked the same way as boss items: your TempleOSRS collection log + Dink."
+						/>
 					</label>
-					{#if clogItems}
-						<p class="muted small">
-							Adds clues, minigames, skilling activities and other collection-log items to the
-							pool — not just boss drops.
-						</p>
-					{/if}
 					<label class="toggle">
 						<input type="checkbox" name="pets" bind:checked={pets} />
 						<span>Include pets</span>
+						<InfoTip
+							label="How pets are tracked"
+							tip="Allows pet drops as tiles. Tracked like other items — your TempleOSRS collection log + Dink."
+						/>
 					</label>
 					<!-- HIDDEN for launch: owned items must drop again to credit, but a handful of
 					     clog items are once-per-account and would make a tile impossible. Re-enable

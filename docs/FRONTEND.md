@@ -64,6 +64,9 @@ bugs that used to recur per feature):
   `name`, `sub`, `obtained`, `highlighted`, `title`, `imageSize`. Drop it into a CSS grid; the
   personal collection-log board (`/events/personal-bingo`) maps its item/skill/CA tiles onto
   it, and event/bingo grids should do the same.
+- **`src/lib/InfoTip.svelte`** — the ⓘ button with an instant CSS tooltip (hover/focus/tap;
+  used for the rank-component explainers and the personal-bingo toggle data-source tips).
+  Safe inside a `<label>` — it doesn't toggle the control.
 - **`src/lib/Skeleton.svelte`** — the shimmer placeholder used behind streamed page data
   (see [`PAGES.md`](PAGES.md)).
 - **`src/lib/profile/*`** — the shared profile-page kit that keeps `/me` and `/u/[rsn]`
