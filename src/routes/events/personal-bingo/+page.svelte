@@ -52,6 +52,7 @@
         ca = p.board.tiles.some((t) => t.kind === "ca");
         diaries = p.board.tiles.some((t) => t.kind === "diary");
         clogItems = p.includesClogItems;
+        groupClues = p.board.tiles.some((t) => t.kind === "clue");
         includeOwned = p.board.tiles.some(
           (t) => t.kind === "item" && t.match_type === "loot",
         );
@@ -77,6 +78,7 @@
     if (t.kind === "ca")
       return t.source ? monsterImageUrl(t.source) : caTierImageUrl(t.ca_tier);
     if (t.kind === "diary") return diaryImageUrl();
+    if (t.kind === "clue") return itemImageUrl(`Clue scroll (${t.clue_tier})`);
     return itemImageUrl(t.item_name ?? "");
   }
   function tileName(t: Tile): string {
@@ -100,6 +102,11 @@
     }
     if (t.kind === "ca") return `${caTierLabel(t.ca_tier)} CA`;
     if (t.kind === "diary") return `${t.diary_tier} diary`;
+    if (t.kind === "clue") {
+      return locked && !t.obtained
+        ? `${t.clue_progress ?? 0} / ${t.clue_target ?? 0} new`
+        : "";
+    }
     return SHOW_TILE_EHB ? formatEhb(t.ehb) : "";
   }
   function tileTitle(t: Tile): string {
@@ -111,6 +118,8 @@
     if (t.kind === "ca")
       return `Combat achievement (${caTierLabel(t.ca_tier)}): ${t.item_name}`;
     if (t.kind === "diary") return `Achievement diary: ${t.item_name}`;
+    if (t.kind === "clue")
+      return `${t.item_name} — any ${t.clue_target} collection-log slots you don't have yet count`;
     return SHOW_TILE_EHB
       ? `${t.item_name} · ${formatEhb(t.ehb)} at ${t.source}`
       : `${t.item_name} · ${t.source}`;
@@ -139,6 +148,7 @@
   let ca = $state(false);
   let diaries = $state(false);
   let clogItems = $state(false); // widen the pool beyond boss drops (Temple EHC valued)
+  let groupClues = $state(false); // clog sub-option: per-tier "N new clue uniques" tiles
   let pets = $state(true); // pets are included by default; unchecking filters pet drops out
   let skip99 = $state(false); // skilling sub-option: skip skills already at level 99
   let includeOwned = $state(false); // allow already-owned clog items (as drop-again loot tiles)
@@ -462,6 +472,20 @@
                 tip="Widens the item pool beyond boss drops to clues, minigames, skilling activities and other collection-log items. Tracked the same way as boss items: your TempleOSRS collection log + Dink."
               />
             </label>
+            {#if clogItems}
+              <label class="toggle sub">
+                <input
+                  type="checkbox"
+                  name="group_clues"
+                  bind:checked={groupClues}
+                />
+                <span>Group clue items by tier</span>
+                <InfoTip
+                  label="How grouped clue tiles work"
+                  tip="Instead of tiles for specific clue drops, each clue tier gets one tile like “gain 5 new Easy clue uniques” — any drops count, but they must be NEW collection-log unlocks for you. Progress updates from your TempleOSRS collection log when you hit Check progress."
+                />
+              </label>
+            {/if}
             <label class="toggle">
               <input type="checkbox" name="pets" bind:checked={pets} />
               <span>Include pets</span>

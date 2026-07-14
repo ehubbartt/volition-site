@@ -71,7 +71,9 @@ export async function buildPersonalBoardData(user: SessionUser) {
 		vp,
 		dropRates,
 		includesClogItems:
-			board?.tiles.some((t) => t.kind === 'item' && t.item_id != null && EHC_IDS.has(t.item_id)) ?? false,
+			board?.tiles.some(
+				(t) => t.kind === 'clue' || (t.kind === 'item' && t.item_id != null && EHC_IDS.has(t.item_id))
+			) ?? false,
 		locked: !!board?.locked_at,
 		resettableAt,
 		canReset,

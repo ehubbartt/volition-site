@@ -57,6 +57,8 @@ export const actions: Actions = {
 		const owned = flag('owned');
 		// Widen the item pool beyond boss drops to the full clog (Temple EHC valued).
 		const clogItems = flag('clog_items');
+		// Group clue uniques into per-tier "gain N new uniques" tiles.
+		const groupClues = flag('group_clues');
 		// Keep-line reroll: hold one row/column of the current draft (e.g. 'r2', 'c0').
 		const keepRaw = (form.get('keep') ?? '').toString();
 		const keep = /^[rc][0-9]+$/.test(keepRaw) ? keepRaw : null;
@@ -69,6 +71,7 @@ export const actions: Actions = {
 			excludeMaxedSkills: skip99,
 			includeOwned: owned,
 			includeClogItems: clogItems,
+			groupClueItems: groupClues,
 			keepLineKey: keep
 		});
 
