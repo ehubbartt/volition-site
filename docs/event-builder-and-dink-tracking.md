@@ -194,6 +194,27 @@ and a revoke/rotate takes effect within the cache TTL.
 > Site env: set `PROXY_BASE_URL` (e.g. `https://dink-proxy.<account>.workers.dev`) so
 > the site can show the full config URL. Without it, members fall back to `/dink`.
 
+### Multi-server members (two config variants)
+
+The proxy serves **two variants** of the config, picked per token:
+
+- **Standard** — the admin template as-is (today `minLootValue: 1`, so every drop
+  reaches the proxy and members never touch Dink after setup).
+- **Multi-server** — for members whose Dink also posts to **other Discord servers**:
+  a 1 gp threshold would fire their other webhooks on every drop. Their config keeps
+  a floored `minLootValue` (≥ 3,000,000 regardless of the admin template) and relies
+  on the injected **tracked-item allowlist** instead. Trade-offs, explained in their
+  setup flow on `/dink-check`: they must **toggle the Dink plugin off/on whenever
+  their boards/tiles change** (the allowlist only refreshes when Dink reloads the
+  config), and their other servers still see notifications for the whitelisted items
+  when they drop.
+
+The flag is `dink_tokens.multi_server` (`db/scripts/dink_tokens_multi_server.sql`),
+set by the "I use Dink with multiple Discord servers" checkbox on `/dink-check`
+(`?/setMultiServer`), carried across token rotations by the site, and read by the
+proxy in the same query it already uses to validate tokens. Multi-server members
+skip the "reset Dink's settings" setup step.
+
 ---
 
 ## Creating an event (admin)

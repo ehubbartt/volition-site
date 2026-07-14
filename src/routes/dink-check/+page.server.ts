@@ -1,7 +1,13 @@
 import { redirect, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { rsnExactPattern } from '$lib/server/users';
-import { getOrCreateToken, rotateToken, configUrlFor } from '$lib/server/dinkTokens';
+import {
+	getOrCreateToken,
+	rotateToken,
+	configUrlFor,
+	getMultiServer,
+	setMultiServer
+} from '$lib/server/dinkTokens';
 import type { Actions, PageServerLoad } from './$types';
 
 // Player-facing Dink self-test. Confirms a member's RuneLite → Dink → proxy → Supabase
@@ -72,10 +78,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// Discord /dink command would hand out — keyed by Discord id.
 	let configUrl: string | null = null;
 	let proxyConfigured = true;
+	let multiServer = false;
 	try {
 		const { token } = await getOrCreateToken(locals.user.discord_id);
 		configUrl = configUrlFor(token);
 		proxyConfigured = configUrl !== null;
+		multiServer = await getMultiServer(locals.user.discord_id);
 	} catch (e) {
 		console.warn('[dink-check] token mint failed:', e instanceof Error ? e.message : e);
 		proxyConfigured = false;
@@ -85,6 +93,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		rsn,
 		configUrl,
 		proxyConfigured,
+		multiServer,
 		windowMinutes: WINDOW_MS / 60000,
 		selfTestReady: !!selfTest && (selfTest as { status: string }).status === 'open',
 		selfTestSlug: SELF_TEST_SLUG,
@@ -110,6 +119,21 @@ export const actions: Actions = {
 			return { rotated: true, configUrl: configUrlFor(token) };
 		} catch (e) {
 			return fail(500, { error: e instanceof Error ? e.message : 'Could not rotate token' });
+		}
+	},
+
+	// Flip the member between the standard config (minLootValue 1 — zero maintenance)
+	// and the multi-server config (high threshold + tracked-item whitelist — safe for
+	// people whose Dink also feeds other Discord servers). Served by the proxy per
+	// token; Dink picks the change up on its next config load (plugin toggle).
+	setMultiServer: async ({ locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		const on = (await request.formData()).get('multi') === 'true';
+		try {
+			await setMultiServer(locals.user.discord_id, on);
+			return { multiSaved: true, multiServer: on };
+		} catch (e) {
+			return fail(500, { error: e instanceof Error ? e.message : 'Could not save the setting' });
 		}
 	}
 };

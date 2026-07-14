@@ -73,13 +73,45 @@ export async function revokeTokensFor(discordId: string): Promise<void> {
 }
 
 // Rotate: revoke the user's current token and mint a fresh one. Used when a link
-// leaks — the old URL stops working within the proxy's token-cache TTL.
+// leaks — the old URL stops working within the proxy's token-cache TTL. The
+// multi-server flag rides along so rotating never silently flips a member back to
+// the min-value-1 config.
 export async function rotateToken(discordId: string): Promise<string> {
+	const multi = await getMultiServer(discordId);
 	await revokeTokensFor(discordId);
 	const token = mintTokenString();
-	const { error } = await db().from('dink_tokens').insert({ token, discord_id: discordId });
+	const { error } = await db()
+		.from('dink_tokens')
+		.insert({ token, discord_id: discordId, multi_server: multi });
 	if (error) throw new Error(`rotate dink token: ${error.message}`);
 	return token;
+}
+
+// ── Multi-server mode ────────────────────────────────────────────────────────
+// Members who use Dink with OTHER Discord servers can't take the standard config
+// (its minLootValue of 1 makes their other webhooks fire on every drop). The flag
+// lives on the token row — the proxy already reads dink_tokens to validate, so it
+// picks the config variant in the same query: multi_server tokens get a HIGH
+// minLootValue and rely on the tracked-item allowlist instead.
+
+export async function getMultiServer(discordId: string): Promise<boolean> {
+	const { data } = await db()
+		.from('dink_tokens')
+		.select('multi_server')
+		.eq('discord_id', discordId)
+		.is('revoked_at', null)
+		.limit(1)
+		.maybeSingle();
+	return (data as { multi_server: boolean | null } | null)?.multi_server === true;
+}
+
+export async function setMultiServer(discordId: string, value: boolean): Promise<void> {
+	const { error } = await db()
+		.from('dink_tokens')
+		.update({ multi_server: value })
+		.eq('discord_id', discordId)
+		.is('revoked_at', null);
+	if (error) throw new Error(`set dink multi-server: ${error.message}`);
 }
 
 // All active tokens with their owner's RSN (for the admin revoke list).
