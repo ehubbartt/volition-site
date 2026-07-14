@@ -117,8 +117,9 @@
 	let skip99 = $state(false); // skilling sub-option: skip skills already at level 99
 	let includeOwned = $state(false); // allow already-owned clog items (as drop-again loot tiles)
 	// Keep-line reroll: on a DRAFT board, one row/column can be held ('r2' / 'c0') so a
-	// reroll only refills the other tiles. Cleared automatically if the size changes
-	// (the kept line can't survive a different grid).
+	// reroll only refills the other tiles. Cleared automatically if the size or
+	// difficulty changes (a kept line can't survive a different grid, and easy tiles
+	// must not carry into a harder board's VP scale).
 	let keepLine = $state<string | null>(null);
 	function toggleKeep(key: string) {
 		keepLine = keepLine === key ? null : key;
@@ -166,9 +167,11 @@
 
 	let obtainedCount = $derived(board ? board.tiles.filter((t) => t.obtained).length : 0);
 
-	// A held line only survives a same-size reroll of the current draft.
+	// A held line only survives a same-size, SAME-DIFFICULTY reroll of the current
+	// draft (VP scales with difficulty, so easy tiles can't ride into a harder board
+	// — the server enforces this too).
 	$effect(() => {
-		if (!board || locked || size !== board.size) keepLine = null;
+		if (!board || locked || size !== board.size || difficulty !== board.difficulty) keepLine = null;
 	});
 </script>
 
@@ -341,7 +344,7 @@
 				</div>
 			</div>
 
-			{#if keepLine && board && !locked && size === board.size}
+			{#if keepLine && board && !locked && size === board.size && difficulty === board.difficulty}
 				<input type="hidden" name="keep" value={keepLine} />
 				<p class="muted small">
 					🔒 Keeping <strong>{keepLine.startsWith('r') ? `row ${Number(keepLine.slice(1)) + 1}` : `column ${Number(keepLine.slice(1)) + 1}`}</strong>
