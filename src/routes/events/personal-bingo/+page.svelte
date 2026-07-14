@@ -6,7 +6,8 @@
 	import { formatEhb } from '$lib/ehb';
 	import { formatXp } from '$lib/ehp';
 	import { caTierLabel } from '$lib/ca';
-	import { itemImageUrl, skillImageUrl, monsterImageUrl, caTierImageUrl, wikiPageUrl } from '$lib/wikiImage';
+	import { diaryWikiPage } from '$lib/diary';
+	import { itemImageUrl, skillImageUrl, monsterImageUrl, caTierImageUrl, diaryImageUrl, wikiPageUrl } from '$lib/wikiImage';
 	import Skeleton from '$lib/Skeleton.svelte';
 	import { swrResource } from '$lib/swrResource.svelte';
 	import type { PageData, ActionData } from './$types';
@@ -41,6 +42,7 @@
 				toggled = true;
 				skilling = p.board.tiles.some((t) => t.kind === 'skill');
 				ca = p.board.tiles.some((t) => t.kind === 'ca');
+				diaries = p.board.tiles.some((t) => t.kind === 'diary');
 				includeOwned = p.board.tiles.some((t) => t.kind === 'item' && t.match_type === 'loot');
 			}
 		}
@@ -58,10 +60,11 @@
 	// TEMPORARY: busy flag for the admin-only easy-test-board generator.
 	let generatingTest = $state(false);
 
-	// Map a personal-board tile (item / skill / ca) onto the generic BingoTile props.
+	// Map a personal-board tile (item / skill / ca / diary) onto the generic BingoTile props.
 	function tileImage(t: Tile): string {
 		if (t.kind === 'skill') return skillImageUrl(t.skill ?? '');
 		if (t.kind === 'ca') return t.source ? monsterImageUrl(t.source) : caTierImageUrl(t.ca_tier);
+		if (t.kind === 'diary') return diaryImageUrl();
 		return itemImageUrl(t.item_name ?? '');
 	}
 	function tileName(t: Tile): string {
@@ -82,6 +85,7 @@
 					: '';
 		}
 		if (t.kind === 'ca') return `${caTierLabel(t.ca_tier)} CA`;
+		if (t.kind === 'diary') return `${t.diary_tier} diary`;
 		return SHOW_TILE_EHB ? formatEhb(t.ehb) : '';
 	}
 	function tileTitle(t: Tile): string {
@@ -91,6 +95,7 @@
 				: `${t.skill}: gain ${formatXp(t.target_xp ?? 0)}`;
 		}
 		if (t.kind === 'ca') return `Combat achievement (${caTierLabel(t.ca_tier)}): ${t.item_name}`;
+		if (t.kind === 'diary') return `Achievement diary: ${t.item_name}`;
 		return SHOW_TILE_EHB
 			? `${t.item_name} · ${formatEhb(t.ehb)} at ${t.source}`
 			: `${t.item_name} · ${t.source}`;
@@ -113,6 +118,7 @@
 	let difficulty = $state(5);
 	let skilling = $state(false); // re-seeded from the board when it arrives (onFresh)
 	let ca = $state(false);
+	let diaries = $state(false);
 	let pets = $state(true); // pets are included by default; unchecking filters pet drops out
 	let skip99 = $state(false); // skilling sub-option: skip skills already at level 99
 	let includeOwned = $state(false); // allow already-owned clog items (as drop-again loot tiles)
@@ -320,6 +326,10 @@
 					<label class="toggle">
 						<input type="checkbox" name="ca" bind:checked={ca} />
 						<span>Include combat achievements</span>
+					</label>
+					<label class="toggle">
+						<input type="checkbox" name="diaries" bind:checked={diaries} />
+						<span>Include achievement diaries</span>
 					</label>
 					<label class="toggle">
 						<input type="checkbox" name="pets" bind:checked={pets} />
@@ -540,7 +550,7 @@
 		<p class="muted small foot">
 				{#if SHOW_TILE_EHB}EHB/EHP = efficient hours to obtain a drop / train a skill.{/if}
 				{#if locked}
-					Item tiles auto-complete from your collection log + Dink; skill tiles track XP gained since you locked in (WiseOldMan); combat-achievement tiles complete when you finish the CA (WikiSync) — hit <em>Check progress</em> to refresh.
+					Item tiles auto-complete from your collection log + Dink; skill tiles track XP gained since you locked in (WiseOldMan); combat-achievement and diary tiles complete when you finish them (WikiSync) — hit <em>Check progress</em> to refresh.
 					<strong>Skilling XP only updates after you log out of OSRS</strong> — the hiscores (which WiseOldMan reads) refresh on logout, so log out before checking.
 				{:else}
 					This is a <strong>draft preview</strong> — nothing is tracked until you lock it in.
@@ -574,6 +584,15 @@
 		</dl>
 		<div class="modal-links">
 			{#if t.skill}<a href={wikiPageUrl(t.skill)} target="_blank" rel="noreferrer noopener">{t.skill} wiki ↗</a>{/if}
+		</div>
+	{:else if t.kind === 'diary'}
+		<dl class="modal-dl">
+			<div><dt>Region</dt><dd>{t.diary_region}</dd></div>
+			<div><dt>Tier</dt><dd>{t.diary_tier}</dd></div>
+			<div><dt>≈ Hours</dt><dd>{formatEhb(t.ehb)}</dd></div>
+		</dl>
+		<div class="modal-links">
+			{#if t.diary_region}<a href={wikiPageUrl(diaryWikiPage(t.diary_region))} target="_blank" rel="noreferrer noopener">{t.diary_region} Diary wiki ↗</a>{/if}
 		</div>
 	{:else}
 		<dl class="modal-dl">

@@ -113,3 +113,7 @@ and one `vs_active_tiles` accessor + a single "participant key" helper (`coalesc
   `dink`/`clog`/`wom`/`wikisync`, manual = `manual`). They're the reference implementation of the
   standard (see `src/lib/server/personalBoard.ts`). Public/admin event lists filter
   `owner_user_id is null` to keep personal boards out.
+  - Personal tile kinds: `item` (clog/Dink), `skill` (WoM XP since lock), `ca` (WikiSync combat
+    achievements) and `diary` (WikiSync achievement-diary tiers, `meta.diary_region`/`diary_tier`,
+    catalogue in `src/lib/diary.ts` — at most one region per board). CA + diary state share one
+    WikiSync read (`getWikiSyncState`); only `item` tiles are Dink-trackable (`active_tiles.sql`).

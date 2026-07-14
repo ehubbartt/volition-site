@@ -65,3 +65,9 @@ export function caTierImageUrl(tier: string | null | undefined): string {
 	const t = (tier ?? 'easy').trim() || 'easy';
 	return wikiImageUrl(`Combat Achievements - ${t.charAt(0).toUpperCase() + t.slice(1)} tier icon`);
 }
+
+// Achievement-diary tile icon (region-agnostic — the wiki has no per-region icons).
+// <WikiImage>'s onerror fallback covers a rename of this file on the wiki.
+export function diaryImageUrl(): string {
+	return wikiImageUrl('Achievement Diaries icon');
+}
