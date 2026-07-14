@@ -131,7 +131,7 @@
 
 		<div class="comps">
 			{#each rank.components as c (c.key)}
-				<div class="comp">
+				<div class="comp" class:maxed={c.raw >= c.cap}>
 					<div class="comp-top">
 						<span class="comp-label">{c.label}</span>
 						<span class="comp-weight">{pct(c.weight)} of score</span>
@@ -273,6 +273,17 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.85rem;
+	}
+	/* A component at its cap (e.g. 980/980 CAs) gets a green outline so maxed stats
+	   read at a glance. */
+	.comp.maxed {
+		border: 1.5px solid var(--success);
+		border-radius: 6px;
+		padding: 0.5rem 0.65rem;
+		background: rgba(106, 168, 79, 0.08);
+	}
+	.comp.maxed .comp-raw {
+		color: var(--success);
 	}
 	.comp-top {
 		display: flex;
