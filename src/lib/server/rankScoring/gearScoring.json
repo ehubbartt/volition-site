@@ -1,5 +1,5 @@
 {
-  "GEAR_SCORE_CAP": 25450,
+  "GEAR_SCORE_CAP": 25150,
   "gear": [
     {
       "name": "Neitiznot Faceguard",
@@ -500,12 +500,6 @@
       "tier": "end",
       "points": 300,
       "items": [{ "name": "Magus vestige" }]
-    },
-    {
-      "name": "Arcane Sigil",
-      "tier": "end",
-      "points": 300,
-      "items": [{ "name": "Arcane sigil" }]
     },
     {
       "name": "Kodai Wand",
