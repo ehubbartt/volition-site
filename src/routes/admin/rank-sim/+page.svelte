@@ -48,6 +48,10 @@
 	let maxDeltaCount = $derived(
 		comparison ? Math.max(1, ...comparison.deltaHist.map((d) => d.count)) : 1
 	);
+	// Shared scale across the in-game and projected histograms so the bars compare 1:1.
+	let maxCmpDist = $derived(
+		comparison ? Math.max(1, ...comparison.dist.map((d) => Math.max(d.inGame, d.projected))) : 1
+	);
 	const pctOf = (n: number, total: number) => (total ? Math.round((n / total) * 100) : 0);
 
 	const weightKeys = [
@@ -213,11 +217,44 @@
 				<span class="chip">avg move {comparison.avgAbsDelta} rank(s)</span>
 			</div>
 			<p class="muted small">
-				{comparison.compared} of {comparison.rosterSize} members compared · {comparison.notCached}
-				not in the cache yet · {comparison.unmappedRole} with staff/unmapped WOM roles.
+				{comparison.compared} of {comparison.rosterSize} members compared · {comparison.noTemple}
+				excluded (no Temple data) · {comparison.notCached} not in the cache yet ·
+				{comparison.unmappedRole} with staff/unmapped WOM roles.
 				<code>players.rank</code> already matches the projection for
 				{comparison.storedMatches}/{comparison.storedCompared}.
 			</p>
+
+			<strong class="mt">Ranks in game right now (WOM)</strong>
+			<div class="rank-hist">
+				{#each comparison.dist as d (d.rank)}
+					<div class="rcol" title={`${d.label}: ${d.inGame} in game · ${d.projected} projected`}>
+						<span class="rcount">{d.inGame}</span>
+						<div class="rtrack">
+							<div
+								class="rbar"
+								style="height:{(d.inGame / maxCmpDist) * 100}%; background:{rankColor(d.rank)}"
+							></div>
+						</div>
+						<span class="rlbl" style="color:{rankColor(d.rank)}">{d.label}</span>
+					</div>
+				{/each}
+			</div>
+
+			<strong class="mt">Ranks under the new system (projected)</strong>
+			<div class="rank-hist">
+				{#each comparison.dist as d (d.rank)}
+					<div class="rcol" title={`${d.label}: ${d.projected} projected · ${d.inGame} in game`}>
+						<span class="rcount">{d.projected}</span>
+						<div class="rtrack">
+							<div
+								class="rbar"
+								style="height:{(d.projected / maxCmpDist) * 100}%; background:{rankColor(d.rank)}"
+							></div>
+						</div>
+						<span class="rlbl" style="color:{rankColor(d.rank)}">{d.label}</span>
+					</div>
+				{/each}
+			</div>
 
 			<strong class="mt">Movement (projected − in-game, in rank steps)</strong>
 			<div class="rank-hist">

@@ -494,9 +494,12 @@ export const actions: Actions = {
 		let same = 0;
 		let unmappedRole = 0; // staff/unrecognized WOM roles (owner, deputy_owner, …)
 		let notCached = 0; // roster members with no vs_rank_sim row yet
+		let noTemple = 0; // cached but no Temple data — gear/clog score 0, would skew everything
 		let storedMatches = 0; // players.rank already equals the projection
 		let storedCompared = 0;
 		const deltaHist = new Map<number, number>();
+		const womDist: Record<string, number> = {};
+		const projectedDist: Record<string, number> = {};
 		const players: {
 			rsn: string;
 			womRole: string | null;
@@ -511,6 +514,12 @@ export const actions: Actions = {
 			const row = simByRsn.get(e.rsn.toLowerCase());
 			if (!row) {
 				notCached++;
+				continue;
+			}
+			// No Temple data → gear + clog score 0 through no fault of the player's, which
+			// would read as a mass demotion. Excluded outright (counted for coverage).
+			if (!row.temple_available) {
+				noTemple++;
 				continue;
 			}
 			const scores = computeScores(
@@ -539,6 +548,10 @@ export const actions: Actions = {
 				else if (delta < 0) down++;
 				else same++;
 				deltaHist.set(delta, (deltaHist.get(delta) ?? 0) + 1);
+				// Both distributions cover the SAME population (compared members only) so
+				// the two histograms are directly comparable.
+				womDist[womRank] = (womDist[womRank] ?? 0) + 1;
+				projectedDist[projected] = (projectedDist[projected] ?? 0) + 1;
 			} else {
 				unmappedRole++;
 			}
@@ -570,10 +583,18 @@ export const actions: Actions = {
 				same,
 				unmappedRole,
 				notCached,
+				noTemple,
 				storedMatches,
 				storedCompared,
 				avgAbsDelta: Math.round(avgAbsDelta * 100) / 100,
 				deltaHist: [...deltaHist.entries()].sort((a, b) => a[0] - b[0]).map(([delta, count]) => ({ delta, count })),
+				// Side-by-side rank distributions over the compared members.
+				dist: RANK_ORDER.map((rank) => ({
+					rank,
+					label: RANK_LABEL[rank],
+					inGame: womDist[rank] ?? 0,
+					projected: projectedDist[rank] ?? 0
+				})),
 				players
 			}
 		};
