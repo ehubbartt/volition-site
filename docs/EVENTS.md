@@ -45,14 +45,22 @@ Every credit is one row: `event_id, target_id (=tile_key), user_id|team_id, quan
 Manual → `pending` (reviewed) or `approved` (self-serve). Auto-track → `approved`. **Progress is
 derived from this ledger; there is no per-tile `obtained` flag to keep in sync.**
 
-**Personal-board VP.** Completed rows/columns/diagonals and a blackout pay VP, scaled by the
-board's size + difficulty with a quadratic hard-end bump (`personalVpAmounts` in
-`personalBoard.ts`). Settlement is poll-on-read (`settlePersonalVp`, run on every board view):
-each paid line/blackout is itself a `vs_submissions` row — `target_id 'vp:<lineKey>'`, source
-`'vp'`, the granted amount in `quantity` — so the awarded set and the earned total are read
-straight from the ledger, and a reroll wipes them with the board. An in-process per-user guard
-prevents concurrent views double-paying; the grant goes through `grantPlayerVp`
-(players.points). Admin test boards carry `structure.test = true` and never pay.
+**Personal-board VP.** Every completed tile pays a small amount (difficulty-scaled);
+completed rows/columns/diagonals and a blackout pay on top, scaled by the board's size +
+difficulty with a quadratic hard-end bump (`personalVpAmounts` in `personalBoard.ts`).
+Settlement is poll-on-read (`settlePersonalVp`, run on every board view): each paid
+tile/line/blackout is itself a `vs_submissions` row — `target_id 'vp:t<idx>'` /
+`'vp:<lineKey>'` / `'vp:blackout'`, source `'vp'`, the granted amount in `quantity` — so the
+awarded set and the earned total are read straight from the ledger, and a reroll wipes them
+with the board. An in-process per-user guard prevents concurrent views double-paying; the
+grant goes through `grantPlayerVp` (players.points). Admin test boards carry
+`structure.test = true` and never pay.
+
+**Personal-board lifecycle.** Locking starts tracking; there is no time gate on starting
+over — generating a new board is allowed anytime (the UI confirms, since it wipes the old
+board and its ledger). VP farming is self-limiting: item tiles need drops the player is
+still missing, so completed content leaves the pool. The non-boss (Temple EHC) item pool
+excludes gilded and 3rd age pieces outright (`COSMETIC_EXCLUDE` in `personalBoard.ts`).
 
 ### `vs_active_tiles` — the view (only interface the trackers read)
 One row per **(participant × not-yet-complete tile × trigger)**, expanding each tile's `triggers`

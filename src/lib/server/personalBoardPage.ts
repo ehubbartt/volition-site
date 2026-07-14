@@ -1,9 +1,7 @@
 import {
 	loadPersonalBoard,
-	boardResettableAt,
 	settlePersonalVp,
 	personalVpAmounts,
-	LOCK_DAYS,
 	MIN_SIZE,
 	MAX_SIZE,
 	MIN_DIFFICULTY,
@@ -60,9 +58,6 @@ export async function buildPersonalBoardData(user: SessionUser) {
 		}
 	}
 
-	const resettableAt = board?.locked_at ? boardResettableAt(board.locked_at) : null;
-	const canReset =
-		!board || !board.locked_at || (resettableAt != null && Date.now() >= new Date(resettableAt).getTime());
 	return {
 		rsn: user.rsn,
 		board,
@@ -71,9 +66,6 @@ export async function buildPersonalBoardData(user: SessionUser) {
 		includesClogItems:
 			board?.tiles.some((t) => t.kind === 'item' && t.item_id != null && EHC_IDS.has(t.item_id)) ?? false,
 		locked: !!board?.locked_at,
-		resettableAt,
-		canReset,
-		lockDays: LOCK_DAYS,
 		sizeRange: { min: MIN_SIZE, max: MAX_SIZE },
 		difficultyRange: { min: MIN_DIFFICULTY, max: MAX_DIFFICULTY }
 	};

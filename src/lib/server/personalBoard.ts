@@ -13,8 +13,9 @@
 // `vs_tiles.meta`; auto-track rules live in `vs_tiles.triggers`.
 //
 // LIFECYCLE: a board starts as a DRAFT (locked_at = null) — the owner can reroll it freely and it
-// is NOT tracked. LOCKING it (sets vs_events.locked_at) starts tracking and commits it for
-// LOCK_DAYS; only after that window can it be reset and regenerated.
+// is NOT tracked. LOCKING it (sets vs_events.locked_at) starts tracking. The owner can start a
+// new draft at ANY time — generating replaces the whole board and wipes its ledger rows, so the
+// UI fronts that with a destructive-action confirm when the current board is locked.
 
 import { db } from './db';
 import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer, fetchWikiSyncPlayer } from './rankData';
@@ -31,9 +32,15 @@ import itemEhbData from './data/itemEhb.json';
 import itemEhcData from './data/itemEhc.json';
 
 const ITEM_EHB = itemEhbData as ItemEhb[];
+// Cosmetic prestige lines are excluded outright: gilded and 3rd age pieces are
+// astronomically rare clue uniques nobody can realistically target for a bingo tile.
+// (Substring match, not prefix — catches "Ring of 3rd age".)
+const COSMETIC_EXCLUDE = /3rd age|gilded/i;
 // Non-boss clog items (Temple EHC) — the "include full collection log" pool. Empty
 // until the maintainer runs db/scripts/build_item_ehc.mjs (the toggle is then a no-op).
-const ITEM_EHC = (itemEhcData as ItemEhc[]).filter((i) => !ITEM_EHB.some((b) => b.id === i.id));
+const ITEM_EHC = (itemEhcData as ItemEhc[]).filter(
+	(i) => !COSMETIC_EXCLUDE.test(i.name) && !ITEM_EHB.some((b) => b.id === i.id)
+);
 // Pets in the EHC pool are flagged by Temple's category at build time — no manual
 // PET_ITEM_NAMES upkeep for non-boss (skilling/minigame) pets.
 const EHC_PET_NAMES = new Set(ITEM_EHC.filter((i) => i.pet).map((i) => i.name.toLowerCase()));
@@ -48,18 +55,25 @@ const PERSONAL_KIND = 'personal';
 const personalSlug = (userId: string) => `personal-${userId}`;
 
 // ── VP rewards ────────────────────────────────────────────────────────────────
-// Completing a full row/column/diagonal pays LINE VP; completing every tile pays the
-// BLACKOUT bonus on top. Both scale with the board's difficulty (1-10) — with a
-// quadratic term so the hard end pays disproportionately more — and with size (a 7×7
-// line is longer and a 7×7 blackout far bigger than a 3×3). Tune the formulas here.
-//   line(size, diff)     = (4 + 1.5·diff + 0.15·diff²) × size/5   → 5×5: 6 @d1, 15 @d5, 34 @d10
-//   blackout(size, diff) = (20 + 7·diff + diff²)       × size/5   → 5×5: 28 @d1, 80 @d5, 190 @d10
-export function personalVpAmounts(size: number, difficulty: number): { line: number; blackout: number } {
+// Every completed TILE pays a little; completing a full row/column/diagonal pays LINE
+// VP on top; completing every tile pays the BLACKOUT bonus on top of that. Line and
+// blackout scale with the board's difficulty (1-10) — with a quadratic term so the
+// hard end pays disproportionately more — and with size (a 7×7 line is longer and a
+// 7×7 blackout far bigger than a 3×3). Tiles scale with difficulty only (bigger boards
+// already have more of them). Tune the formulas here.
+//   tile(diff)           = 0.5 + 0.25·diff (min 1)                 → 1 @d1, 2 @d5, 3 @d10
+//   line(size, diff)     = (5 + 1.7·diff + 0.2·diff²) × size/5    → 5×5: 7 @d1, 19 @d5, 42 @d10
+//   blackout(size, diff) = (22 + 8·diff + 1.4·diff²)  × size/5    → 5×5: 31 @d1, 97 @d5, 242 @d10
+export function personalVpAmounts(
+	size: number,
+	difficulty: number
+): { tile: number; line: number; blackout: number } {
 	const s = Math.max(1, size) / 5;
 	const d = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, difficulty));
 	return {
-		line: Math.max(1, Math.round((4 + 1.5 * d + 0.15 * d * d) * s)),
-		blackout: Math.max(1, Math.round((20 + 7 * d + d * d) * s))
+		tile: Math.max(1, Math.round(0.5 + 0.25 * d)),
+		line: Math.max(1, Math.round((5 + 1.7 * d + 0.2 * d * d) * s)),
+		blackout: Math.max(1, Math.round((22 + 8 * d + 1.4 * d * d) * s))
 	};
 }
 
@@ -84,15 +98,6 @@ function completedLineKeys(size: number, obtained: Set<number>): string[] {
 	if (d0) out.push('d0');
 	if (d1) out.push('d1');
 	return out;
-}
-
-// A locked board is committed for this long before the owner can reset and make a new one.
-export const LOCK_DAYS = 30;
-const LOCK_MS = LOCK_DAYS * 24 * 60 * 60 * 1000;
-
-// When a locked board can be reset (null while it's still a draft).
-export function boardResettableAt(lockedAt: string | null): string | null {
-	return lockedAt ? new Date(new Date(lockedAt).getTime() + LOCK_MS).toISOString() : null;
 }
 
 export interface PersonalBoardTile {
@@ -651,14 +656,13 @@ export type GenerateResult =
 	| { ok: true; board: PersonalBoard }
 	| {
 			ok: false;
-			reason: 'no_rsn' | 'clog_unavailable' | 'ca_unavailable' | 'diary_unavailable' | 'too_few' | 'locked';
+			reason: 'no_rsn' | 'clog_unavailable' | 'ca_unavailable' | 'diary_unavailable' | 'too_few';
 			missing?: number;
 			need?: number;
-			resettable_at?: string;
 	  };
 
-// Generate (and persist, replacing any existing) a DRAFT board for the user. Refuses if the
-// current board is LOCKED and still inside its commitment window.
+// Generate (and persist, replacing any existing) a DRAFT board for the user. Replacing a
+// LOCKED board is allowed — it wipes that board's progress and ledger, so the UI confirms first.
 // Generation options — an object rather than a boolean parade so new toggles can't
 // transpose. Only caller: the personal-bingo `generate` action.
 export interface GenerateOptions {
@@ -692,14 +696,7 @@ export async function generatePersonalBoard(
 	} = opts;
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
 
-	// A locked board can't be rerolled/reset until its commitment window elapses.
 	const existing = await loadPersonalEvent(userId);
-	if (existing?.locked_at) {
-		const reset = boardResettableAt(existing.locked_at);
-		if (reset && Date.now() < new Date(reset).getTime()) {
-			return { ok: false, reason: 'locked', resettable_at: reset };
-		}
-	}
 
 	const n = Math.min(MAX_SIZE, Math.max(MIN_SIZE, Math.floor(size)));
 	const diff = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, Math.floor(difficulty)));
@@ -1004,19 +1001,20 @@ export async function loadPersonalBoard(userId: string): Promise<PersonalBoard |
 }
 
 // ── VP settlement ──────────────────────────────────────────────────────────────
-// Awarded state IS the ledger: every paid line/blackout is a vs_submissions row with
-// target_id 'vp:<lineKey>' (or 'vp:blackout'), source 'vp', and the VP amount granted
-// in `quantity` — auditable in the DB, and wiped with the board on a reroll like every
-// other board row. Settling compares the CURRENTLY completed lines/blackout against
-// those rows and pays only the difference, so it's safe to run on every board view
-// (poll-on-read, like the drop consumer). An in-process per-user guard stops two
-// concurrent views double-paying (single adapter-node process, owner-only trigger).
-// Test boards never pay.
+// Awarded state IS the ledger: every paid tile/line/blackout is a vs_submissions row
+// with target_id 'vp:t<idx>' / 'vp:<lineKey>' / 'vp:blackout', source 'vp', and the VP
+// amount granted in `quantity` — auditable in the DB, and wiped with the board on a
+// reroll like every other board row. Settling compares the CURRENTLY completed
+// tiles/lines/blackout against those rows and pays only the difference, so it's safe
+// to run on every board view (poll-on-read, like the drop consumer). An in-process
+// per-user guard stops two concurrent views double-paying (single adapter-node
+// process, owner-only trigger). Test boards never pay.
 
 const VP_KEY_PREFIX = 'vp:';
 const vpSettleInflight = new Set<string>();
 
 export interface PersonalVpState {
+	tile: number; // VP per completed tile on this board
 	line: number; // VP per completed row/column/diagonal on this board
 	blackout: number; // bonus VP for completing every tile
 	earned: number; // VP this board has paid out so far
@@ -1045,7 +1043,7 @@ export async function settlePersonalVp(
 	const paid = (vpRows ?? []) as { target_id: string; quantity: number }[];
 	const awarded = new Set(paid.map((r) => r.target_id));
 	const earned = paid.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
-	const base = { line: amounts.line, blackout: amounts.blackout, test: isTest };
+	const base = { tile: amounts.tile, line: amounts.line, blackout: amounts.blackout, test: isTest };
 
 	if (readErr) {
 		console.error('[personalBoard] vp ledger read failed', board.id, readErr.message);
@@ -1054,9 +1052,28 @@ export async function settlePersonalVp(
 	if (!board.locked_at || isTest) return { ...base, earned };
 
 	const obtained = new Set(board.tiles.filter((t) => t.obtained).map((t) => t.idx));
-	const wanted: { key: string; vp: number; label: string }[] = completedLineKeys(board.size, obtained)
-		.map((k) => ({ key: VP_KEY_PREFIX + k, vp: amounts.line, label: `Bingo line ${k}` }))
-		.filter((w) => !awarded.has(w.key));
+	// Human-readable tile label for the ledger row (admins see target_label in reviews).
+	const tileLabel = (idx: number): string => {
+		const t = board.tiles.find((x) => x.idx === idx);
+		const what =
+			t?.item_name ??
+			(t?.skill
+				? `${t.skill} XP goal`
+				: t?.kind === 'diary'
+					? `${t.diary_region ?? ''} ${t.diary_tier ?? ''} diary`.trim()
+					: t?.kind === 'ca'
+						? 'combat achievement'
+						: `#${idx + 1}`);
+		return `Bingo tile: ${what}`;
+	};
+	const wanted: { key: string; vp: number; label: string }[] = [
+		...[...obtained]
+			.filter((idx) => !awarded.has(`${VP_KEY_PREFIX}t${idx}`))
+			.map((idx) => ({ key: `${VP_KEY_PREFIX}t${idx}`, vp: amounts.tile, label: tileLabel(idx) })),
+		...completedLineKeys(board.size, obtained)
+			.map((k) => ({ key: VP_KEY_PREFIX + k, vp: amounts.line, label: `Bingo line ${k}` }))
+			.filter((w) => !awarded.has(w.key))
+	];
 	if (obtained.size >= board.size * board.size && !awarded.has(`${VP_KEY_PREFIX}blackout`)) {
 		wanted.push({ key: `${VP_KEY_PREFIX}blackout`, vp: amounts.blackout, label: 'Bingo blackout' });
 	}
@@ -1095,7 +1112,7 @@ export async function settlePersonalVp(
 	}
 }
 
-// Lock a draft board in: starts tracking + the LOCK_DAYS commitment. Idempotent.
+// Lock a draft board in: starts tracking. Idempotent.
 export type LockResult = { ok: true; board: PersonalBoard } | { ok: false; reason: 'no_board' };
 
 export async function lockPersonalBoard(userId: string): Promise<LockResult> {

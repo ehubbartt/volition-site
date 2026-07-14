@@ -27,9 +27,6 @@
 		vp: null,
 		dropRates: {},
 		locked: false,
-		resettableAt: null,
-		canReset: false,
-		lockDays: 0,
 		sizeRange: { min: 3, max: 7 },
 		difficultyRange: { min: 1, max: 10 }
 	} as unknown as PB;
@@ -56,7 +53,6 @@
 
 	let board = $derived(data.board);
 	let locked = $derived(data.locked);
-	let canReset = $derived(data.canReset);
 
 	// TEMPORARY: busy flag for the admin-only easy-test-board generator.
 	let generatingTest = $state(false);
@@ -138,15 +134,6 @@
 	// For a LOCKED board, the regenerate form stays hidden until the owner asks to reset.
 	let showRegen = $state(false);
 
-	function fmtDate(iso: string | null): string {
-		if (!iso) return '';
-		try {
-			return new Date(iso).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
-		} catch {
-			return iso;
-		}
-	}
-
 	const DIFF_LABELS = ['', 'Casual', 'Easy', 'Easy+', 'Light', 'Moderate', 'Spicy', 'Hard', 'Hard+', 'Brutal', 'Insane'];
 	let diffLabel = $derived(DIFF_LABELS[difficulty] ?? 'Moderate');
 
@@ -193,7 +180,8 @@
 		<p class="muted">
 			Generate a personal PVM bingo board from collection-log items you don't have yet —
 			balanced so every board runs from quick tiles to grindy ones. Reroll it as much as you
-			like, then <strong>lock it in</strong>; a locked board is yours for {data.lockDays} days.
+			like, then <strong>lock it in</strong> to start tracking. You can start a new board
+			whenever you want, but starting over wipes the old board's progress.
 		</p>
 		<p class="muted">
 			<strong>Everything tracks automatically.</strong> With
@@ -250,8 +238,7 @@
 	{/if}
 	{#if form?.locked}
 		<div class="panel ok">
-			Board locked in — progress now tracks automatically from your collection log and Dink. You
-			can make a new board on {fmtDate(data.resettableAt)}.
+			Board locked in — progress now tracks automatically from your collection log and Dink.
 		</div>
 	{/if}
 	{#if form?.submitted}
@@ -266,7 +253,12 @@
 			method="POST"
 			action="?/generate"
 			class="panel generator"
-			use:enhance={() => {
+			use:enhance={({ cancel }) => {
+				// Replacing a LOCKED board is destructive — everything tracked so far is wiped.
+				if (locked && !confirm('Generate a new board? Your current board and all its tracked progress will be wiped.')) {
+					cancel();
+					return;
+				}
 				generating = true;
 				return async ({ update }) => {
 					await update({ reset: false });
@@ -432,19 +424,21 @@
 	{#if board && !locked}
 		<div class="panel lockbar">
 			<p class="muted small">
-				Happy with this board? <strong>Lock it in</strong> to start tracking — it'll be committed
-				for {data.lockDays} days. Item tiles tick off from your collection log + Dink; skilling
-				tiles count XP gained from now on. Progress you already had before locking doesn't count.
+				Happy with this board? <strong>Lock it in</strong> to start tracking. Item tiles tick
+				off from your collection log + Dink; skilling tiles count XP gained from now on.
+				Progress you already had before locking doesn't count. You can start a new board later,
+				but that wipes this one's progress.
 				{#if data.vp && !data.vp.test}
-					Completed rows, columns and diagonals pay <strong>{data.vp.line} VP</strong> each, and
-					blacking out the whole board pays a <strong>+{data.vp.blackout} VP</strong> bonus.
+					Every completed tile pays <strong>{data.vp.tile} VP</strong>, completed rows, columns
+					and diagonals pay <strong>{data.vp.line} VP</strong> each, and blacking out the whole
+					board pays a <strong>+{data.vp.blackout} VP</strong> bonus.
 				{/if}
 			</p>
 			<form
 				method="POST"
 				action="?/lock"
 				use:enhance={({ cancel }) => {
-					if (!confirm(`Lock this board in for ${data.lockDays} days? You won't be able to reroll until then.`)) {
+					if (!confirm('Lock this board in? Tracking starts now — you can start a new board later, but that wipes this one\'s progress.')) {
 						cancel();
 						return;
 					}
@@ -475,7 +469,7 @@
 							<span class="stat muted">test board · no VP</span>
 						{:else}
 							<span class="stat"><strong>{data.vp.earned}</strong> VP earned</span>
-							<span class="stat muted">line {data.vp.line} VP · blackout +{data.vp.blackout} VP</span>
+							<span class="stat muted">tile {data.vp.tile} · line {data.vp.line} · blackout +{data.vp.blackout} VP</span>
 						{/if}
 					{/if}
 				</div>
@@ -495,12 +489,8 @@
 							{refreshing ? 'Checking…' : '↻ Check progress'}
 						</button>
 					</form>
-					{#if canReset}
-						{#if !showRegen}
-							<button type="button" class="ghost" onclick={() => (showRegen = true)}>New board</button>
-						{/if}
-					{:else}
-						<span class="muted small lock-note">Locked · new board {fmtDate(data.resettableAt)}</span>
+					{#if !showRegen}
+						<button type="button" class="ghost" onclick={() => (showRegen = true)}>New board</button>
 					{/if}
 				</div>
 			</div>
@@ -768,10 +758,6 @@
 		margin: 0;
 		flex: 1;
 		min-width: 16rem;
-	}
-	.lock-note {
-		white-space: nowrap;
-		align-self: center;
 	}
 	.controls {
 		display: flex;
