@@ -31,6 +31,25 @@
 	let applyOpen = $state(false);
 	let applyForm = $state<HTMLFormElement>();
 
+	// Live comparison (new-system projection vs in-game WOM roles).
+	let comparing = $state(false);
+	let showAllCompared = $state(false);
+	let comparison = $derived(
+		form && 'comparison' in form && form.comparison ? form.comparison : null
+	);
+	// The interesting rows are the movers; "show all" adds unchanged + staff roles.
+	let comparedRows = $derived(
+		comparison
+			? showAllCompared
+				? comparison.players
+				: comparison.players.filter((p) => p.delta != null && p.delta !== 0)
+			: []
+	);
+	let maxDeltaCount = $derived(
+		comparison ? Math.max(1, ...comparison.deltaHist.map((d) => d.count)) : 1
+	);
+	const pctOf = (n: number, total: number) => (total ? Math.round((n / total) * 100) : 0);
+
 	const weightKeys = [
 		['w_gear', 'gear', 'Gear'],
 		['w_ehb', 'ehb', 'EHB'],
@@ -68,7 +87,9 @@
 	<h1>Rank Simulator</h1>
 	<p class="muted">
 		Re-score the whole clan from cached data as you tune the composite weights and thresholds,
-		then save the config live or apply the projected ranks to <code>players.rank</code>.
+		then save the config live or apply the projected ranks to <code>players.rank</code>. Now that
+		ranks are live, the comparison below tracks how the system's projections line up with the
+		ranks members actually hold in game.
 	</p>
 
 	<!-- Data refresh ------------------------------------------------------- -->
@@ -150,6 +171,112 @@
 				{/if}
 			</form>
 		</div>
+	</div>
+
+	<!-- Live comparison: new system vs in-game ranks ------------------------ -->
+	<div class="card">
+		<div class="row between">
+			<div>
+				<strong>New system vs in-game ranks</strong>
+				<p class="muted small">
+					Scores the cached players with the <strong>saved live config</strong> and compares
+					against the rank each member holds in game right now (their WOM group role).
+					Refresh the cache first if the numbers should reflect today's stats.
+				</p>
+				{#if form && 'compareError' in form && form.compareError}
+					<p class="err small">{form.compareError}</p>
+				{/if}
+			</div>
+			<form
+				method="POST"
+				action="?/compare"
+				use:enhance={() => {
+					comparing = true;
+					return async ({ update }) => {
+						await update({ reset: false });
+						comparing = false;
+						showAllCompared = false;
+					};
+				}}
+			>
+				<button class="btn primary" type="submit" disabled={comparing}>
+					{comparing ? 'Comparing…' : 'Compare vs in-game'}
+				</button>
+			</form>
+		</div>
+
+		{#if comparison}
+			<div class="cmp-chips">
+				<span class="chip chip-up">↑ {comparison.up} would rank up</span>
+				<span class="chip chip-down">↓ {comparison.down} would rank down</span>
+				<span class="chip">= {comparison.same} unchanged ({pctOf(comparison.same, comparison.compared)}%)</span>
+				<span class="chip">avg move {comparison.avgAbsDelta} rank(s)</span>
+			</div>
+			<p class="muted small">
+				{comparison.compared} of {comparison.rosterSize} members compared · {comparison.notCached}
+				not in the cache yet · {comparison.unmappedRole} with staff/unmapped WOM roles.
+				<code>players.rank</code> already matches the projection for
+				{comparison.storedMatches}/{comparison.storedCompared}.
+			</p>
+
+			<strong class="mt">Movement (projected − in-game, in rank steps)</strong>
+			<div class="rank-hist">
+				{#each comparison.deltaHist as d (d.delta)}
+					<div class="rcol" title="{d.count} member(s) at {d.delta > 0 ? '+' : ''}{d.delta}">
+						<span class="rcount">{d.count}</span>
+						<div class="rtrack">
+							<div
+								class="rbar"
+								style="height:{(d.count / maxDeltaCount) * 100}%; background:{d.delta > 0
+									? 'var(--success, #6aa84f)'
+									: d.delta < 0
+										? 'var(--danger)'
+										: 'var(--muted)'}"
+							></div>
+						</div>
+						<span class="rlbl">{d.delta > 0 ? '+' : ''}{d.delta}</span>
+					</div>
+				{/each}
+			</div>
+
+			<strong class="mt">
+				{showAllCompared ? `All compared members (${comparison.players.length})` : `Movers (${comparedRows.length})`}
+			</strong>
+			<div class="tablewrap">
+				<table class="players">
+					<thead>
+						<tr><th>RSN</th><th>In game</th><th>Projected</th><th>Δ</th><th>Stored</th><th>Score</th></tr>
+					</thead>
+					<tbody>
+						{#each comparedRows as p (p.rsn)}
+							<tr>
+								<td>{p.rsn}</td>
+								<td>
+									{#if p.womRank}<span style="color:{rankColor(p.womRank)}">{p.womRank}</span>
+									{:else}<span class="muted">{p.womRole ?? '—'}</span>{/if}
+								</td>
+								<td><span style="color:{rankColor(p.projected)}">{p.projected}</span></td>
+								<td class:up={p.delta != null && p.delta > 0} class:down={p.delta != null && p.delta < 0}>
+									{p.delta == null ? '—' : p.delta > 0 ? `+${p.delta}` : p.delta}
+								</td>
+								<td>
+									{#if p.stored}<span style="color:{rankColor(p.stored)}">{p.stored}</span>
+									{:else}<span class="muted">—</span>{/if}
+								</td>
+								<td>{p.composite.toFixed(4)}</td>
+							</tr>
+						{:else}
+							<tr><td colspan="6" class="muted">Nobody moves — the new system agrees with every in-game rank.</td></tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+			{#if !showAllCompared && comparison.players.length > comparedRows.length}
+				<button class="btn cmp-showall" type="button" onclick={() => (showAllCompared = true)}>
+					Show all {comparison.players.length} compared members
+				</button>
+			{/if}
+		{/if}
 	</div>
 
 	<!-- Tuning form -------------------------------------------------------- -->
@@ -604,6 +731,31 @@
 	.players td.src {
 		font-family: ui-monospace, monospace;
 		color: var(--muted);
+	}
+	/* Live-comparison stat chips + show-all control */
+	.cmp-chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		margin: 0.9rem 0 0.4rem;
+	}
+	.cmp-chips .chip {
+		padding: 0.3rem 0.65rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		font-size: 0.82rem;
+	}
+	.cmp-chips .chip-up {
+		color: var(--success, #6aa84f);
+		border-color: var(--success, #6aa84f);
+	}
+	.cmp-chips .chip-down {
+		color: var(--danger);
+		border-color: var(--danger);
+	}
+	.cmp-showall {
+		margin-top: 0.6rem;
 	}
 	@media (max-width: 640px) {
 		.cols {
