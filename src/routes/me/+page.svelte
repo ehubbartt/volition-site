@@ -35,6 +35,7 @@
 		accountTypes: [],
 		currentRank: null,
 		rankBreakdown: null,
+		rankBreakdownError: null,
 		vp_balance: 0,
 		gold_balance: 0,
 		wallet: [],
@@ -249,6 +250,11 @@
 						<p class="muted small">Set your RSN on the Profile tab, then check your rank.</p>
 					{:else if form?.rankError}
 						<p class="rank-error">{form.rankError}</p>
+					{:else if data.rankBreakdownError}
+						<p class="rank-error">
+							Couldn't load your rank breakdown — screenshot this and ping an admin:
+							<code>{data.rankBreakdownError}</code>
+						</p>
 					{:else if form?.rankOk && form?.rankNote}
 						<p class="rank-note muted small">{form.rankNote}</p>
 					{/if}

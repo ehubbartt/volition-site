@@ -168,11 +168,15 @@ function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
 // admin rank-sim uses the WOM canonical rsn, "Check my rank" the profile rsn), so a
 // case/underscore variant can leave two rows for one player — maybeSingle errors on
 // that and the tab silently shows nothing.
-export async function loadRankBreakdown(
-	rsn: string | null
-): Promise<ReturnType<typeof buildRankBreakdown> | null> {
-	if (!rsn) return null;
-	const [config, { data: simRows }] = await Promise.all([
+// The error string is for the OWNER's /me tab (and the server log) — a query
+// failure used to be discarded here, which made "Check my rank" look like it did
+// nothing. Public callers (/u/[rsn]) render the breakdown only and never show it.
+export async function loadRankBreakdown(rsn: string | null): Promise<{
+	breakdown: ReturnType<typeof buildRankBreakdown> | null;
+	error: string | null;
+}> {
+	if (!rsn) return { breakdown: null, error: null };
+	const [config, { data: simRows, error: simErr }] = await Promise.all([
 		getRankConfig(),
 		db()
 			.from('vs_rank_sim')
@@ -181,12 +185,17 @@ export async function loadRankBreakdown(
 			.order('fetched_at', { ascending: false })
 			.limit(1)
 	]);
+	if (simErr) {
+		const detail = `vs_rank_sim lookup failed for "${rsn}": ${simErr.message}${simErr.code ? ` (${simErr.code})` : ''}`;
+		console.error('[rank] ' + detail);
+		return { breakdown: null, error: detail };
+	}
 	const simRow = simRows?.[0];
-	return simRow ? buildRankBreakdown(simRow as RankSimRow, config) : null;
+	return { breakdown: simRow ? buildRankBreakdown(simRow as RankSimRow, config) : null, error: null };
 }
 
 export async function buildMeData(user: SessionUser) {
-	const [profile, currentRank, rankBreakdown] = await Promise.all([
+	const [profile, currentRank, rank] = await Promise.all([
 		loadCardProfile(user),
 		getPlayerRank(user.discord_id, user.rsn),
 		loadRankBreakdown(user.rsn)
@@ -196,7 +205,8 @@ export async function buildMeData(user: SessionUser) {
 		clanOptions: CLAN_OPTIONS,
 		accountTypes: ACCOUNT_TYPES,
 		currentRank,
-		rankBreakdown,
+		rankBreakdown: rank.breakdown,
+		rankBreakdownError: rank.error,
 		vp_balance: profile.vp_balance,
 		gold_balance: profile.gold_balance,
 		wallet: profile.wallet,
