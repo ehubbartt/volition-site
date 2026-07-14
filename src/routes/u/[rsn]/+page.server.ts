@@ -14,7 +14,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	const target = await findUserBySlug(params.rsn);
 	if (!target) throw error(404, 'Player not found');
 
-	const [profile, currentRank, rankBreakdown] = await Promise.all([
+	const [profile, currentRank, rank] = await Promise.all([
 		loadCardProfile(target),
 		getPlayerRank(target.discord_id, target.rsn),
 		loadRankBreakdown(target.rsn)
@@ -24,7 +24,9 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		profileUser: target,
 		isSelf: target.id === locals.user.id,
 		currentRank,
-		rankBreakdown,
+		// Public page: render the breakdown only — a lookup failure is logged
+		// server-side by loadRankBreakdown but never shown to other members.
+		rankBreakdown: rank.breakdown,
 		vp_balance: profile.vp_balance,
 		wallet: profile.wallet,
 		collection: profile.collection,
