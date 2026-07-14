@@ -198,9 +198,11 @@
 		<p class="muted">
 			<strong>Everything tracks automatically.</strong> With
 			<a href="/temple-guide">Temple</a> and <a href="/dink-check">Dink</a> linked (one-time,
-			~2 minutes each), item drops, XP gains and combat achievements tick off on their own —
-			no screenshots, no forms. Manual submission exists only as a backup if a tracker misses
-			something.
+			~2 minutes each), item drops and XP gains tick off on their own — no screenshots, no
+			forms. Combat-achievement and diary tiles additionally need the free
+			<a href="https://runelite.net/plugin-hub/show/wikisync" target="_blank" rel="noreferrer noopener">WikiSync</a>
+			RuneLite plugin, which syncs those in the background while you play. Manual submission
+			exists only as a backup if a tracker misses something.
 		</p>
 	</header>
 
@@ -333,6 +335,14 @@
 						<input type="checkbox" name="diaries" bind:checked={diaries} />
 						<span>Include achievement diaries</span>
 					</label>
+					{#if ca || diaries}
+						<p class="muted small">
+							Combat achievements and diaries are read from the
+							<a href="https://runelite.net/plugin-hub/show/wikisync" target="_blank" rel="noreferrer noopener">WikiSync</a>
+							RuneLite plugin — install it and log in once so your progress syncs. Without it
+							these tiles can't be generated or tracked.
+						</p>
+					{/if}
 					<label class="toggle">
 						<input type="checkbox" name="clog_items" bind:checked={clogItems} />
 						<span>Include non-PVM collection log items</span>
