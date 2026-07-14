@@ -36,6 +36,7 @@
     dropRates: {},
     locked: false,
     resettableAt: null,
+    resetDaysPlanned: 30,
     canReset: true,
     resetDays: null,
     sizeRange: { min: 3, max: 7 },
@@ -267,9 +268,12 @@
       Generate a personal PVM bingo board from collection-log items you don't
       have yet — balanced so every board runs from quick tiles to grindy ones.
       Reroll it as much as you like, then <strong>lock it in</strong> to start
-      tracking. A locked board is yours for as long as you want to keep working
-      it; resetting for a new one wipes the old board's progress{#if data.resetDays}&nbsp;and
-        unlocks {data.resetDays} days after you lock in{/if}.
+      tracking. <strong>There's no time limit</strong> — a locked board is yours
+      for as long as you want to keep working it. Resetting for a new one wipes
+      the old board's progress{#if data.resetDays}&nbsp;and unlocks
+        {data.resetDays} days after you lock in{:else}; resets are currently
+        open to everyone while the new tile types roll out, and will later
+        require a {data.resetDaysPlanned}-day wait after locking{/if}.
     </p>
     <p class="muted">
       <strong>Everything tracks automatically.</strong> With
@@ -605,9 +609,12 @@
           Happy with this board? <strong>Lock it in</strong> to start tracking.
           Item tiles tick off from your collection log + Dink; skilling tiles
           count XP gained from now on. Progress you already had before locking
-          doesn't count. The board stays yours as long as you like — resetting
-          for a new one wipes this one's progress{#if data.resetDays}&nbsp;and
-            only unlocks {data.resetDays} days after locking{/if}.
+          doesn't count. There's no deadline — the board stays yours as long as
+          you like. Resetting for a new one wipes this one's
+          progress{#if data.resetDays}&nbsp;and only unlocks
+            {data.resetDays} days after locking{:else}&nbsp;(resets are open for
+            now; a {data.resetDaysPlanned}-day wait after locking is
+            coming){/if}.
           {#if data.vp && !data.vp.test}
             Every completed tile pays <strong>{data.vp.tile} VP</strong>,
             completed rows, columns and diagonals pay
