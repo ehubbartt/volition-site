@@ -27,6 +27,9 @@
 		vp: null,
 		dropRates: {},
 		locked: false,
+		resettableAt: null,
+		canReset: true,
+		resetDays: null,
 		sizeRange: { min: 3, max: 7 },
 		difficultyRange: { min: 1, max: 10 }
 	} as unknown as PB;
@@ -53,6 +56,7 @@
 
 	let board = $derived(data.board);
 	let locked = $derived(data.locked);
+	let canReset = $derived(data.canReset);
 
 	// TEMPORARY: busy flag for the admin-only easy-test-board generator.
 	let generatingTest = $state(false);
@@ -134,6 +138,15 @@
 	// For a LOCKED board, the regenerate form stays hidden until the owner asks to reset.
 	let showRegen = $state(false);
 
+	function fmtDate(iso: string | null): string {
+		if (!iso) return '';
+		try {
+			return new Date(iso).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+		} catch {
+			return iso;
+		}
+	}
+
 	const DIFF_LABELS = ['', 'Casual', 'Easy', 'Easy+', 'Light', 'Moderate', 'Spicy', 'Hard', 'Hard+', 'Brutal', 'Insane'];
 	let diffLabel = $derived(DIFF_LABELS[difficulty] ?? 'Moderate');
 
@@ -180,8 +193,9 @@
 		<p class="muted">
 			Generate a personal PVM bingo board from collection-log items you don't have yet —
 			balanced so every board runs from quick tiles to grindy ones. Reroll it as much as you
-			like, then <strong>lock it in</strong> to start tracking. You can start a new board
-			whenever you want, but starting over wipes the old board's progress.
+			like, then <strong>lock it in</strong> to start tracking. A locked board is yours for as
+			long as you want to keep working it; resetting for a new one wipes the old board's
+			progress{#if data.resetDays}&nbsp;and unlocks {data.resetDays} days after you lock in{/if}.
 		</p>
 		<p class="muted">
 			<strong>Everything tracks automatically.</strong> With
@@ -426,8 +440,9 @@
 			<p class="muted small">
 				Happy with this board? <strong>Lock it in</strong> to start tracking. Item tiles tick
 				off from your collection log + Dink; skilling tiles count XP gained from now on.
-				Progress you already had before locking doesn't count. You can start a new board later,
-				but that wipes this one's progress.
+				Progress you already had before locking doesn't count. The board stays yours as long
+				as you like — resetting for a new one wipes this one's progress{#if data.resetDays}&nbsp;and
+				only unlocks {data.resetDays} days after locking{/if}.
 				{#if data.vp && !data.vp.test}
 					Every completed tile pays <strong>{data.vp.tile} VP</strong>, completed rows, columns
 					and diagonals pay <strong>{data.vp.line} VP</strong> each, and blacking out the whole
@@ -438,7 +453,10 @@
 				method="POST"
 				action="?/lock"
 				use:enhance={({ cancel }) => {
-					if (!confirm('Lock this board in? Tracking starts now — you can start a new board later, but that wipes this one\'s progress.')) {
+					const cooldown = data.resetDays
+						? ` You'll be able to reset for a new board ${data.resetDays} days from now.`
+						: ' You can reset for a new board later, but that wipes this one\'s progress.';
+					if (!confirm(`Lock this board in? Tracking starts now.${cooldown}`)) {
 						cancel();
 						return;
 					}
@@ -489,8 +507,12 @@
 							{refreshing ? 'Checking…' : '↻ Check progress'}
 						</button>
 					</form>
-					{#if !showRegen}
-						<button type="button" class="ghost" onclick={() => (showRegen = true)}>New board</button>
+					{#if canReset}
+						{#if !showRegen}
+							<button type="button" class="ghost" onclick={() => (showRegen = true)}>New board</button>
+						{/if}
+					{:else}
+						<span class="muted small lock-note">Reset unlocks {fmtDate(data.resettableAt)}</span>
 					{/if}
 				</div>
 			</div>
@@ -758,6 +780,10 @@
 		margin: 0;
 		flex: 1;
 		min-width: 16rem;
+	}
+	.lock-note {
+		white-space: nowrap;
+		align-self: center;
 	}
 	.controls {
 		display: flex;

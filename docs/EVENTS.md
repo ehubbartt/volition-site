@@ -56,11 +56,15 @@ with the board. An in-process per-user guard prevents concurrent views double-pa
 grant goes through `grantPlayerVp` (players.points). Admin test boards carry
 `structure.test = true` and never pay.
 
-**Personal-board lifecycle.** Locking starts tracking; there is no time gate on starting
-over — generating a new board is allowed anytime (the UI confirms, since it wipes the old
-board and its ledger). VP farming is self-limiting: item tiles need drops the player is
-still missing, so completed content leaves the pool. The non-boss (Temple EHC) item pool
-excludes gilded and 3rd age pieces outright (`COSMETIC_EXCLUDE` in `personalBoard.ts`).
+**Personal-board lifecycle.** Locking starts tracking, and a locked board never expires —
+the owner keeps it as long as they want. Resetting (generating a replacement) wipes the
+board + its ledger (the UI confirms) and is gated by `RESET_COOLDOWN_DAYS` (30) behind
+`RESET_COOLDOWN_ENABLED` in `personalBoard.ts` — **currently `false`** (resets allowed
+anytime) as a migration window for boards that predate the newer tile kinds; flip it to
+`true` to require the wait, and the server gate + all page copy/buttons follow. VP farming
+is self-limiting: item tiles need drops the player is still missing, so completed content
+leaves the pool. The non-boss (Temple EHC) item pool excludes gilded and 3rd age pieces
+outright (`COSMETIC_EXCLUDE` in `personalBoard.ts`).
 
 ### `vs_active_tiles` — the view (only interface the trackers read)
 One row per **(participant × not-yet-complete tile × trigger)**, expanding each tile's `triggers`

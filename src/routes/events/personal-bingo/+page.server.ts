@@ -13,6 +13,14 @@ import type { Actions } from './$types';
 // /api/personal-board (built in $lib/server/personalBoardPage.ts) via the
 // universal load in +page.ts, so navigating here never waits on the server.
 
+function fmtResetDate(iso: string): string {
+	try {
+		return new Date(iso).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+	} catch {
+		return iso;
+	}
+}
+
 // Per-user cooldown on the Temple collection-log fetch (generate + refresh both hit
 // it). Mirrors the /me rank-check throttle — keeps us off Temple's rate limit.
 const CLOG_COOLDOWN_MS = 60_000;
@@ -68,14 +76,16 @@ export const actions: Actions = {
 			const msg =
 				result.reason === 'no_rsn'
 					? 'Set your OSRS RSN on your profile first.'
-					: result.reason === 'ca_unavailable'
-						? "Couldn't read your combat achievements from WikiSync. Make sure your RSN is synced in RuneLite's WikiSync plugin and try again, or turn off combat achievements."
-						: result.reason === 'diary_unavailable'
-							? "Couldn't read your achievement diaries from WikiSync. Make sure your RSN is synced in RuneLite's WikiSync plugin and try again, or turn off achievement diaries."
-							: result.reason === 'too_few'
-								? `You're only missing ${result.missing} eligible clog items — not enough to fill this board (needs ${result.need}). Nice log! Try a smaller grid${skilling && ca && pets && clogItems ? '' : ', or enable more options (skilling, combat achievements, diaries, pets, the full collection log)'}.`
-								: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
-			const status = result.reason === 'too_few' ? 400 : 502;
+					: result.reason === 'locked'
+						? `Your board can't be reset yet — resets unlock on ${result.resettable_at ? fmtResetDate(result.resettable_at) : 'a later date'}. Keep working it until then!`
+						: result.reason === 'ca_unavailable'
+							? "Couldn't read your combat achievements from WikiSync. Make sure your RSN is synced in RuneLite's WikiSync plugin and try again, or turn off combat achievements."
+							: result.reason === 'diary_unavailable'
+								? "Couldn't read your achievement diaries from WikiSync. Make sure your RSN is synced in RuneLite's WikiSync plugin and try again, or turn off achievement diaries."
+								: result.reason === 'too_few'
+									? `You're only missing ${result.missing} eligible clog items — not enough to fill this board (needs ${result.need}). Nice log! Try a smaller grid${skilling && ca && pets && clogItems ? '' : ', or enable more options (skilling, combat achievements, diaries, pets, the full collection log)'}.`
+									: "Couldn't read your collection log from TempleOSRS. Make sure your RSN is synced on Temple and try again.";
+			const status = result.reason === 'too_few' ? 400 : result.reason === 'locked' ? 403 : 502;
 			return fail(status, { error: msg });
 		}
 		return { ok: true, generated: true };

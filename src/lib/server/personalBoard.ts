@@ -13,9 +13,10 @@
 // `vs_tiles.meta`; auto-track rules live in `vs_tiles.triggers`.
 //
 // LIFECYCLE: a board starts as a DRAFT (locked_at = null) — the owner can reroll it freely and it
-// is NOT tracked. LOCKING it (sets vs_events.locked_at) starts tracking. The owner can start a
-// new draft at ANY time — generating replaces the whole board and wipes its ledger rows, so the
-// UI fronts that with a destructive-action confirm when the current board is locked.
+// is NOT tracked. LOCKING it (sets vs_events.locked_at) starts tracking. A locked board never
+// expires — the owner keeps it as long as they want. RESETTING (generating a replacement) wipes
+// the board + its ledger rows (the UI confirms first) and is gated by the reset cooldown below
+// when that's enabled.
 
 import { db } from './db';
 import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer, fetchWikiSyncPlayer } from './rankData';
@@ -44,6 +45,22 @@ const ITEM_EHC = (itemEhcData as ItemEhc[]).filter(
 // Pets in the EHC pool are flagged by Temple's category at build time — no manual
 // PET_ITEM_NAMES upkeep for non-boss (skilling/minigame) pets.
 const EHC_PET_NAMES = new Set(ITEM_EHC.filter((i) => i.pet).map((i) => i.name.toLowerCase()));
+
+// ── Reset cooldown ─────────────────────────────────────────────────────────────
+// How long after locking before the owner may reset for a new board. TEMPORARILY
+// DISABLED (resets allowed anytime) so members whose boards predate the newer tile
+// kinds/pools can rebuild; flip RESET_COOLDOWN_ENABLED to true to require the wait.
+export const RESET_COOLDOWN_DAYS = 30;
+export const RESET_COOLDOWN_ENABLED = false;
+const RESET_COOLDOWN_MS = RESET_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+
+// When a locked board can be reset. Null while it's a draft — or always, while the
+// cooldown is disabled (callers read null as "resettable now").
+export function boardResettableAt(lockedAt: string | null): string | null {
+	return RESET_COOLDOWN_ENABLED && lockedAt
+		? new Date(new Date(lockedAt).getTime() + RESET_COOLDOWN_MS).toISOString()
+		: null;
+}
 
 export const MIN_SIZE = 3;
 export const MAX_SIZE = 5;
@@ -656,13 +673,15 @@ export type GenerateResult =
 	| { ok: true; board: PersonalBoard }
 	| {
 			ok: false;
-			reason: 'no_rsn' | 'clog_unavailable' | 'ca_unavailable' | 'diary_unavailable' | 'too_few';
+			reason: 'no_rsn' | 'clog_unavailable' | 'ca_unavailable' | 'diary_unavailable' | 'too_few' | 'locked';
 			missing?: number;
 			need?: number;
+			resettable_at?: string;
 	  };
 
 // Generate (and persist, replacing any existing) a DRAFT board for the user. Replacing a
-// LOCKED board is allowed — it wipes that board's progress and ledger, so the UI confirms first.
+// LOCKED board wipes that board's progress and ledger (the UI confirms first) and is refused
+// while the reset cooldown (if enabled) hasn't elapsed.
 // Generation options — an object rather than a boolean parade so new toggles can't
 // transpose. Only caller: the personal-bingo `generate` action.
 export interface GenerateOptions {
@@ -697,6 +716,13 @@ export async function generatePersonalBoard(
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
 
 	const existing = await loadPersonalEvent(userId);
+	// Reset cooldown (no-op while disabled): a locked board can't be replaced until it elapses.
+	if (existing?.locked_at) {
+		const reset = boardResettableAt(existing.locked_at);
+		if (reset && Date.now() < new Date(reset).getTime()) {
+			return { ok: false, reason: 'locked', resettable_at: reset };
+		}
+	}
 
 	const n = Math.min(MAX_SIZE, Math.max(MIN_SIZE, Math.floor(size)));
 	const diff = Math.min(MAX_DIFFICULTY, Math.max(MIN_DIFFICULTY, Math.floor(difficulty)));
