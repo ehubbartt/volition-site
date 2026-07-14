@@ -280,7 +280,38 @@
 		<h1>Volition</h1>
 		<p class="tagline">An OSRS clan home for events, sign-ups, and bragging rights.</p>
 		<a href="/auth/discord/login" class="cta">Sign in with Discord</a>
-		<p class="small muted">We use Discord just to identify you. We never post on your behalf.</p>
+		<p class="small muted reassure">
+			Signing in is safe — we <strong>can't</strong> see your password, email, or messages,
+			and we can't post as you. Discord only tells us who you are.
+		</p>
+		<details class="privacy">
+			<summary>Is my data safe? How does signing in work?</summary>
+			<div class="privacy-body">
+				<p>
+					Short version: <strong>we can't take, store, or steal your Discord or RuneScape
+					account — there's genuinely no way for us to.</strong> Here's exactly what happens:
+				</p>
+				<ul>
+					<li>
+						<strong>Discord sign-in (“OAuth”):</strong> the login happens on
+						<em>Discord's</em> own site — we never touch it. Discord then hands us only your
+						username and account ID so we know who you are. We can't see your password or
+						email, can't read your messages or DMs, and can't post or do anything on your
+						behalf. You can revoke our access anytime in Discord → Settings → Authorized Apps.
+					</li>
+					<li>
+						<strong>RuneScape info:</strong> the only OSRS data we use comes from
+						<strong>public trackers</strong> — Wise Old Man and TempleOSRS — the same stats
+						anyone can look up from your username. We use them to score events. We never ask
+						for your RuneScape login and have no access to your account.
+					</li>
+					<li>
+						<strong>Your data stays yours:</strong> we don't sell it or share it, and we only
+						use it to run the clan's events and this site. Nothing shady, nothing hidden.
+					</li>
+				</ul>
+			</div>
+		</details>
 	</section>
 
 	<div class="public-stats">
@@ -703,6 +734,60 @@
 	.small {
 		font-size: 0.9rem;
 		margin-top: 1.25rem;
+	}
+	.reassure {
+		max-width: 28rem;
+		margin-left: auto;
+		margin-right: auto;
+		line-height: 1.5;
+	}
+	.reassure strong {
+		color: var(--accent);
+	}
+	/* Collapsible "how sign-in works" reassurance for skeptical members. */
+	.privacy {
+		max-width: 30rem;
+		margin: 0.75rem auto 0;
+		text-align: left;
+		font-size: 0.88rem;
+	}
+	.privacy > summary {
+		cursor: pointer;
+		text-align: center;
+		color: var(--accent);
+		list-style: none;
+		text-shadow: var(--ts);
+	}
+	.privacy > summary::-webkit-details-marker {
+		display: none;
+	}
+	.privacy > summary::after {
+		content: ' ▾';
+	}
+	.privacy[open] > summary::after {
+		content: ' ▴';
+	}
+	.privacy-body {
+		margin-top: 0.75rem;
+		padding: 0.9rem 1rem;
+		background: rgba(0, 0, 0, 0.2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		color: rgba(255, 255, 255, 0.82);
+		line-height: 1.55;
+	}
+	.privacy-body p {
+		margin: 0;
+	}
+	.privacy-body ul {
+		margin: 0.6rem 0 0;
+		padding-left: 1.1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	.privacy-body strong {
+		color: var(--text);
 	}
 	.public-stats {
 		display: flex;
