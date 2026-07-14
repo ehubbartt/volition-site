@@ -33,7 +33,10 @@
 // Run from repo root. If the script aborts, it prints a bounded diagnostic of the
 // actual response shape (top-level keys + two raw entries) — paste that back so the
 // parser can be adapted precisely. --dump prints the same diagnostics even on success.
-// It ABORTS (writes nothing) rather than committing a thin or value-less file.
+// It ABORTS (writes nothing) rather than committing a thin or value-less file — including
+// when any listed player fails outright. HTTP 429/5xx are retried with backoff first
+// (Retry-After when sane, else 15s/30s/60s); other errors (bad RSN, Cloudflare HTML) abort
+// immediately.
 //
 // Output shape (consumed by personalBoard.ts):
 //   [{ "id": 13226, "name": "Herbi", "ehc": 31.5, "category": "All Pets", "pet": true }, ...]
@@ -61,16 +64,29 @@ const valuesUrl = (rsn) =>
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let requestCount = 0;
+const MAX_RETRIES = 3; // 429/5xx only — waits 15s/30s/60s (or Retry-After when sane)
 async function fetchJson(rsn, url) {
-	if (requestCount++ > 0) await sleep(1000); // politeness between ALL Temple requests
-	const res = await fetch(url, { headers: { 'User-Agent': 'Volition-Site build script' } });
-	if (!res.ok) throw new Error(`HTTP ${res.status}`);
-	const text = await res.text();
-	try {
-		return JSON.parse(text);
-	} catch {
-		// Cloudflare challenges and error pages come back as HTML with a 200.
-		throw new Error(`non-JSON response (Cloudflare challenge?): ${text.slice(0, 120).replace(/\s+/g, ' ')}`);
+	for (let attempt = 0; ; attempt++) {
+		if (requestCount++ > 0) await sleep(1000); // politeness between ALL Temple requests
+		const res = await fetch(url, { headers: { 'User-Agent': 'Volition-Site build script' } });
+		if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
+			const retryAfter = Number(res.headers.get('retry-after'));
+			const waitS =
+				Number.isFinite(retryAfter) && retryAfter > 0 && retryAfter < 300
+					? Math.ceil(retryAfter)
+					: 15 * 2 ** attempt;
+			console.warn(`${rsn}: HTTP ${res.status} — waiting ${waitS}s, retry ${attempt + 1}/${MAX_RETRIES}`);
+			await sleep(waitS * 1000);
+			continue;
+		}
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		const text = await res.text();
+		try {
+			return JSON.parse(text);
+		} catch {
+			// Cloudflare challenges and error pages come back as HTML with a 200.
+			throw new Error(`non-JSON response (Cloudflare challenge?): ${text.slice(0, 120).replace(/\s+/g, ' ')}`);
+		}
 	}
 }
 
@@ -168,8 +184,9 @@ for (const rsn of players) {
 		catJson = await fetchJson(rsn, catalogueUrl(rsn));
 		valJson = await fetchJson(rsn, valuesUrl(rsn));
 	} catch (e) {
-		console.warn(`skip ${rsn} — ${e.message}`);
-		continue;
+		// A silently partial union contradicts the abort-over-thin-data rule above.
+		console.error(`ABORT: ${rsn} failed (${e.message}). Fix the RSN or wait out the rate limit and re-run. Nothing was written.`);
+		process.exit(1);
 	}
 	const catRows = parseCatalogue(catJson);
 	const valRows = parseValues(valJson);
@@ -224,6 +241,6 @@ if (out.length < 200) {
 
 fs.writeFileSync(OUT_PATH, JSON.stringify(out));
 console.log(
-	`Wrote ${out.length} items to ${OUT_PATH} (union of ${players.length} player log(s); ` +
+	`Wrote ${out.length} items to ${OUT_PATH} (union of ${players.length} player log(s): ${players.join(', ')}; ` +
 		`value fields seen: ${[...matchedValueKeys].join(', ') || 'n/a'})`
 );
