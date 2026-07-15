@@ -177,7 +177,26 @@ button {
 
 input[type='radio'],
 input[type='checkbox'] {
+	/* Native controls must NOT inherit the text-input box above. Its padding + border +
+	   min-height + background/box-shadow transition wraps the widget in a frame whose size
+	   shifts as the control repaints on click, reflowing the label text next to it in the
+	   flex row (the "jiggle on click" seen on checkboxes/radios everywhere). Reset to a
+	   fixed, box-model-stable native control so toggling state never changes its box. */
+	appearance: auto;
+	width: 16px;
+	height: 16px;
 	min-height: 0;
+	margin: 0;
+	padding: 0;
+	border: none;
+	border-radius: 0;
+	background: none;
+	box-shadow: none;
+	transition: none;
+	flex: none;
+	accent-color: var(--accent);
+	vertical-align: middle;
+	cursor: pointer;
 }
 
 input::placeholder,
