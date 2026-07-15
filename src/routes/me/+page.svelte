@@ -12,6 +12,7 @@
 	import Skeleton from '$lib/Skeleton.svelte';
 	import ProfileBanner from '$lib/profile/ProfileBanner.svelte';
 	import RankPanel from '$lib/profile/RankPanel.svelte';
+	import GearClaimModal from '$lib/profile/GearClaimModal.svelte';
 	import RankUpCelebration from '$lib/RankUpCelebration.svelte';
 	import ProfileTabs from '$lib/profile/ProfileTabs.svelte';
 	import ProfilePanel from '$lib/profile/ProfilePanel.svelte';
@@ -89,16 +90,14 @@
 	let checkingRank = $state(false);
 	let rank = $derived(data.rankBreakdown);
 
-	// Manual gear-claim form state (untrackable items — see the Rank tab section).
-	// Clicking a "claim" gear tile in the rank panel opens the form prefilled.
-	let claiming = $state(false);
+	// Manual gear-claim modal state (untrackable items — see the Rank tab section).
+	// Clicking a "claim" gear tile in the rank panel opens the modal prefilled; the
+	// modal reuses the shared drag/drop/paste ImageDropper from the event submissions.
 	let claimsOpen = $state(false);
 	let claimItem = $state('');
-	let claimsEl = $state<HTMLDetailsElement>();
 	function startClaim(itemName: string) {
 		claimItem = itemName;
 		claimsOpen = true;
-		claimsEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 	}
 
 	// Rank-up celebration: the checkRank action reports a saved climb as form.rankUp
@@ -286,52 +285,12 @@
 			</RankPanel>
 			<!-- Manual gear claims: items the Temple collection log can't prove (GE-bought
 			     pieces, upgraded variants combined outside the log). Admin-reviewed on
-			     /admin/rank-claims; approved items count on the next rank check. -->
-			<details class="gear-claims" bind:this={claimsEl} bind:open={claimsOpen}>
-				<summary>Own rank gear the collection log can't see? Claim it here</summary>
-				<p class="muted small">
-					Some gear counts for rank but never shows in your collection log — pieces bought on
-					the GE, or upgrades combined outside the log (Oathplate, Blood Torva, …). Pick the
-					item, attach a screenshot showing you own it, and an admin will review. Approved
-					items count the next time you check your rank.
-				</p>
-				{#if form && 'claimError' in form && form.claimError}
-					<p class="rank-error">{form.claimError}</p>
-				{:else if form && 'claimOk' in form && form.claimOk}
-					<p class="claim-ok small">Claim submitted — an admin will review it.</p>
-				{/if}
-				<form
-					method="POST"
-					action="?/submitGearClaim"
-					enctype="multipart/form-data"
-					class="claim-form"
-					use:enhance={() => {
-						claiming = true;
-						return async ({ update }) => {
-							await update({ reset: true });
-							claiming = false;
-							await invalidateAll();
-						};
-					}}
-				>
-					<input
-						list="gear-claim-items"
-						name="item_name"
-						placeholder="Item (e.g. Oathplate chest)"
-						bind:value={claimItem}
-						required
-					/>
-					<datalist id="gear-claim-items">
-						{#each data.claimableGear as g (g.item)}
-							<option value={g.item}>{g.entry} · {g.points} pts</option>
-						{/each}
-					</datalist>
-					<input type="file" name="proof" accept="image/png,image/jpeg,image/webp,image/gif" multiple required />
-					<input type="text" name="note" placeholder="Note for the reviewer (optional)" />
-					<button type="submit" class="check-btn" disabled={claiming}>
-						{claiming ? 'Submitting…' : 'Submit claim'}
-					</button>
-				</form>
+			     /admin/rank-claims; approved items count on the next rank check. Submitted
+			     through GearClaimModal, which reuses the event submissions' drag/drop/paste. -->
+			<div class="gear-claims">
+				<button type="button" class="claim-open-btn" onclick={() => startClaim('')}>
+					Own rank gear the collection log can't see? Claim it here
+				</button>
 				{#if data.gearClaims.length}
 					<ul class="claim-list">
 						{#each data.gearClaims as c (c.id)}
@@ -345,7 +304,7 @@
 						{/each}
 					</ul>
 				{/if}
-			</details>
+			</div>
 		</ProfilePanel>
 	{:else if tab === 'collection'}
 		<ProfilePanel>
@@ -448,6 +407,15 @@
 
 {#if rankUp}
 	<RankUpCelebration from={rankUp.from} to={rankUp.to} onclose={() => (rankUp = null)} />
+{/if}
+
+{#if claimsOpen}
+	<GearClaimModal
+		bind:item={claimItem}
+		claimableGear={data.claimableGear}
+		existingClaims={data.gearClaims}
+		onclose={() => (claimsOpen = false)}
+	/>
 {/if}
 
 <style>
@@ -696,24 +664,17 @@
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
 	}
-	.gear-claims summary {
-		cursor: pointer;
+	.claim-open-btn {
+		width: 100%;
+		text-align: left;
 		font-size: 0.92rem;
+		background: transparent;
+		border: 1px dashed var(--border-strong);
+		color: var(--accent);
 	}
-	.claim-form {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem;
-		margin-top: 0.6rem;
-	}
-	.claim-form input[list],
-	.claim-form input[type='text'] {
-		flex: 1;
-		min-width: 12rem;
-	}
-	.claim-ok {
-		color: var(--success, #6aa84f);
-		margin: 0.4rem 0 0;
+	.claim-open-btn:hover {
+		border-color: var(--accent);
+		background: var(--accent-soft);
 	}
 	.claim-list {
 		list-style: none;
