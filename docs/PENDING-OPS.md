@@ -122,6 +122,7 @@ inferred from what's live — each row has a check query if you're unsure.
 | `db/scripts/grant_white_pack.sql` | one-off utility | Run only when granting. |
 | bot `db/migrations/add_vs_event_id_to_events.sql` | applied | Announce poller is live. |
 | bot `db/migrations/create_bot_config_table.sql` + `seed_command_messages.sql` | applied | `/admin/config` + `/allset` work. |
+| `db/scripts/dink_token_items.sql` | **PENDING** | Per-token Dink allowlist view. Apply in Supabase, then deploy the dink-proxy Worker change that reads `vs_dink_token_items` (until both land, the proxy keeps serving the clan-wide allowlist). |
 
 ---
 

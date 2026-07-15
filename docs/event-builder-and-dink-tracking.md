@@ -106,9 +106,13 @@ poll-on-read backstop stays drain-only so it remains cheap.
    it), plus `db/scripts/personal_boards.sql` and `db/scripts/dink_tracking_hardening.sql`.
 2. **Site env:** set `DINK_PROCESS_SECRET` (guards `POST /api/dink/process`).
 3. **Proxy:** set `SUPABASE_URL` (var) + `SUPABASE_KEY` (`wrangler secret put`), then
-   `npx wrangler deploy`. The proxy injects each open event's tracked-item names into
-   Dink's **loot allowlist** when it serves `/config/<token>`, so those items reach the
-   proxy regardless of value while `minLootValue` stays at 3,000,000 (no firehose).
+   `npx wrangler deploy`. The proxy injects tracked-item names into Dink's **loot
+   allowlist** when it serves `/config/<token>` — **per token**: only the items active
+   for THAT member (their event signups + locked personal board), read from
+   `vs_dink_token_items` (`db/scripts/dink_token_items.sql`), falling back to the
+   clan-wide `vs_active_tracked_items` union if the per-token lookup fails. Completing
+   a tile drops its item from the member's allowlist on the next config serve. Items
+   reach the proxy regardless of value while `minLootValue` stays high (no firehose).
    `FEED_MIN_VALUE` still gates what's forwarded to the Discord feed.
    - Auto-tracking is a **no-op until `SUPABASE_URL`/`SUPABASE_KEY` are set**, so the
      proxy is safe to run without it.
