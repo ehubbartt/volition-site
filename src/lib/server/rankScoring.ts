@@ -73,22 +73,34 @@ export interface TempleItem {
 }
 export type TempleItems = Record<string, TempleItem[] | unknown>;
 
-export function calculateGearPoints(templeItems: TempleItems | null | undefined): {
+export function calculateGearPoints(
+	templeItems: TempleItems | null | undefined,
+	// Admin-approved manual gear claims (rankClaims.ts) — item names that count as
+	// owned (count 1) even though the Temple clog can't prove them (GE-bought pieces,
+	// upgraded variants combined outside the log).
+	manualItemNames?: string[]
+): {
 	gearPoints: number;
 	matchedItems: { name: string; earned: number; max: number }[];
 	missedItems: string[];
 } {
-	if (!templeItems) return { gearPoints: 0, matchedItems: [], missedItems: [] };
+	if (!templeItems && !manualItemNames?.length) {
+		return { gearPoints: 0, matchedItems: [], missedItems: [] };
+	}
 
 	// Flat lookup: itemName (lowercase) -> max count across all categories.
 	const playerItems: Record<string, number> = {};
-	for (const category of Object.values(templeItems)) {
+	for (const category of Object.values(templeItems ?? {})) {
 		if (!Array.isArray(category)) continue;
 		for (const item of category as TempleItem[]) {
 			if (!item?.name) continue;
 			const key = item.name.toLowerCase();
 			playerItems[key] = Math.max(playerItems[key] || 0, item.count || 1);
 		}
+	}
+	for (const name of manualItemNames ?? []) {
+		const key = name.toLowerCase();
+		playerItems[key] = Math.max(playerItems[key] || 0, 1);
 	}
 
 	let totalPoints = 0;

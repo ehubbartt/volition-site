@@ -124,6 +124,7 @@ inferred from what's live — each row has a check query if you're unsure.
 | bot `db/migrations/create_bot_config_table.sql` + `seed_command_messages.sql` | applied | `/admin/config` + `/allset` work. |
 | `db/scripts/dink_token_items.sql` | **PENDING** | Per-token Dink allowlist view. Apply in Supabase, then deploy the dink-proxy Worker change that reads `vs_dink_token_items` (until both land, the proxy keeps serving the clan-wide allowlist). |
 | `db/scripts/events_unlisted.sql` (re-apply) | **PENDING** | Trims the Dink self-test to Bones only (deletes the Cowhide/Feather/Raw chicken tiles). Re-run the whole script in Supabase, or click "Create / refresh self-test event" on /admin/dink-test after deploying. |
+| `db/scripts/rank_item_claims.sql` | **PENDING** | Manual rank gear claims table (vs_rank_item_claims). Apply in Supabase BEFORE deploying the build with /admin/rank-claims + the /me claim form (they 404/500 on the missing table otherwise). |
 
 ---
 

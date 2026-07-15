@@ -46,7 +46,9 @@
 		collectionTotal: 0,
 		myStats: null,
 		crateStats: null,
-		packs: []
+		packs: [],
+		gearClaims: [],
+		claimableGear: []
 	} as unknown as Me;
 	const meRes = swrResource(() => pageData.me, EMPTY_ME);
 	const data = $derived({ user: pageData.user!, ...meRes.value });
@@ -86,6 +88,9 @@
 	// After the action, the page load re-runs and data.rankBreakdown re-renders below.
 	let checkingRank = $state(false);
 	let rank = $derived(data.rankBreakdown);
+
+	// Manual gear-claim form busy state (untrackable items — see the Rank tab section).
+	let claiming = $state(false);
 
 	// Rank-up celebration: the checkRank action reports a saved climb as form.rankUp
 	// — mirror it into state so dismissing sticks even though `form` doesn't change.
@@ -269,6 +274,62 @@
 					{/if}
 				{/snippet}
 			</RankPanel>
+			<!-- Manual gear claims: items the Temple collection log can't prove (GE-bought
+			     pieces, upgraded variants combined outside the log). Admin-reviewed on
+			     /admin/rank-claims; approved items count on the next rank check. -->
+			<details class="gear-claims">
+				<summary>Own rank gear the collection log can't see? Claim it here</summary>
+				<p class="muted small">
+					Some gear counts for rank but never shows in your collection log — pieces bought on
+					the GE, or upgrades combined outside the log (Oathplate, Blood Torva, …). Pick the
+					item, attach a screenshot showing you own it, and an admin will review. Approved
+					items count the next time you check your rank.
+				</p>
+				{#if form && 'claimError' in form && form.claimError}
+					<p class="rank-error">{form.claimError}</p>
+				{:else if form && 'claimOk' in form && form.claimOk}
+					<p class="claim-ok small">Claim submitted — an admin will review it.</p>
+				{/if}
+				<form
+					method="POST"
+					action="?/submitGearClaim"
+					enctype="multipart/form-data"
+					class="claim-form"
+					use:enhance={() => {
+						claiming = true;
+						return async ({ update }) => {
+							await update({ reset: true });
+							claiming = false;
+							await invalidateAll();
+						};
+					}}
+				>
+					<input list="gear-claim-items" name="item_name" placeholder="Item (e.g. Oathplate chest)" required />
+					<datalist id="gear-claim-items">
+						{#each data.claimableGear as g (g.item)}
+							<option value={g.item}>{g.entry} · {g.points} pts</option>
+						{/each}
+					</datalist>
+					<input type="file" name="proof" accept="image/png,image/jpeg,image/webp,image/gif" multiple required />
+					<input type="text" name="note" placeholder="Note for the reviewer (optional)" />
+					<button type="submit" class="check-btn" disabled={claiming}>
+						{claiming ? 'Submitting…' : 'Submit claim'}
+					</button>
+				</form>
+				{#if data.gearClaims.length}
+					<ul class="claim-list">
+						{#each data.gearClaims as c (c.id)}
+							<li>
+								<span>{c.item_name}</span>
+								<span class="claim-status {c.status}">{c.status}</span>
+								{#if c.status === 'rejected' && c.review_note}
+									<span class="muted small">— {c.review_note}</span>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</details>
 		</ProfilePanel>
 	{:else if tab === 'collection'}
 		<ProfilePanel>
@@ -610,6 +671,61 @@
 		text-align: right;
 	}
 
+	/* Manual gear claims (Rank tab) */
+	.gear-claims {
+		max-width: 40rem;
+		margin: 1.1rem auto 0;
+		padding: 0.9rem 1.1rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+	}
+	.gear-claims summary {
+		cursor: pointer;
+		font-size: 0.92rem;
+	}
+	.claim-form {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		margin-top: 0.6rem;
+	}
+	.claim-form input[list],
+	.claim-form input[type='text'] {
+		flex: 1;
+		min-width: 12rem;
+	}
+	.claim-ok {
+		color: var(--success, #6aa84f);
+		margin: 0.4rem 0 0;
+	}
+	.claim-list {
+		list-style: none;
+		margin: 0.7rem 0 0;
+		padding: 0;
+		font-size: 0.85rem;
+	}
+	.claim-list li {
+		display: flex;
+		gap: 0.5rem;
+		align-items: baseline;
+		padding: 0.25rem 0;
+		border-top: 1px solid var(--border);
+	}
+	.claim-status {
+		font-size: 0.72rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.claim-status.pending {
+		color: var(--accent);
+	}
+	.claim-status.approved {
+		color: var(--success, #6aa84f);
+	}
+	.claim-status.rejected {
+		color: var(--danger);
+	}
 	/* .check-btn uses the base OSRS bronze button styling from app.css. */
 	.rank-error {
 		margin: 0 0 0.85rem;

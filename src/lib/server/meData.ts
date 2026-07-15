@@ -6,6 +6,7 @@ import { loadCardProfile } from './cardProfile';
 import { getPlayerRank } from './playerStats';
 import { rsnExactPattern } from './users';
 import { getRankConfig, type RankScoringConfig } from './rankConfig';
+import { listGearClaims, claimableGearItems } from './rankClaims';
 import type { GearDetail, CADetail } from './rankData';
 import {
 	computeScores,
@@ -195,10 +196,11 @@ export async function loadRankBreakdown(rsn: string | null): Promise<{
 }
 
 export async function buildMeData(user: SessionUser) {
-	const [profile, currentRank, rank] = await Promise.all([
+	const [profile, currentRank, rank, gearClaims] = await Promise.all([
 		loadCardProfile(user),
 		getPlayerRank(user.discord_id, user.rsn),
-		loadRankBreakdown(user.rsn)
+		loadRankBreakdown(user.rsn),
+		listGearClaims(user.id)
 	]);
 
 	return {
@@ -207,6 +209,10 @@ export async function buildMeData(user: SessionUser) {
 		currentRank,
 		rankBreakdown: rank.breakdown,
 		rankBreakdownError: rank.error,
+		// Manual gear claims (untrackable items): the member's own claims + the
+		// claimable gear-table item names for the submit form's picker.
+		gearClaims,
+		claimableGear: claimableGearItems(),
 		vp_balance: profile.vp_balance,
 		gold_balance: profile.gold_balance,
 		wallet: profile.wallet,

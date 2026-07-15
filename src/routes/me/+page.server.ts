@@ -5,6 +5,7 @@ import { isValidClan } from '$lib/clans';
 import { isValidAccountType } from '$lib/accountTypes';
 import { isRsnTaken, rsnExactPattern } from '$lib/server/users';
 import { setPlayerRank, getPlayerRank } from '$lib/server/playerStats';
+import { getApprovedGearNames, submitGearClaim } from '$lib/server/rankClaims';
 import { rankIndex } from '$lib/ranks';
 import { getRankConfig } from '$lib/server/rankConfig';
 import { fetchPlayerRankInputs } from '$lib/server/rankData';
@@ -66,7 +67,13 @@ export const actions: Actions = {
 		lastRankCheck.set(locals.user.id, Date.now());
 
 		try {
-			const [config, inputs] = await Promise.all([getRankConfig(), fetchPlayerRankInputs(rsn)]);
+			// Approved manual gear claims merge into the gear calculation (items the
+			// Temple clog can't prove — see rankClaims.ts).
+			const manualGear = await getApprovedGearNames(locals.user.id);
+			const [config, inputs] = await Promise.all([
+				getRankConfig(),
+				fetchPlayerRankInputs(rsn, undefined, manualGear)
+			]);
 			const { rank } = scorePlayer(inputs, config);
 
 			// Cache the freshly-fetched inputs + piece-level detail in vs_rank_sim (same
@@ -153,6 +160,31 @@ export const actions: Actions = {
 				rankError: `Rank check failed — ${detail}. Screenshot this and ping an admin.`
 			});
 		}
+	},
+
+	// Claim an untrackable gear item for rank scoring (GE-bought / combined outside the
+	// collection log) with proof screenshots. Admin-reviewed on /admin/rank-claims;
+	// approved claims count on the member's next rank check.
+	submitGearClaim: async ({ locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		const form = await request.formData();
+		const itemName = (form.get('item_name') ?? '').toString().trim();
+		const note = (form.get('note') ?? '').toString().trim() || null;
+		const files = form.getAll('proof').filter((f): f is File => f instanceof File && f.size > 0);
+		if (!itemName) return fail(400, { claimError: 'Pick the item you own.' });
+		const res = await submitGearClaim(locals.user.id, itemName, files, note);
+		if (!res.ok) {
+			const msg =
+				res.reason === 'unknown_item'
+					? "That item isn't in the rank gear table."
+					: res.reason === 'duplicate'
+						? 'You already have a pending or approved claim for this item.'
+						: res.reason === 'no_proof'
+							? 'Attach at least one screenshot showing you own the item.'
+							: (res.error ?? 'Could not save your claim. Try again shortly.');
+			return fail(res.reason === 'error' || res.reason === 'upload_failed' ? 502 : 400, { claimError: msg });
+		}
+		return { claimOk: true };
 	},
 
 	// Named on purpose: SvelteKit forbids a `default` action alongside named ones

@@ -45,6 +45,12 @@
 			show: data.admin
 		},
 		{
+			href: '/admin/rank-claims',
+			title: 'Rank Gear Claims',
+			desc: 'Review manual claims for gear the collection log can’t prove (GE-bought, combined upgrades).',
+			show: data.admin
+		},
+		{
 			href: '/admin/guides',
 			title: 'Guides',
 			desc: 'Admin documentation: tile event, join process, bot commands.',

@@ -174,9 +174,12 @@ export function monthsBetween(joinedAt: string | null): number {
 // Fetch every input needed to score ONE player. `roster` (the bulk WOM call) supplies
 // ehb + join date; pass it in when scoring many players so we don't re-fetch the group
 // per player. Missing roster entry → ehb/time default to 0 (non-clan or unsynced).
+// `manualGearNames` = the player's admin-approved gear claims (rankClaims.ts) — items
+// the Temple clog can't prove, merged into the gear calculation as owned.
 export async function fetchPlayerRankInputs(
 	rsn: string,
-	roster?: Record<string, RosterEntry>
+	roster?: Record<string, RosterEntry>,
+	manualGearNames?: string[]
 ): Promise<PlayerRankData> {
 	const r = roster ?? (await fetchClanRoster());
 	const wom = r[rsn.toLowerCase()] ?? null;
@@ -187,7 +190,7 @@ export async function fetchPlayerRankInputs(
 		fetchWikiSyncCA(rsn)
 	]);
 
-	const gear = calculateGearPoints(temple?.items);
+	const gear = calculateGearPoints(temple?.items, manualGearNames);
 	const caResult = calculateCAPoints(ca);
 
 	return {
