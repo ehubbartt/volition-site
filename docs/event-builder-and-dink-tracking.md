@@ -163,9 +163,10 @@ event is suppressed so member testing doesn't spam the channel.
 
 `/dink-check` is the member-facing "is my Dink working?" page. It's powered by a
 permanent, **unlisted** event (slug `dink-self-test`, created by
-`db/scripts/events_unlisted.sql`) whose tiles track trivial drops — Bones, Cowhide,
-Feathers, Raw chicken — with an unreachable `required_qty` so the tiles never complete
-and re-testing always works. **Opening the page auto-enrolls the viewer** (a bare
+`db/scripts/events_unlisted.sql`) tracking **Bones only** — the drop every combat kill
+supplies — with an unreachable `required_qty` so the tile never completes and
+re-testing always works. (Bones only on purpose: every /dink-check visitor is
+enrolled, so each tracked item here lands in the whole clan's Dink allowlists.) **Opening the page auto-enrolls the viewer** (a bare
 `vs_event_signups` row is all `vs_active_player_tiles` needs), so the member flow is:
 open `/dink-check` → kill a chicken → the drop appears on the page within seconds.
 No joining, no admin action.

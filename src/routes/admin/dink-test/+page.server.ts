@@ -46,14 +46,11 @@ function parseInput(form: FormData) {
 	};
 }
 
-// Cheap, easy-to-get items members can farm to verify their Dink pipeline.
-const SELF_TEST_ITEMS = [
-	{ name: 'Bones', id: 526 },
-	{ name: 'Cowhide', id: 1739 },
-	{ name: 'Feather', id: 314 },
-	{ name: 'Raw chicken', id: 2138 },
-	{ name: 'Big bones', id: 532 }
-];
+// The self-test tracks BONES ONLY — the one drop every combat kill supplies, and the
+// item /dink-check's pass check looks for. Every member who opens /dink-check is
+// auto-enrolled in this event, so each item here lands in the whole clan's served
+// Dink allowlists; keep the list minimal.
+const SELF_TEST_ITEMS = [{ name: 'Bones', id: 526 }];
 const SELF_TEST_SLUG = 'dink-self-test';
 
 export const actions: Actions = {
@@ -84,7 +81,10 @@ export const actions: Actions = {
 			eventId = ev.id;
 		}
 		const tiles = SELF_TEST_ITEMS.map((it, i) => ({ event_id: eventId, tile_id: `r${i + 1}-test`, row: i + 1, tier: 'test', name: it.name, points: 1 }));
-		const tracked = SELF_TEST_ITEMS.map((it, i) => ({ event_id: eventId, tile_id: `r${i + 1}-test`, item_id: it.id, item_name: it.name, required_qty: 1 }));
+		// required_qty is astronomically high ON PURPOSE (matching events_unlisted.sql):
+		// the tile must never complete, or the first credited drop would remove it from
+		// vs_active_player_tiles and end that member's ability to re-test.
+		const tracked = SELF_TEST_ITEMS.map((it, i) => ({ event_id: eventId, tile_id: `r${i + 1}-test`, item_id: it.id, item_name: it.name, required_qty: 1000000 }));
 		const { error: te } = await db().from('vs_event_tiles').insert(tiles);
 		if (te) return fail(500, { error: te.message });
 		const { error: tie } = await db().from('vs_event_tracked_items').insert(tracked);
