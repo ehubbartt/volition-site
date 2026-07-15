@@ -73,7 +73,11 @@ function buildGearGrid(detail: GearDetail | null): { grid: GearTierGroup[]; owne
 	for (const entry of catalog) {
 		const got = earned.get(entry.name) ?? 0;
 		const partial = partialMissing.get(entry.name);
-		const status: 'complete' | 'partial' | 'none' = got > 0 ? 'complete' : partial ? 'partial' : 'none';
+		// Complete = FULL points. Guarding on `>= points` (not `> 0`) also corrects rows
+		// cached under the old proportional scoring, where a partial stored fractional
+		// points (e.g. 1/4 of a Soulreaper Axe = 75/300) — those must not read as complete.
+		const status: 'complete' | 'partial' | 'none' =
+			got >= entry.points ? 'complete' : partial ? 'partial' : 'none';
 		if (status === 'complete') owned++;
 		let group = groups.get(entry.tier);
 		if (!group) {
