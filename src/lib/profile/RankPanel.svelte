@@ -297,8 +297,8 @@
 									{/if}
 								</div>
 								<span class="gtile-pts">{p.owned ? `${p.earned}/${p.max}` : p.max}</span>
-								{#if p.status === 'partial'}<span class="gtile-flag progress-flag">in progress</span>
-								{:else if p.claimable}<span class="gtile-flag">claim</span>{/if}
+								<!-- Partial pieces are shown by the dashed outline alone (no ribbon). -->
+								{#if p.status !== 'partial' && p.claimable}<span class="gtile-flag">claim</span>{/if}
 							</button>
 						{/each}
 					</div>
@@ -623,11 +623,6 @@
 		border-radius: 3px;
 		background: var(--accent);
 		color: #1c1710;
-	}
-	.gtile-flag.progress-flag {
-		background: var(--surface);
-		color: var(--accent);
-		border: 1px solid var(--accent);
 	}
 	/* The claim shortcut inside the item modal (only on /me for unowned claimables). */
 	.modal-claim {
