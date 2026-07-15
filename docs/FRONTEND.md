@@ -57,7 +57,11 @@ bugs that used to recur per feature):
   and `caTierImageUrl`. `itemIconUrl` (`$lib/osrsItems`), `skillIconUrl` (`$lib/ehp`) and the
   CA icon fns (`$lib/ca`) are thin re-exports of these — don't fork new copies.
 - **`src/lib/WikiImage.svelte`** — an `<img>` with the hotlink incantation baked in
-  (`referrerpolicy="no-referrer"` + hide-on-404); renders nothing for an empty `src`.
+  (`referrerpolicy="no-referrer"` + `use:retryImage`); renders nothing for an empty `src`.
+  `retryImage` (`$lib/imageRetry`) re-fetches a transiently-failed hotlink a few times
+  (backoff + cache-bust) before hiding it, so a wiki-side throttle no longer latches a tile
+  blank until a manual page refresh — use it on any raw hotlinked `<img>` (e.g. the rank
+  gear grid) that isn't already a `WikiImage`.
 - **`src/lib/BingoTile.svelte`** — the reusable board tile (bronze OSRS button frame, icon on
   a light parchment disc so even dark glyphs like the Agility icon stay visible, clamped name
   + optional sub-line, `obtained` green ring, `highlighted` accent glow). Props: `image`,

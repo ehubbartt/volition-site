@@ -6,6 +6,7 @@
 	import { rankLabel, rankColor, type RankValue } from '$lib/ranks';
 	import { itemIconUrl } from '$lib/osrsItems';
 	import { itemImageUrl, wikiPageUrl } from '$lib/wikiImage';
+	import { retryImage } from '$lib/imageRetry';
 
 	// Shared Rank tab body for /me and /u/[rsn]: rank badge + composite, progress to
 	// the next rank, the weighted component breakdown, gear pieces, and combat
@@ -292,7 +293,7 @@
 											alt={p.name}
 											loading="lazy"
 											referrerpolicy="no-referrer"
-											onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
+											use:retryImage
 										/>
 									{/if}
 								</div>
