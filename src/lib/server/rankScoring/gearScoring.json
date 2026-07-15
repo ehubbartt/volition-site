@@ -187,6 +187,7 @@
       "name": "Abyssal Bludgeon",
       "tier": "middle",
       "points": 200,
+      "icon": "Abyssal bludgeon",
       "items": [
         { "name": "Bludgeon axon" },
         { "name": "Bludgeon claw" },
@@ -221,6 +222,7 @@
       "name": "Noxious Halberd",
       "tier": "middle",
       "points": 200,
+      "icon": "Noxious halberd",
       "items": [
         { "name": "Noxious point" },
         { "name": "Noxious pommel" },
@@ -327,6 +329,7 @@
       "name": "Voidwaker",
       "tier": "middle",
       "points": 200,
+      "icon": "Voidwaker",
       "items": [
         { "name": "Voidwaker hilt" },
         { "name": "Voidwaker gem" },
