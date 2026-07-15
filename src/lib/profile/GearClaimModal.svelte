@@ -192,6 +192,10 @@
 		height: 32px;
 		min-height: 0;
 		padding: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		line-height: 1;
 		font-family: var(--font-heading);
 		font-size: 1.4rem;
 		background: transparent;
