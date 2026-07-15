@@ -165,9 +165,13 @@ event is suppressed so member testing doesn't spam the channel.
 permanent, **unlisted** event (slug `dink-self-test`, created by
 `db/scripts/events_unlisted.sql`) tracking **Bones only** — the drop every combat kill
 supplies — with an unreachable `required_qty` so the tile never completes and
-re-testing always works. (Bones only on purpose: every /dink-check visitor is
-enrolled, so each tracked item here lands in the whole clan's Dink allowlists.) **Opening the page auto-enrolls the viewer** (a bare
-`vs_event_signups` row is all `vs_active_player_tiles` needs), so the member flow is:
+re-testing always works. **Opening the page auto-enrolls the viewer** (a bare
+`vs_event_signups` row is all `vs_active_player_tiles` needs) — and the enrollment is
+**scoped, not permanent**, so Bones only sits in a member's served Dink allowlist while
+they're actually testing: a recent verifying Bones drop UN-enrolls them (pipeline
+proven; the item leaves their per-token allowlist on the next config serve), a visit
+without one enrolls/refreshes `joined_at`, and enrollments with no visit inside 24h are
+lazily pruned as abandoned. Re-visiting always re-enrolls, so the member flow stays:
 open `/dink-check` → kill a chicken → the drop appears on the page within seconds.
 No joining, no admin action.
 
