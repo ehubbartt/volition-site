@@ -55,6 +55,16 @@ interface SimRow {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// One WOM group call per ROSTER_TTL_MS, shared by refresh batches and the live
+// comparison. Throw INSIDE the cached fn so an empty/failed roster is never cached.
+async function getRosterCached() {
+	return microCached('wom:roster', ROSTER_TTL_MS, async () => {
+		const r = await fetchClanRoster();
+		if (Object.keys(r).length === 0) throw new Error('empty roster');
+		return r;
+	}).catch(() => null);
+}
+
 async function readSimRows(): Promise<SimRow[]> {
 	return selectAll<SimRow>(
 		'vs_rank_sim',
@@ -298,12 +308,7 @@ export const actions: Actions = {
 		const since = ((await request.formData()).get('since') ?? '').toString();
 
 		// Cached across batches: one WOM group call per run instead of one per batch.
-		// Throw INSIDE the cached fn so an empty/failed roster is never cached.
-		const roster = await microCached('wom:roster', ROSTER_TTL_MS, async () => {
-			const r = await fetchClanRoster();
-			if (Object.keys(r).length === 0) throw new Error('empty roster');
-			return r;
-		}).catch(() => null);
+		const roster = await getRosterCached();
 		if (!roster) {
 			// refreshRetryable tells the auto-run to back off and try again rather
 			// than aborting the sweep on a transient WOM rate-limit/outage.
@@ -463,6 +468,135 @@ export const actions: Actions = {
 			config,
 			excludeNoTemple,
 			summary: buildSummary(rows, config, current, { excludeNoTemple })
+		};
+	},
+
+	// Live comparison: the new system's projected ranks (cached inputs + SAVED config)
+	// vs the ranks members hold IN GAME right now (their WOM group role — the group is
+	// synced from the clan, so rank-named roles are the in-game rank; staff roles like
+	// 'owner' don't map and are counted separately). Also reports how many stored
+	// players.rank values already match the projection, i.e. how applied the new
+	// system already is.
+	compare: async ({ locals }) => {
+		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
+
+		const roster = await getRosterCached();
+		if (!roster) {
+			return fail(502, { compareError: 'WOM clan roster unavailable (likely rate-limited) — try again shortly.' });
+		}
+
+		const config = await getRankConfig(true);
+		const [rows, current] = await Promise.all([readSimRows(), readCurrentRanks()]);
+		const simByRsn = new Map(rows.map((r) => [r.rsn.toLowerCase(), r]));
+
+		let up = 0;
+		let down = 0;
+		let same = 0;
+		let unmappedRole = 0; // staff/unrecognized WOM roles (owner, deputy_owner, …)
+		let notCached = 0; // roster members with no vs_rank_sim row yet
+		let noTemple = 0; // cached but no Temple data — gear/clog score 0, would skew everything
+		let storedMatches = 0; // players.rank already equals the projection
+		let storedCompared = 0;
+		const deltaHist = new Map<number, number>();
+		const womDist: Record<string, number> = {};
+		const projectedDist: Record<string, number> = {};
+		const players: {
+			rsn: string;
+			womRole: string | null;
+			womRank: RankValue | null;
+			projected: RankValue;
+			stored: RankValue | null;
+			delta: number | null;
+			composite: number;
+		}[] = [];
+
+		for (const e of Object.values(roster)) {
+			const row = simByRsn.get(e.rsn.toLowerCase());
+			if (!row) {
+				notCached++;
+				continue;
+			}
+			// No Temple data → gear + clog score 0 through no fault of the player's, which
+			// would read as a mass demotion. Excluded outright (counted for coverage).
+			if (!row.temple_available) {
+				noTemple++;
+				continue;
+			}
+			const scores = computeScores(
+				{
+					ehb: row.ehb,
+					totalLevel: row.total_level,
+					gearPoints: row.gear_points,
+					clogFinished: row.clog_finished,
+					clogAvailable: row.clog_available,
+					monthsInClan: row.months_in_clan,
+					caPoints: row.ca_points
+				},
+				config
+			);
+			const projected = determineProjectedRank(scores.composite, config);
+			const stored = toRankValue(current.get(e.rsn.toLowerCase()) ?? null);
+			if (stored) {
+				storedCompared++;
+				if (stored === projected) storedMatches++;
+			}
+			const womRank = toRankValue(e.womRole);
+			let delta: number | null = null;
+			if (womRank) {
+				delta = rankIndex(projected) - rankIndex(womRank);
+				if (delta > 0) up++;
+				else if (delta < 0) down++;
+				else same++;
+				deltaHist.set(delta, (deltaHist.get(delta) ?? 0) + 1);
+				// Both distributions cover the SAME population (compared members only) so
+				// the two histograms are directly comparable.
+				womDist[womRank] = (womDist[womRank] ?? 0) + 1;
+				projectedDist[projected] = (projectedDist[projected] ?? 0) + 1;
+			} else {
+				unmappedRole++;
+			}
+			players.push({
+				rsn: e.rsn,
+				womRole: e.womRole,
+				womRank,
+				projected,
+				stored,
+				delta,
+				composite: Math.round(scores.composite * 10000) / 10000
+			});
+		}
+
+		// Biggest movers first; unmapped roles sink to the bottom.
+		players.sort((a, b) => Math.abs(b.delta ?? -1) - Math.abs(a.delta ?? -1) || (b.delta ?? 0) - (a.delta ?? 0));
+		const compared = up + down + same;
+		const avgAbsDelta = compared
+			? players.reduce((s, p) => s + Math.abs(p.delta ?? 0), 0) / compared
+			: 0;
+
+		return {
+			compareOk: true,
+			comparison: {
+				rosterSize: Object.keys(roster).length,
+				compared,
+				up,
+				down,
+				same,
+				unmappedRole,
+				notCached,
+				noTemple,
+				storedMatches,
+				storedCompared,
+				avgAbsDelta: Math.round(avgAbsDelta * 100) / 100,
+				deltaHist: [...deltaHist.entries()].sort((a, b) => a[0] - b[0]).map(([delta, count]) => ({ delta, count })),
+				// Side-by-side rank distributions over the compared members.
+				dist: RANK_ORDER.map((rank) => ({
+					rank,
+					label: RANK_LABEL[rank],
+					inGame: womDist[rank] ?? 0,
+					projected: projectedDist[rank] ?? 0
+				})),
+				players
+			}
 		};
 	},
 

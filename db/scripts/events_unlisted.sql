@@ -28,14 +28,25 @@ where not exists (select 1 from vs_events where slug = 'dink-self-test');
 -- Keep it open + unlisted across re-runs (e.g. if someone closed it by accident).
 update vs_events set status = 'open', unlisted = true where slug = 'dink-self-test';
 
+-- BONES ONLY: every member who opens /dink-check is enrolled, and every item here
+-- therefore lands in the whole clan's served Dink allowlists — keep it to the one
+-- drop the /dink-check pass condition actually looks for. (Earlier revisions also
+-- tracked Cowhide/Feather/Raw chicken; the deletes below retire them on re-apply.)
+with ev as (select id from vs_events where slug = 'dink-self-test')
+delete from vs_event_tracked_items x
+using ev
+where x.event_id = ev.id and x.tile_id in ('cowhide', 'feather', 'raw-chicken');
+
+with ev as (select id from vs_events where slug = 'dink-self-test')
+delete from vs_event_tiles x
+using ev
+where x.event_id = ev.id and x.tile_id in ('cowhide', 'feather', 'raw-chicken');
+
 with ev as (select id from vs_events where slug = 'dink-self-test')
 insert into vs_event_tiles (event_id, tile_id, row, tier, name, points)
 select ev.id, t.tile_id, 1, 1, t.name, 0
 from ev, (values
-	('bones', 'Bones'),
-	('cowhide', 'Cowhide'),
-	('feather', 'Feather'),
-	('raw-chicken', 'Raw chicken')
+	('bones', 'Bones')
 ) as t(tile_id, name)
 where not exists (
 	select 1 from vs_event_tiles x where x.event_id = ev.id and x.tile_id = t.tile_id
@@ -45,10 +56,7 @@ with ev as (select id from vs_events where slug = 'dink-self-test')
 insert into vs_event_tracked_items (event_id, tile_id, item_id, item_name, match_type, required_qty)
 select ev.id, t.tile_id, t.item_id, t.item_name, 'loot', 1000000
 from ev, (values
-	('bones',       526,  'Bones'),
-	('cowhide',     1739, 'Cowhide'),
-	('feather',     314,  'Feather'),
-	('raw-chicken', 2138, 'Raw chicken')
+	('bones', 526, 'Bones')
 ) as t(tile_id, item_id, item_name)
 where not exists (
 	select 1 from vs_event_tracked_items x

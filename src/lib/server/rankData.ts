@@ -22,12 +22,16 @@ export interface RosterEntry {
 	ehb: number;
 	ehp: number;
 	clanJoinedAt: string | null;
+	// The member's WOM group role — for a synced group this IS the in-game clan rank
+	// (rank names like 'mithril'), but staff roles ('owner', 'deputy_owner', …) appear
+	// too; map through toRankValue before treating it as a rank.
+	womRole: string | null;
 }
 
-// One bulk WOM group call → lookup by lowercase RSN (ehb, ehp, join date, wom id).
+// One bulk WOM group call → lookup by lowercase RSN (ehb, ehp, join date, wom id, role).
 export async function fetchClanRoster(): Promise<Record<string, RosterEntry>> {
 	const data = (await getJson(`${WOM_BASE}/groups/${WOM_CLAN_ID}`)) as
-		| { memberships?: Array<{ player: { id: number; displayName?: string; username?: string; ehb?: number; ehp?: number }; createdAt?: string }> }
+		| { memberships?: Array<{ role?: string; player: { id: number; displayName?: string; username?: string; ehb?: number; ehp?: number }; createdAt?: string }> }
 		| null;
 	const memberships = data?.memberships ?? [];
 	const lookup: Record<string, RosterEntry> = {};
@@ -39,7 +43,8 @@ export async function fetchClanRoster(): Promise<Record<string, RosterEntry>> {
 			womId: m.player.id ?? null,
 			ehb: Math.round(m.player.ehb || 0),
 			ehp: m.player.ehp || 0,
-			clanJoinedAt: m.createdAt ?? null
+			clanJoinedAt: m.createdAt ?? null,
+			womRole: m.role ?? null
 		};
 	}
 	return lookup;

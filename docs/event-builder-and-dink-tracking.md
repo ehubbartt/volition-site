@@ -106,9 +106,13 @@ poll-on-read backstop stays drain-only so it remains cheap.
    it), plus `db/scripts/personal_boards.sql` and `db/scripts/dink_tracking_hardening.sql`.
 2. **Site env:** set `DINK_PROCESS_SECRET` (guards `POST /api/dink/process`).
 3. **Proxy:** set `SUPABASE_URL` (var) + `SUPABASE_KEY` (`wrangler secret put`), then
-   `npx wrangler deploy`. The proxy injects each open event's tracked-item names into
-   Dink's **loot allowlist** when it serves `/config/<token>`, so those items reach the
-   proxy regardless of value while `minLootValue` stays at 3,000,000 (no firehose).
+   `npx wrangler deploy`. The proxy injects tracked-item names into Dink's **loot
+   allowlist** when it serves `/config/<token>` — **per token**: only the items active
+   for THAT member (their event signups + locked personal board), read from
+   `vs_dink_token_items` (`db/scripts/dink_token_items.sql`), falling back to the
+   clan-wide `vs_active_tracked_items` union if the per-token lookup fails. Completing
+   a tile drops its item from the member's allowlist on the next config serve. Items
+   reach the proxy regardless of value while `minLootValue` stays high (no firehose).
    `FEED_MIN_VALUE` still gates what's forwarded to the Discord feed.
    - Auto-tracking is a **no-op until `SUPABASE_URL`/`SUPABASE_KEY` are set**, so the
      proxy is safe to run without it.
@@ -159,9 +163,10 @@ event is suppressed so member testing doesn't spam the channel.
 
 `/dink-check` is the member-facing "is my Dink working?" page. It's powered by a
 permanent, **unlisted** event (slug `dink-self-test`, created by
-`db/scripts/events_unlisted.sql`) whose tiles track trivial drops — Bones, Cowhide,
-Feathers, Raw chicken — with an unreachable `required_qty` so the tiles never complete
-and re-testing always works. **Opening the page auto-enrolls the viewer** (a bare
+`db/scripts/events_unlisted.sql`) tracking **Bones only** — the drop every combat kill
+supplies — with an unreachable `required_qty` so the tile never completes and
+re-testing always works. (Bones only on purpose: every /dink-check visitor is
+enrolled, so each tracked item here lands in the whole clan's Dink allowlists.) **Opening the page auto-enrolls the viewer** (a bare
 `vs_event_signups` row is all `vs_active_player_tiles` needs), so the member flow is:
 open `/dink-check` → kill a chicken → the drop appears on the page within seconds.
 No joining, no admin action.

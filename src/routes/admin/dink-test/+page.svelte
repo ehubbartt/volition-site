@@ -47,10 +47,11 @@
 	<div class="card selftest">
 		<h2>Player Dink self-test</h2>
 		<p class="muted small">
-			Creates (or refreshes) an always-open <strong>Dink Self-Test</strong> event whose tiles track
-			trivially-easy items (Bones, Cowhide, Feather, Raw chicken, Big bones). Members can then visit
-			<a href="/dink-check">/dink-check</a> and kill a chicken/cow to confirm their Dink → proxy pipeline
-			works before a real event. Reuse it any time.
+			Creates (or refreshes) an always-open <strong>Dink Self-Test</strong> event tracking
+			<strong>Bones only</strong> — the one drop every combat kill supplies, and the only item
+			that should sit in everyone's Dink allowlist for testing. Members visit
+			<a href="/dink-check">/dink-check</a> and kill anything to confirm their Dink → proxy
+			pipeline works before a real event. Reuse it any time.
 		</p>
 		<form method="POST" action="?/createSelfTest" use:enhance>
 			<button type="submit" class="primary">Create / refresh self-test event</button>
