@@ -44,6 +44,10 @@ interface GearPiece {
 	status: 'complete' | 'partial' | 'none';
 	owned: boolean; // status === 'complete' (kept for the owned count + sort)
 	missing: string[]; // partial only: remaining check items (display names) for the modal
+	// The pieces that make up this entry, and whether it's assembled from parts at all.
+	// The modal shows a component breakdown (owned/needed + wiki links) for assembled ones.
+	components: { name: string; qty: number }[];
+	assembled: boolean;
 	// Untrackable via the clog — the grid tile becomes a click-to-claim shortcut.
 	claimable: boolean;
 }
@@ -85,6 +89,8 @@ function buildGearGrid(detail: GearDetail | null): { grid: GearTierGroup[]; owne
 			status,
 			owned: status === 'complete',
 			missing: partial ?? [],
+			components: entry.components,
+			assembled: entry.assembled,
 			claimable: entry.claimable
 		});
 	}

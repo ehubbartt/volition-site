@@ -28,6 +28,8 @@
 		status?: 'complete' | 'partial' | 'none';
 		owned: boolean; // complete
 		missing?: string[]; // partial: remaining check items (display names)
+		components?: { name: string; qty: number }[]; // all pieces that make up this entry
+		assembled?: boolean; // built from parts → modal shows the component breakdown
 		claimable?: boolean; // untrackable via the clog — click-to-claim when onClaim is set
 	}
 	interface GearGroup {
@@ -366,13 +368,20 @@
 		wikiPages={[p.iconItem ?? p.name]}
 		onclose={() => (infoPiece = null)}
 	>
-		{#if p.status === 'partial' && (p.missing ?? []).length}
+		{#if p.assembled && (p.components ?? []).length}
+			{@const missingSet = new Set(p.missing ?? [])}
 			<div class="modal-missing">
-				<p class="mm-head">Still needed to complete this (no points until finished):</p>
-				<ul>
-					{#each p.missing ?? [] as m (m)}
-						<li>
-							<a href={wikiPageUrl(m.replace(/ ×\d+$/, ''))} target="_blank" rel="noreferrer noopener">{m} ↗</a>
+				<p class="mm-head">
+					{#if p.owned}Made from — you have all of these:
+					{:else}Components ({(p.components ?? []).length - missingSet.size}/{(p.components ?? []).length} owned) — no points until you have every piece:
+					{/if}
+				</p>
+				<ul class="component-list">
+					{#each p.components ?? [] as c (c.name)}
+						{@const have = p.owned || !missingSet.has(c.name)}
+						<li class:have>
+							<span class="comp-mark">{have ? '✓' : '○'}</span>
+							<a href={wikiPageUrl(c.name)} target="_blank" rel="noreferrer noopener">{c.name}{c.qty > 1 ? ` ×${c.qty}` : ''} ↗</a>
 						</li>
 					{/each}
 				</ul>
@@ -619,7 +628,7 @@
 		width: 100%;
 		margin-top: 0.5rem;
 	}
-	/* "Still needed" list inside the item modal for in-progress gear. */
+	/* Component breakdown inside the item modal for assembled gear. */
 	.modal-missing {
 		margin: 0.2rem 0 0.4rem;
 	}
@@ -628,10 +637,27 @@
 		font-size: 0.8rem;
 		color: var(--muted);
 	}
-	.modal-missing ul {
+	.component-list {
+		list-style: none;
 		margin: 0;
-		padding-left: 1.1rem;
+		padding: 0;
 		font-size: 0.85rem;
+	}
+	.component-list li {
+		display: flex;
+		align-items: baseline;
+		gap: 0.4rem;
+		padding: 0.12rem 0;
+	}
+	.component-list .comp-mark {
+		width: 1em;
+		color: var(--muted);
+	}
+	.component-list li.have .comp-mark {
+		color: var(--success, #6aa84f);
+	}
+	.component-list li:not(.have) a {
+		color: var(--accent);
 	}
 
 	/* Combat achievements summary */

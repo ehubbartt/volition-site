@@ -65,8 +65,10 @@ Multi-part entries (armour sets, combined items, quantity checks) are **all-or-n
 `calculateGearPoints` awards the full points only when EVERY check is met, and reports a
 partially-owned entry as a `GearPartial` (0 points + the still-missing check items, cached
 in `gear_detail.partials`). The gear grid renders three states — complete, **in progress**
-(dashed amber, "in progress" ribbon; the item modal lists what's still needed with wiki
-links), and missing. Points are never awarded until the entry is finished.
+(dashed amber, "in progress" ribbon), and missing. Points are never awarded until the
+entry is finished. For any assembled entry (`GearCatalogEntry.components` / `assembled`),
+the item modal shows the FULL component breakdown — every piece with an owned ✓ / needed
+○ mark and a wiki link (e.g. clicking Voidwaker lists hilt, gem, blade).
 
 Every gear-grid tile opens the shared `ItemInfoModal` (tier, points, status, tracking
 source, wiki link). Entries flagged `claimable: true` are untrackable by the clog: their

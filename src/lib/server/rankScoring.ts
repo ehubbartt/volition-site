@@ -144,7 +144,7 @@ export function calculateGearPoints(
 
 			const met = bestCount >= requiredQty;
 			if (met) checksPassed += 1;
-			else missing.push(requiredQty > 1 ? `${names[0]} ×${requiredQty}` : names[0]);
+			else missing.push(names[0]); // plain component name (matches the catalog component list)
 		}
 
 		// ALL-OR-NOTHING: points only when EVERY check is satisfied; a partial scores 0
@@ -171,6 +171,12 @@ export function calculateGearPoints(
 // entry sets an explicit `icon` (e.g. DT2 rings display the ring, not the vestige
 // clog check). `iconItem` drives display + wiki; `checkItem` is the clog-tracked
 // name used for manual-claim matching — they diverge when `icon` is set. Built once.
+// A component that makes up an assembled gear entry (one per check; `name` is the
+// first OR-alternative for display/wiki; `qty` is how many are needed).
+export interface GearComponent {
+	name: string;
+	qty: number;
+}
 export interface GearCatalogEntry {
 	name: string;
 	tier: string;
@@ -178,6 +184,12 @@ export interface GearCatalogEntry {
 	iconItem: string | null; // display / wiki
 	checkItem: string | null; // clog check name (claim + scoring match target)
 	claimable: boolean;
+	// Every check's display item — the pieces that make up this entry. `assembled`
+	// is true when the entry is built from parts (multi-check, a quantity, or an icon
+	// override) vs. being the tracked item itself (Fire cape) — the item modal shows
+	// the component breakdown only for assembled entries.
+	components: GearComponent[];
+	assembled: boolean;
 }
 
 let gearCatalog: GearCatalogEntry[] | null = null;
@@ -186,7 +198,14 @@ export function getGearCatalog(): GearCatalogEntry[] {
 	gearCatalog = GEAR.gear.map((g) => {
 		const first = g.items[0]?.name;
 		const checkItem = Array.isArray(first) ? (first[0] ?? null) : (first ?? null);
+		const components: GearComponent[] = g.items.map((c) => ({
+			name: Array.isArray(c.name) ? c.name[0] : c.name,
+			qty: c.quantity || 1
+		}));
+		const assembled = components.length > 1 || components.some((c) => c.qty > 1) || g.icon != null;
 		return {
+			components,
+			assembled,
 			name: g.name,
 			tier: g.tier,
 			points: g.points,
