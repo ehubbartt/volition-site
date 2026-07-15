@@ -369,19 +369,25 @@
 		onclose={() => (infoPiece = null)}
 	>
 		{#if p.assembled && (p.components ?? []).length}
+			{@const comps = p.components ?? []}
 			{@const missingSet = new Set(p.missing ?? [])}
+			<!-- have: complete → all owned; none → none owned (no `missing` data is recorded
+			     for a 0-check entry, so status must decide); partial → not in the missing set. -->
+			{@const have = (n: string) =>
+				p.status === 'complete' ? true : p.status === 'partial' ? !missingSet.has(n) : false}
+			{@const haveCount = comps.filter((c) => have(c.name)).length}
 			<div class="modal-missing">
 				<p class="mm-head">
-					{#if p.owned}Made from — you have all of these:
-					{:else}Components ({(p.components ?? []).length - missingSet.size}/{(p.components ?? []).length} owned) — no points until you have every piece:
+					{#if p.status === 'complete'}Made from — you have all of these:
+					{:else}Components ({haveCount}/{comps.length} owned) — no points until you have every piece:
 					{/if}
 				</p>
 				<ul class="component-list">
-					{#each p.components ?? [] as c (c.name)}
-						{@const have = p.owned || !missingSet.has(c.name)}
-						<li class:have>
-							<span class="comp-mark">{have ? '✓' : '○'}</span>
+					{#each comps as c (c.name)}
+						<li class:have={have(c.name)} class:needed={!have(c.name)}>
+							<span class="comp-mark">{have(c.name) ? '✓' : '✗'}</span>
 							<a href={wikiPageUrl(c.name)} target="_blank" rel="noreferrer noopener">{c.name}{c.qty > 1 ? ` ×${c.qty}` : ''} ↗</a>
+							{#if !have(c.name)}<span class="comp-tag">needed</span>{/if}
 						</li>
 					{/each}
 				</ul>
@@ -651,13 +657,29 @@
 	}
 	.component-list .comp-mark {
 		width: 1em;
-		color: var(--muted);
+		font-weight: 700;
 	}
 	.component-list li.have .comp-mark {
 		color: var(--success, #6aa84f);
 	}
-	.component-list li:not(.have) a {
+	.component-list li.needed .comp-mark {
+		color: var(--danger);
+	}
+	/* Needed pieces read as clearly not-yet-owned: dimmed, accent link, a "needed" tag. */
+	.component-list li.needed a {
 		color: var(--accent);
+	}
+	.component-list li.have a {
+		color: var(--text);
+	}
+	.comp-tag {
+		font-size: 0.62rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--danger);
+		border: 1px solid var(--danger);
+		border-radius: 3px;
+		padding: 0 0.25rem;
 	}
 
 	/* Combat achievements summary */
