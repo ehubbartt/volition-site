@@ -89,8 +89,17 @@
 	let checkingRank = $state(false);
 	let rank = $derived(data.rankBreakdown);
 
-	// Manual gear-claim form busy state (untrackable items — see the Rank tab section).
+	// Manual gear-claim form state (untrackable items — see the Rank tab section).
+	// Clicking a "claim" gear tile in the rank panel opens the form prefilled.
 	let claiming = $state(false);
+	let claimsOpen = $state(false);
+	let claimItem = $state('');
+	let claimsEl = $state<HTMLDetailsElement>();
+	function startClaim(itemName: string) {
+		claimItem = itemName;
+		claimsOpen = true;
+		claimsEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	}
 
 	// Rank-up celebration: the checkRank action reports a saved climb as form.rankUp
 	// — mirror it into state so dismissing sticks even though `form` doesn't change.
@@ -238,6 +247,7 @@
 				{rank}
 				currentRank={data.currentRank}
 				showSetupTips
+				onClaim={startClaim}
 				emptyText={data.user.rsn
 					? 'Pull your live stats from WiseOldMan, TempleOSRS and WikiSync to compute your clan rank and see exactly how each section contributes.'
 					: ''}
@@ -277,7 +287,7 @@
 			<!-- Manual gear claims: items the Temple collection log can't prove (GE-bought
 			     pieces, upgraded variants combined outside the log). Admin-reviewed on
 			     /admin/rank-claims; approved items count on the next rank check. -->
-			<details class="gear-claims">
+			<details class="gear-claims" bind:this={claimsEl} bind:open={claimsOpen}>
 				<summary>Own rank gear the collection log can't see? Claim it here</summary>
 				<p class="muted small">
 					Some gear counts for rank but never shows in your collection log — pieces bought on
@@ -304,7 +314,13 @@
 						};
 					}}
 				>
-					<input list="gear-claim-items" name="item_name" placeholder="Item (e.g. Oathplate chest)" required />
+					<input
+						list="gear-claim-items"
+						name="item_name"
+						placeholder="Item (e.g. Oathplate chest)"
+						bind:value={claimItem}
+						required
+					/>
 					<datalist id="gear-claim-items">
 						{#each data.claimableGear as g (g.item)}
 							<option value={g.item}>{g.entry} · {g.points} pts</option>

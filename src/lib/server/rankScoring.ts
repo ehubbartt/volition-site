@@ -23,6 +23,9 @@ interface GearEntry {
 	name: string;
 	tier: string;
 	points: number;
+	// Untrackable via the Temple clog (GE-bought / combined outside the log) — the
+	// gear grid marks these with a click-to-claim affordance (manual gear claims).
+	claimable?: boolean;
 	items: GearCheck[];
 }
 interface GearScoring {
@@ -151,6 +154,7 @@ export interface GearCatalogEntry {
 	tier: string;
 	points: number;
 	iconItem: string | null;
+	claimable: boolean;
 }
 
 let gearCatalog: GearCatalogEntry[] | null = null;
@@ -159,7 +163,7 @@ export function getGearCatalog(): GearCatalogEntry[] {
 	gearCatalog = GEAR.gear.map((g) => {
 		const first = g.items[0]?.name;
 		const iconItem = Array.isArray(first) ? (first[0] ?? null) : (first ?? null);
-		return { name: g.name, tier: g.tier, points: g.points, iconItem };
+		return { name: g.name, tier: g.tier, points: g.points, iconItem, claimable: g.claimable === true };
 	});
 	return gearCatalog;
 }

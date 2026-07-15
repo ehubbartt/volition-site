@@ -23,6 +23,7 @@
 		earned: number;
 		max: number;
 		owned: boolean;
+		claimable?: boolean; // untrackable via the clog — click-to-claim when onClaim is set
 	}
 	interface GearGroup {
 		tier: string;
@@ -55,6 +56,7 @@
 		currentRank = null,
 		emptyText = '',
 		showSetupTips = false,
+		onClaim,
 		actions,
 		status
 	}: {
@@ -64,6 +66,9 @@
 		emptyText?: string;
 		/** Second-person "set this up" hints under zero-score components (/me only). */
 		showSetupTips?: boolean;
+		/** Click-to-claim for untrackable gear tiles (/me passes this; /u omits it).
+		 * Receives the CHECK item name the claim should target. */
+		onClaim?: (itemName: string) => void;
 		actions?: Snippet;
 		status?: Snippet;
 	} = $props();
@@ -255,20 +260,49 @@
 					<p class="tier-head muted">{group.label}</p>
 					<div class="gear-grid">
 						{#each group.pieces as p (p.name)}
-							<div class="gtile" class:owned={p.owned} title="{p.name} · {p.owned ? `${p.earned}/${p.max}` : `0/${p.max}`} pts">
-								<div class="gtile-img">
-									{#if p.iconItem}
-										<img
-											src={itemIconUrl(p.iconItem)}
-											alt={p.name}
-											loading="lazy"
-											referrerpolicy="no-referrer"
-											onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
-										/>
-									{/if}
+							{#if p.claimable && onClaim && !p.owned}
+								<!-- Untrackable via the clog: the tile IS the claim shortcut. -->
+								<button
+									type="button"
+									class="gtile gtile-claim"
+									title="{p.name} · 0/{p.max} pts — the collection log can't track this; click to claim it with proof"
+									onclick={() => onClaim(p.iconItem ?? p.name)}
+								>
+									<div class="gtile-img">
+										{#if p.iconItem}
+											<img
+												src={itemIconUrl(p.iconItem)}
+												alt={p.name}
+												loading="lazy"
+												referrerpolicy="no-referrer"
+												onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
+											/>
+										{/if}
+									</div>
+									<span class="gtile-pts">{p.max}</span>
+									<span class="gtile-flag">claim</span>
+								</button>
+							{:else}
+								<div
+									class="gtile"
+									class:owned={p.owned}
+									title="{p.name} · {p.owned ? `${p.earned}/${p.max}` : `0/${p.max}`} pts{p.claimable && !p.owned ? ' — untrackable; claim it from /me' : ''}"
+								>
+									<div class="gtile-img">
+										{#if p.iconItem}
+											<img
+												src={itemIconUrl(p.iconItem)}
+												alt={p.name}
+												loading="lazy"
+												referrerpolicy="no-referrer"
+												onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
+											/>
+										{/if}
+									</div>
+									<span class="gtile-pts">{p.owned ? `${p.earned}/${p.max}` : p.max}</span>
+									{#if p.claimable && !p.owned}<span class="gtile-flag muted-flag">claim</span>{/if}
 								</div>
-								<span class="gtile-pts">{p.owned ? `${p.earned}/${p.max}` : p.max}</span>
-							</div>
+							{/if}
 						{/each}
 					</div>
 				{/each}
@@ -494,6 +528,42 @@
 	.gtile.owned .gtile-pts {
 		color: var(--accent);
 		font-family: var(--font-heading);
+	}
+	/* Untrackable tiles: the "claim" ribbon; as a <button> (with onClaim) it's clickable. */
+	.gtile {
+		position: relative;
+	}
+	.gtile-flag {
+		position: absolute;
+		top: 2px;
+		right: 2px;
+		padding: 0 0.25rem;
+		font-size: 0.55rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		border-radius: 3px;
+		background: var(--accent);
+		color: #1c1710;
+	}
+	.gtile-flag.muted-flag {
+		background: var(--surface);
+		color: var(--muted);
+		border: 1px solid var(--border);
+	}
+	button.gtile-claim {
+		/* resets for the global bronze button styling; inherit the tile look */
+		border-image: none;
+		min-height: 0;
+		font: inherit;
+		cursor: pointer;
+		opacity: 0.55;
+		filter: grayscale(0.6);
+	}
+	button.gtile-claim:hover,
+	button.gtile-claim:focus {
+		opacity: 1;
+		filter: none;
+		border-color: var(--accent);
 	}
 
 	/* Combat achievements summary */

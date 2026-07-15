@@ -1,5 +1,5 @@
 {
-  "GEAR_SCORE_CAP": 25150,
+  "GEAR_SCORE_CAP": 27550,
   "gear": [
     {
       "name": "Neitiznot Faceguard",
@@ -553,19 +553,64 @@
       "name": "Oathplate Helm",
       "tier": "end",
       "points": 300,
+      "claimable": true,
       "items": [{ "name": "Oathplate helm" }]
     },
     {
       "name": "Oathplate Chest",
       "tier": "end",
       "points": 300,
+      "claimable": true,
       "items": [{ "name": "Oathplate chest" }]
     },
     {
       "name": "Oathplate Legs",
       "tier": "end",
       "points": 300,
+      "claimable": true,
       "items": [{ "name": "Oathplate legs" }]
+    },
+    {
+      "name": "Radiant Oathplate Helm",
+      "tier": "expression",
+      "points": 400,
+      "claimable": true,
+      "items": [{ "name": "Radiant oathplate helm" }]
+    },
+    {
+      "name": "Radiant Oathplate Chest",
+      "tier": "expression",
+      "points": 400,
+      "claimable": true,
+      "items": [{ "name": "Radiant oathplate chest" }]
+    },
+    {
+      "name": "Radiant Oathplate Legs",
+      "tier": "expression",
+      "points": 400,
+      "claimable": true,
+      "items": [{ "name": "Radiant oathplate legs" }]
+    },
+    {
+      "name": "Blood Torva Full Helm",
+      "tier": "expression",
+      "points": 400,
+      "claimable": true,
+      "items": [{ "name": "Blood torva full helm" }]
+    },
+    {
+      "name": "Blood Torva Platebody",
+      "tier": "expression",
+      "points": 400,
+      "claimable": true,
+      "items": [{ "name": "Blood torva platebody" }]
+    },
+    {
+      "name": "Blood Torva Platelegs",
+      "tier": "expression",
+      "points": 400,
+      "claimable": true,
+      "items": [{ "name": "Blood torva platelegs" }]
     },
     {
       "name": "Elder Maul",
@@ -600,13 +645,13 @@
     },
     {
       "name": "Dizana's Quiver",
-      "tier": "side",
+      "tier": "expression",
       "points": 250,
       "items": [{ "name": "Dizana's quiver (uncharged)" }]
     },
     {
       "name": "Infernal cape",
-      "tier": "side",
+      "tier": "expression",
       "points": 250,
       "items": [{ "name": "Infernal cape" }]
     },

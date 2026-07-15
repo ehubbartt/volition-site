@@ -23,8 +23,9 @@ import type { RankValue } from '$lib/ranks';
 // instantly and this streams in behind the skeleton.
 
 // Gear tiers ordered for the collection-log grid (top gear leads); labels for headers.
-const GEAR_TIER_ORDER = ['end', 'middle', 'low', 'side'];
+const GEAR_TIER_ORDER = ['expression', 'end', 'middle', 'low', 'side'];
 const GEAR_TIER_LABEL: Record<string, string> = {
+	expression: 'Skill expression',
 	end: 'End-game',
 	middle: 'Mid tier',
 	low: 'Low tier',
@@ -37,6 +38,8 @@ interface GearPiece {
 	earned: number;
 	max: number;
 	owned: boolean;
+	// Untrackable via the clog — the grid tile becomes a click-to-claim shortcut.
+	claimable: boolean;
 }
 interface GearTierGroup {
 	tier: string;
@@ -67,7 +70,8 @@ function buildGearGrid(detail: GearDetail | null): { grid: GearTierGroup[]; owne
 			iconItem: entry.iconItem,
 			earned: got,
 			max: entry.points,
-			owned: got > 0
+			owned: got > 0,
+			claimable: entry.claimable
 		});
 	}
 

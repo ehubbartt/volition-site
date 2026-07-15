@@ -48,6 +48,17 @@ Oathplate). The claims channel covers them:
 - **Module**: `src/lib/server/rankClaims.ts` (claimable list is the flattened gear-table
   check names; proofs share the bingo bucket under a `rank-claims/` prefix).
 
+### Tiers and the "Skill expression" section
+
+Gear-table entries carry a `tier` (`expression` / `end` / `middle` / `low` / `side`;
+ordered + labelled in `meData.ts`). The **expression** tier groups skill-expression
+flexes — Infernal cape, Dizana's Quiver, and the combined upgrades (Blood Torva,
+Radiant Oathplate). Entries flagged `claimable: true` are untrackable by the clog:
+their gear-grid tiles wear a "claim" ribbon, and on /me (where the panel gets an
+`onClaim` handler) clicking the tile opens the claim form prefilled with the item.
+`GEAR_SCORE_CAP` must stay equal to the sum of all entry points — update it whenever
+entries are added or repointed.
+
 ## Keeping the gear/CA tables current
 
 `gearScoring.json` and `combatAchievements.json` are the canonical hand-maintained
