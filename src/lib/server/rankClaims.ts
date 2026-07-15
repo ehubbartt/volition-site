@@ -92,7 +92,9 @@ export async function getApprovedGearNames(userId: string): Promise<string[]> {
 export async function getApprovedGearNamesByRsn(): Promise<Map<string, string[]>> {
 	const { data } = await db()
 		.from('vs_rank_item_claims')
-		.select('item_name, vs_users(rsn)')
+		// Disambiguate the embed: this table has TWO FKs to vs_users (user_id +
+		// reviewed_by), so a bare vs_users(...) is ambiguous and PostgREST errors.
+		.select('item_name, vs_users!user_id(rsn)')
 		.eq('status', 'approved');
 	const out = new Map<string, string[]>();
 	// The vs_users embed is many-to-one — an object at runtime despite the array typing.
@@ -161,11 +163,15 @@ export interface PendingGearClaim extends GearClaim {
 
 // The admin review queue: pending first (oldest first), then recent decisions.
 export async function listGearClaimsForReview(): Promise<{ pending: PendingGearClaim[]; decided: PendingGearClaim[] }> {
-	const { data } = await db()
+	const { data, error } = await db()
 		.from('vs_rank_item_claims')
-		.select(`${CLAIM_COLS}, vs_users(rsn, discord_username)`)
+		// Disambiguate the embed: this table has TWO FKs to vs_users (user_id +
+		// reviewed_by), so a bare vs_users(...) is ambiguous and PostgREST errors —
+		// which silently emptied the admin review queue. Pin it to the submitter FK.
+		.select(`${CLAIM_COLS}, vs_users!user_id(rsn, discord_username)`)
 		.order('submitted_at', { ascending: false })
 		.limit(200);
+	if (error) console.error('[rank-claims] review queue query failed:', error.message);
 	const byItem = new Map(claimableGearItems().map((c) => [c.item.toLowerCase(), c]));
 	// Same many-to-one embed caveat as above: object at runtime, array in the types.
 	const rows = ((data ?? []) as unknown as (GearClaim & { vs_users: { rsn: string | null; discord_username: string | null } | null })[]).map(

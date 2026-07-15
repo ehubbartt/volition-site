@@ -38,9 +38,11 @@ Some gear-table items can't be proven by the Temple collection log — tradeable
 bought on the GE, or upgraded variants combined outside the log (Blood Torva, Radiant
 Oathplate). The claims channel covers them:
 
-- **Member**: /me Rank tab → "Own rank gear the collection log can't see?" — pick a
-  gear-table item, attach proof screenshots, submit. One live claim per item (rejected
-  claims may be resubmitted).
+- **Member**: /me Rank tab → "Own rank gear the collection log can't see?" opens
+  `src/lib/profile/GearClaimModal.svelte` (also reached from a gear tile's "Claim this
+  item" shortcut, prefilled) — pick a gear-table item, drop/paste/attach proof
+  screenshots, submit. The modal reuses the shared `ImageDropper` (drag · drop · paste)
+  from the event submissions. One live claim per item (rejected claims may be resubmitted).
 - **Admin**: `/admin/rank-claims` — pending queue with proofs, approve/reject + note.
 - **Effect**: APPROVED claims (`vs_rank_item_claims`, `db/scripts/rank_item_claims.sql`)
   merge into `calculateGearPoints` as owned items (count 1) at the next `/me` rank check
