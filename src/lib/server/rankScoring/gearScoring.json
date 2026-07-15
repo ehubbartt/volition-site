@@ -1,5 +1,5 @@
 {
-  "GEAR_SCORE_CAP": 26050,
+  "GEAR_SCORE_CAP": 25950,
   "gear": [
     {
       "name": "Neitiznot Faceguard",
@@ -62,21 +62,6 @@
       "items": [{ "name": "Elite void robe" }, { "name": "Elite void top" }]
     },
     {
-      "name": "Barrows Tank Set",
-      "tier": "low",
-      "points": 100,
-      "items": [
-        { "name": "Guthan's platebody" },
-        { "name": "Guthan's chainskirt" },
-        { "name": "Dharok's platebody" },
-        { "name": "Dharok's platelegs" },
-        { "name": "Torag's platebody" },
-        { "name": "Torag's platelegs" },
-        { "name": "Verac's brassard" },
-        { "name": "Verac's plateskirt" }
-      ]
-    },
-    {
       "name": "Toxic Blowpipe",
       "tier": "low",
       "points": 100,
@@ -107,9 +92,9 @@
       "tier": "low",
       "points": 100,
       "items": [
-        { "name": ["Ahrim's robeskirt", "Blue moon chestplate"] },
-        { "name": ["Ahrim's robetop", "Blue moon tassets"] },
-        { "name": ["Ahrim's hood", "Blue moon helm"] }
+        { "name": ["Ahrim's hood", "Blue moon helm"] },
+        { "name": ["Ahrim's robetop", "Blue moon chestplate"] },
+        { "name": ["Ahrim's robeskirt", "Blue moon tassets"] }
       ]
     },
     {
