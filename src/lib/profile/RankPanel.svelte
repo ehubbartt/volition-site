@@ -28,7 +28,7 @@
 		status?: 'complete' | 'partial' | 'none';
 		owned: boolean; // complete
 		missing?: string[]; // partial: remaining check items (display names)
-		components?: { name: string; qty: number }[]; // all pieces that make up this entry
+		components?: { name: string; names?: string[]; qty: number }[]; // all pieces that make up this entry
 		assembled?: boolean; // built from parts → modal shows the component breakdown
 		claimable?: boolean; // untrackable via the clog — click-to-claim when onClaim is set
 	}
@@ -386,7 +386,13 @@
 					{#each comps as c (c.name)}
 						<li class:have={have(c.name)} class:needed={!have(c.name)}>
 							<span class="comp-mark">{have(c.name) ? '✓' : '✗'}</span>
-							<a href={wikiPageUrl(c.name)} target="_blank" rel="noreferrer noopener">{c.name}{c.qty > 1 ? ` ×${c.qty}` : ''} ↗</a>
+							<span class="comp-alts">
+								{#each c.names ?? [c.name] as alt, i (alt)}
+									{#if i > 0}<span class="comp-or"> or </span>{/if}
+									<a href={wikiPageUrl(alt)} target="_blank" rel="noreferrer noopener">{alt} ↗</a>
+								{/each}
+								{#if c.qty > 1}<span class="comp-qty"> ×{c.qty}</span>{/if}
+							</span>
 							{#if !have(c.name)}<span class="comp-tag">needed</span>{/if}
 						</li>
 					{/each}
@@ -666,6 +672,15 @@
 	}
 	.component-list li.have a {
 		color: var(--text);
+	}
+	/* OR-alternatives for a slot (e.g. "Ahrim's helm or Blue moon helm"): the
+	   separator is muted so the accepted variants read as one either/or option. */
+	.comp-or {
+		color: var(--text-muted, #888);
+		font-style: italic;
+	}
+	.comp-qty {
+		color: var(--text-muted, #888);
 	}
 	.comp-tag {
 		font-size: 0.62rem;

@@ -46,7 +46,7 @@ interface GearPiece {
 	missing: string[]; // partial only: remaining check items (display names) for the modal
 	// The pieces that make up this entry, and whether it's assembled from parts at all.
 	// The modal shows a component breakdown (owned/needed + wiki links) for assembled ones.
-	components: { name: string; qty: number }[];
+	components: { name: string; names?: string[]; qty: number }[];
 	assembled: boolean;
 	// Untrackable via the clog — the grid tile becomes a click-to-claim shortcut.
 	claimable: boolean;

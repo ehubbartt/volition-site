@@ -68,7 +68,10 @@ in `gear_detail.partials`). The gear grid renders three states — complete, **i
 (dashed amber, "in progress" ribbon), and missing. Points are never awarded until the
 entry is finished. For any assembled entry (`GearCatalogEntry.components` / `assembled`),
 the item modal shows the FULL component breakdown — every piece with an owned ✓ / needed
-○ mark and a wiki link (e.g. clicking Voidwaker lists hilt, gem, blade).
+○ mark and a wiki link (e.g. clicking Voidwaker lists hilt, gem, blade). A slot with
+OR-alternatives lists all accepted variants joined by "or" (e.g. the Ahrim/Blue Moon set
+shows "Ahrim's helm or Blue moon helm" per slot) — the component carries every alternative
+(`GearComponent.names`), not just the first.
 
 Every gear-grid tile opens the shared `ItemInfoModal` (tier, points, status, tracking
 source, wiki link). Entries flagged `claimable: true` are untrackable by the clog: their

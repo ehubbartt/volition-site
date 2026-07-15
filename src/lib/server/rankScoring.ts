@@ -174,7 +174,8 @@ export function calculateGearPoints(
 // A component that makes up an assembled gear entry (one per check; `name` is the
 // first OR-alternative for display/wiki; `qty` is how many are needed).
 export interface GearComponent {
-	name: string;
+	name: string; // primary display/identity name (first OR-alternative)
+	names: string[]; // every accepted alternative for this slot (OR) — all shown in the modal
 	qty: number;
 }
 export interface GearCatalogEntry {
@@ -198,10 +199,10 @@ export function getGearCatalog(): GearCatalogEntry[] {
 	gearCatalog = GEAR.gear.map((g) => {
 		const first = g.items[0]?.name;
 		const checkItem = Array.isArray(first) ? (first[0] ?? null) : (first ?? null);
-		const components: GearComponent[] = g.items.map((c) => ({
-			name: Array.isArray(c.name) ? c.name[0] : c.name,
-			qty: c.quantity || 1
-		}));
+		const components: GearComponent[] = g.items.map((c) => {
+			const names = Array.isArray(c.name) ? c.name : [c.name];
+			return { name: names[0], names, qty: c.quantity || 1 };
+		});
 		const assembled = components.length > 1 || components.some((c) => c.qty > 1) || g.icon != null;
 		return {
 			components,
