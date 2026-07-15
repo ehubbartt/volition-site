@@ -21,7 +21,8 @@
 	}
 	interface GearPiece {
 		name: string;
-		iconItem: string | null;
+		iconItem: string | null; // display / wiki
+		checkItem?: string | null; // clog check name — the manual-claim target
 		earned: number;
 		max: number;
 		owned: boolean;
@@ -356,7 +357,7 @@
 				type="button"
 				class="modal-claim"
 				onclick={() => {
-					const item = p.iconItem ?? p.name;
+					const item = p.checkItem ?? p.iconItem ?? p.name;
 					infoPiece = null;
 					onClaim(item);
 				}}

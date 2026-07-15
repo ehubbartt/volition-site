@@ -26,6 +26,9 @@ interface GearEntry {
 	// Untrackable via the Temple clog (GE-bought / combined outside the log) — the
 	// gear grid marks these with a click-to-claim affordance (manual gear claims).
 	claimable?: boolean;
+	// Display-icon override (item name) when the clog check item isn't what to show —
+	// e.g. DT2 rings check the vestige clog unlock but display the ring.
+	icon?: string;
 	items: GearCheck[];
 }
 interface GearScoring {
@@ -148,12 +151,16 @@ export function calculateGearPoints(
 // The full gear table flattened to display rows: each entry's name, tier, max
 // points, and a REPRESENTATIVE item to show an icon for. The entry `name` is a set
 // label (e.g. "Ahrim/Bluemoon Robe Set"), often not an item — so the icon item is
-// taken from the first required item check (its first OR-alternative). Built once.
+// taken from the first required item check (its first OR-alternative), UNLESS the
+// entry sets an explicit `icon` (e.g. DT2 rings display the ring, not the vestige
+// clog check). `iconItem` drives display + wiki; `checkItem` is the clog-tracked
+// name used for manual-claim matching — they diverge when `icon` is set. Built once.
 export interface GearCatalogEntry {
 	name: string;
 	tier: string;
 	points: number;
-	iconItem: string | null;
+	iconItem: string | null; // display / wiki
+	checkItem: string | null; // clog check name (claim + scoring match target)
 	claimable: boolean;
 }
 
@@ -162,8 +169,15 @@ export function getGearCatalog(): GearCatalogEntry[] {
 	if (gearCatalog) return gearCatalog;
 	gearCatalog = GEAR.gear.map((g) => {
 		const first = g.items[0]?.name;
-		const iconItem = Array.isArray(first) ? (first[0] ?? null) : (first ?? null);
-		return { name: g.name, tier: g.tier, points: g.points, iconItem, claimable: g.claimable === true };
+		const checkItem = Array.isArray(first) ? (first[0] ?? null) : (first ?? null);
+		return {
+			name: g.name,
+			tier: g.tier,
+			points: g.points,
+			iconItem: g.icon ?? checkItem, // explicit display icon wins
+			checkItem,
+			claimable: g.claimable === true
+		};
 	});
 	return gearCatalog;
 }

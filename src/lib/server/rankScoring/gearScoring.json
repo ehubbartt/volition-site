@@ -1,5 +1,5 @@
 {
-  "GEAR_SCORE_CAP": 27550,
+  "GEAR_SCORE_CAP": 26150,
   "gear": [
     {
       "name": "Neitiznot Faceguard",
@@ -391,12 +391,14 @@
       "name": "Bellator Ring",
       "tier": "middle",
       "points": 200,
+      "icon": "Bellator ring",
       "items": [{ "name": "Bellator vestige" }]
     },
     {
       "name": "Venator Ring",
       "tier": "middle",
       "points": 200,
+      "icon": "Venator ring",
       "items": [{ "name": "Venator vestige" }]
     },
 
@@ -428,6 +430,7 @@
       "name": "Ultor Ring",
       "tier": "end",
       "points": 300,
+      "icon": "Ultor ring",
       "items": [{ "name": "Ultor vestige" }]
     },
     {
@@ -499,6 +502,7 @@
       "name": "Magus Ring",
       "tier": "end",
       "points": 300,
+      "icon": "Magus ring",
       "items": [{ "name": "Magus vestige" }]
     },
     {
@@ -573,16 +577,16 @@
     {
       "name": "Radiant Oathplate",
       "tier": "expression",
-      "points": 1200,
+      "points": 500,
       "claimable": true,
       "items": [{ "name": "Radiant oathplate helm" }]
     },
     {
       "name": "Blood Torva",
       "tier": "expression",
-      "points": 1200,
+      "points": 500,
       "claimable": true,
-      "items": [{ "name": "Blood torva full helm" }]
+      "items": [{ "name": "Sanguine torva full helm" }]
     },
     {
       "name": "Elder Maul",

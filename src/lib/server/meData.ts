@@ -34,7 +34,8 @@ const GEAR_TIER_LABEL: Record<string, string> = {
 
 interface GearPiece {
 	name: string;
-	iconItem: string | null;
+	iconItem: string | null; // display / wiki
+	checkItem: string | null; // clog check name — the manual-claim target
 	earned: number;
 	max: number;
 	owned: boolean;
@@ -68,6 +69,7 @@ function buildGearGrid(detail: GearDetail | null): { grid: GearTierGroup[]; owne
 		group.pieces.push({
 			name: entry.name,
 			iconItem: entry.iconItem,
+			checkItem: entry.checkItem,
 			earned: got,
 			max: entry.points,
 			owned: got > 0,
