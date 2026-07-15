@@ -1,17 +1,12 @@
 {
-  "GEAR_SCORE_CAP": 26150,
+  "GEAR_SCORE_CAP": 26050,
   "gear": [
     {
       "name": "Neitiznot Faceguard",
       "tier": "low",
       "points": 100,
+      "icon": "Neitiznot faceguard",
       "items": [{ "name": "Basilisk jaw" }]
-    },
-    {
-      "name": "Fighter Torso",
-      "tier": "low",
-      "points": 100,
-      "items": [{ "name": "Fighter torso" }]
     },
     {
       "name": "Full Bloodmoon",
@@ -57,6 +52,7 @@
       "name": "Serpentine Helm",
       "tier": "low",
       "points": 100,
+      "icon": "Serpentine helm",
       "items": [{ "name": "Serpentine visage" }]
     },
     {
@@ -84,6 +80,7 @@
       "name": "Toxic Blowpipe",
       "tier": "low",
       "points": 100,
+      "icon": "Toxic blowpipe",
       "items": [{ "name": "Tanzanite fang" }]
     },
     {
@@ -102,6 +99,7 @@
       "name": "Zombie Axe",
       "tier": "low",
       "points": 100,
+      "icon": "Zombie axe",
       "items": [{ "name": "Broken zombie axe" }]
     },
     {
@@ -130,8 +128,10 @@
       "name": "Twinflame Staff",
       "tier": "low",
       "points": 100,
+      "icon": "Twinflame staff",
       "items": [
-        { "name": ["Ice element staff crown", "Fire element staff crown"] }
+        { "name": "Ice element staff crown" },
+        { "name": "Fire element staff crown" }
       ]
     },
     {
@@ -204,6 +204,7 @@
       "name": "Dragon Hunter Lance",
       "tier": "middle",
       "points": 200,
+      "icon": "Dragon hunter lance",
       "items": [{ "name": "Hydra's claw" }]
     },
     {
@@ -233,6 +234,7 @@
       "name": "Pegasian Boots",
       "tier": "middle",
       "points": 200,
+      "icon": "Pegasian boots",
       "items": [{ "name": "Ranger boots" }, { "name": "Pegasian crystal" }]
     },
     {
@@ -275,6 +277,7 @@
       "name": "Eternal Boots",
       "tier": "middle",
       "points": 200,
+      "icon": "Eternal boots",
       "items": [{ "name": "Infinity boots" }, { "name": "Eternal crystal" }]
     },
     {
@@ -346,6 +349,7 @@
       "name": "Burning Claws",
       "tier": "middle",
       "points": 200,
+      "icon": "Burning claws",
       "items": [{ "name": "Burning claw", "quantity": 2 }]
     },
     {
@@ -446,6 +450,7 @@
       "name": "Soulreaper Axe",
       "tier": "end",
       "points": 300,
+      "icon": "Soulreaper axe",
       "items": [
         { "name": "Eye of the duke" },
         { "name": "Leviathan's lure" },
@@ -481,6 +486,7 @@
       "name": "Zaryte Crossbow",
       "tier": "end",
       "points": 300,
+      "icon": "Zaryte crossbow",
       "items": [{ "name": "Nihil horn" }]
     },
     {
@@ -606,19 +612,19 @@
 
     {
       "name": "Scythe of Vitur",
-      "tier": "side",
+      "tier": "mega",
       "points": 500,
       "items": [{ "name": "Scythe of vitur (uncharged)" }]
     },
     {
       "name": "Tumeken's Shadow",
-      "tier": "side",
+      "tier": "mega",
       "points": 500,
       "items": [{ "name": "Tumeken's shadow (uncharged)" }]
     },
     {
       "name": "Twisted Bow",
-      "tier": "side",
+      "tier": "mega",
       "points": 500,
       "items": [{ "name": "Twisted bow" }]
     },
@@ -654,18 +660,21 @@
       "name": "Ancient Wyvern Shield",
       "tier": "side",
       "points": 150,
+      "icon": "Ancient wyvern shield",
       "items": [{ "name": "Wyvern visage" }]
     },
     {
       "name": "Dragonfire Shield",
       "tier": "side",
       "points": 150,
+      "icon": "Dragonfire shield",
       "items": [{ "name": "Draconic visage" }]
     },
     {
       "name": "Dragonfire Ward",
       "tier": "side",
       "points": 150,
+      "icon": "Dragonfire ward",
       "items": [{ "name": "Skeletal visage" }]
     },
     {
@@ -696,18 +705,21 @@
       "name": "Spectral Spirit Shield",
       "tier": "side",
       "points": 250,
+      "icon": "Spectral spirit shield",
       "items": [{ "name": "Spectral sigil" }]
     },
     {
       "name": "Elysian Spirit Shield",
       "tier": "side",
       "points": 250,
+      "icon": "Elysian spirit shield",
       "items": [{ "name": "Elysian sigil" }]
     },
     {
       "name": "Arcane Spirit Shield",
       "tier": "side",
       "points": 250,
+      "icon": "Arcane spirit shield",
       "items": [{ "name": "Arcane sigil" }]
     },
     {

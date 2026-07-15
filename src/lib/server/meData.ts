@@ -23,8 +23,9 @@ import type { RankValue } from '$lib/ranks';
 // instantly and this streams in behind the skeleton.
 
 // Gear tiers ordered for the collection-log grid (top gear leads); labels for headers.
-const GEAR_TIER_ORDER = ['expression', 'end', 'middle', 'low', 'side'];
+const GEAR_TIER_ORDER = ['mega', 'expression', 'end', 'middle', 'low', 'side'];
 const GEAR_TIER_LABEL: Record<string, string> = {
+	mega: 'Mega Rares',
 	expression: 'Skill expression',
 	end: 'End-game',
 	middle: 'Mid tier',
@@ -38,7 +39,11 @@ interface GearPiece {
 	checkItem: string | null; // clog check name — the manual-claim target
 	earned: number;
 	max: number;
-	owned: boolean;
+	// 'complete' = full points; 'partial' = some checks met, 0 points (in-progress);
+	// 'none' = nothing owned.
+	status: 'complete' | 'partial' | 'none';
+	owned: boolean; // status === 'complete' (kept for the owned count + sort)
+	missing: string[]; // partial only: remaining check items (display names) for the modal
 	// Untrackable via the clog — the grid tile becomes a click-to-claim shortcut.
 	claimable: boolean;
 }
@@ -54,13 +59,18 @@ interface GearTierGroup {
 function buildGearGrid(detail: GearDetail | null): { grid: GearTierGroup[]; owned: number; total: number } {
 	const earned = new Map<string, number>();
 	if (detail) for (const m of detail.matchedItems) earned.set(m.name, m.earned);
+	// Partial (in-progress) entries → their still-missing check items.
+	const partialMissing = new Map<string, string[]>();
+	if (detail?.partials) for (const p of detail.partials) partialMissing.set(p.name, p.missing);
 
 	const groups = new Map<string, GearTierGroup>();
 	let owned = 0;
 	const catalog = getGearCatalog();
 	for (const entry of catalog) {
 		const got = earned.get(entry.name) ?? 0;
-		if (got > 0) owned++;
+		const partial = partialMissing.get(entry.name);
+		const status: 'complete' | 'partial' | 'none' = got > 0 ? 'complete' : partial ? 'partial' : 'none';
+		if (status === 'complete') owned++;
 		let group = groups.get(entry.tier);
 		if (!group) {
 			group = { tier: entry.tier, label: GEAR_TIER_LABEL[entry.tier] ?? entry.tier, pieces: [] };
@@ -72,7 +82,9 @@ function buildGearGrid(detail: GearDetail | null): { grid: GearTierGroup[]; owne
 			checkItem: entry.checkItem,
 			earned: got,
 			max: entry.points,
-			owned: got > 0,
+			status,
+			owned: status === 'complete',
+			missing: partial ?? [],
 			claimable: entry.claimable
 		});
 	}
@@ -81,8 +93,10 @@ function buildGearGrid(detail: GearDetail | null): { grid: GearTierGroup[]; owne
 		...GEAR_TIER_ORDER.filter((t) => groups.has(t)).map((t) => groups.get(t)!),
 		...[...groups.values()].filter((g) => !GEAR_TIER_ORDER.includes(g.tier))
 	];
+	// Complete first, then in-progress, then missing; heavier items lead within a status.
+	const rank = (s: string) => (s === 'complete' ? 0 : s === 'partial' ? 1 : 2);
 	for (const g of ordered) {
-		g.pieces.sort((a, b) => Number(b.owned) - Number(a.owned) || b.max - a.max);
+		g.pieces.sort((a, b) => rank(a.status) - rank(b.status) || b.max - a.max);
 	}
 	return { grid: ordered, owned, total: catalog.length };
 }

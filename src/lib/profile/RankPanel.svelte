@@ -5,7 +5,7 @@
 	import ItemInfoModal from '$lib/ItemInfoModal.svelte';
 	import { rankLabel, rankColor, type RankValue } from '$lib/ranks';
 	import { itemIconUrl } from '$lib/osrsItems';
-	import { itemImageUrl } from '$lib/wikiImage';
+	import { itemImageUrl, wikiPageUrl } from '$lib/wikiImage';
 
 	// Shared Rank tab body for /me and /u/[rsn]: rank badge + composite, progress to
 	// the next rank, the weighted component breakdown, gear pieces, and combat
@@ -25,7 +25,9 @@
 		checkItem?: string | null; // clog check name — the manual-claim target
 		earned: number;
 		max: number;
-		owned: boolean;
+		status?: 'complete' | 'partial' | 'none';
+		owned: boolean; // complete
+		missing?: string[]; // partial: remaining check items (display names)
 		claimable?: boolean; // untrackable via the clog — click-to-claim when onClaim is set
 	}
 	interface GearGroup {
@@ -273,7 +275,12 @@
 								type="button"
 								class="gtile"
 								class:owned={p.owned}
-								title="{p.name} · {p.owned ? `${p.earned}/${p.max}` : `0/${p.max}`} pts — click for details"
+								class:partial={p.status === 'partial'}
+								title="{p.name} · {p.owned
+									? `${p.earned}/${p.max} pts`
+									: p.status === 'partial'
+										? `in progress — need ${(p.missing ?? []).join(', ')}`
+										: `0/${p.max} pts`} — click for details"
 								onclick={() => (infoPiece = { piece: p, tierLabel: group.label })}
 							>
 								<div class="gtile-img">
@@ -288,7 +295,8 @@
 									{/if}
 								</div>
 								<span class="gtile-pts">{p.owned ? `${p.earned}/${p.max}` : p.max}</span>
-								{#if p.claimable && !p.owned}<span class="gtile-flag">claim</span>{/if}
+								{#if p.status === 'partial'}<span class="gtile-flag progress-flag">in progress</span>
+								{:else if p.claimable}<span class="gtile-flag">claim</span>{/if}
 							</button>
 						{/each}
 					</div>
@@ -342,8 +350,14 @@
 		image={itemImageUrl(p.iconItem ?? p.name)}
 		rows={[
 			{ label: 'Tier', value: infoPiece.tierLabel },
-			{ label: 'Rank points', value: p.owned ? `${p.earned} / ${p.max}` : `0 / ${p.max}` },
-			{ label: 'Status', value: p.owned ? 'Owned' : 'Missing' },
+			{
+				label: 'Rank points',
+				value: p.owned ? `${p.earned} / ${p.max}` : `0 / ${p.max} (not yet earned)`
+			},
+			{
+				label: 'Status',
+				value: p.owned ? 'Complete' : p.status === 'partial' ? 'In progress' : 'Missing'
+			},
 			{
 				label: 'Tracked via',
 				value: p.claimable ? 'Manual claim (not in the collection log)' : 'Temple collection log'
@@ -352,6 +366,18 @@
 		wikiPages={[p.iconItem ?? p.name]}
 		onclose={() => (infoPiece = null)}
 	>
+		{#if p.status === 'partial' && (p.missing ?? []).length}
+			<div class="modal-missing">
+				<p class="mm-head">Still needed to complete this (no points until finished):</p>
+				<ul>
+					{#each p.missing ?? [] as m (m)}
+						<li>
+							<a href={wikiPageUrl(m.replace(/ ×\d+$/, ''))} target="_blank" rel="noreferrer noopener">{m} ↗</a>
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
 		{#if p.claimable && !p.owned && onClaim}
 			<button
 				type="button"
@@ -530,6 +556,14 @@
 		filter: none;
 		border-color: var(--border-strong);
 	}
+	/* In-progress: partly assembled — visibly distinct from both owned and missing
+	   (dimmed but colour retained, amber outline) and scores no points yet. */
+	.gtile.partial {
+		opacity: 0.85;
+		filter: none;
+		border-color: var(--accent);
+		border-style: dashed;
+	}
 	.gtile-img {
 		height: 30px;
 		display: flex;
@@ -568,17 +602,36 @@
 		top: 2px;
 		right: 2px;
 		padding: 0 0.25rem;
-		font-size: 0.55rem;
+		font-size: 0.5rem;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		border-radius: 3px;
 		background: var(--accent);
 		color: #1c1710;
 	}
+	.gtile-flag.progress-flag {
+		background: var(--surface);
+		color: var(--accent);
+		border: 1px solid var(--accent);
+	}
 	/* The claim shortcut inside the item modal (only on /me for unowned claimables). */
 	.modal-claim {
 		width: 100%;
 		margin-top: 0.5rem;
+	}
+	/* "Still needed" list inside the item modal for in-progress gear. */
+	.modal-missing {
+		margin: 0.2rem 0 0.4rem;
+	}
+	.modal-missing .mm-head {
+		margin: 0 0 0.3rem;
+		font-size: 0.8rem;
+		color: var(--muted);
+	}
+	.modal-missing ul {
+		margin: 0;
+		padding-left: 1.1rem;
+		font-size: 0.85rem;
 	}
 
 	/* Combat achievements summary */

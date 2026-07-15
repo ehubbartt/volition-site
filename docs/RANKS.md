@@ -48,16 +48,30 @@ Oathplate). The claims channel covers them:
 - **Module**: `src/lib/server/rankClaims.ts` (claimable list is the flattened gear-table
   check names; proofs share the bingo bucket under a `rank-claims/` prefix).
 
-### Tiers and the "Skill expression" section
+### Tiers, sections, and display icons
 
-Gear-table entries carry a `tier` (`expression` / `end` / `middle` / `low` / `side`;
-ordered + labelled in `meData.ts`). The **expression** tier groups skill-expression
-flexes — Infernal cape, Dizana's Quiver, and the combined upgrades (Blood Torva,
-Radiant Oathplate). Every gear-grid tile opens the shared
-`ItemInfoModal` (tier, points, tracking source, wiki link). Entries flagged
-`claimable: true` are untrackable by the clog: their tiles wear a "claim" ribbon, and on
-/me (where the panel gets an `onClaim` handler) the modal carries a "Claim this item"
-shortcut that opens the claim form prefilled.
+Gear-table entries carry a `tier` (`mega` / `expression` / `end` / `middle` / `low` /
+`side`; ordered + labelled in `meData.ts`). **Mega Rares** = Twisted Bow / Scythe /
+Shadow; **Skill expression** = Infernal cape, Dizana's Quiver, Blood Torva, Radiant
+Oathplate. An entry may set `icon` to override the displayed/linked item when the clog
+check isn't what to show — DT2 rings (check the vestige, show the ring), combined weapons
+(Bludgeon/Voidwaker/Noxious/Twinflame show the finished item), Corp/dragon
+sigils+visages (show the shield), etc. `GearCatalogEntry.iconItem` drives display+wiki;
+`checkItem` is the clog-tracked/claim-match name; they diverge when `icon` is set.
+
+### All-or-nothing + in-progress state
+
+Multi-part entries (armour sets, combined items, quantity checks) are **all-or-nothing**:
+`calculateGearPoints` awards the full points only when EVERY check is met, and reports a
+partially-owned entry as a `GearPartial` (0 points + the still-missing check items, cached
+in `gear_detail.partials`). The gear grid renders three states — complete, **in progress**
+(dashed amber, "in progress" ribbon; the item modal lists what's still needed with wiki
+links), and missing. Points are never awarded until the entry is finished.
+
+Every gear-grid tile opens the shared `ItemInfoModal` (tier, points, status, tracking
+source, wiki link). Entries flagged `claimable: true` are untrackable by the clog: their
+tiles wear a "claim" ribbon, and on /me (where the panel gets an `onClaim` handler) the
+modal carries a "Claim this item" shortcut that opens the claim form prefilled.
 `GEAR_SCORE_CAP` must stay equal to the sum of all entry points — update it whenever
 entries are added or repointed.
 

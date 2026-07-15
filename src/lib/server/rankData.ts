@@ -4,7 +4,7 @@
 // a failed source degrades that component to 0 rather than throwing, matching the
 // bot's behaviour (and wom.ts's "return null on outage" style).
 
-import { calculateGearPoints, calculateCAPoints, type RankInputs } from './rankScoring';
+import { calculateGearPoints, calculateCAPoints, type RankInputs, type GearPartial } from './rankScoring';
 import { getJson } from './http';
 import { SKILLS, SKILL_WOM_KEY, type Skill } from '$lib/ehp';
 
@@ -147,6 +147,10 @@ export async function fetchWikiSyncCA(rsn: string): Promise<number[] | null> {
 export interface GearDetail {
 	matchedItems: { name: string; earned: number; max: number }[];
 	missedItems: string[];
+	// Partially-obtained entries (some but not all checks met) — 0 points, shown as
+	// in-progress in the gear grid with what's still missing. Optional for back-compat
+	// with rows cached before this field existed.
+	partials?: GearPartial[];
 }
 export interface CADetail {
 	tasksCompleted: number;
@@ -207,7 +211,7 @@ export async function fetchPlayerRankInputs(
 		templeAvailable: temple != null,
 		wikisyncAvailable: ca != null,
 		caTier: caResult.highestTier,
-		gearDetail: { matchedItems: gear.matchedItems, missedItems: gear.missedItems },
+		gearDetail: { matchedItems: gear.matchedItems, missedItems: gear.missedItems, partials: gear.partials },
 		caDetail: {
 			tasksCompleted: caResult.tasksCompleted,
 			wikiPoints: caResult.wikiPoints,

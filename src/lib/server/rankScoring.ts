@@ -79,6 +79,17 @@ export interface TempleItem {
 }
 export type TempleItems = Record<string, TempleItem[] | unknown>;
 
+// A partially-obtained gear entry: some but not all of its checks are satisfied. Points
+// are ALL-OR-NOTHING (an unassembled item isn't the item), so a partial scores 0 and is
+// surfaced separately so the grid can show its in-progress state + what's still needed.
+// `missing` lists each unmet check's display item name (first OR-alternative).
+export interface GearPartial {
+	name: string; // the gear-table entry name
+	haveChecks: number;
+	totalChecks: number;
+	missing: string[];
+}
+
 export function calculateGearPoints(
 	templeItems: TempleItems | null | undefined,
 	// Admin-approved manual gear claims (rankClaims.ts) — item names that count as
@@ -89,9 +100,10 @@ export function calculateGearPoints(
 	gearPoints: number;
 	matchedItems: { name: string; earned: number; max: number }[];
 	missedItems: string[];
+	partials: GearPartial[];
 } {
 	if (!templeItems && !manualItemNames?.length) {
-		return { gearPoints: 0, matchedItems: [], missedItems: [] };
+		return { gearPoints: 0, matchedItems: [], missedItems: [], partials: [] };
 	}
 
 	// Flat lookup: itemName (lowercase) -> max count across all categories.
@@ -112,11 +124,13 @@ export function calculateGearPoints(
 	let totalPoints = 0;
 	const matchedItems: { name: string; earned: number; max: number }[] = [];
 	const missedItems: string[] = [];
+	const partials: GearPartial[] = [];
 
 	for (const gear of GEAR.gear) {
 		const itemChecks = gear.items;
 		const totalChecks = itemChecks.length;
 		let checksPassed = 0;
+		const missing: string[] = []; // display name of each unmet check
 
 		for (const check of itemChecks) {
 			const names = Array.isArray(check.name) ? check.name : [check.name];
@@ -128,23 +142,25 @@ export function calculateGearPoints(
 				bestCount = Math.max(bestCount, count);
 			}
 
-			if (requiredQty > 1) {
-				checksPassed += Math.min(bestCount, requiredQty) / requiredQty;
-			} else {
-				checksPassed += bestCount >= 1 ? 1 : 0;
-			}
+			const met = bestCount >= requiredQty;
+			if (met) checksPassed += 1;
+			else missing.push(requiredQty > 1 ? `${names[0]} ×${requiredQty}` : names[0]);
 		}
 
-		const completion = totalChecks > 0 ? checksPassed / totalChecks : 0;
-		const earnedPoints = Math.round(completion * gear.points);
-
-		if (earnedPoints > 0) matchedItems.push({ name: gear.name, earned: earnedPoints, max: gear.points });
-		else missedItems.push(gear.name);
-
-		totalPoints += earnedPoints;
+		// ALL-OR-NOTHING: points only when EVERY check is satisfied; a partial scores 0
+		// and is reported for the in-progress UI (never awarded until completed).
+		if (checksPassed === totalChecks && totalChecks > 0) {
+			matchedItems.push({ name: gear.name, earned: gear.points, max: gear.points });
+			totalPoints += gear.points;
+		} else if (checksPassed > 0) {
+			partials.push({ name: gear.name, haveChecks: checksPassed, totalChecks, missing });
+			missedItems.push(gear.name);
+		} else {
+			missedItems.push(gear.name);
+		}
 	}
 
-	return { gearPoints: totalPoints, matchedItems, missedItems };
+	return { gearPoints: totalPoints, matchedItems, missedItems, partials };
 }
 
 // --- Gear catalog (for the on-profile collection-log-style grid) -------------
