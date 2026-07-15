@@ -53,9 +53,11 @@ Oathplate). The claims channel covers them:
 Gear-table entries carry a `tier` (`expression` / `end` / `middle` / `low` / `side`;
 ordered + labelled in `meData.ts`). The **expression** tier groups skill-expression
 flexes — Infernal cape, Dizana's Quiver, and the combined upgrades (Blood Torva,
-Radiant Oathplate). Entries flagged `claimable: true` are untrackable by the clog:
-their gear-grid tiles wear a "claim" ribbon, and on /me (where the panel gets an
-`onClaim` handler) clicking the tile opens the claim form prefilled with the item.
+Radiant Oathplate). Every gear-grid tile opens the shared
+`ItemInfoModal` (tier, points, tracking source, wiki link). Entries flagged
+`claimable: true` are untrackable by the clog: their tiles wear a "claim" ribbon, and on
+/me (where the panel gets an `onClaim` handler) the modal carries a "Claim this item"
+shortcut that opens the claim form prefilled.
 `GEAR_SCORE_CAP` must stay equal to the sum of all entry points — update it whenever
 entries are added or repointed.
 

@@ -68,6 +68,10 @@ bugs that used to recur per feature):
   a "Check my rank" on /me SAVES a higher rank than the player had (the checkRank action
   returns `form.rankUp {from,to}`). Click/Escape/8s dismisses; confetti honors
   prefers-reduced-motion.
+- **`src/lib/ItemInfoModal.svelte`** — the shared "OSRS thing info" modal (backdrop, icon,
+  heading, label/value `rows`, `wikiPages` ↗ links, close on backdrop/Escape). Extras render
+  as children and keep the caller's scoped styles. Used by the personal-bingo tile detail
+  and the rank gear grid — reach for it whenever a page needs "click an item → wiki info".
 - **`src/lib/InfoTip.svelte`** — the ⓘ button with an instant CSS tooltip (hover/focus/tap;
   used for the rank-component explainers and the personal-bingo toggle data-source tips).
   Safe inside a `<label>` — it doesn't toggle the control.

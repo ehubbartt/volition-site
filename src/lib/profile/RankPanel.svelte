@@ -2,8 +2,10 @@
 	import type { Snippet } from 'svelte';
 	import RankBadge from '$lib/RankBadge.svelte';
 	import InfoTip from '$lib/InfoTip.svelte';
+	import ItemInfoModal from '$lib/ItemInfoModal.svelte';
 	import { rankLabel, rankColor, type RankValue } from '$lib/ranks';
 	import { itemIconUrl } from '$lib/osrsItems';
+	import { itemImageUrl } from '$lib/wikiImage';
 
 	// Shared Rank tab body for /me and /u/[rsn]: rank badge + composite, progress to
 	// the next rank, the weighted component breakdown, gear pieces, and combat
@@ -99,6 +101,10 @@
 					minute: '2-digit'
 				})
 			: null;
+
+	// Gear tile → item info modal (shared ItemInfoModal): facts + wiki link, and for
+	// claimable-but-unowned pieces the claim shortcut (when the page provides onClaim).
+	let infoPiece = $state<{ piece: GearPiece; tierLabel: string } | null>(null);
 
 	// ⓘ explainer per component: where the number comes from + how it's scored.
 	// Keys match rankScoring's ComponentKey.
@@ -260,49 +266,29 @@
 					<p class="tier-head muted">{group.label}</p>
 					<div class="gear-grid">
 						{#each group.pieces as p (p.name)}
-							{#if p.claimable && onClaim && !p.owned}
-								<!-- Untrackable via the clog: the tile IS the claim shortcut. -->
-								<button
-									type="button"
-									class="gtile gtile-claim"
-									title="{p.name} · 0/{p.max} pts — the collection log can't track this; click to claim it with proof"
-									onclick={() => onClaim(p.iconItem ?? p.name)}
-								>
-									<div class="gtile-img">
-										{#if p.iconItem}
-											<img
-												src={itemIconUrl(p.iconItem)}
-												alt={p.name}
-												loading="lazy"
-												referrerpolicy="no-referrer"
-												onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
-											/>
-										{/if}
-									</div>
-									<span class="gtile-pts">{p.max}</span>
-									<span class="gtile-flag">claim</span>
-								</button>
-							{:else}
-								<div
-									class="gtile"
-									class:owned={p.owned}
-									title="{p.name} · {p.owned ? `${p.earned}/${p.max}` : `0/${p.max}`} pts{p.claimable && !p.owned ? ' — untrackable; claim it from /me' : ''}"
-								>
-									<div class="gtile-img">
-										{#if p.iconItem}
-											<img
-												src={itemIconUrl(p.iconItem)}
-												alt={p.name}
-												loading="lazy"
-												referrerpolicy="no-referrer"
-												onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
-											/>
-										{/if}
-									</div>
-									<span class="gtile-pts">{p.owned ? `${p.earned}/${p.max}` : p.max}</span>
-									{#if p.claimable && !p.owned}<span class="gtile-flag muted-flag">claim</span>{/if}
+							<!-- Every tile opens the item info modal (wiki link, points, tracking);
+							     claimable pieces get their claim shortcut INSIDE the modal. -->
+							<button
+								type="button"
+								class="gtile"
+								class:owned={p.owned}
+								title="{p.name} · {p.owned ? `${p.earned}/${p.max}` : `0/${p.max}`} pts — click for details"
+								onclick={() => (infoPiece = { piece: p, tierLabel: group.label })}
+							>
+								<div class="gtile-img">
+									{#if p.iconItem}
+										<img
+											src={itemIconUrl(p.iconItem)}
+											alt={p.name}
+											loading="lazy"
+											referrerpolicy="no-referrer"
+											onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
+										/>
+									{/if}
 								</div>
-							{/if}
+								<span class="gtile-pts">{p.owned ? `${p.earned}/${p.max}` : p.max}</span>
+								{#if p.claimable && !p.owned}<span class="gtile-flag">claim</span>{/if}
+							</button>
 						{/each}
 					</div>
 				{/each}
@@ -347,6 +333,39 @@
 		<p class="muted small">{emptyText}</p>
 	{/if}
 </section>
+
+{#if infoPiece}
+	{@const p = infoPiece.piece}
+	<ItemInfoModal
+		name={p.name}
+		image={itemImageUrl(p.iconItem ?? p.name)}
+		rows={[
+			{ label: 'Tier', value: infoPiece.tierLabel },
+			{ label: 'Rank points', value: p.owned ? `${p.earned} / ${p.max}` : `0 / ${p.max}` },
+			{ label: 'Status', value: p.owned ? 'Owned' : 'Missing' },
+			{
+				label: 'Tracked via',
+				value: p.claimable ? 'Manual claim (not in the collection log)' : 'Temple collection log'
+			}
+		]}
+		wikiPages={[p.iconItem ?? p.name]}
+		onclose={() => (infoPiece = null)}
+	>
+		{#if p.claimable && !p.owned && onClaim}
+			<button
+				type="button"
+				class="modal-claim"
+				onclick={() => {
+					const item = p.iconItem ?? p.name;
+					infoPiece = null;
+					onClaim(item);
+				}}
+			>
+				Claim this item with proof
+			</button>
+		{/if}
+	</ItemInfoModal>
+{/if}
 
 <style>
 	.rank-panel {
@@ -529,9 +548,19 @@
 		color: var(--accent);
 		font-family: var(--font-heading);
 	}
-	/* Untrackable tiles: the "claim" ribbon; as a <button> (with onClaim) it's clickable. */
+	/* Tiles are <button>s (click → item info modal); reset the global bronze button
+	   styling so they keep the collection-log-grid look. The "claim" ribbon marks
+	   untrackable pieces. */
 	.gtile {
 		position: relative;
+		border-image: none;
+		min-height: 0;
+		font: inherit;
+		cursor: pointer;
+	}
+	.gtile:hover,
+	.gtile:focus {
+		border-color: var(--accent);
 	}
 	.gtile-flag {
 		position: absolute;
@@ -545,25 +574,10 @@
 		background: var(--accent);
 		color: #1c1710;
 	}
-	.gtile-flag.muted-flag {
-		background: var(--surface);
-		color: var(--muted);
-		border: 1px solid var(--border);
-	}
-	button.gtile-claim {
-		/* resets for the global bronze button styling; inherit the tile look */
-		border-image: none;
-		min-height: 0;
-		font: inherit;
-		cursor: pointer;
-		opacity: 0.55;
-		filter: grayscale(0.6);
-	}
-	button.gtile-claim:hover,
-	button.gtile-claim:focus {
-		opacity: 1;
-		filter: none;
-		border-color: var(--accent);
+	/* The claim shortcut inside the item modal (only on /me for unowned claimables). */
+	.modal-claim {
+		width: 100%;
+		margin-top: 0.5rem;
 	}
 
 	/* Combat achievements summary */
