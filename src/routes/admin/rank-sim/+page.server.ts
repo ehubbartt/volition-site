@@ -16,6 +16,7 @@ import {
 	monthsBetween
 } from '$lib/server/rankData';
 import { calculateGearPoints, calculateCAPoints } from '$lib/server/rankScoring';
+import { getApprovedGearNamesByRsn } from '$lib/server/rankClaims';
 import { setPlayerRank } from '$lib/server/playerStats';
 import { microCached } from '$lib/server/microCache';
 import { RANK_ORDER, RANK_LABEL, rankIndex, toRankValue, type RankValue } from '$lib/ranks';
@@ -339,6 +340,9 @@ export const actions: Actions = {
 			.slice(0, REFRESH_BATCH);
 
 		const sb = db();
+		// Approved manual gear claims (untrackable items) merge into the gear calc,
+		// same as /me's checkRank. One bulk read per batch, keyed by lowercase RSN.
+		const manualGearByRsn = await getApprovedGearNamesByRsn();
 		let processed = 0;
 		for (const entry of worklist) {
 			const [totalLevel, temple, ca] = await Promise.all([
@@ -346,7 +350,7 @@ export const actions: Actions = {
 				fetchTempleCollectionLog(entry.rsn),
 				fetchWikiSyncCA(entry.rsn)
 			]);
-			const gear = calculateGearPoints(temple?.items);
+			const gear = calculateGearPoints(temple?.items, manualGearByRsn.get(entry.rsn.toLowerCase()));
 			const caResult = calculateCAPoints(ca);
 
 			const { error: upErr } = await sb.from('vs_rank_sim').upsert(
@@ -363,7 +367,7 @@ export const actions: Actions = {
 					temple_available: temple != null,
 					wikisync_available: ca != null,
 					ca_tier: caResult.highestTier,
-					gear_detail: { matchedItems: gear.matchedItems, missedItems: gear.missedItems },
+					gear_detail: { matchedItems: gear.matchedItems, missedItems: gear.missedItems, partials: gear.partials },
 					ca_detail: {
 						tasksCompleted: caResult.tasksCompleted,
 						wikiPoints: caResult.wikiPoints,

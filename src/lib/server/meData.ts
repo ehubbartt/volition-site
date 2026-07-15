@@ -6,6 +6,7 @@ import { loadCardProfile } from './cardProfile';
 import { getPlayerRank } from './playerStats';
 import { rsnExactPattern } from './users';
 import { getRankConfig, type RankScoringConfig } from './rankConfig';
+import { listGearClaims, claimableGearItems } from './rankClaims';
 import type { GearDetail, CADetail } from './rankData';
 import {
 	computeScores,
@@ -22,8 +23,10 @@ import type { RankValue } from '$lib/ranks';
 // instantly and this streams in behind the skeleton.
 
 // Gear tiers ordered for the collection-log grid (top gear leads); labels for headers.
-const GEAR_TIER_ORDER = ['end', 'middle', 'low', 'side'];
+const GEAR_TIER_ORDER = ['mega', 'expression', 'end', 'middle', 'low', 'side'];
 const GEAR_TIER_LABEL: Record<string, string> = {
+	mega: 'Mega Rares',
+	expression: 'Skill expression',
 	end: 'End-game',
 	middle: 'Mid tier',
 	low: 'Low tier',
@@ -32,10 +35,21 @@ const GEAR_TIER_LABEL: Record<string, string> = {
 
 interface GearPiece {
 	name: string;
-	iconItem: string | null;
+	iconItem: string | null; // display / wiki
+	checkItem: string | null; // clog check name — the manual-claim target
 	earned: number;
 	max: number;
-	owned: boolean;
+	// 'complete' = full points; 'partial' = some checks met, 0 points (in-progress);
+	// 'none' = nothing owned.
+	status: 'complete' | 'partial' | 'none';
+	owned: boolean; // status === 'complete' (kept for the owned count + sort)
+	missing: string[]; // partial only: remaining check items (display names) for the modal
+	// The pieces that make up this entry, and whether it's assembled from parts at all.
+	// The modal shows a component breakdown (owned/needed + wiki links) for assembled ones.
+	components: { name: string; names?: string[]; qty: number }[];
+	assembled: boolean;
+	// Untrackable via the clog — the grid tile becomes a click-to-claim shortcut.
+	claimable: boolean;
 }
 interface GearTierGroup {
 	tier: string;
@@ -49,13 +63,22 @@ interface GearTierGroup {
 function buildGearGrid(detail: GearDetail | null): { grid: GearTierGroup[]; owned: number; total: number } {
 	const earned = new Map<string, number>();
 	if (detail) for (const m of detail.matchedItems) earned.set(m.name, m.earned);
+	// Partial (in-progress) entries → their still-missing check items.
+	const partialMissing = new Map<string, string[]>();
+	if (detail?.partials) for (const p of detail.partials) partialMissing.set(p.name, p.missing);
 
 	const groups = new Map<string, GearTierGroup>();
 	let owned = 0;
 	const catalog = getGearCatalog();
 	for (const entry of catalog) {
 		const got = earned.get(entry.name) ?? 0;
-		if (got > 0) owned++;
+		const partial = partialMissing.get(entry.name);
+		// Complete = FULL points. Guarding on `>= points` (not `> 0`) also corrects rows
+		// cached under the old proportional scoring, where a partial stored fractional
+		// points (e.g. 1/4 of a Soulreaper Axe = 75/300) — those must not read as complete.
+		const status: 'complete' | 'partial' | 'none' =
+			got >= entry.points ? 'complete' : partial ? 'partial' : 'none';
+		if (status === 'complete') owned++;
 		let group = groups.get(entry.tier);
 		if (!group) {
 			group = { tier: entry.tier, label: GEAR_TIER_LABEL[entry.tier] ?? entry.tier, pieces: [] };
@@ -64,9 +87,15 @@ function buildGearGrid(detail: GearDetail | null): { grid: GearTierGroup[]; owne
 		group.pieces.push({
 			name: entry.name,
 			iconItem: entry.iconItem,
+			checkItem: entry.checkItem,
 			earned: got,
 			max: entry.points,
-			owned: got > 0
+			status,
+			owned: status === 'complete',
+			missing: partial ?? [],
+			components: entry.components,
+			assembled: entry.assembled,
+			claimable: entry.claimable
 		});
 	}
 
@@ -74,8 +103,10 @@ function buildGearGrid(detail: GearDetail | null): { grid: GearTierGroup[]; owne
 		...GEAR_TIER_ORDER.filter((t) => groups.has(t)).map((t) => groups.get(t)!),
 		...[...groups.values()].filter((g) => !GEAR_TIER_ORDER.includes(g.tier))
 	];
+	// Complete first, then in-progress, then missing; heavier items lead within a status.
+	const rank = (s: string) => (s === 'complete' ? 0 : s === 'partial' ? 1 : 2);
 	for (const g of ordered) {
-		g.pieces.sort((a, b) => Number(b.owned) - Number(a.owned) || b.max - a.max);
+		g.pieces.sort((a, b) => rank(a.status) - rank(b.status) || b.max - a.max);
 	}
 	return { grid: ordered, owned, total: catalog.length };
 }
@@ -195,10 +226,11 @@ export async function loadRankBreakdown(rsn: string | null): Promise<{
 }
 
 export async function buildMeData(user: SessionUser) {
-	const [profile, currentRank, rank] = await Promise.all([
+	const [profile, currentRank, rank, gearClaims] = await Promise.all([
 		loadCardProfile(user),
 		getPlayerRank(user.discord_id, user.rsn),
-		loadRankBreakdown(user.rsn)
+		loadRankBreakdown(user.rsn),
+		listGearClaims(user.id)
 	]);
 
 	return {
@@ -207,6 +239,10 @@ export async function buildMeData(user: SessionUser) {
 		currentRank,
 		rankBreakdown: rank.breakdown,
 		rankBreakdownError: rank.error,
+		// Manual gear claims (untrackable items): the member's own claims + the
+		// claimable gear-table item names for the submit form's picker.
+		gearClaims,
+		claimableGear: claimableGearItems(),
 		vp_balance: profile.vp_balance,
 		gold_balance: profile.gold_balance,
 		wallet: profile.wallet,

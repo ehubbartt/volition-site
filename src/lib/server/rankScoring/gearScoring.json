@@ -1,17 +1,12 @@
 {
-  "GEAR_SCORE_CAP": 25150,
+  "GEAR_SCORE_CAP": 25950,
   "gear": [
     {
       "name": "Neitiznot Faceguard",
       "tier": "low",
       "points": 100,
+      "icon": "Neitiznot faceguard",
       "items": [{ "name": "Basilisk jaw" }]
-    },
-    {
-      "name": "Fighter Torso",
-      "tier": "low",
-      "points": 100,
-      "items": [{ "name": "Fighter torso" }]
     },
     {
       "name": "Full Bloodmoon",
@@ -57,6 +52,7 @@
       "name": "Serpentine Helm",
       "tier": "low",
       "points": 100,
+      "icon": "Serpentine helm",
       "items": [{ "name": "Serpentine visage" }]
     },
     {
@@ -66,24 +62,10 @@
       "items": [{ "name": "Elite void robe" }, { "name": "Elite void top" }]
     },
     {
-      "name": "Barrows Tank Set",
-      "tier": "low",
-      "points": 100,
-      "items": [
-        { "name": "Guthan's platebody" },
-        { "name": "Guthan's chainskirt" },
-        { "name": "Dharok's platebody" },
-        { "name": "Dharok's platelegs" },
-        { "name": "Torag's platebody" },
-        { "name": "Torag's platelegs" },
-        { "name": "Verac's brassard" },
-        { "name": "Verac's plateskirt" }
-      ]
-    },
-    {
       "name": "Toxic Blowpipe",
       "tier": "low",
       "points": 100,
+      "icon": "Toxic blowpipe",
       "items": [{ "name": "Tanzanite fang" }]
     },
     {
@@ -102,6 +84,7 @@
       "name": "Zombie Axe",
       "tier": "low",
       "points": 100,
+      "icon": "Zombie axe",
       "items": [{ "name": "Broken zombie axe" }]
     },
     {
@@ -109,9 +92,9 @@
       "tier": "low",
       "points": 100,
       "items": [
-        { "name": ["Ahrim's robeskirt", "Blue moon chestplate"] },
-        { "name": ["Ahrim's robetop", "Blue moon tassets"] },
-        { "name": ["Ahrim's hood", "Blue moon helm"] }
+        { "name": ["Ahrim's hood", "Blue moon helm"] },
+        { "name": ["Ahrim's robetop", "Blue moon chestplate"] },
+        { "name": ["Ahrim's robeskirt", "Blue moon tassets"] }
       ]
     },
     {
@@ -130,8 +113,10 @@
       "name": "Twinflame Staff",
       "tier": "low",
       "points": 100,
+      "icon": "Twinflame staff",
       "items": [
-        { "name": ["Ice element staff crown", "Fire element staff crown"] }
+        { "name": "Ice element staff crown" },
+        { "name": "Fire element staff crown" }
       ]
     },
     {
@@ -187,6 +172,7 @@
       "name": "Abyssal Bludgeon",
       "tier": "middle",
       "points": 200,
+      "icon": "Abyssal bludgeon",
       "items": [
         { "name": "Bludgeon axon" },
         { "name": "Bludgeon claw" },
@@ -203,6 +189,7 @@
       "name": "Dragon Hunter Lance",
       "tier": "middle",
       "points": 200,
+      "icon": "Dragon hunter lance",
       "items": [{ "name": "Hydra's claw" }]
     },
     {
@@ -221,6 +208,7 @@
       "name": "Noxious Halberd",
       "tier": "middle",
       "points": 200,
+      "icon": "Noxious halberd",
       "items": [
         { "name": "Noxious point" },
         { "name": "Noxious pommel" },
@@ -231,6 +219,7 @@
       "name": "Pegasian Boots",
       "tier": "middle",
       "points": 200,
+      "icon": "Pegasian boots",
       "items": [{ "name": "Ranger boots" }, { "name": "Pegasian crystal" }]
     },
     {
@@ -273,6 +262,7 @@
       "name": "Eternal Boots",
       "tier": "middle",
       "points": 200,
+      "icon": "Eternal boots",
       "items": [{ "name": "Infinity boots" }, { "name": "Eternal crystal" }]
     },
     {
@@ -327,6 +317,7 @@
       "name": "Voidwaker",
       "tier": "middle",
       "points": 200,
+      "icon": "Voidwaker",
       "items": [
         { "name": "Voidwaker hilt" },
         { "name": "Voidwaker gem" },
@@ -343,6 +334,7 @@
       "name": "Burning Claws",
       "tier": "middle",
       "points": 200,
+      "icon": "Burning claws",
       "items": [{ "name": "Burning claw", "quantity": 2 }]
     },
     {
@@ -391,12 +383,14 @@
       "name": "Bellator Ring",
       "tier": "middle",
       "points": 200,
+      "icon": "Bellator ring",
       "items": [{ "name": "Bellator vestige" }]
     },
     {
       "name": "Venator Ring",
       "tier": "middle",
       "points": 200,
+      "icon": "Venator ring",
       "items": [{ "name": "Venator vestige" }]
     },
 
@@ -428,6 +422,7 @@
       "name": "Ultor Ring",
       "tier": "end",
       "points": 300,
+      "icon": "Ultor ring",
       "items": [{ "name": "Ultor vestige" }]
     },
     {
@@ -440,6 +435,7 @@
       "name": "Soulreaper Axe",
       "tier": "end",
       "points": 300,
+      "icon": "Soulreaper axe",
       "items": [
         { "name": "Eye of the duke" },
         { "name": "Leviathan's lure" },
@@ -475,6 +471,7 @@
       "name": "Zaryte Crossbow",
       "tier": "end",
       "points": 300,
+      "icon": "Zaryte crossbow",
       "items": [{ "name": "Nihil horn" }]
     },
     {
@@ -499,6 +496,7 @@
       "name": "Magus Ring",
       "tier": "end",
       "points": 300,
+      "icon": "Magus ring",
       "items": [{ "name": "Magus vestige" }]
     },
     {
@@ -553,19 +551,36 @@
       "name": "Oathplate Helm",
       "tier": "end",
       "points": 300,
+      "claimable": true,
       "items": [{ "name": "Oathplate helm" }]
     },
     {
       "name": "Oathplate Chest",
       "tier": "end",
       "points": 300,
+      "claimable": true,
       "items": [{ "name": "Oathplate chest" }]
     },
     {
       "name": "Oathplate Legs",
       "tier": "end",
       "points": 300,
+      "claimable": true,
       "items": [{ "name": "Oathplate legs" }]
+    },
+    {
+      "name": "Radiant Oathplate",
+      "tier": "expression",
+      "points": 500,
+      "claimable": true,
+      "items": [{ "name": "Radiant oathplate helm" }]
+    },
+    {
+      "name": "Blood Torva",
+      "tier": "expression",
+      "points": 500,
+      "claimable": true,
+      "items": [{ "name": "Sanguine torva full helm" }]
     },
     {
       "name": "Elder Maul",
@@ -582,31 +597,31 @@
 
     {
       "name": "Scythe of Vitur",
-      "tier": "side",
+      "tier": "mega",
       "points": 500,
       "items": [{ "name": "Scythe of vitur (uncharged)" }]
     },
     {
       "name": "Tumeken's Shadow",
-      "tier": "side",
+      "tier": "mega",
       "points": 500,
       "items": [{ "name": "Tumeken's shadow (uncharged)" }]
     },
     {
       "name": "Twisted Bow",
-      "tier": "side",
+      "tier": "mega",
       "points": 500,
       "items": [{ "name": "Twisted bow" }]
     },
     {
       "name": "Dizana's Quiver",
-      "tier": "side",
+      "tier": "expression",
       "points": 250,
       "items": [{ "name": "Dizana's quiver (uncharged)" }]
     },
     {
       "name": "Infernal cape",
-      "tier": "side",
+      "tier": "expression",
       "points": 250,
       "items": [{ "name": "Infernal cape" }]
     },
@@ -630,18 +645,21 @@
       "name": "Ancient Wyvern Shield",
       "tier": "side",
       "points": 150,
+      "icon": "Ancient wyvern shield",
       "items": [{ "name": "Wyvern visage" }]
     },
     {
       "name": "Dragonfire Shield",
       "tier": "side",
       "points": 150,
+      "icon": "Dragonfire shield",
       "items": [{ "name": "Draconic visage" }]
     },
     {
       "name": "Dragonfire Ward",
       "tier": "side",
       "points": 150,
+      "icon": "Dragonfire ward",
       "items": [{ "name": "Skeletal visage" }]
     },
     {
@@ -672,18 +690,21 @@
       "name": "Spectral Spirit Shield",
       "tier": "side",
       "points": 250,
+      "icon": "Spectral spirit shield",
       "items": [{ "name": "Spectral sigil" }]
     },
     {
       "name": "Elysian Spirit Shield",
       "tier": "side",
       "points": 250,
+      "icon": "Elysian spirit shield",
       "items": [{ "name": "Elysian sigil" }]
     },
     {
       "name": "Arcane Spirit Shield",
       "tier": "side",
       "points": 250,
+      "icon": "Arcane spirit shield",
       "items": [{ "name": "Arcane sigil" }]
     },
     {

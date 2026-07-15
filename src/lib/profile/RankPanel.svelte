@@ -2,8 +2,11 @@
 	import type { Snippet } from 'svelte';
 	import RankBadge from '$lib/RankBadge.svelte';
 	import InfoTip from '$lib/InfoTip.svelte';
+	import ItemInfoModal from '$lib/ItemInfoModal.svelte';
 	import { rankLabel, rankColor, type RankValue } from '$lib/ranks';
 	import { itemIconUrl } from '$lib/osrsItems';
+	import { itemImageUrl, wikiPageUrl } from '$lib/wikiImage';
+	import { retryImage } from '$lib/imageRetry';
 
 	// Shared Rank tab body for /me and /u/[rsn]: rank badge + composite, progress to
 	// the next rank, the weighted component breakdown, gear pieces, and combat
@@ -19,10 +22,16 @@
 	}
 	interface GearPiece {
 		name: string;
-		iconItem: string | null;
+		iconItem: string | null; // display / wiki
+		checkItem?: string | null; // clog check name — the manual-claim target
 		earned: number;
 		max: number;
-		owned: boolean;
+		status?: 'complete' | 'partial' | 'none';
+		owned: boolean; // complete
+		missing?: string[]; // partial: remaining check items (display names)
+		components?: { name: string; names?: string[]; qty: number }[]; // all pieces that make up this entry
+		assembled?: boolean; // built from parts → modal shows the component breakdown
+		claimable?: boolean; // untrackable via the clog — click-to-claim when onClaim is set
 	}
 	interface GearGroup {
 		tier: string;
@@ -55,6 +64,7 @@
 		currentRank = null,
 		emptyText = '',
 		showSetupTips = false,
+		onClaim,
 		actions,
 		status
 	}: {
@@ -64,6 +74,9 @@
 		emptyText?: string;
 		/** Second-person "set this up" hints under zero-score components (/me only). */
 		showSetupTips?: boolean;
+		/** Click-to-claim for untrackable gear tiles (/me passes this; /u omits it).
+		 * Receives the CHECK item name the claim should target. */
+		onClaim?: (itemName: string) => void;
 		actions?: Snippet;
 		status?: Snippet;
 	} = $props();
@@ -94,6 +107,10 @@
 					minute: '2-digit'
 				})
 			: null;
+
+	// Gear tile → item info modal (shared ItemInfoModal): facts + wiki link, and for
+	// claimable-but-unowned pieces the claim shortcut (when the page provides onClaim).
+	let infoPiece = $state<{ piece: GearPiece; tierLabel: string } | null>(null);
 
 	// ⓘ explainer per component: where the number comes from + how it's scored.
 	// Keys match rankScoring's ComponentKey.
@@ -255,7 +272,20 @@
 					<p class="tier-head muted">{group.label}</p>
 					<div class="gear-grid">
 						{#each group.pieces as p (p.name)}
-							<div class="gtile" class:owned={p.owned} title="{p.name} · {p.owned ? `${p.earned}/${p.max}` : `0/${p.max}`} pts">
+							<!-- Every tile opens the item info modal (wiki link, points, tracking);
+							     claimable pieces get their claim shortcut INSIDE the modal. -->
+							<button
+								type="button"
+								class="gtile"
+								class:owned={p.owned}
+								class:partial={p.status === 'partial'}
+								title="{p.name} · {p.owned
+									? `${p.earned}/${p.max} pts`
+									: p.status === 'partial'
+										? `in progress — need ${(p.missing ?? []).join(', ')}`
+										: `0/${p.max} pts`} — click for details"
+								onclick={() => (infoPiece = { piece: p, tierLabel: group.label })}
+							>
 								<div class="gtile-img">
 									{#if p.iconItem}
 										<img
@@ -263,12 +293,14 @@
 											alt={p.name}
 											loading="lazy"
 											referrerpolicy="no-referrer"
-											onerror={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
+											use:retryImage
 										/>
 									{/if}
 								</div>
 								<span class="gtile-pts">{p.owned ? `${p.earned}/${p.max}` : p.max}</span>
-							</div>
+								<!-- Partial pieces are shown by the dashed outline alone (no ribbon). -->
+								{#if p.status !== 'partial' && p.claimable}<span class="gtile-flag">claim</span>{/if}
+							</button>
 						{/each}
 					</div>
 				{/each}
@@ -313,6 +345,76 @@
 		<p class="muted small">{emptyText}</p>
 	{/if}
 </section>
+
+{#if infoPiece}
+	{@const p = infoPiece.piece}
+	<ItemInfoModal
+		name={p.name}
+		image={itemImageUrl(p.iconItem ?? p.name)}
+		rows={[
+			{ label: 'Tier', value: infoPiece.tierLabel },
+			{
+				label: 'Rank points',
+				value: p.owned ? `${p.earned} / ${p.max}` : `0 / ${p.max} (not yet earned)`
+			},
+			{
+				label: 'Status',
+				value: p.owned ? 'Complete' : p.status === 'partial' ? 'In progress' : 'Missing'
+			},
+			{
+				label: 'Tracked via',
+				value: p.claimable ? 'Manual claim (not in the collection log)' : 'Temple collection log'
+			}
+		]}
+		wikiPages={[p.iconItem ?? p.name]}
+		onclose={() => (infoPiece = null)}
+	>
+		{#if p.assembled && (p.components ?? []).length}
+			{@const comps = p.components ?? []}
+			{@const missingSet = new Set(p.missing ?? [])}
+			<!-- have: complete → all owned; none → none owned (no `missing` data is recorded
+			     for a 0-check entry, so status must decide); partial → not in the missing set. -->
+			{@const have = (n: string) =>
+				p.status === 'complete' ? true : p.status === 'partial' ? !missingSet.has(n) : false}
+			{@const haveCount = comps.filter((c) => have(c.name)).length}
+			<div class="modal-missing">
+				<p class="mm-head">
+					{#if p.status === 'complete'}Made from — you have all of these:
+					{:else}Components ({haveCount}/{comps.length} owned) — no points until you have every piece:
+					{/if}
+				</p>
+				<ul class="component-list">
+					{#each comps as c (c.name)}
+						<li class:have={have(c.name)} class:needed={!have(c.name)}>
+							<span class="comp-mark">{have(c.name) ? '✓' : '✗'}</span>
+							<span class="comp-alts">
+								{#each c.names ?? [c.name] as alt, i (alt)}
+									{#if i > 0}<span class="comp-or"> or </span>{/if}
+									<a href={wikiPageUrl(alt)} target="_blank" rel="noreferrer noopener">{alt} ↗</a>
+								{/each}
+								{#if c.qty > 1}<span class="comp-qty"> ×{c.qty}</span>{/if}
+							</span>
+							{#if !have(c.name)}<span class="comp-tag">needed</span>{/if}
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
+		{#if p.claimable && !p.owned && onClaim}
+			<button
+				type="button"
+				class="modal-claim"
+				onclick={() => {
+					const item = p.checkItem ?? p.iconItem ?? p.name;
+					infoPiece = null;
+					onClaim(item);
+				}}
+			>
+				Claim this item with proof
+			</button>
+		{/if}
+	</ItemInfoModal>
+{/if}
 
 <style>
 	.rank-panel {
@@ -476,6 +578,14 @@
 		filter: none;
 		border-color: var(--border-strong);
 	}
+	/* In-progress: partly assembled — visibly distinct from both owned and missing
+	   (dimmed but colour retained, amber outline) and scores no points yet. */
+	.gtile.partial {
+		opacity: 0.85;
+		filter: none;
+		border-color: var(--accent);
+		border-style: dashed;
+	}
 	.gtile-img {
 		height: 30px;
 		display: flex;
@@ -494,6 +604,93 @@
 	.gtile.owned .gtile-pts {
 		color: var(--accent);
 		font-family: var(--font-heading);
+	}
+	/* Tiles are <button>s (click → item info modal); reset the global bronze button
+	   styling so they keep the collection-log-grid look. The "claim" ribbon marks
+	   untrackable pieces. */
+	.gtile {
+		position: relative;
+		border-image: none;
+		min-height: 0;
+		font: inherit;
+		cursor: pointer;
+	}
+	.gtile:hover,
+	.gtile:focus {
+		border-color: var(--accent);
+	}
+	.gtile-flag {
+		position: absolute;
+		top: 2px;
+		right: 2px;
+		padding: 0 0.25rem;
+		font-size: 0.5rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		border-radius: 3px;
+		background: var(--accent);
+		color: #1c1710;
+	}
+	/* The claim shortcut inside the item modal (only on /me for unowned claimables). */
+	.modal-claim {
+		width: 100%;
+		margin-top: 0.5rem;
+	}
+	/* Component breakdown inside the item modal for assembled gear. */
+	.modal-missing {
+		margin: 0.2rem 0 0.4rem;
+	}
+	.modal-missing .mm-head {
+		margin: 0 0 0.3rem;
+		font-size: 0.8rem;
+		color: var(--muted);
+	}
+	.component-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		font-size: 0.85rem;
+	}
+	.component-list li {
+		display: flex;
+		align-items: baseline;
+		gap: 0.4rem;
+		padding: 0.12rem 0;
+	}
+	.component-list .comp-mark {
+		width: 1em;
+		font-weight: 700;
+	}
+	.component-list li.have .comp-mark {
+		color: var(--success, #6aa84f);
+	}
+	.component-list li.needed .comp-mark {
+		color: var(--danger);
+	}
+	/* Needed pieces read as clearly not-yet-owned: dimmed, accent link, a "needed" tag. */
+	.component-list li.needed a {
+		color: var(--accent);
+	}
+	.component-list li.have a {
+		color: var(--text);
+	}
+	/* OR-alternatives for a slot (e.g. "Ahrim's helm or Blue moon helm"): the
+	   separator is muted so the accepted variants read as one either/or option. */
+	.comp-or {
+		color: var(--text-muted, #888);
+		font-style: italic;
+	}
+	.comp-qty {
+		color: var(--text-muted, #888);
+	}
+	.comp-tag {
+		font-size: 0.62rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--danger);
+		border: 1px solid var(--danger);
+		border-radius: 3px;
+		padding: 0 0.25rem;
 	}
 
 	/* Combat achievements summary */

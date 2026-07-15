@@ -13,6 +13,7 @@ system works.
 | Auth, roles, ban, audit | [`AUTH.md`](AUTH.md) | you touch login, sessions, roles, the ban gate, or audit logging |
 | Frontend & shared UI | [`FRONTEND.md`](FRONTEND.md) | you build UI, use wiki images / bingo tiles, or touch styling |
 | Events / boards / bingo | [`EVENTS.md`](EVENTS.md) | you build any new event, board, or bingo (the shared spine) |
+| Ranks (scoring, checks, gear claims) | [`RANKS.md`](RANKS.md) | you touch the composite rank formula, /me rank check, rank-sim, or manual gear claims |
 | Dink auto-tracking | [`event-builder-and-dink-tracking.md`](event-builder-and-dink-tracking.md) | you work on the drop-tracking pipeline |
 | Staging deploy | [`DEPLOY-STAGING.md`](DEPLOY-STAGING.md) | you deploy or configure the staging app |
 | Outstanding ops | [`PENDING-OPS.md`](PENDING-OPS.md) | you're picking up the RLS lockdown / prod ship / migrations |

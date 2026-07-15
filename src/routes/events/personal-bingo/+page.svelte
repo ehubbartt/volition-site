@@ -2,6 +2,7 @@
   import { enhance } from "$app/forms";
   import BingoTile from "$lib/BingoTile.svelte";
   import InfoTip from "$lib/InfoTip.svelte";
+  import ItemInfoModal from "$lib/ItemInfoModal.svelte";
   import WikiImage from "$lib/WikiImage.svelte";
   import TileSubmitModal from "$lib/TileSubmitModal.svelte";
   import { formatEhb } from "$lib/ehb";
@@ -956,69 +957,40 @@
 {/snippet}
 
 <!-- Tile-detail modal (obtained / pending-review / draft tiles — status, proof, wiki info). -->
+<!-- Tile detail: the shared ItemInfoModal supplies the chrome (backdrop, icon,
+     heading, close); the tile-kind facts, status lines and submit buttons render
+     as children so they keep this page's scoped styles. -->
 {#if modalTile}
   {@const t = modalTile}
-  <div
-    class="modal-backdrop"
-    role="presentation"
-    onclick={(e) => {
-      if (e.target === e.currentTarget) modalTile = null;
-    }}
+  <ItemInfoModal
+    name={modalHeading}
+    image={tileImage(t)}
+    onclose={() => (modalTile = null)}
   >
-    <div
-      class="modal"
-      role="dialog"
-      tabindex="-1"
-      aria-modal="true"
-      aria-label={modalHeading}
-    >
-      <button
-        class="modal-close"
-        type="button"
-        aria-label="Close"
-        onclick={() => (modalTile = null)}>×</button
-      >
-      <div class="modal-head">
-        <div class="modal-icon"><WikiImage src={tileImage(t)} size={48} /></div>
-        <h3>{modalHeading}</h3>
-      </div>
+    {@render tileInfo(t)}
 
-      {@render tileInfo(t)}
-
-      {#if t.obtained}
-        <p class="modal-done">
-          ✓ Completed{#if t.manual}
-            · submitted manually{/if}
-        </p>
-        {#if t.proof_urls && t.proof_urls.length}
-          <div class="modal-proof">
-            {#each t.proof_urls as url (url)}
-              <a href={url} target="_blank" rel="noreferrer noopener"
-                ><img src={url} alt="proof" /></a
-              >
-            {/each}
-          </div>
-        {/if}
-      {:else if t.pending}
-        <p class="modal-done">⏳ Submitted — awaiting admin review</p>
-      {:else if t.rejected}
-        <p class="modal-rejected">
-          ✗ Your submission was rejected{#if t.rejection_note}: “{t.rejection_note}”{/if}
-          — you can submit again.
-        </p>
-        {#if locked}
-          <button
-            type="button"
-            class="modal-submit"
-            onclick={() => {
-              submitTarget = t;
-              modalTile = null;
-            }}
-          >
-            Resubmit proof
-          </button>
-        {/if}
-      {:else if locked}
+    {#if t.obtained}
+      <p class="modal-done">
+        ✓ Completed{#if t.manual}
+          · submitted manually{/if}
+      </p>
+      {#if t.proof_urls && t.proof_urls.length}
+        <div class="modal-proof">
+          {#each t.proof_urls as url (url)}
+            <a href={url} target="_blank" rel="noreferrer noopener"
+              ><img src={url} alt="proof" /></a
+            >
+          {/each}
+        </div>
+      {/if}
+    {:else if t.pending}
+      <p class="modal-done">⏳ Submitted — awaiting admin review</p>
+    {:else if t.rejected}
+      <p class="modal-rejected">
+        ✗ Your submission was rejected{#if t.rejection_note}: “{t.rejection_note}”{/if}
+        — you can submit again.
+      </p>
+      {#if locked}
         <button
           type="button"
           class="modal-submit"
@@ -1027,11 +999,22 @@
             modalTile = null;
           }}
         >
-          Mark done / submit proof
+          Resubmit proof
         </button>
       {/if}
-    </div>
-  </div>
+    {:else if locked}
+      <button
+        type="button"
+        class="modal-submit"
+        onclick={() => {
+          submitTarget = t;
+          modalTile = null;
+        }}
+      >
+        Mark done / submit proof
+      </button>
+    {/if}
+  </ItemInfoModal>
 {/if}
 
 <!-- Manual tile submission (reusable component), with the tile's details inline. -->
@@ -1370,64 +1353,8 @@
   }
 
   /* ── Tile-detail modal ── */
-  .modal-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 1rem;
-    background: rgba(0, 0, 0, 0.6);
-  }
-  .modal {
-    position: relative;
-    width: 100%;
-    max-width: 22rem;
-    background: #2a2418;
-    border: 4px solid transparent;
-    border-image: url("/osrs/border-tiny.png") 4 / 4px round;
-    border-radius: 6px;
-    padding: 1.1rem 1.2rem 1.2rem;
-  }
-  .modal-close {
-    position: absolute;
-    top: 0.35rem;
-    right: 0.5rem;
-    background: none;
-    border: none;
-    min-height: 0;
-    padding: 0.1rem 0.4rem;
-    font-size: 1.3rem;
-    line-height: 1;
-    color: var(--muted);
-    cursor: pointer;
-  }
-  .modal-close:hover {
-    color: var(--accent);
-  }
-  .modal-head {
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    margin-bottom: 0.8rem;
-  }
-  .modal-icon {
-    flex: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 58px;
-    height: 58px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 50% 38%, #f1e8cf, #c3b088);
-    box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.45);
-  }
-  .modal-head h3 {
-    margin: 0;
-    font-size: 1.05rem;
-    color: var(--accent);
-  }
+  /* Modal chrome (backdrop/icon/heading/close) lives in $lib/ItemInfoModal.svelte;
+     the classes below style this page's children content inside it. */
   .modal-dl {
     margin: 0 0 0.9rem;
     display: flex;

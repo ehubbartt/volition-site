@@ -23,6 +23,12 @@ interface GearEntry {
 	name: string;
 	tier: string;
 	points: number;
+	// Untrackable via the Temple clog (GE-bought / combined outside the log) — the
+	// gear grid marks these with a click-to-claim affordance (manual gear claims).
+	claimable?: boolean;
+	// Display-icon override (item name) when the clog check item isn't what to show —
+	// e.g. DT2 rings check the vestige clog unlock but display the ring.
+	icon?: string;
 	items: GearCheck[];
 }
 interface GearScoring {
@@ -73,16 +79,36 @@ export interface TempleItem {
 }
 export type TempleItems = Record<string, TempleItem[] | unknown>;
 
-export function calculateGearPoints(templeItems: TempleItems | null | undefined): {
+// A partially-obtained gear entry: some but not all of its checks are satisfied. Points
+// are ALL-OR-NOTHING (an unassembled item isn't the item), so a partial scores 0 and is
+// surfaced separately so the grid can show its in-progress state + what's still needed.
+// `missing` lists each unmet check's display item name (first OR-alternative).
+export interface GearPartial {
+	name: string; // the gear-table entry name
+	haveChecks: number;
+	totalChecks: number;
+	missing: string[];
+}
+
+export function calculateGearPoints(
+	templeItems: TempleItems | null | undefined,
+	// Admin-approved manual gear claims (rankClaims.ts) — item names that count as
+	// owned (count 1) even though the Temple clog can't prove them (GE-bought pieces,
+	// upgraded variants combined outside the log).
+	manualItemNames?: string[]
+): {
 	gearPoints: number;
 	matchedItems: { name: string; earned: number; max: number }[];
 	missedItems: string[];
+	partials: GearPartial[];
 } {
-	if (!templeItems) return { gearPoints: 0, matchedItems: [], missedItems: [] };
+	if (!templeItems && !manualItemNames?.length) {
+		return { gearPoints: 0, matchedItems: [], missedItems: [], partials: [] };
+	}
 
 	// Flat lookup: itemName (lowercase) -> max count across all categories.
 	const playerItems: Record<string, number> = {};
-	for (const category of Object.values(templeItems)) {
+	for (const category of Object.values(templeItems ?? {})) {
 		if (!Array.isArray(category)) continue;
 		for (const item of category as TempleItem[]) {
 			if (!item?.name) continue;
@@ -90,15 +116,21 @@ export function calculateGearPoints(templeItems: TempleItems | null | undefined)
 			playerItems[key] = Math.max(playerItems[key] || 0, item.count || 1);
 		}
 	}
+	for (const name of manualItemNames ?? []) {
+		const key = name.toLowerCase();
+		playerItems[key] = Math.max(playerItems[key] || 0, 1);
+	}
 
 	let totalPoints = 0;
 	const matchedItems: { name: string; earned: number; max: number }[] = [];
 	const missedItems: string[] = [];
+	const partials: GearPartial[] = [];
 
 	for (const gear of GEAR.gear) {
 		const itemChecks = gear.items;
 		const totalChecks = itemChecks.length;
 		let checksPassed = 0;
+		const missing: string[] = []; // display name of each unmet check
 
 		for (const check of itemChecks) {
 			const names = Array.isArray(check.name) ? check.name : [check.name];
@@ -110,35 +142,55 @@ export function calculateGearPoints(templeItems: TempleItems | null | undefined)
 				bestCount = Math.max(bestCount, count);
 			}
 
-			if (requiredQty > 1) {
-				checksPassed += Math.min(bestCount, requiredQty) / requiredQty;
-			} else {
-				checksPassed += bestCount >= 1 ? 1 : 0;
-			}
+			const met = bestCount >= requiredQty;
+			if (met) checksPassed += 1;
+			else missing.push(names[0]); // plain component name (matches the catalog component list)
 		}
 
-		const completion = totalChecks > 0 ? checksPassed / totalChecks : 0;
-		const earnedPoints = Math.round(completion * gear.points);
-
-		if (earnedPoints > 0) matchedItems.push({ name: gear.name, earned: earnedPoints, max: gear.points });
-		else missedItems.push(gear.name);
-
-		totalPoints += earnedPoints;
+		// ALL-OR-NOTHING: points only when EVERY check is satisfied; a partial scores 0
+		// and is reported for the in-progress UI (never awarded until completed).
+		if (checksPassed === totalChecks && totalChecks > 0) {
+			matchedItems.push({ name: gear.name, earned: gear.points, max: gear.points });
+			totalPoints += gear.points;
+		} else if (checksPassed > 0) {
+			partials.push({ name: gear.name, haveChecks: checksPassed, totalChecks, missing });
+			missedItems.push(gear.name);
+		} else {
+			missedItems.push(gear.name);
+		}
 	}
 
-	return { gearPoints: totalPoints, matchedItems, missedItems };
+	return { gearPoints: totalPoints, matchedItems, missedItems, partials };
 }
 
 // --- Gear catalog (for the on-profile collection-log-style grid) -------------
 // The full gear table flattened to display rows: each entry's name, tier, max
 // points, and a REPRESENTATIVE item to show an icon for. The entry `name` is a set
 // label (e.g. "Ahrim/Bluemoon Robe Set"), often not an item — so the icon item is
-// taken from the first required item check (its first OR-alternative). Built once.
+// taken from the first required item check (its first OR-alternative), UNLESS the
+// entry sets an explicit `icon` (e.g. DT2 rings display the ring, not the vestige
+// clog check). `iconItem` drives display + wiki; `checkItem` is the clog-tracked
+// name used for manual-claim matching — they diverge when `icon` is set. Built once.
+// A component that makes up an assembled gear entry (one per check; `name` is the
+// first OR-alternative for display/wiki; `qty` is how many are needed).
+export interface GearComponent {
+	name: string; // primary display/identity name (first OR-alternative)
+	names: string[]; // every accepted alternative for this slot (OR) — all shown in the modal
+	qty: number;
+}
 export interface GearCatalogEntry {
 	name: string;
 	tier: string;
 	points: number;
-	iconItem: string | null;
+	iconItem: string | null; // display / wiki
+	checkItem: string | null; // clog check name (claim + scoring match target)
+	claimable: boolean;
+	// Every check's display item — the pieces that make up this entry. `assembled`
+	// is true when the entry is built from parts (multi-check, a quantity, or an icon
+	// override) vs. being the tracked item itself (Fire cape) — the item modal shows
+	// the component breakdown only for assembled entries.
+	components: GearComponent[];
+	assembled: boolean;
 }
 
 let gearCatalog: GearCatalogEntry[] | null = null;
@@ -146,8 +198,22 @@ export function getGearCatalog(): GearCatalogEntry[] {
 	if (gearCatalog) return gearCatalog;
 	gearCatalog = GEAR.gear.map((g) => {
 		const first = g.items[0]?.name;
-		const iconItem = Array.isArray(first) ? (first[0] ?? null) : (first ?? null);
-		return { name: g.name, tier: g.tier, points: g.points, iconItem };
+		const checkItem = Array.isArray(first) ? (first[0] ?? null) : (first ?? null);
+		const components: GearComponent[] = g.items.map((c) => {
+			const names = Array.isArray(c.name) ? c.name : [c.name];
+			return { name: names[0], names, qty: c.quantity || 1 };
+		});
+		const assembled = components.length > 1 || components.some((c) => c.qty > 1) || g.icon != null;
+		return {
+			components,
+			assembled,
+			name: g.name,
+			tier: g.tier,
+			points: g.points,
+			iconItem: g.icon ?? checkItem, // explicit display icon wins
+			checkItem,
+			claimable: g.claimable === true
+		};
 	});
 	return gearCatalog;
 }

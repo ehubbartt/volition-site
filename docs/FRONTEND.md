@@ -57,7 +57,11 @@ bugs that used to recur per feature):
   and `caTierImageUrl`. `itemIconUrl` (`$lib/osrsItems`), `skillIconUrl` (`$lib/ehp`) and the
   CA icon fns (`$lib/ca`) are thin re-exports of these — don't fork new copies.
 - **`src/lib/WikiImage.svelte`** — an `<img>` with the hotlink incantation baked in
-  (`referrerpolicy="no-referrer"` + hide-on-404); renders nothing for an empty `src`.
+  (`referrerpolicy="no-referrer"` + `use:retryImage`); renders nothing for an empty `src`.
+  `retryImage` (`$lib/imageRetry`) re-fetches a transiently-failed hotlink a few times
+  (backoff + cache-bust) before hiding it, so a wiki-side throttle no longer latches a tile
+  blank until a manual page refresh — use it on any raw hotlinked `<img>` (e.g. the rank
+  gear grid) that isn't already a `WikiImage`.
 - **`src/lib/BingoTile.svelte`** — the reusable board tile (bronze OSRS button frame, icon on
   a light parchment disc so even dark glyphs like the Agility icon stay visible, clamped name
   + optional sub-line, `obtained` green ring, `highlighted` accent glow). Props: `image`,
@@ -68,6 +72,10 @@ bugs that used to recur per feature):
   a "Check my rank" on /me SAVES a higher rank than the player had (the checkRank action
   returns `form.rankUp {from,to}`). Click/Escape/8s dismisses; confetti honors
   prefers-reduced-motion.
+- **`src/lib/ItemInfoModal.svelte`** — the shared "OSRS thing info" modal (backdrop, icon,
+  heading, label/value `rows`, `wikiPages` ↗ links, close on backdrop/Escape). Extras render
+  as children and keep the caller's scoped styles. Used by the personal-bingo tile detail
+  and the rank gear grid — reach for it whenever a page needs "click an item → wiki info".
 - **`src/lib/InfoTip.svelte`** — the ⓘ button with an instant CSS tooltip (hover/focus/tap;
   used for the rank-component explainers and the personal-bingo toggle data-source tips).
   Safe inside a `<label>` — it doesn't toggle the control.
