@@ -571,46 +571,18 @@
       "items": [{ "name": "Oathplate legs" }]
     },
     {
-      "name": "Radiant Oathplate Helm",
+      "name": "Radiant Oathplate",
       "tier": "expression",
-      "points": 400,
+      "points": 1200,
       "claimable": true,
       "items": [{ "name": "Radiant oathplate helm" }]
     },
     {
-      "name": "Radiant Oathplate Chest",
+      "name": "Blood Torva",
       "tier": "expression",
-      "points": 400,
-      "claimable": true,
-      "items": [{ "name": "Radiant oathplate chest" }]
-    },
-    {
-      "name": "Radiant Oathplate Legs",
-      "tier": "expression",
-      "points": 400,
-      "claimable": true,
-      "items": [{ "name": "Radiant oathplate legs" }]
-    },
-    {
-      "name": "Blood Torva Full Helm",
-      "tier": "expression",
-      "points": 400,
+      "points": 1200,
       "claimable": true,
       "items": [{ "name": "Blood torva full helm" }]
-    },
-    {
-      "name": "Blood Torva Platebody",
-      "tier": "expression",
-      "points": 400,
-      "claimable": true,
-      "items": [{ "name": "Blood torva platebody" }]
-    },
-    {
-      "name": "Blood Torva Platelegs",
-      "tier": "expression",
-      "points": 400,
-      "claimable": true,
-      "items": [{ "name": "Blood torva platelegs" }]
     },
     {
       "name": "Elder Maul",
