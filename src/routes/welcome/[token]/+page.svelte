@@ -25,6 +25,15 @@
 		};
 	}
 
+	// Focus an element on mount (RSN field) — no a11y-autofocus warning.
+	function focusOnMount(node: HTMLElement) {
+		node.focus();
+	}
+
+	// Auto-run the rank check the moment the rank step is reached — no click needed.
+	let rankForm = $state<HTMLFormElement>();
+	let rankAutoFired = $state(false);
+
 	const session = $derived(data.session ?? null);
 	const stepIndex = $derived(session ? session.steps.indexOf(session.currentStep) : 0);
 	const progressPct = $derived(session ? Math.round((session.completed.length / session.steps.length) * 100) : 0);
@@ -75,6 +84,24 @@
 			packMeta = f.pack;
 			packCards = f.opened ?? [];
 			packOpen = true;
+		}
+	});
+
+	// Kick off the rank check automatically once the rank step is showing and the form
+	// has mounted — the member just sees their rank appear. Fires once; not on error
+	// (so a failed check surfaces a manual "Try again" instead of looping).
+	$effect(() => {
+		if (
+			session?.currentStep === 'rank' &&
+			!completedCurrent &&
+			!f?.rankOk &&
+			!f?.rankError &&
+			rankForm &&
+			!rankAutoFired &&
+			!busy
+		) {
+			rankAutoFired = true;
+			rankForm.requestSubmit();
 		}
 	});
 </script>
@@ -135,7 +162,7 @@
 						<!-- Version B, not verified yet — greet + RSN verify. -->
 						<p class="lead">Hey {data.user.discord_username} 👋 Let's verify your account. Enter your RSN exactly as in game — we check <strong>2000+ total & 150+ EHB</strong> on WiseOldMan.</p>
 						<form method="POST" action="?/verify" use:enhance={submitting} class="stack">
-							<input class="big-input" name="rsn" maxlength="12" placeholder="Your RSN" value={data.user.rsn ?? ''} required />
+							<input class="big-input" name="rsn" maxlength="12" placeholder="Your RSN" value={data.user.rsn ?? ''} use:focusOnMount required />
 							{#if f?.verify && !f.verify.meets}
 								<div class="result warn" in:scale={{ start: 0.9, duration: 200 }}>
 									<span>Total <strong>{f.verify.totalLevel ?? '—'}</strong></span>
@@ -266,9 +293,15 @@
 							<button class="btn primary" disabled={busy}>Continue →</button>
 						</form>
 					{:else}
-						{#if f?.rankError}<p class="err">{f.rankError}</p>{/if}
-						<form method="POST" action="?/checkRank" use:enhance={submitting}>
-							<button class="btn primary big" disabled={busy}>{busy ? 'Checking…' : 'Reveal my rank'}</button>
+						<!-- Auto-submitted on mount (rankForm.requestSubmit) — no click needed. -->
+						<form method="POST" action="?/checkRank" use:enhance={submitting} bind:this={rankForm}>
+							{#if f?.rankError}
+								<p class="err">{f.rankError}</p>
+								<button class="btn primary" disabled={busy}>{busy ? 'Checking…' : 'Try again'}</button>
+							{:else}
+								<p class="checking"><span class="spin" aria-hidden="true"></span> Crunching your live stats…</p>
+								<button type="submit" hidden></button>
+							{/if}
 						</form>
 					{/if}
 
@@ -426,11 +459,6 @@
 	.more summary { cursor: pointer; font-size: 0.88rem; color: var(--accent); }
 	.more p { margin: 0.5rem 0 0; font-size: 0.88rem; line-height: 1.5; color: var(--muted); }
 
-	.chips { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-bottom: 1.1rem; }
-	.chip {
-		padding: 0.3rem 0.7rem; border-radius: 999px; font-size: 0.82rem;
-		background: var(--surface-alt); border: 1px solid var(--border);
-	}
 
 	.stack { display: flex; flex-direction: column; gap: 0.7rem; }
 	.stack input, .stack textarea {
@@ -488,6 +516,13 @@
 	.multi-hint { font-size: 0.78rem; color: var(--muted); padding-left: 1.6rem; }
 
 	.rank-name { font-family: var(--font-heading); font-size: 1.8rem; color: var(--accent); text-transform: capitalize; }
+	.checking { display: flex; align-items: center; gap: 0.55rem; color: var(--muted); }
+	.spin {
+		width: 1.1rem; height: 1.1rem; flex-shrink: 0;
+		border: 2px solid var(--border-strong); border-top-color: var(--accent);
+		border-radius: 50%; animation: spin 0.7s linear infinite;
+	}
+	@keyframes spin { to { transform: rotate(360deg); } }
 	.err { color: var(--danger); font-size: 0.9rem; margin: 0.3rem 0; }
 	.small { font-size: 0.8rem; }
 
