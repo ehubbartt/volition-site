@@ -193,6 +193,7 @@
 					<!-- ── rank ──────────────────────────────────────────────── -->
 				{:else if session.currentStep === 'rank'}
 					<p class="lead">Let's compute your starting clan rank from your live stats.</p>
+					<p class="why"><strong>Why:</strong> your rank is your standing in Volition — earned from your gear, EHB, combat achievements, log and time in clan. It syncs to your Discord role automatically.</p>
 					{#if f?.rankOk}
 						<div class="result ok big-rank" in:scale={{ start: 0.8, duration: 300 }}>
 							<span class="rank-name">{f.rank}</span>
@@ -213,6 +214,7 @@
 				{:else if session.currentStep === 'rewards'}
 					{#if !claimed}
 						<p class="lead">Welcome to the clan — here's your joining loot. 🎁</p>
+						<p class="why"><strong>Loot crate</strong> = free VP to spend on card packs & clan perks. <strong>Card pack</strong> = collectible cards of OSRS bosses & items — rip it for a shot at rares.</p>
 						<form method="POST" action="?/claimRewards" use:enhance={submitting}>
 							<button class="btn primary big" disabled={busy}>{busy ? 'Opening…' : 'Open my rewards'}</button>
 						</form>
@@ -333,6 +335,16 @@
 	}
 	.card h1 { margin: 0 0 0.75rem; font-size: 1.4rem; }
 	.lead { color: var(--text); margin: 0 0 1rem; line-height: 1.5; }
+	/* Concise "why they're doing this" callout — one sentence, easy to skim. */
+	.why {
+		margin: 0 0 1rem;
+		padding: 0.6rem 0.75rem;
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		border-radius: 8px;
+		font-size: 0.9rem;
+		line-height: 1.45;
+	}
 
 	.chips { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-bottom: 1.1rem; }
 	.chip {

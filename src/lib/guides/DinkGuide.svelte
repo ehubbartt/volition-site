@@ -18,6 +18,9 @@
 </script>
 
 <div class="dink-guide" class:compact>
+	{#if compact}
+		<p class="why"><strong>Why:</strong> Dink fires the instant you get a drop — it auto-credits your bingo tiles and posts to the loot feed, so you get credit without lifting a finger.</p>
+	{/if}
 	{#if !compact}
 		<p class="lead">
 			Dink reports your drops the instant they land, so bingo tiles and loot tracking credit you
@@ -72,6 +75,15 @@
 		color: var(--muted);
 		line-height: 1.55;
 		margin: 0;
+	}
+	.why {
+		margin: 0;
+		padding: 0.6rem 0.75rem;
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		border-radius: 8px;
+		font-size: 0.9rem;
+		line-height: 1.45;
 	}
 	.steps {
 		margin: 0;

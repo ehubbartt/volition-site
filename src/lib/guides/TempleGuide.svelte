@@ -6,6 +6,9 @@
 </script>
 
 <div class="temple-guide" class:compact>
+	{#if compact}
+		<p class="why"><strong>Why:</strong> Temple reads your collection log — it's what powers your clan rank and builds your personal bingo boards. Link once, stays synced.</p>
+	{/if}
 	{#if !compact}
 		<header class="guide-head">
 			<p class="kicker">Volition · Setup Guide</p>
@@ -79,6 +82,15 @@
 		color: var(--muted);
 		line-height: 1.55;
 		margin: 0;
+	}
+	.why {
+		margin: 0;
+		padding: 0.6rem 0.75rem;
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		border-radius: 8px;
+		font-size: 0.9rem;
+		line-height: 1.45;
 	}
 	.demo {
 		margin: 0;
