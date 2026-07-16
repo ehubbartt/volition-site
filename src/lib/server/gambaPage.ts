@@ -674,6 +674,33 @@ async function refundUserPack(userId: string, packId: string): Promise<void> {
 	await grantUserPack(userId, packId, 1);
 }
 
+// Open one of a player's OWNED packs by id — resolve → consume (race-safe) → roll +
+// grant, refunding the pack if the roll fails. Exported so the onboarding flow can rip
+// the welcome pack open IN-FLOW with the exact same logic as the gamba openOwned action.
+export async function openOwnedPackFor(
+	user: SessionUser,
+	packId: string
+): Promise<
+	| { ok: true; opened: (Card & { finish: CardFinish; isNew: boolean })[]; pack: { name: string; front_url: string | null; back_url: string | null } }
+	| { ok: false; error: string }
+> {
+	const { data: pack, error: pErr } = await db()
+		.from('vs_card_packs')
+		.select('id, name, cost_vp, cost_gp, discount_pct, discount_vp_pct, cards_per_pack, rarity_weights, slot_weights, slot_finishes, front_url, back_url, holo_regular_url, holo_reverse_url')
+		.eq('id', packId)
+		.maybeSingle();
+	if (pErr) return { ok: false, error: pErr.message };
+	if (!pack) return { ok: false, error: 'That pack no longer exists.' };
+	const consumed = await consumeUserPack(user.id, packId);
+	if (!consumed) return { ok: false, error: "You don't have that pack to open." };
+	const res = await rollGrantReveal(user, pack, 0);
+	if (!res.ok) {
+		await refundUserPack(user.id, packId);
+		return { ok: false, error: `${res.error} — your pack was refunded.` };
+	}
+	return { ok: true, opened: res.opened, pack: { name: pack.name, front_url: pack.front_url, back_url: pack.back_url } };
+}
+
 export const actions: Actions = {
 	// Claim the free weekly pack (clan members; once per week). On success the load
 	// re-runs → the card flips to "Claimed" and the pack appears in inventory.

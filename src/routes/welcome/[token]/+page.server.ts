@@ -8,8 +8,10 @@ import {
 	ensurePlayerRow,
 	postIntroToDiscord,
 	grantOnboardingRewards,
+	whitePackId,
 	type OnboardingSession
 } from '$lib/server/onboarding';
+import { openOwnedPackFor } from '$lib/server/gambaPage';
 import { getOrCreateToken, configUrlFor } from '$lib/server/dinkTokens';
 import { getRankConfig } from '$lib/server/rankConfig';
 import { fetchPlayerRankInputs } from '$lib/server/rankData';
@@ -18,7 +20,6 @@ import { setPlayerRank } from '$lib/server/playerStats';
 import { sendBotMessage } from '$lib/server/botBridge';
 import { db } from '$lib/server/db';
 import { rsnExactPattern, isRsnTaken } from '$lib/server/users';
-import { CLAN_OPTIONS, isValidClan } from '$lib/clans';
 import { ACCOUNT_TYPES, isValidAccountType } from '$lib/accountTypes';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -56,7 +57,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		user: publicUser(locals.user),
 		isAdmin: isAdmin(locals.user),
 		session,
-		clanOptions: CLAN_OPTIONS,
 		accountTypes: ACCOUNT_TYPES,
 		dinkConfigUrl
 	};
@@ -144,18 +144,16 @@ export const actions: Actions = {
 		return { verified: true, verify: result };
 	},
 
-	// Version B profile: clan allegiance + account type (rsn was set at verify).
+	// Version B profile: account type only. Clan allegiance is auto-set to Volition
+	// (everyone joining through this flow is Volition — one less thing to ask).
 	saveProfile: async ({ params, locals, request }) => {
 		const guard = await requireSession(params.token, locals);
 		if ('fail' in guard) return guard.fail;
-		const form = await request.formData();
-		const clan = (form.get('clan_allegiance') ?? '').toString();
-		const account = (form.get('account_type') ?? '').toString();
-		if (!isValidClan(clan)) return fail(400, { profileError: 'Pick your clan allegiance.' });
+		const account = ((await request.formData()).get('account_type') ?? '').toString();
 		if (!isValidAccountType(account)) return fail(400, { profileError: 'Pick your account type.' });
 		await db()
 			.from('vs_users')
-			.update({ clan_allegiance: clan, account_type: account })
+			.update({ clan_allegiance: 'volition', account_type: account })
 			.eq('id', locals.user!.id);
 		await completeStep(params.token, locals.user!, 'profile');
 		return { profileSaved: true };
@@ -242,16 +240,26 @@ export const actions: Actions = {
 		return { dinkDone: true };
 	},
 
-	// Welcome rewards: a free loot-crate VP roll + a white welcome pack.
+	// Welcome rewards: grant a free loot-crate VP roll + a white welcome pack. Does NOT
+	// complete the step — the member opens the crate + rips the pack in-flow first, then
+	// the Continue button advances. Returns the pack id so the opener can rip it.
 	claimRewards: async ({ params, locals }) => {
 		const guard = await requireSession(params.token, locals);
 		if ('fail' in guard) return guard.fail;
 		const outcome = await grantOnboardingRewards(locals.user!);
-		await completeStep(params.token, locals.user!, 'rewards', {
-			rewardCrate: outcome.crate?.label ?? null,
-			rewardCrateVp: outcome.crate?.kind === 'vp' ? outcome.crate.amount : 0,
-			rewardWhitePack: outcome.whitePack
-		});
-		return { rewarded: true, crate: outcome.crate, whitePack: outcome.whitePack };
+		const packId = await whitePackId();
+		return { rewarded: true, crate: outcome.crate, whitePack: outcome.whitePack, whitePackId: packId };
+	},
+
+	// Rip the granted white pack open IN-FLOW — same logic as the gamba openOwned action
+	// (consume + roll + reveal), so the 3D PackOpener animates the pull right here.
+	openWhitePack: async ({ params, locals, request }) => {
+		const guard = await requireSession(params.token, locals);
+		if ('fail' in guard) return guard.fail;
+		const packId = ((await request.formData()).get('pack_id') ?? '').toString() || (await whitePackId());
+		if (!packId) return fail(400, { openError: 'No welcome pack to open.' });
+		const res = await openOwnedPackFor(locals.user!, packId);
+		if (!res.ok) return fail(400, { openError: res.error });
+		return { packOpened: true, opened: res.opened, pack: res.pack };
 	}
 };
