@@ -33,6 +33,10 @@
 	// Auto-run the rank check the moment the rank step is reached — no click needed.
 	let rankForm = $state<HTMLFormElement>();
 	let rankAutoFired = $state(false);
+	// Auto-verify an already-known RSN in the background so the member still sees the
+	// "you meet the requirements" confirmation without typing/clicking.
+	let verifyForm = $state<HTMLFormElement>();
+	let verifyAutoFired = $state(false);
 
 	const session = $derived(data.session ?? null);
 	const stepIndex = $derived(session ? session.steps.indexOf(session.currentStep) : 0);
@@ -104,6 +108,27 @@
 			rankForm.requestSubmit();
 		}
 	});
+
+	// Auto-verify a known RSN on the welcome step (Version B) so the requirement
+	// confirmation shows without a click. Skips if we're mid-manual-entry (a below-req
+	// result or error is showing) so it doesn't loop.
+	$effect(() => {
+		if (
+			session?.currentStep === 'welcome' &&
+			session.variant === 'b' &&
+			!completedCurrent &&
+			!!data.user.rsn &&
+			!f?.verified &&
+			!f?.verifyError &&
+			!(f?.verify && !f.verify.meets) &&
+			verifyForm &&
+			!verifyAutoFired &&
+			!busy
+		) {
+			verifyAutoFired = true;
+			verifyForm.requestSubmit();
+		}
+	});
 </script>
 
 <svelte:head><title>Welcome to Volition</title></svelte:head>
@@ -158,8 +183,25 @@
 							<input type="hidden" name="step" value="welcome" />
 							<button class="btn primary big" disabled={busy}>Let's go →</button>
 						</form>
-					{:else if !data.user.rsn}
-						<!-- Version B, not verified yet — greet + RSN verify. -->
+					{:else if f?.verified}
+						<!-- Verified — show the requirement confirmation, then account type. -->
+						<div class="affirm" in:scale={{ start: 0.7, duration: 350 }}>
+							<div class="affirm-check">✓</div>
+							<h2>You meet the requirements — you're verified!</h2>
+							<p class="affirm-stats">Total <strong>{f.verify.totalLevel ?? '—'}</strong> (2000+) · <strong>{Math.round(f.verify.ehb)}</strong> EHB (150+) — welcome aboard.</p>
+						</div>
+						<p class="lead">Last thing — what kind of account are you? Tap one.</p>
+						<form method="POST" action="?/saveProfile" use:enhance={submitting} class="pick-grid">
+							{#each data.accountTypes as a (a.value)}
+								<button class="pick" name="account_type" value={a.value} title={a.label} disabled={busy}>
+									<img class="pick-icon" src={a.icon} alt={a.label} />
+									<span class="pick-label">{a.label}</span>
+								</button>
+							{/each}
+						</form>
+						{#if f?.profileError}<p class="err">{f.profileError}</p>{/if}
+					{:else if !data.user.rsn || f?.verifyError || (f?.verify && !f.verify.meets)}
+						<!-- Manual RSN entry: new account, not found, or below requirement. -->
 						<p class="lead">Hey {data.user.discord_username} 👋 Let's verify your account. Enter your RSN exactly as in game — we check <strong>2000+ total & 150+ EHB</strong> on WiseOldMan.</p>
 						<form method="POST" action="?/verify" use:enhance={submitting} class="stack">
 							<input class="big-input" name="rsn" maxlength="12" placeholder="Your RSN" value={data.user.rsn ?? ''} use:focusOnMount required />
@@ -167,7 +209,7 @@
 								<div class="result warn" in:scale={{ start: 0.9, duration: 200 }}>
 									<span>Total <strong>{f.verify.totalLevel ?? '—'}</strong></span>
 									<span>EHB <strong>{Math.round(f.verify.ehb)}</strong></span>
-									<span>✗ Below requirement</span>
+									<span>✗ Below requirement (need 2000+ & 150+)</span>
 								</div>
 							{/if}
 							{#if f?.verifyError}<p class="err">{f.verifyError}</p>{/if}
@@ -179,24 +221,12 @@
 							</div>
 						</form>
 					{:else}
-						<!-- Version B, verified — celebrate + pick account type (completes the step). -->
-						{#if f?.verified}
-							<div class="affirm" in:scale={{ start: 0.7, duration: 350 }}>
-								<div class="affirm-check">✓</div>
-								<h2>You're verified!</h2>
-								<p class="affirm-stats">Total <strong>{f.verify.totalLevel ?? '—'}</strong> · <strong>{Math.round(f.verify.ehb)}</strong> EHB — welcome aboard.</p>
-							</div>
-						{/if}
-						<p class="lead">Last thing — what kind of account are you? Tap one.</p>
-						<form method="POST" action="?/saveProfile" use:enhance={submitting} class="pick-grid">
-							{#each data.accountTypes as a (a.value)}
-								<button class="pick" name="account_type" value={a.value} title={a.label} disabled={busy}>
-									<img class="pick-icon" src={a.icon} alt={a.label} />
-									<span class="pick-label">{a.label}</span>
-								</button>
-							{/each}
+						<!-- Has an RSN already — auto-verify it in the background (see the effect). -->
+						<p class="checking"><span class="spin" aria-hidden="true"></span> Checking your account meets the clan requirements…</p>
+						<form method="POST" action="?/verify" use:enhance={submitting} bind:this={verifyForm}>
+							<input type="hidden" name="rsn" value={data.user.rsn} />
+							<button type="submit" hidden aria-label="submit"></button>
 						</form>
-						{#if f?.profileError}<p class="err">{f.profileError}</p>{/if}
 					{/if}
 
 					<!-- ── intro ─────────────────────────────────────────────── -->
@@ -300,7 +330,7 @@
 								<button class="btn primary" disabled={busy}>{busy ? 'Checking…' : 'Try again'}</button>
 							{:else}
 								<p class="checking"><span class="spin" aria-hidden="true"></span> Crunching your live stats…</p>
-								<button type="submit" hidden></button>
+								<button type="submit" hidden aria-label="submit"></button>
 							{/if}
 						</form>
 					{/if}
