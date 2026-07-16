@@ -29,6 +29,16 @@
 	const stepIndex = $derived(session ? session.steps.indexOf(session.currentStep) : 0);
 	const progressPct = $derived(session ? Math.round((session.completed.length / session.steps.length) * 100) : 0);
 	const isDone = $derived(session ? session.completed.length >= session.steps.length : false);
+	// Revisiting an already-finished step (via Back / rail): show a "continue" shortcut
+	// instead of making them redo the action. 'next' always shows its own content.
+	const completedCurrent = $derived(
+		!!session && session.completed.includes(session.currentStep) && session.currentStep !== 'next'
+	);
+	const resumeStep = $derived(
+		session
+			? (session.steps.find((s) => !session.completed.includes(s)) ?? session.steps[session.steps.length - 1])
+			: null
+	);
 
 	// A component sitting at 0% almost always means the source feeding it isn't set up
 	// yet — nudge them to the matching setup so they start scoring.
@@ -103,6 +113,15 @@
 			<div class="card" in:fly={{ y: 16, duration: 260 }}>
 				<h1>{STEP_META[session.currentStep].title}</h1>
 
+				{#if completedCurrent}
+					<div class="revisit">
+						<p>✓ You've already completed this step — no need to redo it.</p>
+						<form method="POST" action="?/goto" use:enhance={submitting}>
+							<input type="hidden" name="step" value={resumeStep} />
+							<button class="btn primary" disabled={busy}>Continue where you left off →</button>
+						</form>
+					</div>
+				{:else}
 				<!-- ── welcome ─────────────────────────────────────────────── -->
 				{#if session.currentStep === 'welcome'}
 					<p class="lead">Hey {data.user.discord_username} 👋 — a few quick steps to get you set up. Takes a couple minutes.</p>
@@ -266,7 +285,11 @@
 				{:else if session.currentStep === 'rewards'}
 					{#if !claimed}
 						<p class="lead">Welcome to the clan — here's your joining loot. 🎁</p>
-						<p class="why"><strong>Loot crate</strong> = free VP to spend on card packs & clan perks. <strong>Card pack</strong> = collectible cards of OSRS bosses & items — rip it for a shot at rares.</p>
+						<p class="why"><strong>VP</strong> (Volition Points) is the clan currency — earn it from events, tasks & drops. <strong>Loot crates</strong> spin it out (plus rare-item chances). <strong>Card packs</strong> turn VP into collectible cards of OSRS bosses & items — our clan collection game.</p>
+						<details class="more">
+							<summary>New to the clan card game?</summary>
+							<p>Cards are the fun layer on top of the clan: pull them from packs, chase the rares, build a collection and show it off. Crates and packs give you a reason to run events and log drops — and your welcome crate + pack get you started, free.</p>
+						</details>
 						<form method="POST" action="?/claimRewards" use:enhance={submitting}>
 							<button class="btn primary big" disabled={busy}>{busy ? 'Opening…' : 'Open my rewards'}</button>
 						</form>
@@ -313,6 +336,7 @@
 							<button class="btn primary" disabled={busy}>Finish</button>
 						</form>
 					{/if}
+				{/if}
 				{/if}
 
 				{#if stepIndex > 0 && session.currentStep !== 'next'}
@@ -397,6 +421,19 @@
 		font-size: 0.9rem;
 		line-height: 1.45;
 	}
+
+	.revisit { text-align: center; padding: 0.5rem 0 0.25rem; }
+	.revisit p { color: var(--success); margin: 0 0 0.4rem; }
+	.more {
+		display: block;
+		margin: 0 0 1rem;
+		padding: 0.5rem 0.75rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+	}
+	.more summary { cursor: pointer; font-size: 0.88rem; color: var(--accent); }
+	.more p { margin: 0.5rem 0 0; font-size: 0.88rem; line-height: 1.5; color: var(--muted); }
 
 	.chips { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-bottom: 1.1rem; }
 	.chip {

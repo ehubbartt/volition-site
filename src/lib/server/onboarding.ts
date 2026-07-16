@@ -143,16 +143,19 @@ export async function completeStep(
 	};
 }
 
-// Jump the pointer to a step without completing it (Back / rail navigation). Only
-// allowed to a step already reached (completed) or the current one — no skipping ahead.
+// Jump the pointer to a step without completing it (Back / rail / resume). Allowed to
+// any step up to and INCLUDING the resume point (the first not-yet-completed step) —
+// so you can freely move back and forward through everything you've already reached,
+// but never skip ahead past unfinished work.
 export async function gotoStep(token: string, user: SessionUser, step: StepId): Promise<OnboardingLoad> {
 	const row = await fetchRow(token);
 	if (!row) return { ok: false, reason: 'not_found' };
 	if (row.discord_id !== user.discord_id) return { ok: false, reason: 'wrong_user' };
 	const session = rowToSession(row);
 	const idx = session.steps.indexOf(step);
-	const curIdx = session.steps.indexOf(session.currentStep);
-	if (idx < 0 || (idx > curIdx && !session.completed.includes(step))) return { ok: true, session };
+	const firstIncomplete = session.steps.findIndex((s) => !session.completed.includes(s));
+	const maxIdx = firstIncomplete === -1 ? session.steps.length - 1 : firstIncomplete;
+	if (idx < 0 || idx > maxIdx) return { ok: true, session };
 	await db().from('vs_onboarding_tokens').update({ current_step: step }).eq('token', token);
 	return { ok: true, session: { ...session, currentStep: step } };
 }
