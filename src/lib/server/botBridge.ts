@@ -26,6 +26,9 @@ export interface PostIntroPayload {
 	discord_id: string;
 	username?: string | null;
 	rsn?: string | null;
+	// The origin channel (where /onboard-test ran) — the bot drops a visible "intro
+	// received → relayed to intros" confirmation here so it's seen in the test channel.
+	channel_id?: string | null;
 	// The five intro fields, matching the Discord intro modal.
 	basic_info: string;
 	stats_info: string;

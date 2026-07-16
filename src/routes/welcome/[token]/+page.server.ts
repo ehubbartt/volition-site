@@ -186,7 +186,8 @@ export const actions: Actions = {
 		if (!fields.basic_info || !fields.stats_info || !fields.clan_history) {
 			return fail(400, { introError: 'Please fill in at least the first three fields.' });
 		}
-		const posted = await postIntroToDiscord(locals.user!, fields);
+		const originChannel = typeof guard.session.data.channel_id === 'string' ? guard.session.data.channel_id : null;
+		const posted = await postIntroToDiscord(locals.user!, fields, originChannel);
 		// Don't auto-advance — show the "posted" confirmation (and whether it reached
 		// Discord) first; the Continue button advances.
 		await mergeOnboardingData(params.token, { intro: fields, introPosted: posted });

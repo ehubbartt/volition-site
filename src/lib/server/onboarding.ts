@@ -243,11 +243,16 @@ export interface IntroFields {
 	goals_interests: string;
 	additional_info: string;
 }
-export async function postIntroToDiscord(user: SessionUser, fields: IntroFields): Promise<boolean> {
+export async function postIntroToDiscord(
+	user: SessionUser,
+	fields: IntroFields,
+	channelId?: string | null
+): Promise<boolean> {
 	return sendBotMessage('post_intro', {
 		discord_id: user.discord_id,
 		username: user.discord_username,
 		rsn: user.rsn,
+		channel_id: channelId ?? null,
 		...fields
 	});
 }
