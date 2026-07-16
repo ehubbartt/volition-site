@@ -299,3 +299,15 @@ export async function grantOnboardingRewards(user: SessionUser): Promise<RewardO
 	const [crate, whitePack] = await Promise.all([grantWelcomeCrate(user), grantWhitePack(user)]);
 	return { crate, whitePack };
 }
+
+// The white welcome pack's id (for opening it in-flow). Null if the pack isn't set up.
+export async function whitePackId(): Promise<string | null> {
+	const { data } = await db()
+		.from('vs_card_packs')
+		.select('id')
+		.ilike('name', 'white%')
+		.order('created_at', { ascending: true })
+		.limit(1)
+		.maybeSingle();
+	return (data as { id: string } | null)?.id ?? null;
+}
