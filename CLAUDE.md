@@ -49,6 +49,7 @@ whose names are fixed by the tooling that loads them.
 | UI, wiki images, bingo tiles, styling | [`docs/FRONTEND.md`](docs/FRONTEND.md) |
 | Building any event / board / bingo | [`docs/EVENTS.md`](docs/EVENTS.md) |
 | Rank scoring, /me rank check, gear claims | [`docs/RANKS.md`](docs/RANKS.md) |
+| Site onboarding flow (the `/welcome/[token]` join) | [`docs/ONBOARDING.md`](docs/ONBOARDING.md) |
 | The Dink drop-tracking pipeline | [`docs/event-builder-and-dink-tracking.md`](docs/event-builder-and-dink-tracking.md) |
 | Deploying / configuring staging | [`docs/DEPLOY-STAGING.md`](docs/DEPLOY-STAGING.md) |
 | Outstanding ops (RLS lockdown, prod ship) | [`docs/PENDING-OPS.md`](docs/PENDING-OPS.md) |

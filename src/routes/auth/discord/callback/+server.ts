@@ -119,5 +119,13 @@ export const GET: RequestHandler = async ({ url, cookies, locals }) => {
 
 	await createSession(userId, cookies);
 
+	// Honour a post-login return path set by the login route (e.g. an onboarding
+	// link opened while signed out). Consumed once; re-validated as same-origin.
+	const next = cookies.get('vs_oauth_next');
+	if (next) {
+		cookies.delete('vs_oauth_next', { path: '/' });
+		if (next.startsWith('/') && !next.startsWith('//')) throw redirect(302, next);
+	}
+
 	throw redirect(302, needsOnboarding ? '/onboarding' : '/events');
 };
