@@ -28,8 +28,15 @@ create table if not exists vs_onboarding_tokens (
 
 create index if not exists vs_onboarding_tokens_discord on vs_onboarding_tokens (discord_id);
 
--- Deny-all RLS, same posture as every table: the site reads/writes via service_role.
-alter table vs_onboarding_tokens enable row level security;
+-- RLS is intentionally left DISABLED here. This table is written by BOTH the site
+-- (service_role, which bypasses RLS) AND the Discord bot's /onboard-test commands.
+-- The bot connects with the Supabase key it has in this deploy — the anon key in the
+-- current pre-lockdown state — so a deny-all policy would block the bot's INSERT
+-- ("new row violates row-level security policy"). This matches the bot's other shared
+-- tables (players, dink_tokens), which are also not RLS-enforced. When the full RLS
+-- lockdown lands (the bot switched to the service_role key — see docs/PENDING-OPS),
+-- re-enable it: `alter table vs_onboarding_tokens enable row level security;`.
+alter table vs_onboarding_tokens disable row level security;
 
 -- PostgREST caches the schema; without this the new table 404s until restart.
 notify pgrst, 'reload schema';
