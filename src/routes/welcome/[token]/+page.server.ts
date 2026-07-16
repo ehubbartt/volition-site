@@ -9,9 +9,11 @@ import {
 	postIntroToDiscord,
 	grantOnboardingRewards,
 	whitePackId,
+	onboardingCrateReel,
 	type OnboardingSession
 } from '$lib/server/onboarding';
 import { openOwnedPackFor } from '$lib/server/gambaPage';
+import { loadRankBreakdown } from '$lib/server/meData';
 import { getOrCreateToken, configUrlFor, getMultiServer, setMultiServer } from '$lib/server/dinkTokens';
 import { getRankConfig } from '$lib/server/rankConfig';
 import { fetchPlayerRankInputs } from '$lib/server/rankData';
@@ -41,6 +43,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	}
 	const session = res.session;
 
+	// Crate reel (filler cells for the spinning reveal) — only needed if rewards is a step.
+	const crateReel = session.steps.includes('rewards') ? await onboardingCrateReel() : [];
+
 	// Dink step needs the member's config URL + multi-server flag; read them lazily.
 	let dinkConfigUrl: string | null = null;
 	let dinkMulti = false;
@@ -61,7 +66,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		session,
 		accountTypes: ACCOUNT_TYPES,
 		dinkConfigUrl,
-		dinkMulti
+		dinkMulti,
+		crateReel
 	};
 };
 
@@ -218,8 +224,28 @@ export const actions: Actions = {
 				const w = await setPlayerRank(locals.user!.discord_id, rsn, rank);
 				saved = w.ok;
 			}
-			// Don't complete the step — the UI reveals the rank first, then Continue advances.
-			return { rankOk: true, rank, rankSaved: saved };
+			// Don't complete the step — the UI reveals the rank + breakdown first, then
+			// Continue advances. loadRankBreakdown re-reads the row we just cached and returns
+			// the per-component breakdown + next-rank progress, so the step can EXPLAIN the rank.
+			const { breakdown } = await loadRankBreakdown(rsn);
+			return {
+				rankOk: true,
+				rank,
+				rankSaved: saved,
+				breakdown: breakdown
+					? {
+							composite: breakdown.composite,
+							nextRank: breakdown.nextRank,
+							nextRankProgress: breakdown.nextRankProgress,
+							components: breakdown.components.map((c) => ({
+								label: c.label,
+								normalized: c.normalized,
+								raw: c.raw,
+								cap: c.cap
+							}))
+						}
+					: null
+			};
 		} catch (e) {
 			return fail(500, { rankError: e instanceof Error ? e.message : 'Rank check failed.' });
 		}

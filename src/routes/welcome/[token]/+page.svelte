@@ -7,6 +7,7 @@
 	import TempleGuide from '$lib/guides/TempleGuide.svelte';
 	import DinkGuide from '$lib/guides/DinkGuide.svelte';
 	import PackOpener from '$lib/cards/PackOpener.svelte';
+	import CrateReveal from '$lib/cards/CrateReveal.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -38,6 +39,7 @@
 	// ── Rewards step: persist claim + opening across the two actions ──────────────
 	let claimed = $state(false);
 	let crate = $state<Record<string, any> | null>(null);
+	let crateDone = $state(false); // the crate reveal has been watched + dismissed
 	let packId = $state<string | null>(null);
 	let packOpen = $state(false);
 	let packCards = $state<any[]>([]);
@@ -195,10 +197,28 @@
 					<p class="lead">Let's compute your starting clan rank from your live stats.</p>
 					<p class="why"><strong>Why:</strong> your rank is your standing in Volition — earned from your gear, EHB, combat achievements, log and time in clan. It syncs to your Discord role automatically.</p>
 					{#if f?.rankOk}
-						<div class="result ok big-rank" in:scale={{ start: 0.8, duration: 300 }}>
+						<div class="rankcard" in:scale={{ start: 0.85, duration: 300 }}>
 							<span class="rank-name">{f.rank}</span>
-							<span>{f.rankSaved ? '✓ Saved to your clan record' : 'Computed (a stats source was down)'}</span>
+							<span class="muted small">{f.rankSaved ? '✓ Saved — synced to your Discord role' : 'Computed (a stats source was down, not saved)'}</span>
+							{#if f.breakdown}
+								{#if f.breakdown.nextRank}
+									<div class="nextbar" title="Progress to the next rank"><span style="width:{Math.round(f.breakdown.nextRankProgress * 100)}%"></span></div>
+									<p class="muted small">{Math.round(f.breakdown.nextRankProgress * 100)}% of the way to <strong>{f.breakdown.nextRank}</strong></p>
+								{:else}
+									<p class="muted small">Top rank — nothing above you. 👑</p>
+								{/if}
+								<ul class="comps">
+									{#each f.breakdown.components as c (c.label)}
+										<li>
+											<span class="clabel">{c.label}</span>
+											<div class="cbar"><span style="width:{Math.round(Math.min(1, c.normalized) * 100)}%"></span></div>
+											<span class="craw">{c.raw}/{c.cap}</span>
+										</li>
+									{/each}
+								</ul>
+							{/if}
 						</div>
+						<p class="why"><strong>How ranks work:</strong> a weighted mix of the bars above. Yours is what it is because of where those land today — <strong>raise your lowest bars to climb</strong>.</p>
 						<form method="POST" action="?/advance" use:enhance={submitting}>
 							<input type="hidden" name="step" value="rank" />
 							<button class="btn primary" disabled={busy}>Continue →</button>
@@ -218,22 +238,17 @@
 						<form method="POST" action="?/claimRewards" use:enhance={submitting}>
 							<button class="btn primary big" disabled={busy}>{busy ? 'Opening…' : 'Open my rewards'}</button>
 						</form>
+					{:else if !crateDone}
+						<!-- The crate is spinning in the CrateReveal overlay (rendered below). -->
+						<p class="lead">Opening your crate… 🎁</p>
 					{:else}
-						{#if crate}
-							<div class="crate" in:scale={{ start: 0.7, duration: 350 }}>
-								{#if crate.image}<img src={crate.image} alt={crate.label} />{/if}
-								<div class="crate-txt">
-									<strong>{crate.label}</strong>
-									{#if crate.kind === 'vp'}<span>+{crate.amount} VP</span>{/if}
-								</div>
-							</div>
-						{/if}
+						<p class="lead">Nice loot! Now rip open your welcome card pack.</p>
 						{#if f?.openError}<p class="err">{f.openError}</p>{/if}
 						<div class="row">
 							{#if !packOpen}
 								<form method="POST" action="?/openWhitePack" use:enhance={submitting}>
 									<input type="hidden" name="pack_id" value={packId ?? ''} />
-									<button class="btn primary" disabled={busy}>{busy ? 'Ripping…' : '🃏 Rip open your pack'}</button>
+									<button class="btn primary big" disabled={busy}>{busy ? 'Ripping…' : '🃏 Rip open your pack'}</button>
 								</form>
 							{/if}
 							<form method="POST" action="?/advance" use:enhance={submitting}>
@@ -277,6 +292,11 @@
 			</div>
 		{/key}
 	</section>
+
+	<!-- Full gamba-style crate reel: spins to the won reward, then Continue shows the pack. -->
+	{#if claimed && crate && !crateDone}
+		<CrateReveal reward={crate as any} reel={data.crateReel} onClose={() => (crateDone = true)} />
+	{/if}
 
 	{#if packOpen && packMeta}
 		<div transition:fade={{ duration: 150 }}>
@@ -404,17 +424,24 @@
 	.multi label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; cursor: pointer; }
 	.multi-hint { font-size: 0.78rem; color: var(--muted); padding-left: 1.6rem; }
 
-	.big-rank { flex-direction: column; align-items: center; text-align: center; padding: 1.2rem; }
 	.rank-name { font-family: var(--font-heading); font-size: 1.8rem; color: var(--accent); text-transform: capitalize; }
 	.err { color: var(--danger); font-size: 0.9rem; margin: 0.3rem 0; }
+	.small { font-size: 0.8rem; }
 
-	.crate {
-		display: flex; align-items: center; gap: 0.9rem; padding: 0.9rem;
-		background: var(--success-bg); border: 1px solid var(--success); border-radius: 12px; margin: 0.4rem 0 0.9rem;
+	/* Rank breakdown */
+	.rankcard {
+		display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
+		text-align: center; padding: 1.1rem; margin-bottom: 0.6rem;
+		background: var(--success-bg); border: 1px solid var(--success); border-radius: 12px;
 	}
-	.crate img { width: 4rem; height: 4rem; object-fit: contain; }
-	.crate-txt { display: flex; flex-direction: column; gap: 0.15rem; }
-	.crate-txt span { color: var(--accent); font-family: var(--font-heading); }
+	.nextbar { width: 100%; height: 7px; border-radius: 999px; background: var(--surface-alt); overflow: hidden; margin-top: 0.4rem; }
+	.nextbar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+	.comps { list-style: none; padding: 0; margin: 0.6rem 0 0; width: 100%; display: flex; flex-direction: column; gap: 0.35rem; }
+	.comps li { display: grid; grid-template-columns: 6.5rem 1fr auto; align-items: center; gap: 0.5rem; font-size: 0.82rem; }
+	.clabel { text-align: left; color: var(--muted); }
+	.cbar { height: 8px; border-radius: 999px; background: var(--surface); overflow: hidden; }
+	.cbar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+	.craw { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 	.next-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.6rem; margin: 0.4rem 0; }
 	.next-card {

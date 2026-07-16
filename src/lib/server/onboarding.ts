@@ -289,6 +289,34 @@ export async function grantOnboardingRewards(user: SessionUser): Promise<RewardO
 	return { crate, whitePack };
 }
 
+// The crate reel filler cells (every possible reward bucket) — same source the gamba
+// crate uses, so the onboarding reel spins through real tiers/items. For CrateReveal.
+export interface OnboardCrateCell {
+	label: string;
+	image: string | null;
+	colorHex: string;
+}
+export async function onboardingCrateReel(): Promise<OnboardCrateCell[]> {
+	const cfg = await getLootConfig();
+	const cells: OnboardCrateCell[] = cfg.vpTiers.map((t) => ({
+		label: t.label,
+		image: t.image ?? null,
+		colorHex: `#${t.color ?? '808080'}`
+	}));
+	for (const i of cfg.items ?? []) {
+		if (i.enabled === false) continue;
+		cells.push({ label: i.name, image: i.image ?? null, colorHex: `#${i.color ?? '00FF00'}` });
+	}
+	if (cfg.roleReward?.enabled) {
+		cells.push({
+			label: cfg.roleReward.label ?? 'Role',
+			image: cfg.roleReward.image ?? null,
+			colorHex: `#${cfg.roleReward.color ?? '800080'}`
+		});
+	}
+	return cells;
+}
+
 // The white welcome pack's id (for opening it in-flow). Null if the pack isn't set up.
 export async function whitePackId(): Promise<string | null> {
 	const { data } = await db()
