@@ -46,6 +46,20 @@
 	<ol class="steps" start="4">
 		<li>Click <strong>Import</strong> — Dink pulls the clan config. Done.</li>
 	</ol>
+
+	<details class="more">
+		<summary>What Dink does & more info</summary>
+		<p>
+			Dink watches your client and fires the instant a drop, collection-log unlock, or
+			achievement lands — that's what credits your <strong>bingo tiles in real time</strong> and
+			feeds the loot channel. The config URL above is personal to you; it tells Dink exactly
+			what to report and where, so you don't have to configure anything by hand.
+		</p>
+		<p>
+			It pairs with <strong>TempleOSRS</strong>: Dink is the instant signal, Temple is the
+			periodic full-log source of truth. You want both.
+		</p>
+	</details>
 </div>
 
 <style>
@@ -93,5 +107,22 @@
 	.muted {
 		color: var(--muted);
 		margin: 0;
+	}
+	.more {
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 0.4rem 0.7rem;
+		background: var(--surface-alt);
+	}
+	.more summary {
+		cursor: pointer;
+		font-size: 0.88rem;
+		color: var(--accent);
+	}
+	.more p {
+		margin: 0.6rem 0 0;
+		font-size: 0.88rem;
+		line-height: 1.5;
+		color: var(--muted);
 	}
 </style>

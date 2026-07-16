@@ -104,25 +104,37 @@
 
 					<!-- ── verify ────────────────────────────────────────────── -->
 				{:else if session.currentStep === 'verify'}
-					<p class="lead">Enter your RSN exactly as in game — we check it on WiseOldMan (need <strong>2000+ total & 150+ EHB</strong>).</p>
-					<form method="POST" action="?/verify" use:enhance={submitting} class="stack">
-						<input class="big-input" name="rsn" maxlength="12" placeholder="Your RSN" value={data.user.rsn ?? ''} required />
-						{#if f?.verify}
-							{@const v = f.verify}
-							<div class="result {v.meets ? 'ok' : 'warn'}" in:scale={{ start: 0.9, duration: 200 }}>
-								<span>Total <strong>{v.totalLevel ?? '—'}</strong></span>
-								<span>EHB <strong>{Math.round(v.ehb)}</strong></span>
-								<span>{v.meets ? '✓ You qualify' : '✗ Below requirement'}</span>
-							</div>
-						{/if}
-						{#if f?.verifyError}<p class="err">{f.verifyError}</p>{/if}
-						<div class="row">
-							<button class="btn primary" disabled={busy}>Verify</button>
-							{#if data.isAdmin && f?.verify && !f.verify.meets}
-								<button class="btn" name="force" value="true" disabled={busy}>Force (admin)</button>
-							{/if}
+					{#if f?.verified}
+						<!-- Affirmation: celebrate meeting the requirement before moving on. -->
+						<div class="affirm" in:scale={{ start: 0.7, duration: 350 }}>
+							<div class="affirm-check">✓</div>
+							<h2>You're verified!</h2>
+							<p class="affirm-stats">Total <strong>{f.verify.totalLevel ?? '—'}</strong> · <strong>{Math.round(f.verify.ehb)}</strong> EHB — welcome aboard.</p>
 						</div>
-					</form>
+						<form method="POST" action="?/advance" use:enhance={submitting}>
+							<input type="hidden" name="step" value="verify" />
+							<button class="btn primary big" disabled={busy}>Continue →</button>
+						</form>
+					{:else}
+						<p class="lead">Enter your RSN exactly as in game — we check it on WiseOldMan (need <strong>2000+ total & 150+ EHB</strong>).</p>
+						<form method="POST" action="?/verify" use:enhance={submitting} class="stack">
+							<input class="big-input" name="rsn" maxlength="12" placeholder="Your RSN" value={data.user.rsn ?? ''} required />
+							{#if f?.verify && !f.verify.meets}
+								<div class="result warn" in:scale={{ start: 0.9, duration: 200 }}>
+									<span>Total <strong>{f.verify.totalLevel ?? '—'}</strong></span>
+									<span>EHB <strong>{Math.round(f.verify.ehb)}</strong></span>
+									<span>✗ Below requirement</span>
+								</div>
+							{/if}
+							{#if f?.verifyError}<p class="err">{f.verifyError}</p>{/if}
+							<div class="row">
+								<button class="btn primary" disabled={busy}>Verify</button>
+								{#if data.isAdmin && f?.verify && !f.verify.meets}
+									<button class="btn" name="force" value="true" disabled={busy}>Force (admin)</button>
+								{/if}
+							</div>
+						</form>
+					{/if}
 
 					<!-- ── profile (account type only; clan auto = Volition) ──── -->
 				{:else if session.currentStep === 'profile'}
@@ -160,6 +172,14 @@
 					<!-- ── dink (full guide inline + skip) ───────────────────── -->
 				{:else if session.currentStep === 'dink'}
 					<DinkGuide configUrl={data.dinkConfigUrl} compact />
+					<!-- Multi-server flag (reuses the /dink-check dink_tokens setting). -->
+					<form method="POST" action="?/setMultiServer" use:enhance={submitting} class="multi">
+						<label>
+							<input type="checkbox" name="multi" value="true" checked={f?.multiSaved ? f.multi : data.dinkMulti} onchange={(e) => e.currentTarget.form?.requestSubmit()} />
+							I also use Dink with another Discord server
+						</label>
+						<span class="multi-hint">Keeps your other server's alerts from firing on every drop — we whitelist just your tracked items instead.</span>
+					</form>
 					<div class="row">
 						<form method="POST" action="?/completeDink" use:enhance={submitting}>
 							<button class="btn primary" disabled={busy}>Done — continue →</button>
@@ -353,6 +373,25 @@
 	.result { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; padding: 0.7rem 0.9rem; margin: 0.3rem 0; border-radius: 10px; font-size: 0.95rem; }
 	.result.ok { background: var(--success-bg); border: 1px solid var(--success); }
 	.result.warn { background: var(--danger-bg); border: 1px solid var(--danger); }
+	/* Verify affirmation */
+	.affirm { text-align: center; padding: 0.5rem 0 1rem; }
+	.affirm-check {
+		width: 4rem; height: 4rem; margin: 0 auto 0.6rem;
+		display: flex; align-items: center; justify-content: center;
+		border-radius: 50%; font-size: 2rem; color: #fff;
+		background: var(--success); box-shadow: 0 0 0 0 rgba(106, 168, 79, 0.6);
+		animation: pop 0.45s ease, ring 1.1s ease 0.2s;
+	}
+	.affirm h2 { margin: 0 0 0.3rem; }
+	.affirm-stats { color: var(--muted); margin: 0; }
+	@keyframes pop { 0% { transform: scale(0.4); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
+	@keyframes ring { 0% { box-shadow: 0 0 0 0 rgba(106, 168, 79, 0.6); } 100% { box-shadow: 0 0 0 22px rgba(106, 168, 79, 0); } }
+
+	/* Dink multi-server toggle */
+	.multi { margin: 0.6rem 0 0.2rem; display: flex; flex-direction: column; gap: 0.25rem; }
+	.multi label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; cursor: pointer; }
+	.multi-hint { font-size: 0.78rem; color: var(--muted); padding-left: 1.6rem; }
+
 	.big-rank { flex-direction: column; align-items: center; text-align: center; padding: 1.2rem; }
 	.rank-name { font-family: var(--font-heading); font-size: 1.8rem; color: var(--accent); text-transform: capitalize; }
 	.err { color: var(--danger); font-size: 0.9rem; margin: 0.3rem 0; }

@@ -12,7 +12,7 @@ import {
 	type OnboardingSession
 } from '$lib/server/onboarding';
 import { openOwnedPackFor } from '$lib/server/gambaPage';
-import { getOrCreateToken, configUrlFor } from '$lib/server/dinkTokens';
+import { getOrCreateToken, configUrlFor, getMultiServer, setMultiServer } from '$lib/server/dinkTokens';
 import { getRankConfig } from '$lib/server/rankConfig';
 import { fetchPlayerRankInputs } from '$lib/server/rankData';
 import { scorePlayer } from '$lib/server/rankScoring';
@@ -41,12 +41,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	}
 	const session = res.session;
 
-	// Dink step needs the member's config URL; mint/read it lazily so the step can show it.
+	// Dink step needs the member's config URL + multi-server flag; read them lazily.
 	let dinkConfigUrl: string | null = null;
+	let dinkMulti = false;
 	if (session.steps.includes('dink')) {
 		try {
 			const { token: dinkToken } = await getOrCreateToken(locals.user.discord_id);
 			dinkConfigUrl = configUrlFor(dinkToken);
+			dinkMulti = await getMultiServer(locals.user.discord_id);
 		} catch {
 			dinkConfigUrl = null;
 		}
@@ -58,7 +60,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		isAdmin: isAdmin(locals.user),
 		session,
 		accountTypes: ACCOUNT_TYPES,
-		dinkConfigUrl
+		dinkConfigUrl,
+		dinkMulti
 	};
 };
 
@@ -127,19 +130,14 @@ export const actions: Actions = {
 		}
 
 		// Passed (or forced): persist RSN on the profile, ensure a players row, tell the
-		// bot to grant the verified role + set nickname, and advance.
+		// bot to grant the verified role + set nickname. Do NOT complete the step here —
+		// the UI shows a "you qualify" affirmation first, and its Continue button advances.
 		await db().from('vs_users').update({ rsn: result.rsn }).eq('id', locals.user!.id);
 		await ensurePlayerRow(locals.user!.discord_id, result.rsn, result.womId);
 		await sendBotMessage('onboard_verified', {
 			discord_id: locals.user!.discord_id,
 			rsn: result.rsn,
 			username: locals.user!.discord_username
-		});
-		await completeStep(params.token, locals.user!, 'verify', {
-			rsn: result.rsn,
-			totalLevel: result.totalLevel,
-			ehb: result.ehb,
-			forced: force && !result.meets
 		});
 		return { verified: true, verify: result };
 	},
@@ -220,11 +218,25 @@ export const actions: Actions = {
 				const w = await setPlayerRank(locals.user!.discord_id, rsn, rank);
 				saved = w.ok;
 			}
-			await completeStep(params.token, locals.user!, 'rank', { rank, rankSaved: saved });
+			// Don't complete the step — the UI reveals the rank first, then Continue advances.
 			return { rankOk: true, rank, rankSaved: saved };
 		} catch (e) {
 			return fail(500, { rankError: e instanceof Error ? e.message : 'Rank check failed.' });
 		}
+	},
+
+	// Dink multi-server toggle (member uses Dink with another Discord too) — reuses the
+	// same dink_tokens flag the /dink-check page sets. Does not advance the step.
+	setMultiServer: async ({ params, locals, request }) => {
+		const guard = await requireSession(params.token, locals);
+		if ('fail' in guard) return guard.fail;
+		const value = (await request.formData()).get('multi') === 'true';
+		try {
+			await setMultiServer(locals.user!.discord_id, value);
+		} catch (e) {
+			return fail(500, { dinkError: e instanceof Error ? e.message : 'Could not save.' });
+		}
+		return { multiSaved: true, multi: value };
 	},
 
 	// Dink: ensure a token exists (its URL is shown on the step), then advance.

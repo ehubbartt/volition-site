@@ -34,13 +34,28 @@
 		<li>Make sure your <strong>site RSN</strong> matches your in-game name exactly — that's how the site finds your log.</li>
 	</ol>
 
-	{#if !compact}
-		<p class="muted">
-			Check it worked: search your RSN on
-			<a href="https://templeosrs.com" target="_blank" rel="noreferrer noopener">templeosrs.com ↗</a> —
-			your Collection Log tab should show your unlocks.
+	<p class="muted">
+		Check it worked: search your RSN on
+		<a href="https://templeosrs.com" target="_blank" rel="noreferrer noopener">templeosrs.com ↗</a> —
+		your Collection Log tab should show your unlocks.
+	</p>
+
+	<!-- Reuse the standalone guide's deeper explanation, tucked into a dropdown. -->
+	<details class="more">
+		<summary>How it works & why we use it</summary>
+		<p>
+			Temple stores a snapshot of your collection log every time the plugin syncs — the site
+			reads that snapshot, so it never needs your login or manual uploads. New unlocks appear
+			the next time your log syncs (automatic with auto-sync on, or hit the sync button on the
+			collection-log window).
 		</p>
-	{/if}
+		<p>
+			It powers your <strong>clan rank</strong> (collection-log slots are one component) and
+			<strong>personal bingo</strong> (your board is built from items you're missing). Temple
+			pairs with <strong>Dink</strong>: Dink credits bingo tiles <em>instantly</em> on a drop,
+			while Temple is the periodic source of truth for your whole log — you want both linked.
+		</p>
+	</details>
 </div>
 
 <style>
@@ -95,5 +110,22 @@
 		color: var(--muted);
 		line-height: 1.5;
 		margin: 0;
+	}
+	.more {
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 0.4rem 0.7rem;
+		background: var(--surface-alt);
+	}
+	.more summary {
+		cursor: pointer;
+		font-size: 0.88rem;
+		color: var(--accent);
+	}
+	.more p {
+		margin: 0.6rem 0 0;
+		font-size: 0.88rem;
+		line-height: 1.5;
+		color: var(--muted);
 	}
 </style>

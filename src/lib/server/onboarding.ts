@@ -255,30 +255,19 @@ export interface RewardOutcome {
 	whitePack: boolean;
 }
 
-// Grant the white welcome pack directly (Version B members aren't in the clan yet, so
-// ensureWelcomePack's membership gate wouldn't pass). Idempotent via welcome_pack_granted.
+// Grant the white welcome pack straight into inventory so the rewards step can rip it
+// open IN-FLOW. Not gated on welcome_pack_granted — the flag stops the pack being
+// granted a SECOND time elsewhere, but here we want a real, openable pack every time
+// the member reaches this step (and so repeat testing always has one to open). We still
+// set the flag so the home/onboarding-elsewhere paths don't double-grant.
 async function grantWhitePack(user: SessionUser): Promise<boolean> {
-	if (user.welcome_pack_granted) return false;
-	const { data: pack } = await db()
-		.from('vs_card_packs')
-		.select('id')
-		.ilike('name', 'white%')
-		.order('created_at', { ascending: true })
-		.limit(1)
-		.maybeSingle();
-	if (!pack) return false;
-	const { count } = await db()
-		.from('vs_users')
-		.update({ welcome_pack_granted: true }, { count: 'exact' })
-		.eq('id', user.id)
-		.eq('welcome_pack_granted', false);
-	if (!count) return false;
-	const ok = await grantUserPack(user.id, (pack as { id: string }).id, 1);
-	if (!ok) {
-		await db().from('vs_users').update({ welcome_pack_granted: false }).eq('id', user.id);
-		return false;
+	const id = await whitePackId();
+	if (!id) return false;
+	const ok = await grantUserPack(user.id, id, 1);
+	if (ok && !user.welcome_pack_granted) {
+		await db().from('vs_users').update({ welcome_pack_granted: true }).eq('id', user.id);
 	}
-	return true;
+	return ok;
 }
 
 // Roll a welcome loot crate and apply its VP (item/role rewards are handled by the
