@@ -10,7 +10,7 @@ import { serverFetch } from './http';
 // SECURITY: the bot must only trust messages from THIS webhook's id in THAT
 // channel (it ignores everyone else) — that check lives in the bot repo.
 
-export type BotMessageType = 'grant_role' | 'post_intro' | 'onboard_verified';
+export type BotMessageType = 'grant_role' | 'post_intro' | 'onboard_verified' | 'onboard_ready_to_join';
 
 export interface GrantRolePayload {
 	discord_id: string;
@@ -43,13 +43,24 @@ export interface OnboardVerifiedPayload {
 	username?: string | null;
 }
 
+// The site's onboarding reached the join step — the bot posts a "ready to invite
+// in-game" prompt back into the origin channel (the join-ticket channel).
+export interface OnboardReadyToJoinPayload {
+	channel_id: string;
+	discord_id: string;
+	rsn?: string | null;
+	username?: string | null;
+}
+
 type PayloadFor<T extends BotMessageType> = T extends 'grant_role'
 	? GrantRolePayload
 	: T extends 'post_intro'
 		? PostIntroPayload
 		: T extends 'onboard_verified'
 			? OnboardVerifiedPayload
-			: Record<string, unknown>;
+			: T extends 'onboard_ready_to_join'
+				? OnboardReadyToJoinPayload
+				: Record<string, unknown>;
 
 export function isBridgeConfigured(): boolean {
 	return !!env.DISCORD_BOT_BRIDGE_WEBHOOK_URL;

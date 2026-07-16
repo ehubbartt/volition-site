@@ -30,6 +30,17 @@
 	const progressPct = $derived(session ? Math.round((session.completed.length / session.steps.length) * 100) : 0);
 	const isDone = $derived(session ? session.completed.length >= session.steps.length : false);
 
+	// A component sitting at 0% almost always means the source feeding it isn't set up
+	// yet — nudge them to the matching setup so they start scoring.
+	const ZERO_HINT: Record<string, string> = {
+		gear: 'Set up TempleOSRS — that’s how we read your gear.',
+		clog: 'Set up TempleOSRS so your collection log syncs.',
+		ca: 'Enable WikiSync in RuneLite so your combat achievements sync.',
+		ehb: 'Update your stats on WiseOldMan (RuneLite → WiseOldMan plugin).',
+		level: 'Update your stats on WiseOldMan so your total level counts.',
+		time: 'Builds automatically once you’re in the clan.'
+	};
+
 	function railState(step: StepId): 'done' | 'current' | 'todo' {
 		if (!session) return 'todo';
 		if (step === session.currentStep) return 'current';
@@ -143,8 +154,9 @@
 					<p class="lead">What kind of account are you? Tap one.</p>
 					<form method="POST" action="?/saveProfile" use:enhance={submitting} class="pick-grid">
 						{#each data.accountTypes as a (a.value)}
-							<button class="pick" name="account_type" value={a.value} disabled={busy}>
-								{a.label}
+							<button class="pick" name="account_type" value={a.value} title={a.label} disabled={busy}>
+								<img class="pick-icon" src={a.icon} alt={a.label} />
+								<span class="pick-label">{a.label}</span>
 							</button>
 						{/each}
 					</form>
@@ -152,16 +164,27 @@
 
 					<!-- ── intro ─────────────────────────────────────────────── -->
 				{:else if session.currentStep === 'intro'}
-					<p class="lead">Say hi — this posts to our intros channel on Discord.</p>
-					<form method="POST" action="?/submitIntro" use:enhance={submitting} class="stack">
-						<input name="basic_info" maxlength="100" placeholder="RSN, account type & age — e.g. Zezima, Main, 21" required />
-						<input name="stats_info" maxlength="100" placeholder="Total level & time zone — e.g. 2100, EST" required />
-						<textarea name="clan_history" maxlength="500" placeholder='Previous clan & why you left (or "None")' required></textarea>
-						<textarea name="goals_interests" maxlength="500" placeholder="Favourite content & current goals"></textarea>
-						<textarea name="additional_info" maxlength="1000" placeholder="What are you looking for? Anything else?"></textarea>
-						{#if f?.introError}<p class="err">{f.introError}</p>{/if}
-						<button class="btn primary" disabled={busy}>Post introduction →</button>
-					</form>
+					{#if f?.introSubmitted}
+						<div class="result ok" in:scale={{ start: 0.9, duration: 200 }}>
+							<span>✓ Introduction posted!</span>
+							<span>{f.introPosted ? 'Sent to Discord — it\'ll appear in our intros channel.' : '⚠ Saved, but the Discord relay is offline right now.'}</span>
+						</div>
+						<form method="POST" action="?/advance" use:enhance={submitting}>
+							<input type="hidden" name="step" value="intro" />
+							<button class="btn primary" disabled={busy}>Continue →</button>
+						</form>
+					{:else}
+						<p class="lead">Say hi — this posts to our intros channel on Discord.</p>
+						<form method="POST" action="?/submitIntro" use:enhance={submitting} class="stack">
+							<input name="basic_info" maxlength="100" placeholder="RSN, account type & age — e.g. Zezima, Main, 21" required />
+							<input name="stats_info" maxlength="100" placeholder="Total level & time zone — e.g. 2100, EST" required />
+							<textarea name="clan_history" maxlength="500" placeholder='Previous clan & why you left (or "None")' required></textarea>
+							<textarea name="goals_interests" maxlength="500" placeholder="Favourite content & current goals"></textarea>
+							<textarea name="additional_info" maxlength="1000" placeholder="What are you looking for? Anything else?"></textarea>
+							{#if f?.introError}<p class="err">{f.introError}</p>{/if}
+							<button class="btn primary" disabled={busy}>Post introduction →</button>
+						</form>
+					{/if}
 
 					<!-- ── temple (full guide inline) ────────────────────────── -->
 				{:else if session.currentStep === 'temple'}
@@ -209,13 +232,22 @@
 								{/if}
 								<ul class="comps">
 									{#each f.breakdown.components as c (c.label)}
-										<li>
+										<li class:zero={c.normalized === 0}>
 											<span class="clabel">{c.label}</span>
 											<div class="cbar"><span style="width:{Math.round(Math.min(1, c.normalized) * 100)}%"></span></div>
 											<span class="craw">{c.raw}/{c.cap}</span>
 										</li>
 									{/each}
 								</ul>
+								{@const zeros = f.breakdown.components.filter((c: any) => c.normalized === 0)}
+								{#if zeros.length}
+									<div class="zerohints">
+										<strong>⚠ At 0% — set these up so they start counting:</strong>
+										<ul>
+											{#each zeros as z (z.key)}<li>{ZERO_HINT[z.key] ?? z.label}</li>{/each}
+										</ul>
+									</div>
+								{/if}
 							{/if}
 						</div>
 						<p class="why"><strong>How ranks work:</strong> a weighted mix of the bars above. Yours is what it is because of where those land today — <strong>raise your lowest bars to climb</strong>.</p>
@@ -260,7 +292,7 @@
 
 					<!-- ── join ──────────────────────────────────────────────── -->
 				{:else if session.currentStep === 'join'}
-					<p class="lead">Last step in game: hop into the <strong>Volition clan chat</strong> in OSRS and a member will invite & rank you. Your rank syncs to Discord automatically.</p>
+					<p class="lead">🎉 We've pinged the clan to invite you! Hop into the <strong>Volition clan chat</strong> in OSRS and a member will invite & rank you in-game. Your rank syncs to Discord automatically.</p>
 					<form method="POST" action="?/advance" use:enhance={submitting}>
 						<input type="hidden" name="step" value="join" />
 						<button class="btn primary big" disabled={busy}>I'm in — finish →</button>
@@ -397,10 +429,13 @@
 	/* Account-type picker — big tappable buttons (show, don't tell) */
 	.pick-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: 0.6rem; }
 	.pick {
-		padding: 1rem 0.6rem; border: 1px solid var(--border-strong); border-radius: 10px;
-		background: var(--surface-alt); color: var(--text); font-size: 0.95rem; min-height: 3.2rem;
+		display: flex; flex-direction: column; align-items: center; gap: 0.45rem;
+		padding: 0.9rem 0.5rem; border: 1px solid var(--border-strong); border-radius: 10px;
+		background: var(--surface-alt); color: var(--text); min-height: 3.2rem;
 	}
 	.pick:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+	.pick-icon { width: 2.6rem; height: 2.6rem; object-fit: contain; image-rendering: pixelated; }
+	.pick-label { font-size: 0.78rem; color: var(--muted); line-height: 1.1; text-align: center; }
 
 	.result { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; padding: 0.7rem 0.9rem; margin: 0.3rem 0; border-radius: 10px; font-size: 0.95rem; }
 	.result.ok { background: var(--success-bg); border: 1px solid var(--success); }
@@ -442,6 +477,13 @@
 	.cbar { height: 8px; border-radius: 999px; background: var(--surface); overflow: hidden; }
 	.cbar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
 	.craw { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+	.comps li.zero .clabel { color: var(--danger); }
+	.comps li.zero .cbar { box-shadow: inset 0 0 0 1px var(--danger); }
+	.zerohints {
+		width: 100%; margin-top: 0.6rem; padding: 0.6rem 0.75rem; text-align: left;
+		background: var(--danger-bg); border: 1px solid var(--danger); border-radius: 8px; font-size: 0.85rem;
+	}
+	.zerohints ul { margin: 0.3rem 0 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.2rem; }
 
 	.next-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.6rem; margin: 0.4rem 0; }
 	.next-card {

@@ -10,6 +10,8 @@ import {
 	grantOnboardingRewards,
 	whitePackId,
 	onboardingCrateReel,
+	notifyReadyToJoin,
+	mergeOnboardingData,
 	type OnboardingSession
 } from '$lib/server/onboarding';
 import { openOwnedPackFor } from '$lib/server/gambaPage';
@@ -42,6 +44,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		return { invalid: res.reason, user: publicUser(locals.user) };
 	}
 	const session = res.session;
+
+	// Reached the join step → prompt the origin (join-ticket) channel once so an admin
+	// can invite them in-game (fires at most once; guarded on the token's data blob).
+	if (session.currentStep === 'join') {
+		await notifyReadyToJoin(token, locals.user, session.data);
+	}
 
 	// Crate reel (filler cells for the spinning reveal) — only needed if rewards is a step.
 	const crateReel = session.steps.includes('rewards') ? await onboardingCrateReel() : [];
@@ -179,7 +187,9 @@ export const actions: Actions = {
 			return fail(400, { introError: 'Please fill in at least the first three fields.' });
 		}
 		const posted = await postIntroToDiscord(locals.user!, fields);
-		await completeStep(params.token, locals.user!, 'intro', { intro: fields, introPosted: posted });
+		// Don't auto-advance — show the "posted" confirmation (and whether it reached
+		// Discord) first; the Continue button advances.
+		await mergeOnboardingData(params.token, { intro: fields, introPosted: posted });
 		return { introSubmitted: true, introPosted: posted };
 	},
 
@@ -238,6 +248,7 @@ export const actions: Actions = {
 							nextRank: breakdown.nextRank,
 							nextRankProgress: breakdown.nextRankProgress,
 							components: breakdown.components.map((c) => ({
+								key: c.key,
 								label: c.label,
 								normalized: c.normalized,
 								raw: c.raw,

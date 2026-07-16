@@ -249,6 +249,36 @@ export async function postIntroToDiscord(user: SessionUser, fields: IntroFields)
 	});
 }
 
+// Merge a patch into the token row's `data` blob without touching step progress.
+export async function mergeOnboardingData(token: string, patch: Record<string, unknown>): Promise<void> {
+	const row = await fetchRow(token);
+	if (!row) return;
+	await db()
+		.from('vs_onboarding_tokens')
+		.update({ data: { ...(row.data ?? {}), ...patch } })
+		.eq('token', token);
+}
+
+// Reached the join step — call back to the origin channel (stored on the token by
+// the bot's /onboard-test command) so an admin is prompted to invite the member
+// in-game. Fires once per run (guarded by data.joinNotified). Returns whether it sent.
+export async function notifyReadyToJoin(
+	token: string,
+	user: SessionUser,
+	data: Record<string, unknown>
+): Promise<boolean> {
+	const channelId = typeof data.channel_id === 'string' ? data.channel_id : null;
+	if (!channelId || data.joinNotified) return false;
+	const sent = await sendBotMessage('onboard_ready_to_join', {
+		channel_id: channelId,
+		discord_id: user.discord_id,
+		rsn: user.rsn,
+		username: user.discord_username
+	});
+	await mergeOnboardingData(token, { joinNotified: true });
+	return sent;
+}
+
 // ── Welcome rewards: a free loot crate roll + a white welcome pack ────────────
 export interface RewardOutcome {
 	crate: LootResult | null;
