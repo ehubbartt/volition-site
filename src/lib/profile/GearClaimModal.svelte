@@ -1,6 +1,7 @@
 <script lang="ts">
-	// Manual gear-claim modal (untrackable rank gear — GE-bought pieces, upgrades combined
-	// outside the collection log). Mirrors the event submission modal's feel: a shared
+	// Manual gear-claim modal (untrackable rank gear — items whose obtain method never
+	// registers a collection-log slot, e.g. Oathplate crafted from shards, or upgraded
+	// variants combined outside the log). Mirrors the event submission modal's feel: a shared
 	// ImageDropper (drag / drop / paste) for the proof, in a centred modal card. Posts to the
 	// /me page's ?/submitGearClaim action and closes on success. Opened prefilled from the rank
 	// grid's "Claim this item" shortcut.
@@ -68,9 +69,10 @@
 		</header>
 
 		<p class="intro">
-			Some gear counts for rank but never shows in your collection log — pieces bought on the GE,
-			or upgrades combined outside the log (Oathplate, Blood Torva, …). Pick the item, drop or
-			paste a screenshot showing you own it, and an admin will review. Approved items count the
+			Some gear counts for rank but never shows in your collection log — the way you obtained it
+			just doesn't register a log slot, like Oathplate crafted from Oathplate shards, or upgraded
+			variants combined outside the log (Blood Torva, Radiant Oathplate, …). Pick the item, drop
+			or paste a screenshot showing you own it, and an admin will review. Approved items count the
 			next time you check your rank.
 		</p>
 

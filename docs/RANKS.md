@@ -34,9 +34,11 @@ detail.
 
 ## Manual gear claims (untrackable items)
 
-Some gear-table items can't be proven by the Temple collection log — tradeable pieces
-bought on the GE, or upgraded variants combined outside the log (Blood Torva, Radiant
-Oathplate). The claims channel covers them:
+Some gear-table items can't be proven by the Temple collection log — the obtain method
+registers no log slot (e.g. Oathplate crafted from Oathplate shards), or the item is an
+upgraded variant combined outside the log (Blood Torva, Radiant Oathplate). (The clan is
+all-ironman, so "just buy it" is never the answer — these are earned in-game but invisible
+to the log.) The claims channel covers them:
 
 - **Member**: /me Rank tab → "Own rank gear the collection log can't see?" opens
   `src/lib/profile/GearClaimModal.svelte` (also reached from a gear tile's "Claim this

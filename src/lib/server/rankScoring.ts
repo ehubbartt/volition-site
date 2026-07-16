@@ -23,8 +23,9 @@ interface GearEntry {
 	name: string;
 	tier: string;
 	points: number;
-	// Untrackable via the Temple clog (GE-bought / combined outside the log) — the
-	// gear grid marks these with a click-to-claim affordance (manual gear claims).
+	// Untrackable via the Temple clog (obtain method registers no log slot, or combined
+	// outside the log) — the gear grid marks these with a click-to-claim affordance (manual
+	// gear claims).
 	claimable?: boolean;
 	// Display-icon override (item name) when the clog check item isn't what to show —
 	// e.g. DT2 rings check the vestige clog unlock but display the ring.
@@ -93,8 +94,8 @@ export interface GearPartial {
 export function calculateGearPoints(
 	templeItems: TempleItems | null | undefined,
 	// Admin-approved manual gear claims (rankClaims.ts) — item names that count as
-	// owned (count 1) even though the Temple clog can't prove them (GE-bought pieces,
-	// upgraded variants combined outside the log).
+	// owned (count 1) even though the Temple clog can't prove them (obtain method
+	// registers no log slot, or upgraded variants combined outside the log).
 	manualItemNames?: string[]
 ): {
 	gearPoints: number;
