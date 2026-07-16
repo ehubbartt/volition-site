@@ -1,7 +1,8 @@
 // SERVER-ONLY: manual gear claims for rank scoring (vs_rank_item_claims,
 // db/scripts/rank_item_claims.sql). Some gear-table items can't be proven by the
-// Temple collection log — tradeable pieces bought on the GE, or upgraded variants
-// combined outside the log — so members claim them with proof screenshots, admins
+// Temple collection log — the obtain method registers no log slot (e.g. Oathplate
+// crafted from shards), or upgraded variants combined outside the log — so members
+// claim them with proof screenshots, admins
 // review on /admin/rank-claims, and APPROVED claims merge into calculateGearPoints
 // (rankScoring.ts) as if the item were in the member's log. Claims apply on the
 // member's next "Check my rank" / the next admin rank-sim refresh — scoring reads

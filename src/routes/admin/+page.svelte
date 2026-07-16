@@ -47,7 +47,7 @@
 		{
 			href: '/admin/rank-claims',
 			title: 'Rank Gear Claims',
-			desc: 'Review manual claims for gear the collection log can’t prove (GE-bought, combined upgrades).',
+			desc: 'Review manual claims for gear the collection log can’t prove (crafted upgrades, variants combined outside the log).',
 			show: data.admin
 		},
 		{

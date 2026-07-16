@@ -17,8 +17,9 @@
 <section class="wrap">
 	<h1>Rank Gear Claims</h1>
 	<p class="muted">
-		Manual claims for gear the Temple collection log can't prove — GE-bought pieces, upgraded
-		variants combined outside the log (Blood Torva, Radiant Oathplate, …). Approving counts the
+		Manual claims for gear the Temple collection log can't prove — items whose obtain method
+		doesn't register a log slot (e.g. Oathplate crafted from shards), or upgraded variants
+		combined outside the log (Blood Torva, Radiant Oathplate, …). Approving counts the
 		item toward the member's gear score on their <strong>next rank check</strong> (or the next
 		rank-sim refresh).
 	</p>
