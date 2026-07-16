@@ -167,7 +167,9 @@ export const actions: Actions = {
 			.from('vs_users')
 			.update({ clan_allegiance: 'volition', account_type: account })
 			.eq('id', locals.user!.id);
-		await completeStep(params.token, locals.user!, 'profile');
+		// Account type is the last part of the combined welcome step — completing it
+		// advances past verify + profile in one go.
+		await completeStep(params.token, locals.user!, 'welcome');
 		return { profileSaved: true };
 	},
 

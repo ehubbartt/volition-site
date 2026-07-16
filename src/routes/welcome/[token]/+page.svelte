@@ -124,31 +124,16 @@
 				{:else}
 				<!-- ── welcome ─────────────────────────────────────────────── -->
 				{#if session.currentStep === 'welcome'}
-					<p class="lead">Hey {data.user.discord_username} 👋 — a few quick steps to get you set up. Takes a couple minutes.</p>
-					<div class="chips">
-						<span class="chip">✅ Verify</span><span class="chip">📊 Rank</span>
-						<span class="chip">🖼️ Setup</span><span class="chip">🎁 Rewards</span>
-					</div>
-					<form method="POST" action="?/advance" use:enhance={submitting}>
-						<input type="hidden" name="step" value="welcome" />
-						<button class="btn primary big" disabled={busy}>Let's go →</button>
-					</form>
-
-					<!-- ── verify ────────────────────────────────────────────── -->
-				{:else if session.currentStep === 'verify'}
-					{#if f?.verified}
-						<!-- Affirmation: celebrate meeting the requirement before moving on. -->
-						<div class="affirm" in:scale={{ start: 0.7, duration: 350 }}>
-							<div class="affirm-check">✓</div>
-							<h2>You're verified!</h2>
-							<p class="affirm-stats">Total <strong>{f.verify.totalLevel ?? '—'}</strong> · <strong>{Math.round(f.verify.ehb)}</strong> EHB — welcome aboard.</p>
-						</div>
+					{#if session.variant !== 'b'}
+						<!-- Version A: simple greeting (already joined + verified in-game). -->
+						<p class="lead">Hey {data.user.discord_username} 👋 — a few quick steps to get you set up. Takes a couple minutes.</p>
 						<form method="POST" action="?/advance" use:enhance={submitting}>
-							<input type="hidden" name="step" value="verify" />
-							<button class="btn primary big" disabled={busy}>Continue →</button>
+							<input type="hidden" name="step" value="welcome" />
+							<button class="btn primary big" disabled={busy}>Let's go →</button>
 						</form>
-					{:else}
-						<p class="lead">Enter your RSN exactly as in game — we check it on WiseOldMan (need <strong>2000+ total & 150+ EHB</strong>).</p>
+					{:else if !data.user.rsn}
+						<!-- Version B, not verified yet — greet + RSN verify. -->
+						<p class="lead">Hey {data.user.discord_username} 👋 Let's verify your account. Enter your RSN exactly as in game — we check <strong>2000+ total & 150+ EHB</strong> on WiseOldMan.</p>
 						<form method="POST" action="?/verify" use:enhance={submitting} class="stack">
 							<input class="big-input" name="rsn" maxlength="12" placeholder="Your RSN" value={data.user.rsn ?? ''} required />
 							{#if f?.verify && !f.verify.meets}
@@ -166,20 +151,26 @@
 								{/if}
 							</div>
 						</form>
+					{:else}
+						<!-- Version B, verified — celebrate + pick account type (completes the step). -->
+						{#if f?.verified}
+							<div class="affirm" in:scale={{ start: 0.7, duration: 350 }}>
+								<div class="affirm-check">✓</div>
+								<h2>You're verified!</h2>
+								<p class="affirm-stats">Total <strong>{f.verify.totalLevel ?? '—'}</strong> · <strong>{Math.round(f.verify.ehb)}</strong> EHB — welcome aboard.</p>
+							</div>
+						{/if}
+						<p class="lead">Last thing — what kind of account are you? Tap one.</p>
+						<form method="POST" action="?/saveProfile" use:enhance={submitting} class="pick-grid">
+							{#each data.accountTypes as a (a.value)}
+								<button class="pick" name="account_type" value={a.value} title={a.label} disabled={busy}>
+									<img class="pick-icon" src={a.icon} alt={a.label} />
+									<span class="pick-label">{a.label}</span>
+								</button>
+							{/each}
+						</form>
+						{#if f?.profileError}<p class="err">{f.profileError}</p>{/if}
 					{/if}
-
-					<!-- ── profile (account type only; clan auto = Volition) ──── -->
-				{:else if session.currentStep === 'profile'}
-					<p class="lead">What kind of account are you? Tap one.</p>
-					<form method="POST" action="?/saveProfile" use:enhance={submitting} class="pick-grid">
-						{#each data.accountTypes as a (a.value)}
-							<button class="pick" name="account_type" value={a.value} title={a.label} disabled={busy}>
-								<img class="pick-icon" src={a.icon} alt={a.label} />
-								<span class="pick-label">{a.label}</span>
-							</button>
-						{/each}
-					</form>
-					{#if f?.profileError}<p class="err">{f.profileError}</p>{/if}
 
 					<!-- ── intro ─────────────────────────────────────────────── -->
 				{:else if session.currentStep === 'intro'}
@@ -287,8 +278,8 @@
 						<p class="lead">Welcome to the clan — here's your joining loot. 🎁</p>
 						<p class="why"><strong>VP</strong> (Volition Points) is the clan currency — earn it from events, tasks & drops. <strong>Loot crates</strong> spin it out (plus rare-item chances). <strong>Card packs</strong> turn VP into collectible cards of OSRS bosses & items — our clan collection game.</p>
 						<details class="more">
-							<summary>New to the clan card game?</summary>
-							<p>Cards are the fun layer on top of the clan: pull them from packs, chase the rares, build a collection and show it off. Crates and packs give you a reason to run events and log drops — and your welcome crate + pack get you started, free.</p>
+							<summary>Why cards &amp; crates?</summary>
+							<p>They're the fun layer on top of the clan: pull cards from packs, chase the rares, build a collection and show it off. Crates and packs give you a reason to run events and log drops — and your welcome crate + pack get you started, free.</p>
 						</details>
 						<form method="POST" action="?/claimRewards" use:enhance={submitting}>
 							<button class="btn primary big" disabled={busy}>{busy ? 'Opening…' : 'Open my rewards'}</button>

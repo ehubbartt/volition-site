@@ -31,7 +31,7 @@ export interface StepMeta {
 }
 
 export const STEP_META: Record<StepId, StepMeta> = {
-	welcome: { id: 'welcome', title: 'Welcome to Volition', short: 'Welcome' },
+	welcome: { id: 'welcome', title: 'Welcome — let’s get you verified', short: 'Welcome' },
 	verify: { id: 'verify', title: 'Verify your account', short: 'Verify' },
 	profile: { id: 'profile', title: 'Set up your profile', short: 'Profile' },
 	intro: { id: 'intro', title: 'Introduce yourself', short: 'Intro' },
@@ -45,8 +45,11 @@ export const STEP_META: Record<StepId, StepMeta> = {
 
 // The ordered step list per variant. Version A is deliberately a TAIL/subset of B
 // (no verify/profile/join) so the same components and server handlers serve both.
+// The 'welcome' step now folds in verify + account-type for Version B (one combined
+// first screen). The 'verify' / 'profile' StepIds are retained for meta/back-compat but
+// are no longer separate entries in either sequence.
 export const VARIANT_STEPS: Record<OnboardingVariant, StepId[]> = {
-	b: ['welcome', 'verify', 'profile', 'intro', 'temple', 'dink', 'rank', 'rewards', 'join', 'next'],
+	b: ['welcome', 'intro', 'temple', 'dink', 'rank', 'rewards', 'join', 'next'],
 	a: ['welcome', 'temple', 'dink', 'rank', 'intro', 'rewards', 'next']
 };
 
