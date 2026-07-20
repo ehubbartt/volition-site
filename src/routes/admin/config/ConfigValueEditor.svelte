@@ -80,7 +80,16 @@
 			<input class="inp" type="text" bind:value={value as string} />
 		</div>
 	{:else}
-		<input class="leaf inp" type="text" bind:value={value as string} />
+		<!-- textarea, not <input type="text">: a single-line input silently strips
+		     newlines, which corrupts every multi-line string in the config (loot/source
+		     allowlists, chat patterns, "%LOOT%\n\n…" message templates). rows grows with
+		     the content; wrap="off" keeps long single-line values (URLs) on one line. -->
+		<textarea
+			class="leaf inp ta"
+			wrap="off"
+			rows={Math.min(12, Math.max(1, ((value as string) ?? '').split('\n').length))}
+			bind:value={value as string}
+		></textarea>
 	{/if}
 {:else if t === 'array'}
 	<div class="nest">
@@ -141,6 +150,19 @@
 	.inp:focus {
 		outline: none;
 		border-color: var(--accent);
+	}
+	/* String fields are textareas so newlines survive a round-trip. Widen past the
+	   24rem input cap, keep lines intact (no wrap), and use a monospace face so
+	   list-like values (allowlists, patterns) are easy to read line by line. */
+	.ta {
+		max-width: 100%;
+		min-height: 2.1rem;
+		resize: vertical;
+		white-space: pre;
+		overflow-x: auto;
+		font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+		font-size: 0.85rem;
+		line-height: 1.45;
 	}
 	.toggle {
 		cursor: pointer;
