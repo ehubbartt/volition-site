@@ -2,10 +2,12 @@
 -- (no migration runner). Safe to re-run.
 --
 -- `vs_active_player_tiles` is a LIVE VIEW: one row per (player, tile) the player can
--- currently complete, across all OPEN events plus their personal collection-log board.
--- Each row carries a `type` discriminator — 'item' tiles are auto-trackable by Dink
--- (carry item_id + match_type); 'manual' tiles are proof-submission only but are still
--- represented so this is the single source of truth for "what is this player on".
+-- currently complete, across all OPEN, already-STARTED events plus their personal
+-- collection-log board, plus any manually-PINNED items (branch 4 — e.g. the connection
+-- self-test; see vs_dink_manual_items in dink_manual_items.sql, which must be applied
+-- first). Each row carries a `type` discriminator — 'item' tiles are auto-trackable by
+-- Dink (carry item_id + match_type); 'manual' tiles are proof-submission only. A separate
+-- `kind` marks 'event' / 'personal' / 'pin' rows; the credit consumer skips 'pin' rows.
 --
 -- Being a view it is always fresh: a closed event, a completed tile, or a regenerated
 -- board makes rows appear/disappear automatically — no triggers, no refresh job, no
@@ -38,6 +40,7 @@ select s.user_id, u.rsn,
        e.starts_at as activated_at
 from vs_event_tracked_items ti
 join vs_events        e on e.id = ti.event_id and e.status = 'open'
+                       and (e.starts_at is null or e.starts_at <= now())
 join vs_event_signups s on s.event_id = ti.event_id
 join vs_users         u on u.id = s.user_id
 left join vs_event_tiles te on te.event_id = ti.event_id and te.tile_id = ti.tile_id
@@ -57,6 +60,7 @@ select s.user_id, u.rsn,
        e.starts_at
 from vs_event_tiles te
 join vs_events        e on e.id = te.event_id and e.status = 'open'
+                       and (e.starts_at is null or e.starts_at <= now())
 join vs_event_signups s on s.event_id = te.event_id
 join vs_users         u on u.id = s.user_id
 where not exists (select 1 from vs_event_tracked_items ti
@@ -88,7 +92,26 @@ where e.kind = 'personal' and e.locked_at is not null
   and not exists (
     select 1 from vs_submissions s
     where s.event_id = e.id and s.target_id = t.tile_key
-      and s.user_id = e.owner_user_id and s.status = 'approved');
+      and s.user_id = e.owner_user_id and s.status = 'approved')
+union all
+-- (4) Manually PINNED tracked items — event-decoupled (vs_dink_manual_items). These exist
+--     ONLY to put an item in a member's served allowlist + their rsn in vs_active_participants
+--     (e.g. the connection self-test pins Bones); they are NOT a completable tile.
+--     `kind='pin'` marks them so the credit consumer excludes them (see dinkAllowlist.ts
+--     getTrackedItemsForUser) — they must never reach creditEvent (null event_id). `type='item'`
+--     so they flow through vs_dink_token_items / vs_active_tracked_items like any tracked item.
+--     Expiry is DECLARATIVE (expires_at null = permanent, else must be in the future) — no prune
+--     job, no visit-driven cleanup. activated_at = created_at.
+select m.user_id, u.rsn,
+       'pin'::text, 'item'::text,
+       null::uuid, null::text,
+       null::uuid, null::int,
+       m.item_name,
+       m.item_id, m.item_name, coalesce(m.match_type, 'loot'), 1,
+       m.created_at
+from vs_dink_manual_items m
+join vs_users u on u.id = m.user_id
+where m.expires_at is null or m.expires_at > now();
 
 -- Proxy record-allowlist views, derived from the item subset (one source of truth so a
 -- new event/board automatically enters the proxy allowlist). The dink-proxy Worker reads

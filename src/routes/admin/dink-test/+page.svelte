@@ -47,22 +47,11 @@
 	<div class="card selftest">
 		<h2>Player Dink self-test</h2>
 		<p class="muted small">
-			Creates (or refreshes) an always-open <strong>Dink Self-Test</strong> event tracking
-			<strong>Bones only</strong> — the one drop every combat kill supplies, and the only item
-			that should sit in everyone's Dink allowlist for testing. Members visit
-			<a href="/dink-check">/dink-check</a> and kill anything to confirm their Dink → proxy
-			pipeline works before a real event. Reuse it any time.
+			Members confirm their Dink → proxy pipeline at <a href="/dink-check">/dink-check</a>:
+			opening that page pins <strong>Bones</strong> to their own tracked-item allowlist — a
+			short, self-expiring pin (no event, no admin action needed) — and killing anything that
+			drops Bones lights up the test. Nothing to set up here.
 		</p>
-		<form method="POST" action="?/createSelfTest" use:enhance>
-			<button type="submit" class="primary">Create / refresh self-test event</button>
-		</form>
-		{#if form?.mode === 'selftest' && form.ok}
-			<p class="ok">
-				✓ Self-test event ready ({form.items.join(', ')}).
-				<a href="/events/{form.slug}" target="_blank" rel="noreferrer">View board ↗</a> ·
-				<a href="/dink-check" target="_blank" rel="noreferrer">Player view ↗</a>
-			</p>
-		{/if}
 	</div>
 
 	<div class="card tokens">
@@ -204,7 +193,6 @@
 	.sim-result { margin: 0.6rem 0 0; }
 	.err { color: var(--danger); background: var(--danger-bg); border: 1px solid var(--danger); padding: 0.5rem 0.8rem; border-radius: var(--radius); }
 	.selftest h2 { margin: 0 0 0.4rem; font-size: 1.05rem; color: var(--accent); }
-	.selftest form { margin: 0.6rem 0 0; }
 	.ok { color: var(--success); margin: 0.7rem 0 0; }
 	.tokens h2 { margin: 0 0 0.4rem; font-size: 1.05rem; color: var(--accent); }
 	.tok-list { list-style: none; margin: 0.6rem 0 0; padding: 0; }
