@@ -6,7 +6,6 @@ import { evaluateDinkDrop, evaluatePersonalDink, simulateDinkDrop, type DropVerd
 // Sentinel event_id for "target the player's personal collection-log board" instead of an event.
 const PERSONAL = '__personal__';
 import { listActiveTokens, revokeTokensFor } from '$lib/server/dinkTokens';
-import { bustEventCaches } from '$lib/server/microCache';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -46,53 +45,7 @@ function parseInput(form: FormData) {
 	};
 }
 
-// The self-test tracks BONES ONLY — the one drop every combat kill supplies, and the
-// item /dink-check's pass check looks for. Every member who opens /dink-check is
-// auto-enrolled in this event, so each item here lands in the whole clan's served
-// Dink allowlists; keep the list minimal.
-const SELF_TEST_ITEMS = [{ name: 'Bones', id: 526 }];
-const SELF_TEST_SLUG = 'dink-self-test';
-
 export const actions: Actions = {
-	// One-click: (re)create the always-on "Dink Self-Test" event — an open bingo event
-	// (start in the past so every tile is released) whose tiles track trivially-easy
-	// items. Members get one, Dink routes it through the proxy, and /dink-check shows it.
-	createSelfTest: async ({ locals }) => {
-		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
-		const structure = {
-			rowCount: SELF_TEST_ITEMS.length,
-			rowIntervalHours: 0.0001, // all rows released immediately
-			bonusEnabled: false,
-			tiers: [{ key: 'test', label: 'Dink check', points: 1, color: '#3aa6ff' }]
-		};
-		// Upsert the event by slug.
-		const { data: existing } = await db().from('vs_events').select('id').eq('slug', SELF_TEST_SLUG).maybeSingle();
-		let eventId = (existing as { id: string } | null)?.id ?? null;
-		if (eventId) {
-			await db().from('vs_events').update({ status: 'open', starts_at: new Date(Date.now() - 3600_000).toISOString(), structure }).eq('id', eventId);
-			await db().from('vs_event_tiles').delete().eq('event_id', eventId);
-			await db().from('vs_event_tracked_items').delete().eq('event_id', eventId);
-		} else {
-			const { data: ev, error: e } = await db().from('vs_events').insert({
-				slug: SELF_TEST_SLUG, name: 'Dink Self-Test', kind: 'bingo', status: 'open', team_size: 1,
-				starts_at: new Date(Date.now() - 3600_000).toISOString(), structure
-			}).select('id').single();
-			if (e || !ev) return fail(500, { error: e?.message ?? 'Could not create event' });
-			eventId = ev.id;
-		}
-		const tiles = SELF_TEST_ITEMS.map((it, i) => ({ event_id: eventId, tile_id: `r${i + 1}-test`, row: i + 1, tier: 'test', name: it.name, points: 1 }));
-		// required_qty is astronomically high ON PURPOSE (matching events_unlisted.sql):
-		// the tile must never complete, or the first credited drop would remove it from
-		// vs_active_player_tiles and end that member's ability to re-test.
-		const tracked = SELF_TEST_ITEMS.map((it, i) => ({ event_id: eventId, tile_id: `r${i + 1}-test`, item_id: it.id, item_name: it.name, required_qty: 1000000 }));
-		const { error: te } = await db().from('vs_event_tiles').insert(tiles);
-		if (te) return fail(500, { error: te.message });
-		const { error: tie } = await db().from('vs_event_tracked_items').insert(tracked);
-		if (tie) return fail(500, { error: tie.message });
-		bustEventCaches(); // the self-test event is now open — refresh the list/calendar/stats
-		return { mode: 'selftest' as const, ok: true, slug: SELF_TEST_SLUG, items: SELF_TEST_ITEMS.map((i) => i.name) };
-	},
-
 	// Admin "take it away": revoke every active Dink token for a user (by Discord id).
 	// The proxy stops honouring the link within its token-cache TTL.
 	revokeToken: async ({ locals, request }) => {
