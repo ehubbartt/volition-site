@@ -11,57 +11,19 @@
 
 alter table vs_events add column if not exists unlisted boolean not null default false;
 
--- ── Dink Self-Test event ─────────────────────────────────────────────────────
--- Permanently-open, unlisted event whose tiles track trivial drops. /dink-check
--- auto-enrolls every visitor (a bare vs_event_signups row is all the active-tiles
--- view needs), so a member's flow is: open /dink-check → kill a chicken/cow →
--- watch the drop appear. required_qty is astronomically high ON PURPOSE: the
--- tiles must never complete, or the first credited drop would remove the tile
--- from vs_active_player_tiles and end that member's ability to re-test.
+-- ── Retire the old Dink Self-Test FAKE event ────────────────────────────────
+-- The connection self-test was previously a real, permanently-open `dink-self-test`
+-- vs_events row that /dink-check auto-enrolled every visitor into (a bare
+-- vs_event_signups row) so its Bones tile lit up their allowlist. That fake-event
+-- machinery (visit-driven enroll/un-enroll/prune) is superseded by declarative
+-- per-member pins in `vs_dink_manual_items` (see dink_manual_items.sql + branch 4 of
+-- active_tiles.sql; /dink-check now pins Bones directly). Remove the old rows —
+-- idempotent, safe to re-run, no-op once gone. Signups first, then the event; its
+-- tiles + tracked items cascade with the event delete.
+delete from vs_event_signups
+where event_id in (select id from vs_events where slug = 'dink-self-test');
 
-insert into vs_events (slug, name, kind, description, status, starts_at, unlisted)
-select 'dink-self-test', 'Dink Self-Test', 'custom',
-       'Connection check for Dink drop tracking — members are enrolled automatically from /dink-check. Not a competition.',
-       'open', now(), true
-where not exists (select 1 from vs_events where slug = 'dink-self-test');
-
--- Keep it open + unlisted across re-runs (e.g. if someone closed it by accident).
-update vs_events set status = 'open', unlisted = true where slug = 'dink-self-test';
-
--- BONES ONLY: every member who opens /dink-check is enrolled, and every item here
--- therefore lands in the whole clan's served Dink allowlists — keep it to the one
--- drop the /dink-check pass condition actually looks for. (Earlier revisions also
--- tracked Cowhide/Feather/Raw chicken; the deletes below retire them on re-apply.)
-with ev as (select id from vs_events where slug = 'dink-self-test')
-delete from vs_event_tracked_items x
-using ev
-where x.event_id = ev.id and x.tile_id in ('cowhide', 'feather', 'raw-chicken');
-
-with ev as (select id from vs_events where slug = 'dink-self-test')
-delete from vs_event_tiles x
-using ev
-where x.event_id = ev.id and x.tile_id in ('cowhide', 'feather', 'raw-chicken');
-
-with ev as (select id from vs_events where slug = 'dink-self-test')
-insert into vs_event_tiles (event_id, tile_id, row, tier, name, points)
-select ev.id, t.tile_id, 1, 1, t.name, 0
-from ev, (values
-	('bones', 'Bones')
-) as t(tile_id, name)
-where not exists (
-	select 1 from vs_event_tiles x where x.event_id = ev.id and x.tile_id = t.tile_id
-);
-
-with ev as (select id from vs_events where slug = 'dink-self-test')
-insert into vs_event_tracked_items (event_id, tile_id, item_id, item_name, match_type, required_qty)
-select ev.id, t.tile_id, t.item_id, t.item_name, 'loot', 1000000
-from ev, (values
-	('bones', 526, 'Bones')
-) as t(tile_id, item_id, item_name)
-where not exists (
-	select 1 from vs_event_tracked_items x
-	where x.event_id = ev.id and x.tile_id = t.tile_id and x.item_id = t.item_id
-);
+delete from vs_events where slug = 'dink-self-test';
 
 -- PostgREST caches the schema; without this the new column 404s until restart.
 notify pgrst, 'reload schema';

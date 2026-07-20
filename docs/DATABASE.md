@@ -47,6 +47,12 @@ or change the access/authorization model.
   (completions, swaps, path choices) and `vs_duo_tiles`. Postgres function
   `vs_accept_invite(...)` atomically forms a team on invite accept (`db/functions/`).
 - **Bingo:** `vs_bingo_completions` (+ admin tile management).
+- **Dink tracking:** `vs_dink_drops` (recorded matched drops), `vs_dink_manual_items`
+  (event-decoupled per-member tracked-item "pins", e.g. the connection self-test), and the
+  live views `vs_active_player_tiles` → `vs_dink_token_items` / `vs_active_tracked_items` /
+  `vs_active_participants` that the dink-proxy reads. `dink_tokens` is **bot-owned**. See
+  `src/lib/server/dinkAllowlist.ts` (the shared API) and
+  `docs/event-builder-and-dink-tracking.md`.
 - **Cards ("gamba"):** `vs_cards`, `vs_card_packs`, `vs_user_cards`, `vs_user_packs`,
   `vs_pack_opens` (+ pulled-card records).
 - **Home/calendar:** `vs_calendar_events`.

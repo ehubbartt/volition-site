@@ -17,9 +17,12 @@ import { loadEventBoard } from '$lib/server/eventStructure';
 import { getBingoState, getTileStatus } from '$lib/bingo/state';
 import { postBingoCredit } from '$lib/server/dropsFeed';
 import { creditPersonalTile, loadPersonalBoard } from '$lib/server/personalBoard';
+import { getTrackedItemsForUser, type ActiveItemTile } from '$lib/server/dinkAllowlist';
 
-// The self-test event shouldn't spam the public bingo feed when members test Dink.
-const FEED_SUPPRESS_SLUGS = new Set(['dink-self-test']);
+// Slugs whose auto-credits should NOT post to the public bingo feed. The old dink-self-test
+// event lived here; it's now a manual pin with no event, so there's nothing to suppress —
+// kept as an extension point.
+const FEED_SUPPRESS_SLUGS = new Set<string>();
 
 interface DropRow {
 	id: number;
@@ -44,23 +47,8 @@ interface TrackedRow {
 	required_qty: number;
 }
 
-// A row of the unified per-player active-tiles view (vs_active_player_tiles), filtered to
-// `type='item'` — i.e. the tiles this player can currently auto-complete via a Dink drop,
-// across all open events AND their personal board. The Dink consumer matches a drop
-// against these per user, instead of per-event tracked items.
-interface ActiveItemTile {
-	user_id: string;
-	kind: 'event' | 'personal';
-	event_id: string | null;
-	tile_id: string | null; // event tile id
-	board_id: string | null; // personal board id
-	board_idx: number | null; // personal board tile index
-	item_id: number | null;
-	item_name: string | null;
-	match_type: string;
-	required_qty: number;
-	activated_at: string | null; // a drop only credits if received_at >= this
-}
+// `ActiveItemTile` (a row of vs_active_player_tiles, type='item') is defined in and imported
+// from dinkAllowlist.ts — the single API for a member's tracked-item set.
 
 const BATCH = 500;
 
@@ -98,17 +86,17 @@ async function resolveUserId(rsn: string): Promise<string | null> {
 	return (data as { id: string } | null)?.id ?? null;
 }
 
-// Find the tracked item for a drop within its event (id match preferred, name fallback).
-// Only considers tracked items whose match_type matches the drop's notif_type, so a
-// LOOT drop credits 'loot' tiles and a COLLECTION unlock credits 'collection' tiles.
+// Find the tracked item for a drop (id match preferred, name fallback). WATCH BOTH WAYS:
+// match regardless of notif_type — a tile is creditable from either a LOOT drop or a
+// COLLECTION unlock of the item, so a mis-tagged match_type can never cause a silent miss
+// (and an already-owned item, which fires no new clog unlock, still credits on a loot drop).
+// Idempotency (unique approved index) makes a loot+collection double-fire safe.
 // Returns the matched tracked row (carries tile_id + required_qty for collect-N).
 function matchTracked(drop: DropRow, tracked: TrackedRow[]): TrackedRow | null {
-	const notif = drop.notif_type || 'loot';
-	const candidates = tracked.filter((t) => (t.match_type || 'loot') === notif);
 	const name = (drop.item_name ?? '').toLowerCase();
-	const byId = drop.item_id != null ? candidates.find((t) => t.item_id === drop.item_id) : undefined;
+	const byId = drop.item_id != null ? tracked.find((t) => t.item_id === drop.item_id) : undefined;
 	if (byId) return byId;
-	const byName = name ? candidates.find((t) => t.item_name.toLowerCase() === name) : undefined;
+	const byName = name ? tracked.find((t) => t.item_name.toLowerCase() === name) : undefined;
 	return byName ?? null;
 }
 
@@ -418,19 +406,14 @@ export async function processDinkDrops(
 	const feedPosts: { by: string; tileName: string; eventName: string; eventSlug: string; via: string | null }[] = [];
 	let credited = 0;
 
-	// The player's currently-active ITEM tiles (open-event tiles + their personal board),
-	// from the live view. The drop is matched against THIS user's tiles only — so credit
-	// is per-user-correct (a drop only ever completes the dropper's own tiles). Cached.
+	// The player's currently-active COMPLETABLE item tiles (open-event tiles + their personal
+	// board), from the shared allowlist module (which reads the live view and excludes
+	// allowlist-only kind='pin' rows). The drop is matched against THIS user's tiles only — so
+	// credit is per-user-correct (a drop only ever completes the dropper's own tiles). Cached.
 	async function objectivesFor(userId: string): Promise<ActiveItemTile[]> {
 		const hit = objectivesByUser.get(userId);
 		if (hit) return hit;
-		const { data, error: vErr } = await sb
-			.from('vs_active_player_tiles')
-			.select('user_id, kind, event_id, tile_id, board_id, board_idx, item_id, item_name, match_type, required_qty, activated_at')
-			.eq('user_id', userId)
-			.eq('type', 'item');
-		if (vErr) console.error('[dink] active-tiles read failed for', userId, vErr.message);
-		const list = (data ?? []) as ActiveItemTile[];
+		const list = await getTrackedItemsForUser(userId);
 		objectivesByUser.set(userId, list);
 		return list;
 	}
@@ -531,10 +514,11 @@ export async function processDinkDrops(
 		const userId = userIdByRsn.get(rsnKey) ?? null;
 		if (!userId) { outcomeById.set(drop.id, 'no_user'); continue; }
 
-		const notif = drop.notif_type || 'loot';
+		// WATCH BOTH WAYS: match on item id (preferred) / name regardless of notif_type, so a
+		// loot drop OR a collection unlock of the item credits the tile. Idempotency below makes
+		// a double-fire safe. (drop.notif_type is still recorded on the row for display/audit.)
 		const dname = (drop.item_name ?? '').toLowerCase();
 		const candidates = (await objectivesFor(userId)).filter((o) => {
-			if ((o.match_type || 'loot') !== notif) return false;
 			if (o.item_id != null && drop.item_id != null) return o.item_id === drop.item_id;
 			return !!dname && (o.item_name ?? '').toLowerCase() === dname;
 		});

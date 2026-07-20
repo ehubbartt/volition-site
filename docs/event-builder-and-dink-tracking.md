@@ -49,22 +49,36 @@ understands:
 - **`manual`** tiles (event tiles with no tracked item) are proof-submission only.
   They're represented for completeness but the Dink consumer ignores `type<>'item'`.
 
-It unions three producers (`db/scripts/active_tiles.sql`):
+It unions four producers (`db/scripts/active_tiles.sql`):
 
 1. **Event item tiles** — each signed-up user × the tile's tracked item(s), excluding
-   tiles they've already completed. `activated_at` = the event's `starts_at`.
+   tiles they've already completed. Only for events that are `status='open'` **and have
+   already started** (`starts_at is null or starts_at <= now()`), so the served allowlist
+   matches what can actually credit — items aren't served before the event starts.
+   `activated_at` = the event's `starts_at`.
 2. **Event manual tiles** — signed-up user × event tiles with no tracked item.
 3. **Personal board tiles** — each owner × their not-yet-obtained board tiles, but only
-   for a **locked** board (a draft isn't tracked), and only the `kind='item'` tiles. Always
-   `item`, `match_type='collection'`. `activated_at` = the board's `locked_at` (the lock
-   time), so drops obtained before locking never credit. (Personal boards can also carry
-   `kind='skill'` tiles tracked via WiseOldMan XP and `kind='ca'` tiles tracked via WikiSync
-   combat achievements — those are re-poll only and deliberately never enter this Dink index.)
+   for a **locked** board (a draft isn't tracked), and only the `kind='item'` tiles. Default
+   `match_type='collection'` (owned/test tiles opt into `'loot'`). `activated_at` = the
+   board's `locked_at`, so drops obtained before locking never credit. (Personal boards can
+   also carry `kind='skill'` tiles tracked via WiseOldMan XP and `kind='ca'` tiles tracked via
+   WikiSync — those are re-poll only and deliberately never enter this Dink index.)
+4. **Manual pins** (`vs_dink_manual_items`) — event-decoupled items pinned to a member for a
+   while (or permanently). `kind='pin'`, `type='item'`; they exist ONLY to put an item in the
+   member's served allowlist (e.g. the connection self-test pins Bones), and are **never
+   completable** — the credit consumer skips `kind='pin'`. Expiry is DECLARATIVE (a pin counts
+   only while `expires_at is null or expires_at > now()`), so there is no prune job.
 
-The proxy's `vs_active_tracked_items` / `vs_active_participants` views are **derived from
-the `item` subset** of this index, so a new event or personal board automatically enters
-the proxy's record allowlist with no other change. (The proxy reads them by name; their
-column shapes are unchanged.)
+**One shared server API.** `src/lib/server/dinkAllowlist.ts` is the single documented entry
+point for "what should this member's Dink track right now" — it reads the view
+(`getTrackedItemsForUser` / `getTrackedItemsForToken`) and manages the pin source (`pinItem`,
+`pinSelfTest`/`clearSelfTestPin`). The Dink consumer (`dinkDrops.ts`) reads tracked tiles
+through it; the proxy reads the derived views directly.
+
+The proxy's `vs_active_tracked_items` / `vs_active_participants` views (and per-token
+`vs_dink_token_items`) are **derived from the `item` subset** of this index, so a new event,
+personal board, or pin automatically enters the proxy's allowlist with no other change. (The
+proxy reads them by name; their column shapes are unchanged.)
 
 **Activation rule (no retroactive credit).** A drop credits a tile **only if
 `drop.received_at >= activated_at`** for that player+tile. For events the existing per-row
@@ -100,10 +114,13 @@ poll-on-read backstop stays drain-only so it remains cheap.
 
 1. **Apply the schema** in the Supabase SQL editor: `db/schema/event_builder.sql`
    (adds `vs_events.structure`, `vs_event_templates`, `vs_event_tiles`,
-   `vs_event_tracked_items`, `vs_dink_drops`), then **`db/scripts/active_tiles.sql`**
-   (the per-player active-tiles index `vs_active_player_tiles` and the
-   `vs_active_tracked_items` / `vs_active_participants` proxy views, now derived from
-   it), plus `db/scripts/personal_boards.sql` and `db/scripts/dink_tracking_hardening.sql`.
+   `vs_event_tracked_items`, `vs_dink_drops`), then **`db/scripts/dink_manual_items.sql`**
+   (the `vs_dink_manual_items` pin table — apply BEFORE the view), then
+   **`db/scripts/active_tiles.sql`** (the per-player active-tiles index
+   `vs_active_player_tiles` — now including the manual-pin branch and the start-date gate —
+   and the `vs_active_tracked_items` / `vs_active_participants` proxy views derived from it),
+   plus `db/scripts/dink_tracking_hardening.sql`. Re-apply `db/scripts/events_unlisted.sql`
+   to retire the old fake `dink-self-test` event.
 2. **Site env:** set `DINK_PROCESS_SECRET` (guards `POST /api/dink/process`).
 3. **Proxy:** set `SUPABASE_URL` (var) + `SUPABASE_KEY` (`wrangler secret put`), then
    `npx wrangler deploy`. The proxy injects tracked-item names into Dink's **loot
@@ -126,16 +143,25 @@ poll-on-read backstop stays drain-only so it remains cheap.
 
 ---
 
-## Tile completion types (loot vs collection/pet)
+## Tile completion types — WATCH BOTH WAYS
 
-Each tracked item has a **match type** (set in the builder):
+A drop credits a tile if the item id/name matches, **regardless of how it arrived** — a
+LOOT drop *or* a collection-log unlock both credit, and `processDinkDrops` credits on
+whichever fires first (the unique approved index makes a double-fire a safe no-op). Matching
+does **not** consult `match_type`. This is deliberate: it removes the entire class of "the
+item never tracked because its `match_type` was tagged wrong," and it fixes already-owned
+items on personal boards — an owned item fires no *new* collection-log unlock, but a LOOT
+drop of it still credits the tile.
 
-- **`loot`** (default) — completed by a LOOT drop of the item. Reaches the proxy via the
-  loot allowlist regardless of value.
-- **`collection`** — completed by a **collection-log unlock** of the item. This also
-  covers **pets** (a pet is a clog slot), so a "get any/this pet" tile uses `collection`
-  with the pet's item id. Collection notifications aren't value-gated, so the player just
-  needs Dink's collection-log notifier enabled.
+`match_type` (`loot` default; `collection` for clog-only items and pets) is now **display /
+intent only**. It no longer gates crediting. It still informs the personal-board generator
+(owned→`loot`, missing→`collection`) and the `/admin/dink-drops` verdict view.
+
+**How each notification reaches the proxy.** LOOT drops reach the proxy via the loot
+allowlist (which now carries *every* tracked item, loot- and collection-tagged alike, so a
+mis-tag can't keep an item out of the allowlist). Collection-log unlocks aren't value-gated,
+so they always reach the proxy regardless of the allowlist — which is why a multi-server
+member's tile can credit via a clog unlock without a Dink config reload.
 
 Combat-achievement / level / KC tiles aren't wired yet (no captured payload); the
 framework extends to them once we have one.
@@ -156,28 +182,28 @@ N. In-progress drops are recorded as `partial` and visible in the drops debug vi
 ## Discord announcements
 
 When a tile auto-completes on an **open** event, an embed is posted to
-`DISCORD_BINGO_WEBHOOK_URL` (falls back to `DISCORD_DROPS_WEBHOOK_URL`). The self-test
-event is suppressed so member testing doesn't spam the channel.
+`DISCORD_BINGO_WEBHOOK_URL` (falls back to `DISCORD_DROPS_WEBHOOK_URL`). The self-test no
+longer has an event, so nothing to suppress there (`FEED_SUPPRESS_SLUGS` in `dinkDrops.ts`
+is now empty, kept as an extension point).
 
 ## The Dink Self-Test (zero-friction connection check)
 
-`/dink-check` is the member-facing "is my Dink working?" page. It's powered by a
-permanent, **unlisted** event (slug `dink-self-test`, created by
-`db/scripts/events_unlisted.sql`) tracking **Bones only** — the drop every combat kill
-supplies — with an unreachable `required_qty` so the tile never completes and
-re-testing always works. **Opening the page auto-enrolls the viewer** (a bare
-`vs_event_signups` row is all `vs_active_player_tiles` needs) — and the enrollment is
-**scoped, not permanent**, so Bones only sits in a member's served Dink allowlist while
-they're actually testing: a recent verifying Bones drop UN-enrolls them (pipeline
-proven; the item leaves their per-token allowlist on the next config serve), a visit
-without one enrolls/refreshes `joined_at`, and enrollments with no visit inside 24h are
-lazily pruned as abandoned. Re-visiting always re-enrolls, so the member flow stays:
-open `/dink-check` → kill a chicken → the drop appears on the page within seconds.
-No joining, no admin action.
+`/dink-check` is the member-facing "is my Dink working?" page. It's powered by a **manual
+pin**, not an event: opening the page calls `pinSelfTest` (`dinkAllowlist.ts`), which upserts
+a `vs_dink_manual_items` row for **Bones** (`reason='self-test'`) with a short, refreshed TTL
+(`SELF_TEST_TTL_MS`, 90 min). That pin makes Bones a `kind='pin'` row in
+`vs_active_player_tiles` → into the member's served loot allowlist, so their Bones drop
+reaches the tracker and shows on the page. A `kind='pin'` row is **never completable** (the
+credit consumer skips it), so there's no completion to worry about and no astronomical
+`required_qty` hack. Removal is clean and needs no prune job: a verifying Bones drop calls
+`clearSelfTestPin` (pipeline proven), and otherwise the pin **expires declaratively** — the
+view simply stops emitting it once `expires_at` passes. Member flow: open `/dink-check` →
+kill a chicken → the drop appears within seconds. No joining, no admin action.
 
-`unlisted` events (a `vs_events` boolean) are hidden from the public `/events` list,
-the home-page stats, and the bot's announcements, but stay fully functional and
-reachable by direct link. Reuse it for any future utility event.
+> Replaces the old fake `dink-self-test` `vs_events` row + `vs_event_signups` enroll/prune.
+> `events_unlisted.sql` retires that row on re-apply. The **`unlisted`** column stays for real
+> unlisted events — hidden from `/events`, home stats, and bot announcements but fully
+> functional by direct link.
 
 ## Per-user config URLs (Dink tokens)
 
@@ -262,14 +288,16 @@ Verify the board renders at **`/bingo/<slug>`** and reflects your edits. The leg
 
 A drop is recorded when **both** hold:
 - the dropper's RSN is in `vs_active_participants` — distinct owners of any active item
-  tile (open-event signups + personal-board owners), lowercased; and
-- the looted item matches a row in `vs_active_tracked_items` (by item id, else by name).
+  tile (open-event signups + personal-board owners + pinned members), lowercased; and
+- the looted item matches a row in `vs_active_tracked_items` (by item id, else by name —
+  **any `match_type`**; watch both ways).
 
 On processing, the RSN is resolved to a `vs_users` row and the drop is matched against
-**that user's own** `type='item'` rows in `vs_active_player_tiles` (`match_type` must
-equal the drop's notif type — a LOOT drop credits `loot` tiles, a collection-log unlock
-credits `collection` tiles). Each matching candidate that passes its activation check is
-credited:
+**that user's own** completable `type='item'` rows in `vs_active_player_tiles` (`kind='pin'`
+rows are excluded — they whitelist an item but are never completable). Matching is by item
+id/name **regardless of notif type** — a LOOT drop or a collection-log unlock both credit the
+tile (the unique approved index makes a double-fire a safe no-op). Each matching candidate
+that passes its activation check is credited:
 - **event tile** → an **approved** `vs_bingo_completions` row (idempotent; the unique
   approved index is the hard guard);
 - **personal-board tile** → the tile is flipped `obtained=true`.

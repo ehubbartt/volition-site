@@ -8,20 +8,18 @@ import {
 	getMultiServer,
 	setMultiServer
 } from '$lib/server/dinkTokens';
+import { pinSelfTest, clearSelfTestPin } from '$lib/server/dinkAllowlist';
 import type { Actions, PageServerLoad } from './$types';
 
 // Player-facing Dink self-test. Confirms a member's RuneLite → Dink → proxy → Supabase
-// pipeline is working WITHOUT needing a real event open: they check this page, go get any
-// tracked item (the admin "Dink Self-Test" event tracks trivial drops like Bones), and if
-// the drop lands in vs_dink_drops for their RSN it shows up here. Reusable for real events
-// too — it lists every recent matched drop for the logged-in player's RSN.
+// pipeline is working WITHOUT needing a real event open: opening this page PINS Bones to the
+// member's tracked-item allowlist (via dinkAllowlist.pinSelfTest — a short, self-expiring
+// manual pin, not a fake event), they go kill anything that drops Bones, and when the drop
+// lands in vs_dink_drops for their RSN it shows up here. A verifying Bones drop clears the
+// pin (test proven); the pin otherwise expires on its own. Also lists every recent matched
+// drop for the logged-in player's RSN, so it's reusable for real events too.
 
 const WINDOW_MS = 90 * 60 * 1000; // show drops from the last 90 minutes
-const SELF_TEST_SLUG = 'dink-self-test';
-// Abandoned self-test enrollments (opened the page, never produced a verifying Bones
-// drop, never came back) are pruned after this long so Bones doesn't linger in the
-// member's served Dink allowlist indefinitely.
-const SELF_TEST_ENROLL_TTL_MS = 24 * 60 * 60 * 1000;
 const BONES_ID = 526;
 
 interface DropRow {
@@ -60,52 +58,16 @@ export const load: PageServerLoad = async ({ locals }) => {
 		for (const e of (evs ?? []) as { id: string; name: string }[]) eventNameById.set(e.id, e.name);
 	}
 
-	const { data: selfTest } = await db()
-		.from('vs_events')
-		.select('id, slug, status')
-		.eq('slug', SELF_TEST_SLUG)
-		.maybeSingle();
-
-	// Zero-friction self-test, scoped to when it's actually NEEDED: opening this page
-	// IS the signup (a bare signup row is all vs_active_player_tiles needs to make the
-	// self-test item tracked for this player), but the enrollment isn't permanent —
-	// Bones should only sit in the member's served Dink allowlist while they're
-	// testing. So: a recent verifying Bones drop UN-enrolls them (pipeline proven —
-	// re-visiting after the window re-enrolls, so re-testing always works), a visit
-	// without one enrolls/refreshes the signup, and enrollments with no visit inside
-	// SELF_TEST_ENROLL_TTL_MS are pruned as abandoned.
-	if (selfTest && (selfTest as { status: string }).status === 'open') {
-		const eventId = (selfTest as { id: string }).id;
-		const bonesSeen = drops.some(
-			(d) => d.item_id === BONES_ID || d.item_name?.toLowerCase() === 'bones'
-		);
-		if (bonesSeen) {
-			await db().from('vs_event_signups').delete().eq('event_id', eventId).eq('user_id', locals.user.id);
-		} else {
-			const now = new Date().toISOString();
-			const { data: refreshed } = await db()
-				.from('vs_event_signups')
-				.update({ joined_at: now })
-				.eq('event_id', eventId)
-				.eq('user_id', locals.user.id)
-				.select('id');
-			if (!refreshed?.length) {
-				const { error: enrollErr } = await db()
-					.from('vs_event_signups')
-					.insert({ event_id: eventId, user_id: locals.user.id, joined_at: now });
-				if (enrollErr && !enrollErr.message.includes('duplicate')) {
-					console.warn('[dink-check] self-test enroll failed:', enrollErr.message);
-				}
-			}
-		}
-		// Prune everyone's abandoned enrollments (self-test event only) — lazy, on page
-		// visits, which is plenty: a stale row is harmless beyond allowlist noise.
-		await db()
-			.from('vs_event_signups')
-			.delete()
-			.eq('event_id', eventId)
-			.lt('joined_at', new Date(Date.now() - SELF_TEST_ENROLL_TTL_MS).toISOString());
-	}
+	// Zero-friction self-test via a self-expiring manual pin (no fake event, no signup, no
+	// prune job): opening this page PINS Bones to the member's tracked-item allowlist so their
+	// Bones drops reach the tracker while they're testing. A recent verifying Bones drop clears
+	// the pin (pipeline proven — re-visiting re-pins, so re-testing always works); otherwise the
+	// pin expires on its own (SELF_TEST_TTL_MS in dinkAllowlist). Both writes swallow + log.
+	const bonesSeen = drops.some(
+		(d) => d.item_id === BONES_ID || d.item_name?.toLowerCase() === 'bones'
+	);
+	if (bonesSeen) await clearSelfTestPin(locals.user.id);
+	else await pinSelfTest(locals.user.id);
 
 	// The player's personal Dink config URL (mint one on first visit). Same token the
 	// Discord /dink command would hand out — keyed by Discord id.
@@ -128,8 +90,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 		proxyConfigured,
 		multiServer,
 		windowMinutes: WINDOW_MS / 60000,
-		selfTestReady: !!selfTest && (selfTest as { status: string }).status === 'open',
-		selfTestSlug: SELF_TEST_SLUG,
+		// The self-test is available whenever the member has a config URL to test with — the
+		// pin mechanism itself is always on (no event to be open/closed).
+		selfTestReady: proxyConfigured,
 		drops: drops.map((d) => ({
 			id: d.id,
 			item_id: d.item_id,
