@@ -50,6 +50,8 @@ interface GearPiece {
 	assembled: boolean;
 	// Untrackable via the clog — the grid tile becomes a click-to-claim shortcut.
 	claimable: boolean;
+	// Optional explanatory note shown in the item modal.
+	note: string | null;
 }
 interface GearTierGroup {
 	tier: string;
@@ -95,7 +97,8 @@ function buildGearGrid(detail: GearDetail | null): { grid: GearTierGroup[]; owne
 			missing: partial ?? [],
 			components: entry.components,
 			assembled: entry.assembled,
-			claimable: entry.claimable
+			claimable: entry.claimable,
+			note: entry.note
 		});
 	}
 
