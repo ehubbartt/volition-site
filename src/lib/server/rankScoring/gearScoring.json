@@ -209,9 +209,27 @@
       "items": [{ "name": "Osmumten's fang" }]
     },
     {
-      "name": "Tormented Synapse",
+      "name": "Tormented Synapse (1st)",
       "tier": "middle",
-      "points": 600,
+      "points": 200,
+      "icon": "Tormented synapse",
+      "note": "Each Tormented synapse counts on its own — you don't need all three. This awards credit for your FIRST synapse.",
+      "items": [{ "name": "Tormented synapse", "quantity": 1 }]
+    },
+    {
+      "name": "Tormented Synapse (2nd)",
+      "tier": "middle",
+      "points": 200,
+      "icon": "Tormented synapse",
+      "note": "Each Tormented synapse counts on its own — you don't need all three. This awards credit for your SECOND synapse.",
+      "items": [{ "name": "Tormented synapse", "quantity": 2 }]
+    },
+    {
+      "name": "Tormented Synapse (3rd)",
+      "tier": "middle",
+      "points": 200,
+      "icon": "Tormented synapse",
+      "note": "Each Tormented synapse counts on its own — you don't need all three. This awards credit for your THIRD synapse.",
       "items": [{ "name": "Tormented synapse", "quantity": 3 }]
     },
     {

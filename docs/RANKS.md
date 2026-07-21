@@ -87,6 +87,14 @@ assumption. The **Enhanced crystal weapon seed** is split into two independent e
 seed scores on its own: we assume the first seed becomes the bow and the second the blade,
 and each note says so. (One seed → bow points; two seeds → bow + blade.)
 
+The same split gives **Tormented synapse** incremental credit. Instead of one
+`quantity: 3` entry that pays nothing until all three are owned, it's three independent
+`quantity: 1 / 2 / 3` entries of 200 pts each (600 total, unchanged) — so each synapse
+earns 200 as it drops. We don't map them to specific end products, so the notes just say
+each synapse counts on its own. This "split into per-count entries" trick is the general
+way to turn an all-or-nothing quantity check into partial credit without changing the
+scoring engine.
+
 Every gear-grid tile opens the shared `ItemInfoModal` (tier, points, status, tracking
 source, wiki link). Entries flagged `claimable: true` are untrackable by the clog: their
 tiles wear a "claim" ribbon, and on /me (where the panel gets an `onClaim` handler) the
