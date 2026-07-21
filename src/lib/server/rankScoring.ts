@@ -30,6 +30,9 @@ interface GearEntry {
 	// Display-icon override (item name) when the clog check item isn't what to show —
 	// e.g. DT2 rings check the vestige clog unlock but display the ring.
 	icon?: string;
+	// Short explanatory note shown in the item modal — e.g. the crystal-weapon-seed split
+	// assumes the 1st seed is a Bow of Faerdhinen and the 2nd is a Blade of Saeldor.
+	note?: string;
 	items: GearCheck[];
 }
 interface GearScoring {
@@ -186,6 +189,7 @@ export interface GearCatalogEntry {
 	iconItem: string | null; // display / wiki
 	checkItem: string | null; // clog check name (claim + scoring match target)
 	claimable: boolean;
+	note: string | null; // optional explanatory note shown in the item modal
 	// Every check's display item — the pieces that make up this entry. `assembled`
 	// is true when the entry is built from parts (multi-check, a quantity, or an icon
 	// override) vs. being the tracked item itself (Fire cape) — the item modal shows
@@ -213,7 +217,8 @@ export function getGearCatalog(): GearCatalogEntry[] {
 			points: g.points,
 			iconItem: g.icon ?? checkItem, // explicit display icon wins
 			checkItem,
-			claimable: g.claimable === true
+			claimable: g.claimable === true,
+			note: g.note ?? null
 		};
 	});
 	return gearCatalog;

@@ -81,6 +81,12 @@ OR-alternatives lists all accepted variants joined by "or" (e.g. the Ahrim/Blue 
 shows "Ahrim's helm or Blue moon helm" per slot) — the component carries every alternative
 (`GearComponent.names`), not just the first.
 
+An entry may carry a `note` (surfaced in the item modal) to explain a non-obvious scoring
+assumption. The **Enhanced crystal weapon seed** is split into two independent entries —
+**Bow of Faerdhinen** (`quantity: 1`) and **Blade of Saeldor** (`quantity: 2`) — so each
+seed scores on its own: we assume the first seed becomes the bow and the second the blade,
+and each note says so. (One seed → bow points; two seeds → bow + blade.)
+
 Every gear-grid tile opens the shared `ItemInfoModal` (tier, points, status, tracking
 source, wiki link). Entries flagged `claimable: true` are untrackable by the clog: their
 tiles wear a "claim" ribbon, and on /me (where the panel gets an `onClaim` handler) the

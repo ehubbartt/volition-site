@@ -163,9 +163,19 @@
       "items": [{ "name": "Avernic defender hilt" }]
     },
     {
-      "name": "Blade of Saeldor + Bowfa Seeds",
+      "name": "Bow of Faerdhinen",
       "tier": "middle",
-      "points": 400,
+      "points": 200,
+      "icon": "Bow of faerdhinen (c)",
+      "note": "We assume your FIRST enhanced crystal weapon seed goes to the Bow of Faerdhinen.",
+      "items": [{ "name": "Enhanced crystal weapon seed", "quantity": 1 }]
+    },
+    {
+      "name": "Blade of Saeldor",
+      "tier": "middle",
+      "points": 200,
+      "icon": "Blade of saeldor (c)",
+      "note": "We assume your SECOND enhanced crystal weapon seed goes to the Blade of Saeldor.",
       "items": [{ "name": "Enhanced crystal weapon seed", "quantity": 2 }]
     },
     {
