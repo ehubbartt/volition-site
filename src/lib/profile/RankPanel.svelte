@@ -3,10 +3,11 @@
 	import RankBadge from '$lib/RankBadge.svelte';
 	import InfoTip from '$lib/InfoTip.svelte';
 	import ItemInfoModal from '$lib/ItemInfoModal.svelte';
-	import { rankLabel, rankColor, type RankValue } from '$lib/ranks';
+	import { rankLabel, rankColor, rankImg, RANK_ORDER, RANK_LABEL, type RankValue } from '$lib/ranks';
 	import { itemIconUrl } from '$lib/osrsItems';
 	import { itemImageUrl, wikiPageUrl } from '$lib/wikiImage';
 	import { retryImage } from '$lib/imageRetry';
+	import { formatEhb } from '$lib/ehb';
 
 	// Shared Rank tab body for /me and /u/[rsn]: rank badge + composite, progress to
 	// the next rank, the weighted component breakdown, gear pieces, and combat
@@ -60,12 +61,56 @@
 		fetchedAt: string | null;
 	}
 
+	// The rank advisor payload (from /api/rank-advice). Kept in sync with rankAdvice.ts.
+	interface AdviceComponent {
+		key: string;
+		label: string;
+		weight: number;
+		normalized: number;
+		potential: number;
+		compositeGain: number;
+		atCap: boolean;
+		advice: string;
+		estHours: number | null;
+	}
+	interface AdviceGearTarget {
+		entry: string;
+		iconItem: string | null;
+		points: number;
+		hours: number | null;
+		pointsPerHour: number | null;
+		compositeGain: number;
+		fillsClog: boolean;
+		missing: string[];
+	}
+	interface AdviceStep {
+		key: string;
+		title: string;
+		detail: string;
+		compositeGain: number;
+		estHours: number | null;
+	}
+	interface RankAdvice {
+		available: true;
+		composite: number;
+		rank: RankValue;
+		nextRank: RankValue | null;
+		nextThreshold: number | null;
+		gap: number;
+		components: AdviceComponent[];
+		gearTargets: AdviceGearTarget[];
+		steps: AdviceStep[];
+		fetchedAt?: string | null;
+	}
+	type AdviceResponse = RankAdvice | { available: false; reason: string };
+
 	let {
 		rank,
 		currentRank = null,
 		emptyText = '',
 		showSetupTips = false,
 		onClaim,
+		adviceEndpoint,
 		actions,
 		status
 	}: {
@@ -78,9 +123,70 @@
 		/** Click-to-claim for untrackable gear tiles (/me passes this; /u omits it).
 		 * Receives the CHECK item name the claim should target. */
 		onClaim?: (itemName: string) => void;
+		/** When set (/me only), enables the "How do I rank up?" advisor, fetched from here. */
+		adviceEndpoint?: string;
 		actions?: Snippet;
 		status?: Snippet;
 	} = $props();
+
+	// --- Rank advisor + rank-ladder reference ---------------------------------
+	let showAllRanks = $state(false);
+	let advice = $state<RankAdvice | null>(null);
+	let adviceOn = $state(false); // whether the bar overlays + panel are shown
+	let adviceLoading = $state(false);
+	let adviceError = $state<string | null>(null);
+
+	// A distinct colour per component so each score bar's "what you could do" overlay —
+	// and its recommendation card — reads as its own lever.
+	const COMP_COLOR: Record<string, string> = {
+		gear: '#e0457b',
+		ehb: '#ff9500',
+		ca: '#4aa6b5',
+		clog: '#7bbf6a',
+		level: '#b06bd6',
+		time: '#8d8d8d'
+	};
+	// Fast lookup of the advice for a given component key while rendering the bars.
+	const adviceByKey = $derived(new Map((advice?.components ?? []).map((c) => [c.key, c])));
+
+	async function toggleAdvice() {
+		if (!adviceEndpoint) return;
+		if (adviceOn) {
+			adviceOn = false;
+			return;
+		}
+		if (advice) {
+			adviceOn = true;
+			return;
+		}
+		adviceLoading = true;
+		adviceError = null;
+		try {
+			const res = await fetch(adviceEndpoint);
+			if (!res.ok) throw new Error(`Advisor request failed (${res.status})`);
+			const data = (await res.json()) as AdviceResponse;
+			if (!data.available) {
+				adviceError =
+					data.reason === 'no_rsn'
+						? 'Set your RSN and check your rank first.'
+						: 'Check your rank first, then ask for advice.';
+			} else {
+				advice = data;
+				adviceOn = true;
+			}
+		} catch (e) {
+			adviceError = e instanceof Error ? e.message : 'Could not load advice.';
+		} finally {
+			adviceLoading = false;
+		}
+	}
+
+	const fmtHours = (h: number | null) => (h != null ? formatEhb(h) : null);
+
+	// The rank badge to show as "working toward" — the next rank, or the current one at
+	// max rank. Null before any breakdown is loaded.
+	const targetRank = $derived(rank ? (rank.nextRank ?? rank.rank) : null);
+	const targetImg = $derived(targetRank ? rankImg(targetRank) : null);
 
 	const pct = (n: number) => `${Math.round(n * 100)}%`;
 	// Near-threshold honesty: the composite gets one decimal so 34.9% can't display as
@@ -208,30 +314,57 @@
 	{#if status}{@render status()}{/if}
 
 	{#if rank}
-		<!-- Overall progress toward the next rank (within the current tier's band). -->
+		<!-- Overall progress toward the next rank (within the current tier's band), with
+		     the badge you're working toward and the rank-up advisor. -->
 		<div class="next-rank">
-			<div class="comp-top">
-				<span class="comp-label">
-					{#if rank.nextRank}
-						Progress to {rankLabel(rank.nextRank)}
-					{:else}
-						Max rank achieved
+			<div class="next-main">
+				<div class="next-progress">
+					<div class="comp-top">
+						<span class="comp-label">
+							{#if rank.nextRank}
+								Progress to {rankLabel(rank.nextRank)}
+							{:else}
+								Max rank achieved
+							{/if}
+						</span>
+						<span class="comp-weight">{pctFloor(rank.nextRankProgress)}</span>
+					</div>
+					<div class="osrs-bar next-bar">
+						<span class="osrs-bar-fill" style="width:{pct(rank.nextRankProgress)}"></span>
+					</div>
+					{#if rank.nextRank && rank.nextThreshold !== null}
+						<span class="next-hint muted"
+							>Composite {pct1(rank.composite)} · {rankLabel(rank.nextRank)} at {pct1(rank.nextThreshold)}</span
+						>
 					{/if}
-				</span>
-				<span class="comp-weight">{pctFloor(rank.nextRankProgress)}</span>
+				</div>
+				<!-- The rank you're working toward (or your current top badge at max rank). -->
+				<div class="next-target" title={rank.nextRank ? `Working toward ${rankLabel(targetRank)}` : 'Max rank'}>
+					{#if targetImg}
+						<img src={targetImg} alt={rankLabel(targetRank)} width="46" height="46" />
+					{:else}
+						<RankBadge rank={targetRank} size={46} />
+					{/if}
+					<span class="next-target-lbl" style="color:{rankColor(targetRank)}">
+						{rank.nextRank ? `Next: ${rankLabel(targetRank)}` : rankLabel(targetRank)}
+					</span>
+				</div>
 			</div>
-			<div class="osrs-bar next-bar">
-				<span class="osrs-bar-fill" style="width:{pct(rank.nextRankProgress)}"></span>
+
+			<div class="rank-tools">
+				{#if adviceEndpoint && rank.nextRank}
+					<button type="button" class="tool-btn advise" onclick={toggleAdvice} disabled={adviceLoading}>
+						{#if adviceLoading}Thinking…{:else if adviceOn}Hide rank-up plan{:else}How do I rank up?{/if}
+					</button>
+				{/if}
+				<button type="button" class="tool-btn" onclick={() => (showAllRanks = true)}>All clan ranks</button>
 			</div>
-			{#if rank.nextRank && rank.nextThreshold !== null}
-				<span class="next-hint muted"
-					>Composite {pct1(rank.composite)} · {rankLabel(rank.nextRank)} at {pct1(rank.nextThreshold)}</span
-				>
-			{/if}
+			{#if adviceError}<p class="advise-err">{adviceError}</p>{/if}
 		</div>
 
 		<div class="comps">
 			{#each rank.components as c (c.key)}
+				{@const a = adviceOn ? adviceByKey.get(c.key) : undefined}
 				<div class="comp" class:maxed={c.raw >= c.cap}>
 					<div class="comp-top">
 						<span class="comp-label">
@@ -242,11 +375,27 @@
 						</span>
 						<span class="comp-weight">{pct(c.weight)} of score</span>
 					</div>
-					<div class="osrs-bar"><span class="osrs-bar-fill" style="width:{pct(c.normalized)}"></span></div>
+					<div class="osrs-bar">
+						<span class="osrs-bar-fill" style="width:{pct(c.normalized)}"></span>
+						{#if a && a.potential > a.normalized + 0.001}
+							<span
+								class="osrs-bar-potential"
+								style="left:{pct(a.normalized)}; width:{pct(a.potential - a.normalized)}; background:{COMP_COLOR[
+									c.key
+								]}"
+							></span>
+						{/if}
+					</div>
 					<div class="comp-foot">
 						<span class="comp-raw">{num(c.raw)} / {num(c.cap)}</span>
 						<span class="comp-norm">{pct(c.normalized)}</span>
 					</div>
+					{#if a && !a.atCap && a.advice}
+						<p class="comp-advice" style="border-left-color:{COMP_COLOR[c.key]}">
+							{a.advice}
+							{#if a.estHours}<span class="muted"> · ~{fmtHours(a.estHours)}</span>{/if}
+						</p>
+					{/if}
 					{#if showSetupTips && c.raw <= 0}
 						{@const fix = setupTip(c.key)}
 						{#if fix}
@@ -266,7 +415,54 @@
 			{/each}
 		</div>
 
-		{#if rank.gearGrid.length}
+		{#if adviceOn && advice}
+				<div class="plan">
+					<div class="plan-head">
+						<h4>Your fastest path{advice.nextRank ? ` to ${rankLabel(advice.nextRank)}` : ''}</h4>
+						{#if advice.nextRank}<span class="plan-gap muted">need +{pct1(advice.gap)} composite</span>{/if}
+					</div>
+					{#if advice.steps.length}
+						<ol class="plan-steps">
+							{#each advice.steps as s (s.key)}
+								<li>
+									<span class="plan-dot" style="background:{COMP_COLOR[s.key]}"></span>
+									<div class="plan-step-body">
+										<div class="plan-step-top">
+											<strong>{s.title}</strong>
+											<span class="plan-gain">+{pct1(s.compositeGain)}{#if s.estHours}<span class="muted"> · ~{fmtHours(s.estHours)}</span>{/if}</span>
+										</div>
+										<p class="muted small">{s.detail}</p>
+									</div>
+								</li>
+							{/each}
+						</ol>
+					{:else}
+						<p class="muted small">You're maxed on every actionable component — the rest is time in the clan.</p>
+					{/if}
+
+					{#if advice.gearTargets.length}
+						<p class="plan-sub">Fastest gear points <span class="muted">(most points per hour to obtain)</span></p>
+						<div class="gear-targets">
+							{#each advice.gearTargets as t (t.entry)}
+								<div class="gtarget">
+									<div class="gtarget-img">
+										{#if t.iconItem}
+											<img src={itemIconUrl(t.iconItem)} alt={t.entry} loading="lazy" referrerpolicy="no-referrer" use:retryImage />
+										{/if}
+									</div>
+									<div class="gtarget-body">
+										<strong>{t.entry}</strong>
+										<span class="gtarget-meta muted">{t.points} pts{#if t.hours != null} · {fmtHours(t.hours)}{/if}{#if t.pointsPerHour != null} · {t.pointsPerHour} pts/h{:else} · no time estimate{/if}</span>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+					<p class="plan-foot muted small">Estimates only — EHB assumes efficient play, and some items (crafted/upgraded gear) have no obtain-time data.</p>
+				</div>
+			{/if}
+
+			{#if rank.gearGrid.length}
 			<details class="gear-detail" open>
 				<summary>Gear pieces · {rank.gearOwned} / {rank.gearTotal} earned</summary>
 				{#each rank.gearGrid as group (group.tier)}
@@ -416,6 +612,30 @@
 			</button>
 		{/if}
 	</ItemInfoModal>
+{/if}
+
+<!-- All clan ranks reference: every rung of the ladder with its badge, low → high. -->
+{#if showAllRanks}
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="ranks-backdrop" onclick={(e) => e.target === e.currentTarget && (showAllRanks = false)}>
+		<div class="ranks-modal" role="dialog" aria-label="Clan ranks" aria-modal="true">
+			<button type="button" class="ranks-close" aria-label="Close" onclick={() => (showAllRanks = false)}>×</button>
+			<h3>Clan ranks</h3>
+			<p class="muted small">The full ladder, lowest to highest. Your current rank is highlighted.</p>
+			<ul class="ranks-list">
+				{#each RANK_ORDER as r, i (r)}
+					{@const current = (rank?.rank ?? currentRank)?.toLowerCase() === r}
+					<li class:current>
+						<span class="ranks-num muted">{i + 1}</span>
+						<RankBadge rank={r} size={34} />
+						<span class="ranks-name" style="color:{rankColor(r)}">{RANK_LABEL[r]}</span>
+						{#if current}<span class="ranks-you">you</span>{/if}
+					</li>
+				{/each}
+			</ul>
+		</div>
+	</div>
 {/if}
 
 <style>
@@ -750,5 +970,299 @@
 	}
 	.small {
 		font-size: 0.85rem;
+	}
+
+	/* --- Next-rank target badge + rank tools --- */
+	.next-main {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+	}
+	.next-progress {
+		flex: 1;
+		min-width: 0;
+	}
+	.next-target {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.2rem;
+		flex-shrink: 0;
+		text-align: center;
+	}
+	.next-target img {
+		object-fit: contain;
+		image-rendering: -webkit-optimize-contrast;
+	}
+	.next-target-lbl {
+		font-family: var(--font-heading);
+		font-size: 0.72rem;
+		text-shadow: var(--ts);
+	}
+	.rank-tools {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		margin-top: 0.8rem;
+	}
+	.tool-btn {
+		min-height: 0;
+		padding: 0.35rem 0.7rem;
+		font-size: 0.8rem;
+		font-family: var(--font-body);
+		background: var(--surface);
+		border: 1px solid var(--border-strong);
+		border-image: none;
+		border-radius: 4px;
+		color: var(--text);
+		cursor: pointer;
+	}
+	.tool-btn:hover:not(:disabled) {
+		border-color: var(--accent);
+	}
+	.tool-btn.advise {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+	.tool-btn.advise:hover:not(:disabled) {
+		background: var(--accent-soft);
+	}
+	.tool-btn:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+	.advise-err {
+		margin: 0.5rem 0 0;
+		font-size: 0.8rem;
+		color: var(--danger);
+	}
+
+	/* --- The "what you could do" overlay segment on each score bar --- */
+	.osrs-bar {
+		position: relative;
+	}
+	.osrs-bar-potential {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		opacity: 0.5;
+		border-right: 2px solid rgba(255, 255, 255, 0.65);
+		background-image: repeating-linear-gradient(
+			45deg,
+			rgba(255, 255, 255, 0.18) 0,
+			rgba(255, 255, 255, 0.18) 4px,
+			transparent 4px,
+			transparent 8px
+		);
+		pointer-events: none;
+	}
+	.comp-advice {
+		margin: 0.35rem 0 0;
+		padding: 0.3rem 0.55rem;
+		border-left: 3px solid var(--accent);
+		background: var(--surface);
+		border-radius: 4px;
+		font-size: 0.78rem;
+		line-height: 1.4;
+		color: var(--text);
+	}
+
+	/* --- Rank-up plan panel --- */
+	.plan {
+		margin-top: 1.1rem;
+		padding: 0.9rem 1rem;
+		border: 1px solid var(--accent);
+		border-radius: var(--radius);
+		background: var(--accent-soft);
+	}
+	.plan-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.6rem;
+	}
+	.plan-head h4 {
+		margin: 0;
+		font-size: 0.98rem;
+		color: var(--text);
+	}
+	.plan-gap {
+		font-size: 0.78rem;
+	}
+	.plan-steps {
+		list-style: none;
+		margin: 0 0 0.5rem;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.55rem;
+	}
+	.plan-steps li {
+		display: flex;
+		gap: 0.55rem;
+	}
+	.plan-dot {
+		width: 0.7rem;
+		height: 0.7rem;
+		border-radius: 999px;
+		margin-top: 0.28rem;
+		flex-shrink: 0;
+	}
+	.plan-step-body {
+		min-width: 0;
+		flex: 1;
+	}
+	.plan-step-top {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem;
+	}
+	.plan-step-top strong {
+		font-size: 0.88rem;
+	}
+	.plan-gain {
+		font-family: var(--font-heading);
+		font-size: 0.78rem;
+		color: var(--accent);
+		white-space: nowrap;
+	}
+	.plan-step-body p {
+		margin: 0.1rem 0 0;
+		line-height: 1.4;
+	}
+	.plan-sub {
+		margin: 0.6rem 0 0.4rem;
+		font-size: 0.82rem;
+		color: var(--text);
+	}
+	.gear-targets {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+		gap: 0.4rem;
+	}
+	.gtarget {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		padding: 0.35rem 0.45rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+	}
+	.gtarget-img {
+		width: 30px;
+		height: 28px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+	.gtarget-img img {
+		max-width: 30px;
+		max-height: 28px;
+		object-fit: contain;
+	}
+	.gtarget-body {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.05rem;
+	}
+	.gtarget-body strong {
+		font-size: 0.78rem;
+		line-height: 1.15;
+	}
+	.gtarget-meta {
+		font-size: 0.68rem;
+	}
+	.plan-foot {
+		margin: 0.7rem 0 0;
+		line-height: 1.4;
+	}
+
+	/* --- All clan ranks modal --- */
+	.ranks-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.72);
+		z-index: 100;
+		display: flex;
+		align-items: flex-start;
+		justify-content: center;
+		padding: 2rem 1rem 4rem;
+		overflow-y: auto;
+	}
+	.ranks-modal {
+		position: relative;
+		width: 100%;
+		max-width: 24rem;
+		padding: 1.4rem;
+		background: linear-gradient(180deg, rgba(58, 48, 36, 0.98), rgba(40, 32, 24, 0.98));
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		box-shadow: var(--shadow-card);
+		color: var(--text);
+	}
+	.ranks-modal h3 {
+		margin: 0 0 0.2rem;
+		font-size: 1.2rem;
+	}
+	.ranks-close {
+		position: absolute;
+		top: 6px;
+		right: 8px;
+		width: 32px;
+		height: 32px;
+		min-height: 0;
+		padding: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 1.4rem;
+		background: transparent;
+		border-color: transparent;
+		color: var(--muted);
+	}
+	.ranks-list {
+		list-style: none;
+		margin: 0.8rem 0 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+	.ranks-list li {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		padding: 0.3rem 0.5rem;
+		border-radius: 4px;
+	}
+	.ranks-list li.current {
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+	}
+	.ranks-num {
+		width: 1.4rem;
+		font-size: 0.75rem;
+		text-align: right;
+	}
+	.ranks-name {
+		font-family: var(--font-heading);
+		font-size: 0.95rem;
+		text-shadow: var(--ts);
+	}
+	.ranks-you {
+		margin-left: auto;
+		font-size: 0.62rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--accent);
+		border: 1px solid var(--accent);
+		border-radius: 3px;
+		padding: 0 0.3rem;
 	}
 </style>
