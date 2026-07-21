@@ -39,7 +39,33 @@ detail.
   and the live comparison vs in-game WOM roles.
 - **Display**: `src/lib/server/meData.ts` `loadRankBreakdown` re-scores the cached row
   with the current config; `src/lib/profile/RankPanel.svelte` renders it (per-component
-  ⓘ explainers; zero-score setup tips on /me via `showSetupTips`).
+  ⓘ explainers; zero-score setup tips on /me via `showSetupTips`). The panel also shows
+  the **next-rank badge** you're working toward and an **All clan ranks** modal (built
+  client-side from `$lib/ranks` `RANK_ORDER` / `RANK_IMG`).
+
+## Rank-up advisor ("How do I rank up?")
+
+`src/lib/server/rankScoring/rankAdvice.ts` — `buildRankAdvice(inputs, config, overrides)`
+turns a member's cached inputs into actionable guidance toward their **next** rank:
+
+- Prices every unearned gear entry by **points ÷ hours-to-obtain**, using a merged
+  item→hours lookup (boss drops from `itemEhb.json` via `$lib/ehb` `bestEhbSource` + admin
+  `vs_ehb_overrides`; non-boss clog items from `itemEhc.json`'s flat `ehc`). The fastest
+  points-per-hour gear becomes the headline "fastest path".
+- For every composite component it computes a realistic **potential** (reachable fill) and
+  the composite gain that unlocks — gear (top targets' points), EHB (bossing those drops
+  adds hours), collection log (trackable gear fills slots), CAs (`nextCaTier` in
+  `rankScoring.ts` — the next whole-tier reward), total level (a +50 bump), and time
+  (passive). Steps are ordered by composite gain.
+- Estimates only: EHB assumes efficient play, and crafted/upgraded gear (Oathplate, …)
+  has no obtain-time data (shown without a time).
+
+Served lazily from **`src/routes/api/rank-advice/+server.ts`** (`memberEndpoint`, reads the
+signed-in member's freshest `vs_rank_sim` row). The /me Rank tab fetches it only when the
+member presses **"How do I rank up?"**, then tints each score bar with a per-component
+overlay showing the reachable gain and renders the step-by-step plan + gear targets. `/u/[rsn]`
+omits the button (no `adviceEndpoint` prop) but still shows the next-rank badge + all-ranks
+modal.
 
 ## Manual gear claims (untrackable items)
 

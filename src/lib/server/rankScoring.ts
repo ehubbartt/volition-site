@@ -264,6 +264,25 @@ export function calculateCAPoints(completedTaskIds: number[] | null | undefined)
 	return { caPoints, tasksCompleted, wikiPoints, highestTier };
 }
 
+// The next combat-achievement TIER a player can bank, given their current wiki-point
+// total — the reward it grants (the CA rank component only moves on whole-tier rewards)
+// and how many more CA points they need to reach it. Null when every tier is banked.
+// Used by the rank advisor to quantify "finish the next CA tier".
+export function nextCaTier(wikiPoints: number): { tier: string; reward: number; pointsNeeded: number } | null {
+	for (const tier of CA_TIER_ORDER) {
+		const threshold = CA.tiers[tier]?.cumulativeForReward;
+		if (threshold == null) continue;
+		if (wikiPoints < threshold) {
+			return {
+				tier,
+				reward: CA.tierCompletionRewards[tier] ?? 0,
+				pointsNeeded: Math.max(0, Math.ceil(threshold - wikiPoints))
+			};
+		}
+	}
+	return null;
+}
+
 // --- Normalizations (all clamped 0..1), caps from RankScoringConfig ----------
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
