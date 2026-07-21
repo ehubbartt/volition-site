@@ -322,7 +322,12 @@ export const actions: Actions = {
 	refresh: async ({ locals, request }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
 
-		const since = ((await request.formData()).get('since') ?? '').toString();
+		const form = await request.formData();
+		const since = (form.get('since') ?? '').toString();
+		// Skip roster members who already have a Temple-complete cached row — only fetch
+		// the ones still missing collection-log data (new members, or a prior run where
+		// Temple was private/down). Makes a top-up sweep fast instead of re-fetching everyone.
+		const onlyMissing = form.get('onlyMissing') === '1';
 
 		// Cached across batches: one WOM group call per run instead of one per batch.
 		const roster = await getRosterCached();
@@ -338,13 +343,20 @@ export const actions: Actions = {
 
 		const existing = await readSimRows();
 		const fetchedAt = new Map(existing.map((r) => [r.rsn.toLowerCase(), r.fetched_at]));
+		// Members who already have collection-log data — skipped when onlyMissing is set.
+		const hasTemple = new Set(
+			existing.filter((r) => r.temple_available).map((r) => r.rsn.toLowerCase())
+		);
 
 		// This pass's pending set: members whose last fetch predates the run start
 		// (never-fetched sorts as '' — always pending). Without `since` (manual single
-		// batch), everyone is eligible and the stalest-first order picks the batch.
-		const pending = since
-			? rosterEntries.filter((e) => (fetchedAt.get(e.rsn.toLowerCase()) ?? '') < since)
-			: rosterEntries.slice();
+		// batch), everyone is eligible and the stalest-first order picks the batch. When
+		// onlyMissing is set, members who already have Temple data are dropped entirely.
+		const pending = (
+			since
+				? rosterEntries.filter((e) => (fetchedAt.get(e.rsn.toLowerCase()) ?? '') < since)
+				: rosterEntries.slice()
+		).filter((e) => !onlyMissing || !hasTemple.has(e.rsn.toLowerCase()));
 
 		// Stalest first: never-fetched (null) before oldest timestamp.
 		const worklist = pending

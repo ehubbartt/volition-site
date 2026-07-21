@@ -53,7 +53,10 @@ detail.
   mirrors it to Discord). A saved climb returns `form.rankUp` → the confetti overlay.
 - **`/admin/rank-sim`**: bulk refresh into `vs_rank_sim` (batched, WOM-rate-limited),
   instant re-scoring while tuning, threshold suggestion, bulk apply to `players.rank`,
-  and the live comparison vs in-game WOM roles.
+  and the live comparison vs in-game WOM roles. The refresh auto-chains one batch at a
+  time over the whole WOM roster; **"Skip players who already have Temple data"** (on by
+  default, `onlyMissing`) drops members whose cached row is already Temple-complete so a
+  top-up only fetches new members / prior Temple outages — uncheck for a full re-fetch.
 - **Display**: `src/lib/server/meData.ts` `loadRankBreakdown` re-scores the cached row
   with the current config; `src/lib/profile/RankPanel.svelte` renders it (per-component
   ⓘ explainers; zero-score setup tips on /me via `showSetupTips`). The panel also shows
