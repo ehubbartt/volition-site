@@ -42,15 +42,19 @@ to the log.) The claims channel covers them:
 
 - **Member**: /me Rank tab → "Own rank gear the collection log can't see?" opens
   `src/lib/profile/GearClaimModal.svelte` (also reached from a gear tile's "Claim this
-  item" shortcut, prefilled) — pick a gear-table item, drop/paste/attach proof
-  screenshots, submit. The modal reuses the shared `ImageDropper` (drag · drop · paste)
-  from the event submissions. One live claim per item (rejected claims may be resubmitted).
+  item" shortcut, prefilled) — pick one of the **claimable** items (Oathplate helm/chest/
+  legs, Radiant Oathplate, Blood/Sanguine Torva), drop/paste/attach proof screenshots,
+  submit. The modal reuses the shared `ImageDropper` (drag · drop · paste) from the event
+  submissions. One live claim per item (rejected claims may be resubmitted).
 - **Admin**: `/admin/rank-claims` — pending queue with proofs, approve/reject + note.
 - **Effect**: APPROVED claims (`vs_rank_item_claims`, `db/scripts/rank_item_claims.sql`)
   merge into `calculateGearPoints` as owned items (count 1) at the next `/me` rank check
   and the next rank-sim refresh — nothing rewrites cached rows retroactively.
-- **Module**: `src/lib/server/rankClaims.ts` (claimable list is the flattened gear-table
-  check names; proofs share the bingo bucket under a `rank-claims/` prefix).
+- **Module**: `src/lib/server/rankClaims.ts`. The claimable set is **only** the gear-table
+  entries flagged `claimable: true` (currently Oathplate helm/chest/legs, Radiant Oathplate,
+  Blood/Sanguine Torva). `claimableGearItems()` is the single gate for both the /me picker
+  and the `submitGearClaim` validation, so no other item can be manually submitted. Proofs
+  share the bingo bucket under a `rank-claims/` prefix.
 
 ### Tiers, sections, and display icons
 
@@ -89,5 +93,5 @@ entries are added or repointed.
 `gearScoring.json` and `combatAchievements.json` are the canonical hand-maintained
 copies (the bot's originals were retired). New CAs auto-extend daily from the OSRS Wiki
 (`caNames.ts`); new GEAR needs a hand edit — add the entry, and if it's untrackable,
-the claims channel picks it up automatically (the claimable list derives from the
-table).
+mark it `claimable: true` so the claims channel accepts it (only `claimable: true`
+entries are manually submittable).
