@@ -20,38 +20,60 @@ interface GearEntry {
 	name: string;
 	tier: string;
 	points: number;
+	claimable?: boolean;
+	claimNote?: string;
 	items: GearCheck[];
 }
 
-// Every individual CHECK item name in the gear table (OR-alternatives flattened),
-// deduped, with the set/entry it belongs to for display. This is the claimable set —
-// the admin review is the real gate, so any table item may be claimed.
 export interface ClaimableGearItem {
 	item: string; // the check item name members claim (matches Temple's clog naming)
 	entry: string; // the gear-table set/entry it counts toward
 	tier: string;
 	points: number;
+	// Item-specific guidance shown in the claim modal when this item is selected
+	// (e.g. Oathplate: include your shard collection-log count as proof of crafting).
+	claimNote: string | null;
 }
 
-let claimable: ClaimableGearItem[] | null = null;
-export function claimableGearItems(): ClaimableGearItem[] {
-	if (claimable) return claimable;
+// Flatten the gear table into individual CHECK item names (OR-alternatives flattened,
+// deduped), each tagged with its set/entry for display. `claimableOnly` restricts to
+// entries flagged `claimable: true`.
+function flattenGear(claimableOnly: boolean): ClaimableGearItem[] {
 	const seen = new Set<string>();
 	const out: ClaimableGearItem[] = [];
 	for (const entry of (gearScoring as { gear: GearEntry[] }).gear) {
+		if (claimableOnly && !entry.claimable) continue;
 		for (const check of entry.items) {
 			const names = Array.isArray(check.name) ? check.name : [check.name];
 			for (const n of names) {
 				const key = n.toLowerCase();
 				if (seen.has(key)) continue;
 				seen.add(key);
-				out.push({ item: n, entry: entry.name, tier: entry.tier, points: entry.points });
+				out.push({ item: n, entry: entry.name, tier: entry.tier, points: entry.points, claimNote: entry.claimNote ?? null });
 			}
 		}
 	}
 	out.sort((a, b) => a.item.localeCompare(b.item));
-	claimable = out;
 	return out;
+}
+
+// The manually-claimable set: ONLY gear-table entries flagged `claimable: true` — the items
+// the Temple collection log can't prove (Oathplate helm/chest/legs, Radiant Oathplate, and
+// Blood/Sanguine Torva). Every other gear item is clog-trackable and must NOT be manually
+// submittable, so it's excluded. This is the single gate for BOTH the /me claim picker (via
+// meData) and the submitGearClaim validation, so nothing else can be claimed.
+let claimable: ClaimableGearItem[] | null = null;
+export function claimableGearItems(): ClaimableGearItem[] {
+	return (claimable ??= flattenGear(true));
+}
+
+// Display lookup over the FULL gear table (every check item, claimable or not), so the admin
+// review queue can still resolve entry/tier/points for older claims of items that are no
+// longer manually claimable.
+let allGearByItem: Map<string, ClaimableGearItem> | null = null;
+function gearItemMeta(name: string): ClaimableGearItem | undefined {
+	allGearByItem ??= new Map(flattenGear(false).map((c) => [c.item.toLowerCase(), c]));
+	return allGearByItem.get(name.toLowerCase());
 }
 
 export interface GearClaim {
@@ -173,11 +195,11 @@ export async function listGearClaimsForReview(): Promise<{ pending: PendingGearC
 		.order('submitted_at', { ascending: false })
 		.limit(200);
 	if (error) console.error('[rank-claims] review queue query failed:', error.message);
-	const byItem = new Map(claimableGearItems().map((c) => [c.item.toLowerCase(), c]));
-	// Same many-to-one embed caveat as above: object at runtime, array in the types.
+	// Resolve display metadata over the FULL gear table (not just the claimable subset) so
+	// older claims of now-unclaimable items still show their entry/tier/points.
 	const rows = ((data ?? []) as unknown as (GearClaim & { vs_users: { rsn: string | null; discord_username: string | null } | null })[]).map(
 		(r) => {
-			const meta = byItem.get(r.item_name.toLowerCase());
+			const meta = gearItemMeta(r.item_name);
 			return {
 				...r,
 				rsn: r.vs_users?.rsn ?? null,

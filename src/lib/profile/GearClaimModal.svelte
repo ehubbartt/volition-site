@@ -15,6 +15,7 @@
 		item: string;
 		entry: string;
 		points: number;
+		claimNote?: string | null;
 	}
 	interface ExistingClaim {
 		id: number | string;
@@ -24,7 +25,7 @@
 	}
 
 	interface Props {
-		// Prefilled item name (bindable so the datalist input stays editable).
+		// Prefilled item name (bindable; drives the item <select>).
 		item: string;
 		claimableGear: ClaimableItem[];
 		existingClaims: ExistingClaim[];
@@ -41,6 +42,10 @@
 
 	// Submit is allowed once an item is named and at least one proof image is staged.
 	const canSubmit = $derived(item.trim().length > 0 && dropCount > 0 && !submitting);
+
+	// Item-specific proof guidance (e.g. Oathplate: include your shard collection-log
+	// count) — shown under the picker when the selected item carries a claim note.
+	const selectedNote = $derived(claimableGear.find((g) => g.item === item)?.claimNote ?? null);
 
 	function onKey(e: KeyboardEvent) {
 		if (e.key === 'Escape') onclose();
@@ -101,20 +106,17 @@
 		>
 			<label class="field">
 				<span class="field-label">Item</span>
-				<input
-					list="gear-claim-items"
-					name="item_name"
-					placeholder="Item (e.g. Oathplate chest)"
-					bind:value={item}
-					autocomplete="off"
-					required
-				/>
-				<datalist id="gear-claim-items">
+				<select name="item_name" bind:value={item} required>
+					<option value="" disabled>Select an item…</option>
 					{#each claimableGear as g (g.item)}
 						<option value={g.item}>{g.entry} · {g.points} pts</option>
 					{/each}
-				</datalist>
+				</select>
 			</label>
+
+			{#if selectedNote}
+				<p class="claim-note">{selectedNote}</p>
+			{/if}
 
 			<span class="field-label">Proof</span>
 			<ImageDropper
@@ -249,6 +251,17 @@
 		color: var(--muted);
 	}
 
+	.claim-note {
+		margin: 0 0 0.6rem;
+		padding: 0.5rem 0.7rem;
+		font-size: 0.82rem;
+		line-height: 1.4;
+		color: var(--accent);
+		background: var(--accent-soft);
+		border: 1px solid var(--accent);
+		border-radius: 3px;
+	}
+
 	.field {
 		display: flex;
 		flex-direction: column;
@@ -272,7 +285,7 @@
 		width: 100%;
 	}
 	input[type='text'],
-	input[list] {
+	select {
 		width: 100%;
 		padding: 0.4rem 0.55rem;
 		background: var(--surface);

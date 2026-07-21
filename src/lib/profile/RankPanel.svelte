@@ -32,6 +32,7 @@
 		components?: { name: string; names?: string[]; qty: number }[]; // all pieces that make up this entry
 		assembled?: boolean; // built from parts → modal shows the component breakdown
 		claimable?: boolean; // untrackable via the clog — click-to-claim when onClaim is set
+		note?: string | null; // optional explanatory note shown in the item modal
 	}
 	interface GearGroup {
 		tier: string;
@@ -369,6 +370,7 @@
 		wikiPages={[p.iconItem ?? p.name]}
 		onclose={() => (infoPiece = null)}
 	>
+		{#if p.note}<p class="modal-note">{p.note}</p>{/if}
 		{#if p.assembled && (p.components ?? []).length}
 			{@const comps = p.components ?? []}
 			{@const missingSet = new Set(p.missing ?? [])}
@@ -635,6 +637,16 @@
 	.modal-claim {
 		width: 100%;
 		margin-top: 0.5rem;
+	}
+	.modal-note {
+		margin: 0.2rem 0 0.5rem;
+		padding: 0.5rem 0.7rem;
+		font-size: 0.82rem;
+		line-height: 1.4;
+		color: var(--muted);
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 3px;
 	}
 	/* Component breakdown inside the item modal for assembled gear. */
 	.modal-missing {

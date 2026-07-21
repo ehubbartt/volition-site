@@ -51,15 +51,23 @@ to the log.) The claims channel covers them:
 
 - **Member**: /me Rank tab → "Own rank gear the collection log can't see?" opens
   `src/lib/profile/GearClaimModal.svelte` (also reached from a gear tile's "Claim this
-  item" shortcut, prefilled) — pick a gear-table item, drop/paste/attach proof
-  screenshots, submit. The modal reuses the shared `ImageDropper` (drag · drop · paste)
-  from the event submissions. One live claim per item (rejected claims may be resubmitted).
+  item" shortcut, prefilled) — pick one of the **claimable** items (Oathplate helm/chest/
+  legs, Radiant Oathplate, Blood/Sanguine Torva), drop/paste/attach proof screenshots,
+  submit. The modal reuses the shared `ImageDropper` (drag · drop · paste) from the event
+  submissions. One live claim per item (rejected claims may be resubmitted). An entry may
+  carry an optional `claimNote` (gear table → `ClaimableGearItem.claimNote`) shown under the
+  item picker when it's selected — the Oathplate pieces use it to ask for the member's
+  Oathplate shard collection-log count as proof they crafted the piece rather than receiving
+  the finished item from a group mate.
 - **Admin**: `/admin/rank-claims` — pending queue with proofs, approve/reject + note.
 - **Effect**: APPROVED claims (`vs_rank_item_claims`, `db/scripts/rank_item_claims.sql`)
   merge into `calculateGearPoints` as owned items (count 1) at the next `/me` rank check
   and the next rank-sim refresh — nothing rewrites cached rows retroactively.
-- **Module**: `src/lib/server/rankClaims.ts` (claimable list is the flattened gear-table
-  check names; proofs share the bingo bucket under a `rank-claims/` prefix).
+- **Module**: `src/lib/server/rankClaims.ts`. The claimable set is **only** the gear-table
+  entries flagged `claimable: true` (currently Oathplate helm/chest/legs, Radiant Oathplate,
+  Blood/Sanguine Torva). `claimableGearItems()` is the single gate for both the /me picker
+  and the `submitGearClaim` validation, so no other item can be manually submitted. Proofs
+  share the bingo bucket under a `rank-claims/` prefix.
 
 ### Tiers, sections, and display icons
 
@@ -86,6 +94,25 @@ OR-alternatives lists all accepted variants joined by "or" (e.g. the Ahrim/Blue 
 shows "Ahrim's helm or Blue moon helm" per slot) — the component carries every alternative
 (`GearComponent.names`), not just the first.
 
+An entry may carry a `note` (surfaced in the item modal) to explain a non-obvious scoring
+assumption. The **Enhanced crystal weapon seed** is split into two independent entries —
+**Bow of Faerdhinen** (`quantity: 1`) and **Blade of Saeldor** (`quantity: 2`) — so each
+seed scores on its own: we assume the first seed becomes the bow and the second the blade,
+and each note says so. (One seed → bow points; two seeds → bow + blade.)
+
+The same split gives **Tormented synapse** and **Zenyte shard** incremental credit.
+Instead of one `quantity: N` entry that pays nothing until all N are owned, each is a set
+of independent `quantity: 1 … N` entries whose points sum to the original — so each
+drop earns its share (Tormented synapse: 3 × 200 = 600; Zenyte shard: 4 × 200 = 800).
+We don't map them to specific end products, so the notes just say each counts on its own.
+This "split into per-count entries" trick is the general way to turn an all-or-nothing
+quantity check into partial credit without changing the scoring engine.
+
+The **Ahrim/Blue moon robes** use the same idea for a multi-slot set: instead of one
+all-or-nothing entry needing helm + top + legs, it's three independent per-slot entries
+(34 / 33 / 33 = 100, unchanged), each accepting either brand for that slot
+(`["Ahrim's hood", "Blue moon helm"]`, …) — so each robe piece earns on its own.
+
 Every gear-grid tile opens the shared `ItemInfoModal` (tier, points, status, tracking
 source, wiki link). Entries flagged `claimable: true` are untrackable by the clog: their
 tiles wear a "claim" ribbon, and on /me (where the panel gets an `onClaim` handler) the
@@ -98,5 +125,5 @@ entries are added or repointed.
 `gearScoring.json` and `combatAchievements.json` are the canonical hand-maintained
 copies (the bot's originals were retired). New CAs auto-extend daily from the OSRS Wiki
 (`caNames.ts`); new GEAR needs a hand edit — add the entry, and if it's untrackable,
-the claims channel picks it up automatically (the claimable list derives from the
-table).
+mark it `claimable: true` so the claims channel accepts it (only `claimable: true`
+entries are manually submittable).
