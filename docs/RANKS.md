@@ -11,9 +11,26 @@ detail.
   the gear table `rankScoring/gearScoring.json`), `calculateCAPoints` (WikiSync task ids
   vs `rankScoring/combatAchievements.json`, whole-tier rewards only),
   `determineProjectedRank` (thresholds → womRole).
-- **Config**: `src/lib/server/rankConfig.ts` — weights/caps/thresholds live in the
+- **Config**: `src/lib/server/rankConfig.ts` — weights/caps/curves/thresholds live in the
   `bot_config` row `rank_scoring` (edited via `/admin/rank-sim`, 60s cache);
   `DEFAULT_RANK_CONFIG` is only the fallback.
+- **Progression curves (gear + EHB)**: gear and EHB are the two highest-weighted
+  components but their caps sit near the top of the account ladder, so a linear
+  normalization leaves most of the roster bunched at the bottom of both bars (flat
+  mid-game). Two config knobs fix this without touching the distribution:
+  - `caps.gear` — the gear points at which the gear bar maxes. `0` (default) =
+    `GEAR_SCORE_CAP` (the gear table's full sum, today's behaviour); a lower value (e.g.
+    `12000`) lets a strong-but-not-BiS setup read near full. `effectiveGearCap(config)`
+    resolves it; the gear grid + `GEAR_SCORE_CAP` invariant are unchanged.
+  - `curves.gear` / `curves.ehb` — diminishing-returns exponents applied in `curveNorm`
+    (`(raw/cap) ** exponent`). `1` = linear (default); `0.5` = sqrt, front-loading early
+    progress so mid-game hours/gear move the score most. Clamped to `[0.2, 1]`.
+  Defaults reproduce today's scoring exactly, so live ranks don't move until an admin sets
+  them in `/admin/rank-sim`. Changing them raises everyone's raw composite, so **re-run
+  "Suggest thresholds"** after — the curves control *how rewarding climbing feels*, the
+  thresholds control *the distribution* (independent knobs). Recommended starting point
+  for this roster: `caps.gear 12000` / `curves.gear 0.6`, `caps.ehb 1500` /
+  `curves.ehb 0.5`.
 - **Inputs**: `src/lib/server/rankData.ts` — `fetchPlayerRankInputs(rsn, roster?,
   manualGearNames?, accountType?)`: EHB/join-date/total-level from WiseOldMan, gear + clog
   slots from TempleOSRS, CAs from WikiSync. Availability flags (`templeAvailable`,
