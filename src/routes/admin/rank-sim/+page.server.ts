@@ -21,7 +21,7 @@ import { usesIronmanEhb, computeIronmanEhb } from '$lib/server/rankScoring/ehb';
 import { getApprovedGearNamesByRsn } from '$lib/server/rankClaims';
 import { setPlayerRank } from '$lib/server/playerStats';
 import { microCached } from '$lib/server/microCache';
-import { RANK_ORDER, RANK_LABEL, rankIndex, toRankValue, type RankValue } from '$lib/ranks';
+import { RANK_ORDER, RANK_LABEL, rankIndex, toRankValue, ehbRank, type RankValue } from '$lib/ranks';
 import type { Actions, PageServerLoad } from './$types';
 
 // Admin rank-distribution simulator. Mirrors voli-disc-bot/scripts/simulateRanks.js as
@@ -543,7 +543,8 @@ export const actions: Actions = {
 		const players: {
 			rsn: string;
 			womRole: string | null;
-			womRank: RankValue | null;
+			womRank: RankValue | null; // the baseline rank used for the delta (in-game or EHB-estimated)
+			estimated: boolean; // baseline came from the legacy EHB ladder (no mapped in-game rank)
 			projected: RankValue;
 			stored: RankValue | null;
 			delta: number | null;
@@ -580,25 +581,27 @@ export const actions: Actions = {
 				storedCompared++;
 				if (stored === projected) storedMatches++;
 			}
+			// Current-rank baseline: the member's in-game WOM rank when it maps to a clan
+			// rank, otherwise (staff/mod/special title that doesn't map) fall back to what
+			// the clan's legacy EHB ladder would give them, so they're included in the
+			// movement + distribution instead of dropped. `estimated` flags the fallback.
 			const womRank = toRankValue(e.womRole);
-			let delta: number | null = null;
-			if (womRank) {
-				delta = rankIndex(projected) - rankIndex(womRank);
-				if (delta > 0) up++;
-				else if (delta < 0) down++;
-				else same++;
-				deltaHist.set(delta, (deltaHist.get(delta) ?? 0) + 1);
-				// Both distributions cover the SAME population (compared members only) so
-				// the two histograms are directly comparable.
-				womDist[womRank] = (womDist[womRank] ?? 0) + 1;
-				projectedDist[projected] = (projectedDist[projected] ?? 0) + 1;
-			} else {
-				unmappedRole++;
-			}
+			const estimated = !womRank;
+			const baseline = womRank ?? ehbRank(row.ehb);
+			if (estimated) unmappedRole++; // now INCLUDED (baseline estimated from EHB), not skipped
+			const delta = rankIndex(projected) - rankIndex(baseline);
+			if (delta > 0) up++;
+			else if (delta < 0) down++;
+			else same++;
+			deltaHist.set(delta, (deltaHist.get(delta) ?? 0) + 1);
+			// Both distributions cover the SAME population so the histograms are comparable.
+			womDist[baseline] = (womDist[baseline] ?? 0) + 1;
+			projectedDist[projected] = (projectedDist[projected] ?? 0) + 1;
 			players.push({
 				rsn: e.rsn,
 				womRole: e.womRole,
-				womRank,
+				womRank: baseline,
+				estimated,
 				projected,
 				stored,
 				delta,
@@ -606,7 +609,7 @@ export const actions: Actions = {
 			});
 		}
 
-		// Biggest movers first; unmapped roles sink to the bottom.
+		// Biggest movers first (every compared member now has a delta — in-game or EHB-estimated).
 		players.sort((a, b) => Math.abs(b.delta ?? -1) - Math.abs(a.delta ?? -1) || (b.delta ?? 0) - (a.delta ?? 0));
 		const compared = up + down + same;
 		const avgAbsDelta = compared
@@ -621,7 +624,9 @@ export const actions: Actions = {
 				up,
 				down,
 				same,
-				unmappedRole,
+				// Members with no mapped in-game rank (staff/mod/special) — now INCLUDED with a
+				// baseline estimated from the legacy EHB ladder rather than dropped.
+				estimatedBaseline: unmappedRole,
 				notCached,
 				noTemple,
 				storedMatches,
