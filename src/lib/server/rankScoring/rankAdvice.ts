@@ -88,19 +88,28 @@ export interface RankAdvice {
 	steps: AdviceStep[];
 }
 
-// --- Merged item → obtain-hours lookup ---------------------------------------
-// Boss/raid drops (itemEhb + the EHB math, with admin overrides) take priority; non-boss
-// clog items fall back to Temple's flat EHC. Keyed by lowercase item name. Rebuilt per call
-// so admin EHB overrides stay fresh (a few thousand cheap entries).
+// --- Item → obtain-hours lookup ----------------------------------------------
+// Keyed by lowercase item name; rebuilt per call so admin EHB overrides stay fresh.
+//
+// We ONLY trust real grind-hour estimates here:
+//   • Boss/raid drops from itemEhb.json — curated drop-rate ÷ kills-per-hour math (plus
+//     admin overrides). These are genuine "hours to obtain".
+//   • Non-boss clog items from itemEhc.json are DELIBERATELY excluded: Temple's per-item
+//     value is the slot's MARGINAL contribution toward finishing its category, not a
+//     standalone grind (a Zenyte shard reads ~5 min, an uncharged trident ~50 min), so it
+//     wildly understates obtain time and inflates points-per-hour. A non-boss item is only
+//     priced when an admin has explicitly pinned its hours via /admin/ehb (item override);
+//     otherwise it shows "no time estimate" and is ranked after everything we can price.
 function buildItemHours(overrides: EhbOverrides): Map<string, number> {
 	const hours = new Map<string, number>();
-	for (const raw of itemEhcData as ItemEhc[]) {
-		if (typeof raw.ehc === 'number' && raw.ehc > 0) hours.set(raw.name.toLowerCase(), raw.ehc);
-	}
-	// Boss items override the EHC fallback (more relevant for rank gear).
 	for (const item of itemEhbData as ItemEhb[]) {
 		const best = bestEhbSource(item, DEFAULT_EHB_ASSUMPTIONS, overrides);
 		if (best && isFinite(best.ehb) && best.ehb > 0) hours.set(item.name.toLowerCase(), best.ehb);
+	}
+	// Non-boss items: trust ONLY an admin-pinned hours value (override by item id).
+	for (const raw of itemEhcData as ItemEhc[]) {
+		const pinned = overrides.itemEhb[raw.id];
+		if (pinned != null && isFinite(pinned) && pinned > 0) hours.set(raw.name.toLowerCase(), pinned);
 	}
 	return hours;
 }
