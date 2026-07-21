@@ -13,9 +13,11 @@ import {
 	fetchPlayerTotalLevel,
 	fetchTempleCollectionLog,
 	fetchWikiSyncCA,
+	fetchPlayerBossKills,
 	monthsBetween
 } from '$lib/server/rankData';
 import { calculateGearPoints, calculateCAPoints } from '$lib/server/rankScoring';
+import { usesIronmanEhb, computeIronmanEhb } from '$lib/server/rankScoring/ehb';
 import { getApprovedGearNamesByRsn } from '$lib/server/rankClaims';
 import { setPlayerRank } from '$lib/server/playerStats';
 import { microCached } from '$lib/server/microCache';
@@ -79,6 +81,15 @@ async function readCurrentRanks(): Promise<Map<string, string | null>> {
 	const rows = await selectAll<{ rsn: string | null; rank: string | null }>('players', 'rsn, rank');
 	const m = new Map<string, string | null>();
 	for (const r of rows) if (r.rsn) m.set(r.rsn.toLowerCase(), r.rank);
+	return m;
+}
+
+// Map lowercase rsn → the member's site account_type (vs_users), so the refresh can
+// re-derive EHB on iron rates for group-ironman accounts (rankScoring/ehb.ts).
+async function readAccountTypes(): Promise<Map<string, string | null>> {
+	const rows = await selectAll<{ rsn: string | null; account_type: string | null }>('vs_users', 'rsn, account_type');
+	const m = new Map<string, string | null>();
+	for (const r of rows) if (r.rsn) m.set(r.rsn.toLowerCase(), r.account_type);
 	return m;
 }
 
@@ -343,21 +354,29 @@ export const actions: Actions = {
 		// Approved manual gear claims (untrackable items) merge into the gear calc,
 		// same as /me's checkRank. One bulk read per batch, keyed by lowercase RSN.
 		const manualGearByRsn = await getApprovedGearNamesByRsn();
+		// Site account types, so GIM members get iron-rate EHB (rankScoring/ehb.ts).
+		const accountTypeByRsn = await readAccountTypes();
 		let processed = 0;
 		for (const entry of worklist) {
-			const [totalLevel, temple, ca] = await Promise.all([
+			// GIM accounts: re-derive EHB from boss KCs on iron rates (fetched in parallel).
+			const iron = usesIronmanEhb(accountTypeByRsn.get(entry.rsn.toLowerCase()));
+			const [totalLevel, temple, ca, bossKills] = await Promise.all([
 				fetchPlayerTotalLevel(entry.rsn),
 				fetchTempleCollectionLog(entry.rsn),
-				fetchWikiSyncCA(entry.rsn)
+				fetchWikiSyncCA(entry.rsn),
+				iron ? fetchPlayerBossKills(entry.rsn) : Promise.resolve(null)
 			]);
 			const gear = calculateGearPoints(temple?.items, manualGearByRsn.get(entry.rsn.toLowerCase()));
 			const caResult = calculateCAPoints(ca);
+			// Keep WOM's EHB if the iron boss snapshot didn't come back (outage), rather
+			// than zeroing a GIM's EHB component.
+			const ehb = iron && bossKills ? Math.round(computeIronmanEhb(bossKills)) : entry.ehb;
 
 			const { error: upErr } = await sb.from('vs_rank_sim').upsert(
 				{
 					rsn: entry.rsn,
 					wom_id: entry.womId,
-					ehb: entry.ehb,
+					ehb,
 					total_level: totalLevel,
 					gear_points: gear.gearPoints,
 					clog_finished: temple?.finished ?? 0,
