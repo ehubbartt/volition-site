@@ -79,6 +79,7 @@
 		points: number;
 		hours: number | null;
 		pointsPerHour: number | null;
+		easy: boolean;
 		compositeGain: number;
 		fillsClog: boolean;
 		missing: string[];
@@ -441,10 +442,10 @@
 					{/if}
 
 					{#if advice.gearTargets.length}
-						<p class="plan-sub">Fastest gear points <span class="muted">(most points per hour to obtain)</span></p>
+						<p class="plan-sub">Best gear to chase <span class="muted">(easiest first)</span></p>
 						<div class="gear-targets">
 							{#each advice.gearTargets as t (t.entry)}
-								<div class="gtarget">
+								<div class="gtarget" class:easy={t.easy}>
 									<div class="gtarget-img">
 										{#if t.iconItem}
 											<img src={itemIconUrl(t.iconItem)} alt={t.entry} loading="lazy" referrerpolicy="no-referrer" use:retryImage />
@@ -452,7 +453,9 @@
 									</div>
 									<div class="gtarget-body">
 										<strong>{t.entry}</strong>
-										<span class="gtarget-meta muted">{t.points} pts{#if t.hours != null} · {fmtHours(t.hours)}{/if}{#if t.pointsPerHour != null} · {t.pointsPerHour} pts/h{:else} · no time estimate{/if}</span>
+										<span class="gtarget-meta muted">
+											{t.points} pts{#if t.hours != null} · {fmtHours(t.hours)}{#if t.pointsPerHour != null} · {t.pointsPerHour} pts/h{/if}{:else if t.easy} · <span class="quick">quick win</span>{:else} · no time estimate{/if}
+										</span>
 									</div>
 								</div>
 							{/each}
@@ -1177,6 +1180,13 @@
 	}
 	.gtarget-meta {
 		font-size: 0.68rem;
+	}
+	.gtarget.easy {
+		border-color: var(--success, #6aa84f);
+	}
+	.gtarget-meta .quick {
+		color: var(--success, #6aa84f);
+		font-family: var(--font-heading);
 	}
 	.plan-foot {
 		margin: 0.7rem 0 0;
