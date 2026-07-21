@@ -272,7 +272,12 @@ function parseConfigFromForm(form: FormData, base: RankScoringConfig): RankScori
 			months: num('c_months', base.caps.months),
 			clog: num('c_clog', base.caps.clog),
 			levelMin: num('c_levelMin', base.caps.levelMin),
-			levelRange: num('c_levelRange', base.caps.levelRange)
+			levelRange: num('c_levelRange', base.caps.levelRange),
+			gear: num('c_gear', base.caps.gear)
+		},
+		curves: {
+			gear: num('curve_gear', base.curves.gear),
+			ehb: num('curve_ehb', base.curves.ehb)
 		},
 		thresholds: RANK_ORDER.map((womRole) => ({
 			womRole,

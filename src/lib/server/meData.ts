@@ -13,7 +13,7 @@ import {
 	determineProjectedRank,
 	describeComposite,
 	getGearCatalog,
-	GEAR_SCORE_CAP,
+	effectiveGearCap,
 	CA_MAX_POINTS
 } from './rankScoring';
 import type { RankValue } from '$lib/ranks';
@@ -153,7 +153,7 @@ function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
 		config
 	);
 	const rawByKey: Record<string, { raw: number; cap: number }> = {
-		gear: { raw: row.gear_points, cap: GEAR_SCORE_CAP },
+		gear: { raw: row.gear_points, cap: effectiveGearCap(config) },
 		ehb: { raw: Math.round(row.ehb), cap: config.caps.ehb },
 		ca: { raw: row.ca_points, cap: CA_MAX_POINTS },
 		time: { raw: Math.round(row.months_in_clan * 10) / 10, cap: config.caps.months },

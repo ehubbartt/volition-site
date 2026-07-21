@@ -10,9 +10,10 @@
 
 import {
 	getGearCatalog,
-	GEAR_SCORE_CAP,
 	CA_MAX_POINTS,
 	computeScores,
+	curveNorm,
+	effectiveGearCap,
 	describeComposite,
 	determineProjectedRank,
 	nextCaTier,
@@ -156,6 +157,8 @@ export function buildRankAdvice(inputs: RankAdviceInputs, config: RankScoringCon
 	);
 	const w = config.weights;
 	const caps = config.caps;
+	const curves = config.curves ?? { gear: 1, ehb: 1 };
+	const gearCap = effectiveGearCap(config);
 	const rank = determineProjectedRank(scores.composite, config);
 
 	// Next rank + the composite gap to reach it.
@@ -168,7 +171,11 @@ export function buildRankAdvice(inputs: RankAdviceInputs, config: RankScoringCon
 	const itemHours = buildItemHours(overrides);
 	const matched = new Set(inputs.gearMatched.map((n) => n.toLowerCase()));
 	const partialByName = new Map(inputs.gearPartials.map((p) => [p.name.toLowerCase(), new Set(p.missing.map((m) => m.toLowerCase()))]));
-	const remainingGearPoints = Math.max(0, GEAR_SCORE_CAP - inputs.gearPoints);
+	// Marginal composite from finishing an entry, under the curve: the score gained by
+	// moving gearPoints → gearPoints + entry.points (bigger when you're lower on the bar).
+	const gearGainFor = (points: number) =>
+		w.gear *
+		(curveNorm(inputs.gearPoints + points, gearCap, curves.gear) - curveNorm(inputs.gearPoints, gearCap, curves.gear));
 
 	const gearTargets: GearTarget[] = [];
 	for (const entry of getGearCatalog()) {
@@ -179,7 +186,7 @@ export function buildRankAdvice(inputs: RankAdviceInputs, config: RankScoringCon
 			? entry.components.filter((c) => missingSet.has(c.names[0].toLowerCase()))
 			: entry.components;
 		const hours = entryHours(entry.components, missingComponents, itemHours);
-		const compositeGain = w.gear * (Math.min(entry.points, remainingGearPoints || entry.points) / (GEAR_SCORE_CAP || 1));
+		const compositeGain = gearGainFor(entry.points);
 		gearTargets.push({
 			entry: entry.name,
 			iconItem: entry.iconItem,
@@ -213,7 +220,8 @@ export function buildRankAdvice(inputs: RankAdviceInputs, config: RankScoringCon
 		let estHours: number | null = null;
 		switch (d.key) {
 			case 'gear': {
-				potential = Math.min(1, n + (GEAR_SCORE_CAP > 0 ? topGearPoints / GEAR_SCORE_CAP : 0));
+				// Reachable fill after finishing the top targets, under the curve.
+				potential = curveNorm(inputs.gearPoints + topGearPoints, gearCap, curves.gear);
 				estHours = topGearHours > 0 ? round1(topGearHours) : null;
 				advice = topGear.length
 					? `Chase the fastest gear below — the top ${topGear.length} are worth ${topGearPoints} points${estHours ? ` (~${estHours}h)` : ''}.`
@@ -221,9 +229,8 @@ export function buildRankAdvice(inputs: RankAdviceInputs, config: RankScoringCon
 				break;
 			}
 			case 'ehb': {
-				// Bossing those gear drops also raises EHB; show that as the reachable gain.
-				const add = caps.ehb > 0 ? Math.min(1 - n, topGearHours / caps.ehb) : 0;
-				potential = Math.min(1, n + add);
+				// Bossing those gear drops also raises EHB; show that as the reachable gain (curved).
+				potential = curveNorm(inputs.ehb + topGearHours, caps.ehb, curves.ehb);
 				estHours = topGearHours > 0 ? round1(topGearHours) : null;
 				advice =
 					n >= 1

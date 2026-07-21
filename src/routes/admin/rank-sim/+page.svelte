@@ -65,10 +65,18 @@
 
 	const capKeys = [
 		['c_ehb', 'ehb', 'EHB cap'],
+		['c_gear', 'gear', 'Gear cap (0 = table sum)'],
 		['c_months', 'months', 'Months cap'],
 		['c_clog', 'clog', 'Clog slots cap'],
 		['c_levelMin', 'levelMin', 'Level floor'],
 		['c_levelRange', 'levelRange', 'Level range']
+	] as const;
+
+	// Diminishing-returns exponents for gear/EHB (1 = linear, 0.5 = sqrt — front-loads
+	// early progress so the mid-game isn't flat).
+	const curveKeys = [
+		['curve_gear', 'gear', 'Gear curve'],
+		['curve_ehb', 'ehb', 'EHB curve']
 	] as const;
 
 	let weightSum = $derived(
@@ -350,6 +358,16 @@
 					<label>
 						<span>{label}</span>
 						<input type="number" step="1" {name} value={config.caps[key]} />
+					</label>
+				{/each}
+			</div>
+
+			<strong class="mt">Progression curves <span class="hint">(1 = linear · 0.5 = sqrt, front-loads early progress)</span></strong>
+			<div class="grid">
+				{#each curveKeys as [name, key, label]}
+					<label>
+						<span>{label}</span>
+						<input type="number" step="0.05" min="0.2" max="1" {name} value={config.curves[key]} />
 					</label>
 				{/each}
 			</div>
