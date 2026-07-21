@@ -88,14 +88,25 @@
       "items": [{ "name": "Broken zombie axe" }]
     },
     {
-      "name": "Ahrim/Bluemoon Robe Set",
+      "name": "Ahrim/Bluemoon Helm",
       "tier": "low",
-      "points": 100,
-      "items": [
-        { "name": ["Ahrim's hood", "Blue moon helm"] },
-        { "name": ["Ahrim's robetop", "Blue moon chestplate"] },
-        { "name": ["Ahrim's robeskirt", "Blue moon tassets"] }
-      ]
+      "points": 34,
+      "note": "Each robe piece counts on its own — you don't need the full set. Ahrim's hood or Blue moon helm.",
+      "items": [{ "name": ["Ahrim's hood", "Blue moon helm"] }]
+    },
+    {
+      "name": "Ahrim/Bluemoon Top",
+      "tier": "low",
+      "points": 33,
+      "note": "Each robe piece counts on its own — you don't need the full set. Ahrim's robetop or Blue moon chestplate.",
+      "items": [{ "name": ["Ahrim's robetop", "Blue moon chestplate"] }]
+    },
+    {
+      "name": "Ahrim/Bluemoon Legs",
+      "tier": "low",
+      "points": 33,
+      "note": "Each robe piece counts on its own — you don't need the full set. Ahrim's robeskirt or Blue moon tassets.",
+      "items": [{ "name": ["Ahrim's robeskirt", "Blue moon tassets"] }]
     },
     {
       "name": "Ava's Assembler",
@@ -251,9 +262,35 @@
       "items": [{ "name": "Ranger boots" }, { "name": "Pegasian crystal" }]
     },
     {
-      "name": "Zenyte Jewelry",
+      "name": "Zenyte Shard (1st)",
       "tier": "middle",
-      "points": 800,
+      "points": 200,
+      "icon": "Zenyte shard",
+      "note": "Each Zenyte shard counts on its own — you don't need all four. This awards credit for your FIRST shard.",
+      "items": [{ "name": "Zenyte shard", "quantity": 1 }]
+    },
+    {
+      "name": "Zenyte Shard (2nd)",
+      "tier": "middle",
+      "points": 200,
+      "icon": "Zenyte shard",
+      "note": "Each Zenyte shard counts on its own — you don't need all four. This awards credit for your SECOND shard.",
+      "items": [{ "name": "Zenyte shard", "quantity": 2 }]
+    },
+    {
+      "name": "Zenyte Shard (3rd)",
+      "tier": "middle",
+      "points": 200,
+      "icon": "Zenyte shard",
+      "note": "Each Zenyte shard counts on its own — you don't need all four. This awards credit for your THIRD shard.",
+      "items": [{ "name": "Zenyte shard", "quantity": 3 }]
+    },
+    {
+      "name": "Zenyte Shard (4th)",
+      "tier": "middle",
+      "points": 200,
+      "icon": "Zenyte shard",
+      "note": "Each Zenyte shard counts on its own — you don't need all four. This awards credit for your FOURTH shard.",
       "items": [{ "name": "Zenyte shard", "quantity": 4 }]
     },
     {
