@@ -617,6 +617,7 @@
       "tier": "end",
       "points": 300,
       "claimable": true,
+      "claimNote": "Please include your Oathplate shard collection-log count in the screenshot, so we can confirm you crafted this yourself and didn't receive the finished piece from a group mate.",
       "items": [{ "name": "Oathplate helm" }]
     },
     {
@@ -624,6 +625,7 @@
       "tier": "end",
       "points": 300,
       "claimable": true,
+      "claimNote": "Please include your Oathplate shard collection-log count in the screenshot, so we can confirm you crafted this yourself and didn't receive the finished piece from a group mate.",
       "items": [{ "name": "Oathplate chest" }]
     },
     {
@@ -631,6 +633,7 @@
       "tier": "end",
       "points": 300,
       "claimable": true,
+      "claimNote": "Please include your Oathplate shard collection-log count in the screenshot, so we can confirm you crafted this yourself and didn't receive the finished piece from a group mate.",
       "items": [{ "name": "Oathplate legs" }]
     },
     {

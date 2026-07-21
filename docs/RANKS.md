@@ -45,7 +45,11 @@ to the log.) The claims channel covers them:
   item" shortcut, prefilled) — pick one of the **claimable** items (Oathplate helm/chest/
   legs, Radiant Oathplate, Blood/Sanguine Torva), drop/paste/attach proof screenshots,
   submit. The modal reuses the shared `ImageDropper` (drag · drop · paste) from the event
-  submissions. One live claim per item (rejected claims may be resubmitted).
+  submissions. One live claim per item (rejected claims may be resubmitted). An entry may
+  carry an optional `claimNote` (gear table → `ClaimableGearItem.claimNote`) shown under the
+  item picker when it's selected — the Oathplate pieces use it to ask for the member's
+  Oathplate shard collection-log count as proof they crafted the piece rather than receiving
+  the finished item from a group mate.
 - **Admin**: `/admin/rank-claims` — pending queue with proofs, approve/reject + note.
 - **Effect**: APPROVED claims (`vs_rank_item_claims`, `db/scripts/rank_item_claims.sql`)
   merge into `calculateGearPoints` as owned items (count 1) at the next `/me` rank check
