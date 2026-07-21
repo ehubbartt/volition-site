@@ -24,7 +24,7 @@
 	}
 
 	interface Props {
-		// Prefilled item name (bindable so the datalist input stays editable).
+		// Prefilled item name (bindable; drives the item <select>).
 		item: string;
 		claimableGear: ClaimableItem[];
 		existingClaims: ExistingClaim[];
@@ -101,19 +101,12 @@
 		>
 			<label class="field">
 				<span class="field-label">Item</span>
-				<input
-					list="gear-claim-items"
-					name="item_name"
-					placeholder="Item (e.g. Oathplate chest)"
-					bind:value={item}
-					autocomplete="off"
-					required
-				/>
-				<datalist id="gear-claim-items">
+				<select name="item_name" bind:value={item} required>
+					<option value="" disabled>Select an item…</option>
 					{#each claimableGear as g (g.item)}
 						<option value={g.item}>{g.entry} · {g.points} pts</option>
 					{/each}
-				</datalist>
+				</select>
 			</label>
 
 			<span class="field-label">Proof</span>
@@ -272,7 +265,7 @@
 		width: 100%;
 	}
 	input[type='text'],
-	input[list] {
+	select {
 		width: 100%;
 		padding: 0.4rem 0.55rem;
 		background: var(--surface);
