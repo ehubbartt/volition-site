@@ -24,6 +24,10 @@
 	let refreshRemaining = $state<number | null>(null);
 	let refreshRetries = $state(0); // consecutive retryable failures (WOM rate-limit backoff)
 	let refreshForm = $state<HTMLFormElement>();
+	// Skip members who already have Temple data — a fast top-up that only fetches players
+	// still missing collection-log data (new members / prior Temple outages). Uncheck for a
+	// full re-fetch of everyone's current stats.
+	let skipTracked = $state(true);
 	const MAX_REFRESH_RETRIES = 5;
 	const RETRY_DELAY_MS = 25_000; // long enough for WOM's per-minute window to reset
 	let recalcing = $state(false);
@@ -142,6 +146,7 @@
 					// the server can tell what's already been refreshed this run.
 					if (!runSince) runSince = new Date().toISOString();
 					formData.set('since', runSince);
+					formData.set('onlyMissing', skipTracked ? '1' : '0');
 					refreshing = true;
 					return async ({ update, result }) => {
 						await update({ reset: false });
@@ -174,13 +179,17 @@
 				}}
 			>
 				<button class="btn" type="submit" disabled={refreshing}>
-					{refreshing ? 'Fetching all…' : 'Refresh all'}
+					{refreshing ? 'Fetching…' : skipTracked ? 'Fetch missing' : 'Refresh all'}
 				</button>
 				{#if refreshing}
 					<button class="btn" type="button" onclick={() => (stopRequested = true)}>
 						Stop after this batch
 					</button>
 				{/if}
+				<label class="skip-toggle">
+					<input type="checkbox" bind:checked={skipTracked} disabled={refreshing} />
+					<span>Skip players who already have Temple data</span>
+				</label>
 			</form>
 		</div>
 	</div>
@@ -816,5 +825,17 @@
 		.cols {
 			grid-template-columns: 1fr;
 		}
+	}
+	.skip-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-top: 0.5rem;
+		font-size: 0.8rem;
+		color: var(--muted);
+		cursor: pointer;
+	}
+	.skip-toggle input {
+		cursor: pointer;
 	}
 </style>
