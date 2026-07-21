@@ -52,9 +52,10 @@ export interface GearTarget {
 	points: number;
 	hours: number | null; // real obtain-time (boss/raid or admin-pinned); null when unknown
 	pointsPerHour: number | null;
-	// A cheap, common non-boss pickup (low Temple EHC). We surface it as a quick win but
-	// deliberately DON'T show a number — EHC is a category-share, not a reliable grind time.
-	easy: boolean;
+	// Whether the item drops from a boss/raid (itemEhb) — those are the ones we can price
+	// with real drop-rate math. Non-boss items are ordered by Temple EHC (easiness) but we
+	// don't show a time, since EHC is a category-share, not a reliable standalone grind.
+	fromBoss: boolean;
 	compositeGain: number; // score this adds if completed (capped by remaining gear headroom)
 	fillsClog: boolean; // trackable via the collection log → also nudges the clog bar
 	missing: string[]; // the check items still needed
@@ -129,9 +130,10 @@ function buildSoftEhc(): Map<string, number> {
 	return m;
 }
 
-// A gear entry counts as an "easy win" when its still-missing pieces are all cheap/common
-// on the EHC scale and it isn't already priced from real boss/raid math. Tuned to catch
-// items like the uncharged trident / warped sceptre / zenyte shard, not rare clue uniques.
+// Ordering cutoff for non-boss items: those whose still-missing pieces total this much or
+// less on the EHC scale sort by that value (cheap/common first); pricier/rarer non-boss
+// items (and crafted gear) sort last. Tuned to lift the uncharged trident / warped sceptre
+// / zenyte shard band without pulling in rare clue uniques.
 const EASY_ENTRY_EHC = 6;
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
@@ -189,6 +191,7 @@ export function buildRankAdvice(inputs: RankAdviceInputs, config: RankScoringCon
 	// --- Gear targets: unearned entries, easiest first ---
 	const itemHours = buildItemHours(overrides); // real hours (boss/raid + admin pins)
 	const softEhc = buildSoftEhc(); // easiness proxy (never shown as a time)
+	const bossNames = new Set((itemEhbData as ItemEhb[]).map((i) => i.name.toLowerCase())); // boss/raid drops
 	const matched = new Set(inputs.gearMatched.map((n) => n.toLowerCase()));
 	const partialByName = new Map(inputs.gearPartials.map((p) => [p.name.toLowerCase(), new Set(p.missing.map((m) => m.toLowerCase()))]));
 	// Marginal composite from finishing an entry, under the curve: the score gained by
@@ -209,21 +212,17 @@ export function buildRankAdvice(inputs: RankAdviceInputs, config: RankScoringCon
 			? entry.components.filter((c) => missingSet.has(c.names[0].toLowerCase()))
 			: entry.components;
 		const hours = entryHours(entry.components, missingComponents, itemHours);
+		// A boss/raid item if any still-missing piece is a curated boss drop.
+		const fromBoss = missingComponents.some((c) => c.names.some((n) => bossNames.has(n.toLowerCase())));
 
-		let easy = false;
 		let effort: number;
 		if (hours != null) {
 			effort = hours;
 		} else {
-			// No real time: is this a cheap/common non-boss pickup? Use EHC to decide, but
-			// only as a "quick win" flag + ordering key — never as a displayed number.
+			// No real time: order cheap non-boss pickups by their EHC (easiness proxy only,
+			// never shown); rare/crafted items with no cheap path sort last.
 			const soft = entryHours(entry.components, missingComponents, softEhc);
-			if (soft != null && soft <= EASY_ENTRY_EHC) {
-				easy = true;
-				effort = soft;
-			} else {
-				effort = Infinity;
-			}
+			effort = soft != null && soft <= EASY_ENTRY_EHC ? soft : Infinity;
 		}
 		scored.push({
 			effort,
@@ -233,7 +232,7 @@ export function buildRankAdvice(inputs: RankAdviceInputs, config: RankScoringCon
 				points: entry.points,
 				hours: hours != null ? round1(hours) : null,
 				pointsPerHour: hours && hours > 0 ? Math.round((entry.points / hours) * 10) / 10 : null,
-				easy,
+				fromBoss,
 				compositeGain: gearGainFor(entry.points),
 				fillsClog: !entry.claimable,
 				missing: missingComponents.map((c) => c.names[0])
