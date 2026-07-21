@@ -5,6 +5,7 @@
 // bot's behaviour (and wom.ts's "return null on outage" style).
 
 import { calculateGearPoints, calculateCAPoints, type RankInputs, type GearPartial } from './rankScoring';
+import { usesIronmanEhb, computeIronmanEhb } from './rankScoring/ehb';
 import { getJson } from './http';
 import { SKILLS, SKILL_WOM_KEY, type Skill } from '$lib/ehp';
 
@@ -80,6 +81,24 @@ export async function fetchPlayerSkillXp(rsn: string): Promise<Record<Skill, num
 	for (const s of SKILLS) {
 		const xp = skills[SKILL_WOM_KEY[s]]?.experience;
 		out[s] = typeof xp === 'number' && xp >= 0 ? xp : 0;
+	}
+	return out;
+}
+
+// Per-boss KC from WOM's latest snapshot, for recomputing a GIM's EHB on iron rates
+// (rankScoring/ehb.ts). Keyed by WOM boss metric (e.g. 'zulrah'); WOM reports -1 for
+// unranked bosses, which we drop so only real kill counts feed the calc. Best-effort:
+// null on outage → the caller keeps WOM's own EHB.
+export async function fetchPlayerBossKills(rsn: string): Promise<Record<string, number> | null> {
+	const data = (await getJson(`${WOM_BASE}/players/${encodeURIComponent(rsn)}`)) as
+		| { latestSnapshot?: { data?: { bosses?: Record<string, { kills?: number }> } } }
+		| null;
+	const bosses = data?.latestSnapshot?.data?.bosses;
+	if (!bosses) return null;
+	const out: Record<string, number> = {};
+	for (const [metric, v] of Object.entries(bosses)) {
+		const kills = v?.kills;
+		if (typeof kills === 'number' && kills > 0) out[metric] = kills;
 	}
 	return out;
 }
@@ -180,27 +199,36 @@ export function monthsBetween(joinedAt: string | null): number {
 // per player. Missing roster entry → ehb/time default to 0 (non-clan or unsynced).
 // `manualGearNames` = the player's admin-approved gear claims (rankClaims.ts) — items
 // the Temple clog can't prove, merged into the gear calculation as owned.
+// `accountType` = the member's site account_type; group-ironman accounts have their EHB
+// recomputed on iron rates (rankScoring/ehb.ts) instead of using WOM's value for them.
 export async function fetchPlayerRankInputs(
 	rsn: string,
 	roster?: Record<string, RosterEntry>,
-	manualGearNames?: string[]
+	manualGearNames?: string[],
+	accountType?: string | null
 ): Promise<PlayerRankData> {
 	const r = roster ?? (await fetchClanRoster());
 	const wom = r[rsn.toLowerCase()] ?? null;
 
-	const [totalLevel, temple, ca] = await Promise.all([
+	// GIM accounts: re-derive EHB from boss KCs on iron rates (fetched in parallel).
+	const iron = usesIronmanEhb(accountType);
+	const [totalLevel, temple, ca, bossKills] = await Promise.all([
 		fetchPlayerTotalLevel(rsn),
 		fetchTempleCollectionLog(rsn),
-		fetchWikiSyncCA(rsn)
+		fetchWikiSyncCA(rsn),
+		iron ? fetchPlayerBossKills(rsn) : Promise.resolve(null)
 	]);
 
 	const gear = calculateGearPoints(temple?.items, manualGearNames);
 	const caResult = calculateCAPoints(ca);
+	// Iron EHB only overrides when the boss snapshot actually came back; on a WOM outage
+	// we keep WOM's EHB rather than zeroing a GIM's whole EHB component.
+	const ehb = iron && bossKills ? Math.round(computeIronmanEhb(bossKills)) : wom?.ehb ?? 0;
 
 	return {
 		rsn: wom?.rsn ?? rsn,
 		womId: wom?.womId ?? null,
-		ehb: wom?.ehb ?? 0,
+		ehb,
 		clanJoinedAt: wom?.clanJoinedAt ?? null,
 		monthsInClan: monthsBetween(wom?.clanJoinedAt ?? null),
 		totalLevel,

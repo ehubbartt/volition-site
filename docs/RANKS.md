@@ -15,9 +15,18 @@ detail.
   `bot_config` row `rank_scoring` (edited via `/admin/rank-sim`, 60s cache);
   `DEFAULT_RANK_CONFIG` is only the fallback.
 - **Inputs**: `src/lib/server/rankData.ts` — `fetchPlayerRankInputs(rsn, roster?,
-  manualGearNames?)`: EHB/join-date/total-level from WiseOldMan, gear + clog slots from
-  TempleOSRS, CAs from WikiSync. Availability flags (`templeAvailable`,
+  manualGearNames?, accountType?)`: EHB/join-date/total-level from WiseOldMan, gear + clog
+  slots from TempleOSRS, CAs from WikiSync. Availability flags (`templeAvailable`,
   `wikisyncAvailable`) mark degraded reads.
+- **Group-ironman EHB**: `src/lib/server/rankScoring/ehb.ts` holds a verbatim port of Wise
+  Old Man's **ironman** EHB rate table. For members the site knows are group ironman
+  (`account_type` = `gim` / `gim_unranked`), we ignore WOM's `player.ehb` (which can be
+  computed on MAIN rates for GIMs) and recompute EHB from their WOM boss KCs
+  (`fetchPlayerBossKills`) on iron rates — `usesIronmanEhb` gates it, `computeIronmanEhb`
+  does the sum. Applied at fetch time in BOTH scoring paths (`/me` checkRank passes the
+  session user's `account_type`; the rank-sim refresh looks it up per RSN from `vs_users`).
+  Regular iron/hcim/uim already get iron EHB from WOM, so they're excluded. On a WOM boss
+  outage we fall back to WOM's EHB rather than zeroing the component.
 
 ## Where scoring runs
 

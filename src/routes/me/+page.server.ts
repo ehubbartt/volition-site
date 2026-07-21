@@ -72,7 +72,7 @@ export const actions: Actions = {
 			const manualGear = await getApprovedGearNames(locals.user.id);
 			const [config, inputs] = await Promise.all([
 				getRankConfig(),
-				fetchPlayerRankInputs(rsn, undefined, manualGear)
+				fetchPlayerRankInputs(rsn, undefined, manualGear, locals.user.account_type)
 			]);
 			const { rank } = scorePlayer(inputs, config);
 
