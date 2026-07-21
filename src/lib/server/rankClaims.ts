@@ -21,6 +21,7 @@ interface GearEntry {
 	tier: string;
 	points: number;
 	claimable?: boolean;
+	claimNote?: string;
 	items: GearCheck[];
 }
 
@@ -29,6 +30,9 @@ export interface ClaimableGearItem {
 	entry: string; // the gear-table set/entry it counts toward
 	tier: string;
 	points: number;
+	// Item-specific guidance shown in the claim modal when this item is selected
+	// (e.g. Oathplate: include your shard collection-log count as proof of crafting).
+	claimNote: string | null;
 }
 
 // Flatten the gear table into individual CHECK item names (OR-alternatives flattened,
@@ -45,7 +49,7 @@ function flattenGear(claimableOnly: boolean): ClaimableGearItem[] {
 				const key = n.toLowerCase();
 				if (seen.has(key)) continue;
 				seen.add(key);
-				out.push({ item: n, entry: entry.name, tier: entry.tier, points: entry.points });
+				out.push({ item: n, entry: entry.name, tier: entry.tier, points: entry.points, claimNote: entry.claimNote ?? null });
 			}
 		}
 	}
