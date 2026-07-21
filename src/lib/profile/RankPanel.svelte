@@ -79,7 +79,7 @@
 		points: number;
 		hours: number | null;
 		pointsPerHour: number | null;
-		easy: boolean;
+		fromBoss: boolean;
 		compositeGain: number;
 		fillsClog: boolean;
 		missing: string[];
@@ -355,7 +355,7 @@
 			<div class="rank-tools">
 				{#if adviceEndpoint && rank.nextRank}
 					<button type="button" class="tool-btn advise" onclick={toggleAdvice} disabled={adviceLoading}>
-						{#if adviceLoading}Thinking…{:else if adviceOn}Hide rank-up plan{:else}How do I rank up?{/if}
+						{#if adviceLoading}Charting…{:else if adviceOn}Hide rank-up route{:else}Suggest rank-up route{/if}
 					</button>
 				{/if}
 				<button type="button" class="tool-btn" onclick={() => (showAllRanks = true)}>All clan ranks</button>
@@ -419,7 +419,7 @@
 		{#if adviceOn && advice}
 				<div class="plan">
 					<div class="plan-head">
-						<h4>Your fastest path{advice.nextRank ? ` to ${rankLabel(advice.nextRank)}` : ''}</h4>
+						<h4>Your rank-up route{advice.nextRank ? ` to ${rankLabel(advice.nextRank)}` : ''}</h4>
 						{#if advice.nextRank}<span class="plan-gap muted">need +{pct1(advice.gap)} composite</span>{/if}
 					</div>
 					{#if advice.steps.length}
@@ -445,7 +445,7 @@
 						<p class="plan-sub">Best gear to chase <span class="muted">(easiest first)</span></p>
 						<div class="gear-targets">
 							{#each advice.gearTargets as t (t.entry)}
-								<div class="gtarget" class:easy={t.easy}>
+								<div class="gtarget" class:boss={t.fromBoss}>
 									<div class="gtarget-img">
 										{#if t.iconItem}
 											<img src={itemIconUrl(t.iconItem)} alt={t.entry} loading="lazy" referrerpolicy="no-referrer" use:retryImage />
@@ -454,7 +454,7 @@
 									<div class="gtarget-body">
 										<strong>{t.entry}</strong>
 										<span class="gtarget-meta muted">
-											{t.points} pts{#if t.hours != null} · {fmtHours(t.hours)}{#if t.pointsPerHour != null} · {t.pointsPerHour} pts/h{/if}{:else if t.easy} · <span class="quick">quick win</span>{:else} · no time estimate{/if}
+											{t.points} pts · <span class="src {t.fromBoss ? 'boss' : 'nonboss'}">{t.fromBoss ? 'boss' : 'non-boss'}</span>{#if t.hours != null} · {fmtHours(t.hours)}{#if t.pointsPerHour != null} · {t.pointsPerHour} pts/h{/if}{/if}
 										</span>
 									</div>
 								</div>
@@ -1181,12 +1181,20 @@
 	.gtarget-meta {
 		font-size: 0.68rem;
 	}
-	.gtarget.easy {
-		border-color: var(--success, #6aa84f);
+	.gtarget.boss {
+		border-color: var(--border-strong);
 	}
-	.gtarget-meta .quick {
-		color: var(--success, #6aa84f);
+	.gtarget-meta .src {
 		font-family: var(--font-heading);
+		text-transform: uppercase;
+		font-size: 0.6rem;
+		letter-spacing: 0.03em;
+	}
+	.gtarget-meta .src.boss {
+		color: var(--danger);
+	}
+	.gtarget-meta .src.nonboss {
+		color: var(--success, #6aa84f);
 	}
 	.plan-foot {
 		margin: 0.7rem 0 0;

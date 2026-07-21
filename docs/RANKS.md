@@ -65,14 +65,15 @@ detail.
 `src/lib/server/rankScoring/rankAdvice.ts` — `buildRankAdvice(inputs, config, overrides)`
 turns a member's cached inputs into actionable guidance toward their **next** rank:
 
-- Ranks every unearned gear entry **easiest-to-obtain first**. Real obtain-hours come only
-  from curated boss/raid math (`itemEhb.json` via `$lib/ehb` `bestEhbSource` + admin
-  `vs_ehb_overrides` item pins) and are shown with a points/hour figure. Temple's
-  `itemEhc.json` `ehc` is used ONLY as an *easiness* signal (a low value means a cheap,
-  common pickup), never as a displayed time — because `ehc` is an item's marginal share of
-  its category's completion, not a standalone grind (a Zenyte shard reads ~5 min). Cheap
-  non-boss items (EHC ≤ `EASY_ENTRY_EHC`) are flagged **`easy`** and surface as "quick
-  wins" with no number; rare/crafted items sort last as "no time estimate".
+- Ranks every unearned gear entry **easiest-to-obtain first**, tagging each as **boss** or
+  **non-boss** (`fromBoss` = any still-missing piece is a curated `itemEhb.json` drop).
+  Boss/raid items get a real obtain-time + points/hour from the curated drop-rate math
+  (`$lib/ehb` `bestEhbSource` + admin `vs_ehb_overrides` item pins). Non-boss items show no
+  time — Temple's `itemEhc.json` `ehc` is used ONLY as an *easiness* ordering signal (a low
+  value means a cheap, common pickup), never as a displayed number, because `ehc` is an
+  item's marginal share of its category's completion, not a standalone grind (a Zenyte shard
+  reads ~5 min). Cheap non-boss items (EHC ≤ `EASY_ENTRY_EHC`) sort into the easy band;
+  rare/crafted items sort last.
 - For every composite component it computes a realistic **potential** (reachable fill) and
   the composite gain that unlocks — gear (top targets' points), EHB (bossing those drops
   adds hours), collection log (trackable gear fills slots), CAs (`nextCaTier` in
