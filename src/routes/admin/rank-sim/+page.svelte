@@ -236,12 +236,13 @@
 			<p class="muted small">
 				{comparison.compared} of {comparison.rosterSize} members compared · {comparison.noTemple}
 				excluded (no Temple data) · {comparison.notCached} not in the cache yet ·
-				{comparison.unmappedRole} with staff/unmapped WOM roles.
+				{comparison.estimatedBaseline} with staff/special WOM roles included via an EHB-estimated
+				current rank.
 				<code>players.rank</code> already matches the projection for
 				{comparison.storedMatches}/{comparison.storedCompared}.
 			</p>
 
-			<strong class="mt">Ranks in game right now (WOM)</strong>
+			<strong class="mt">Current ranks <span class="hint">(in game; staff/special estimated from EHB)</span></strong>
 			<div class="rank-hist">
 				{#each comparison.dist as d (d.rank)}
 					<div class="rcol" title={`${d.label}: ${d.inGame} in game · ${d.projected} projected`}>
@@ -305,9 +306,13 @@
 						{#each comparedRows as p (p.rsn)}
 							<tr>
 								<td>{p.rsn}</td>
-								<td>
-									{#if p.womRank}<span style="color:{rankColor(p.womRank)}">{p.womRank}</span>
-									{:else}<span class="muted">{p.womRole ?? '—'}</span>{/if}
+								<td
+									title={p.estimated
+										? `No mapped in-game rank (WOM role: ${p.womRole ?? '—'}) — estimated from EHB via the legacy ladder`
+										: ''}
+								>
+									{#if p.womRank}<span style="color:{rankColor(p.womRank)}">{p.womRank}</span>{/if}
+									{#if p.estimated}<span class="est-tag">est</span>{/if}
 								</td>
 								<td><span style="color:{rankColor(p.projected)}">{p.projected}</span></td>
 								<td class:up={p.delta != null && p.delta > 0} class:down={p.delta != null && p.delta < 0}>
@@ -837,5 +842,21 @@
 	}
 	.skip-toggle input {
 		cursor: pointer;
+	}
+	.hint {
+		font-weight: 400;
+		font-size: 0.78rem;
+		color: var(--muted);
+	}
+	.est-tag {
+		margin-left: 0.25rem;
+		font-size: 0.6rem;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: var(--muted);
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		padding: 0 0.2rem;
+		vertical-align: middle;
 	}
 </style>

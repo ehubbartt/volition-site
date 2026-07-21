@@ -57,6 +57,12 @@ detail.
   time over the whole WOM roster; **"Skip players who already have Temple data"** (on by
   default, `onlyMissing`) drops members whose cached row is already Temple-complete so a
   top-up only fetches new members / prior Temple outages — uncheck for a full re-fetch.
+  The **live comparison** measures each member's projected rank against their current
+  in-game rank (their WOM group role). Members whose WOM role doesn't map to a clan rank
+  (staff/mod/special titles) are **included** with a baseline estimated from the clan's
+  legacy EHB ladder (`ehbRank` / `EHB_RANK_THRESHOLDS` in `$lib/ranks`, mirroring the bot's
+  `config/ranks.json` `ehbMin`), flagged `est`, so only no-Temple / not-cached members are
+  left out.
 - **Display**: `src/lib/server/meData.ts` `loadRankBreakdown` re-scores the cached row
   with the current config; `src/lib/profile/RankPanel.svelte` renders it (per-component
   ⓘ explainers; zero-score setup tips on /me via `showSetupTips`). The panel also shows
