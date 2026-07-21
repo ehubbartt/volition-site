@@ -87,13 +87,18 @@ assumption. The **Enhanced crystal weapon seed** is split into two independent e
 seed scores on its own: we assume the first seed becomes the bow and the second the blade,
 and each note says so. (One seed → bow points; two seeds → bow + blade.)
 
-The same split gives **Tormented synapse** incremental credit. Instead of one
-`quantity: 3` entry that pays nothing until all three are owned, it's three independent
-`quantity: 1 / 2 / 3` entries of 200 pts each (600 total, unchanged) — so each synapse
-earns 200 as it drops. We don't map them to specific end products, so the notes just say
-each synapse counts on its own. This "split into per-count entries" trick is the general
-way to turn an all-or-nothing quantity check into partial credit without changing the
-scoring engine.
+The same split gives **Tormented synapse** and **Zenyte shard** incremental credit.
+Instead of one `quantity: N` entry that pays nothing until all N are owned, each is a set
+of independent `quantity: 1 … N` entries whose points sum to the original — so each
+drop earns its share (Tormented synapse: 3 × 200 = 600; Zenyte shard: 4 × 200 = 800).
+We don't map them to specific end products, so the notes just say each counts on its own.
+This "split into per-count entries" trick is the general way to turn an all-or-nothing
+quantity check into partial credit without changing the scoring engine.
+
+The **Ahrim/Blue moon robes** use the same idea for a multi-slot set: instead of one
+all-or-nothing entry needing helm + top + legs, it's three independent per-slot entries
+(34 / 33 / 33 = 100, unchanged), each accepting either brand for that slot
+(`["Ahrim's hood", "Blue moon helm"]`, …) — so each robe piece earns on its own.
 
 Every gear-grid tile opens the shared `ItemInfoModal` (tier, points, status, tracking
 source, wiki link). Entries flagged `claimable: true` are untrackable by the clog: their
