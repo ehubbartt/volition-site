@@ -1,5 +1,5 @@
 {
-  "GEAR_SCORE_CAP": 25950,
+  "GEAR_SCORE_CAP": 26100,
   "gear": [
     {
       "name": "Neitiznot Faceguard",
@@ -700,14 +700,22 @@
       "items": [{ "name": "Venator shard", "quantity": 5 }]
     },
     {
-      "name": "Full Virtus",
+      "name": "Virtus Mask",
       "tier": "side",
-      "points": 300,
-      "items": [
-        { "name": "Virtus robe top" },
-        { "name": "Virtus mask" },
-        { "name": "Virtus robe bottom" }
-      ]
+      "points": 150,
+      "items": [{ "name": "Virtus mask" }]
+    },
+    {
+      "name": "Virtus Robe Top",
+      "tier": "side",
+      "points": 150,
+      "items": [{ "name": "Virtus robe top" }]
+    },
+    {
+      "name": "Virtus Robe Bottom",
+      "tier": "side",
+      "points": 150,
+      "items": [{ "name": "Virtus robe bottom" }]
     },
     {
       "name": "Ancient Wyvern Shield",
