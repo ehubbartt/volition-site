@@ -159,7 +159,7 @@
       "name": "Primordial Boots",
       "tier": "middle",
       "points": 200,
-      "icon": "Primordial Boots",
+      "icon": "Primordial boots",
       "items": [{ "name": "Dragon boots" }, { "name": "Primordial crystal" }]
     },
     {
@@ -465,7 +465,7 @@
       "name": "Torva Full Helm",
       "tier": "end",
       "points": 300,
-      "icon": "Torva Full Helm",
+      "icon": "Torva full helm",
       "items": [{ "name": "Torva full helm (damaged)" }]
     },
     {
@@ -486,7 +486,7 @@
       "name": "Amulet of Rancour",
       "tier": "end",
       "points": 300,
-      "icon": "Amulet of Rancour",
+      "icon": "Amulet of rancour",
       "items": [{ "name": "Araxyte fang" }]
     },
     {
