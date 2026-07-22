@@ -1,5 +1,5 @@
 {
-  "GEAR_SCORE_CAP": 26100,
+  "GEAR_SCORE_CAP": 26300,
   "gear": [
     {
       "name": "Neitiznot Faceguard",
@@ -490,6 +490,13 @@
       "items": [{ "name": "Araxyte fang" }]
     },
     {
+      "name": "Necklace of Rupture",
+      "tier": "end",
+      "points": 300,
+      "icon": "Necklace of rupture",
+      "items": [{ "name": "Elder venator fang" }]
+    },
+    {
       "name": "Ultor Ring",
       "tier": "end",
       "points": 300,
@@ -722,6 +729,12 @@
       "tier": "side",
       "points": 150,
       "items": [{ "name": "Virtus robe bottom" }]
+    },
+    {
+      "name": "Crimson Kisten",
+      "tier": "side",
+      "points": 150,
+      "items": [{ "name": "Crimson kisten" }]
     },
     {
       "name": "Ancient Wyvern Shield",
