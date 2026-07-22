@@ -1,5 +1,5 @@
 {
-  "GEAR_SCORE_CAP": 26000,
+  "GEAR_SCORE_CAP": 26100,
   "gear": [
     {
       "name": "Neitiznot Faceguard",
@@ -14,6 +14,13 @@
       "points": 100,
       "icon": "Belle's folly",
       "items": [{ "name": "Belle's folly (tarnished)" }]
+    },
+    {
+      "name": "Trident of the Swamp",
+      "tier": "low",
+      "points": 100,
+      "icon": "Trident of the swamp",
+      "items": [{ "name": "Magic fang" }]
     },
     {
       "name": "Full Bloodmoon",
