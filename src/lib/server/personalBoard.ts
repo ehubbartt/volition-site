@@ -37,6 +37,10 @@ const ITEM_EHB = itemEhbData as ItemEhb[];
 // astronomically rare clue uniques nobody can realistically target for a bingo tile.
 // (Substring match, not prefix — catches "Ring of 3rd age".)
 const COSMETIC_EXCLUDE = /3rd age|gilded/i;
+// Boss jars (Jar of dirt, Jar of chemicals, …) — long, luck-based grinds some players
+// would rather not see on a board. OPT-IN exclusion via the "No jars" toggle (unlike the
+// always-on cosmetic line above). Word-boundary match so only actual jars are caught.
+const JAR_EXCLUDE = /\bjar\b/i;
 // Non-boss clog items (Temple EHC) — the "include full collection log" pool. Empty
 // until the maintainer runs db/scripts/build_item_ehc.mjs (the toggle is then a no-op).
 const ITEM_EHC = (itemEhcData as ItemEhc[]).filter(
@@ -519,13 +523,15 @@ function missingCandidates(
 	includeOwned = false,
 	includeClogItems = false,
 	groupClues = false,
-	difficulty = 5
+	difficulty = 5,
+	excludeJars = false
 ): Candidate[] {
 	const out: Candidate[] = [];
 	for (const item of ITEM_EHB) {
 		const has = owned.has(item.name.toLowerCase());
 		if (has && !includeOwned) continue; // already have it
 		if (!includePets && isPetItem(item.name)) continue; // pets filtered out
+		if (excludeJars && JAR_EXCLUDE.test(item.name)) continue; // "No jars" toggle
 		if (excludedIds?.has(item.id)) continue; // admin-excluded from the pool
 		const best = bestEhbSource(item, undefined, overrides);
 		if (!best) continue; // no computable EHB source
@@ -552,6 +558,7 @@ function missingCandidates(
 			}
 			if (has && !includeOwned) continue;
 			if (!includePets && (item.pet || isPetItem(item.name) || EHC_PET_NAMES.has(item.name.toLowerCase()))) continue;
+			if (excludeJars && JAR_EXCLUDE.test(item.name)) continue; // "No jars" toggle
 			if (excludedIds?.has(item.id)) continue;
 			const ehb = overrides?.itemEhb[item.id] ?? item.ehc;
 			if (!(ehb > 0)) continue;
@@ -766,6 +773,8 @@ export interface GenerateOptions {
 	includeClogItems?: boolean;
 	// Group clue uniques into per-tier "gain N new uniques" tiles (needs includeClogItems).
 	groupClueItems?: boolean;
+	// Exclude boss jars (Jar of dirt, …) from the item pool.
+	excludeJars?: boolean;
 	keepLineKey?: string | null;
 }
 
@@ -785,6 +794,7 @@ export async function generatePersonalBoard(
 		includeOwned = false,
 		includeClogItems = false,
 		groupClueItems = false,
+		excludeJars = false,
 		keepLineKey = null
 	} = opts;
 	if (!rsn) return { ok: false, reason: 'no_rsn' };
@@ -923,7 +933,8 @@ export async function generatePersonalBoard(
 		includeOwned,
 		includeClogItems,
 		groupClueItems,
-		diff
+		diff,
+		excludeJars
 	).filter((c) => !keptItemIds.has(c.item_id));
 
 	const floor = minTileEhb(diff);

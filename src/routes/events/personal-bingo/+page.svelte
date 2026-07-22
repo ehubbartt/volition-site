@@ -154,6 +154,7 @@
   let pets = $state(true); // pets are included by default; unchecking filters pet drops out
   let skip99 = $state(false); // skilling sub-option: skip skills already at level 99
   let includeOwned = $state(false); // allow already-owned clog items (as drop-again loot tiles)
+  let noJars = $state(false); // exclude boss jars (Jar of dirt, …) from the item pool
   // Keep-line reroll: on a DRAFT board, one row/column can be held ('r2' / 'c0') so a
   // reroll only refills the other tiles. Cleared automatically if the size or
   // difficulty changes (a kept line can't survive a different grid, and easy tiles
@@ -497,6 +498,14 @@
               <InfoTip
                 label="How pets are tracked"
                 tip="Allows pet drops as tiles. Tracked like other items — your TempleOSRS collection log + Dink."
+              />
+            </label>
+            <label class="toggle">
+              <input type="checkbox" name="no_jars" bind:checked={noJars} />
+              <span>No jars</span>
+              <InfoTip
+                label="What this excludes"
+                tip="Leaves boss jars (Jar of dirt, Jar of chemicals, …) out of the item pool — handy if you'd rather not chase those long luck-based drops."
               />
             </label>
             <!-- HIDDEN for launch: owned items must drop again to credit, but a handful of
