@@ -240,6 +240,10 @@
 				current rank.
 				<code>players.rank</code> already matches the projection for
 				{comparison.storedMatches}/{comparison.storedCompared}.
+				{#if !comparison.rosterAvailable}
+					<br /><em>WOM roster unavailable right now — comparing cached players only (coverage
+					counts approximate).</em>
+				{/if}
 			</p>
 
 			<strong class="mt">Current ranks <span class="hint">(in game; staff/special estimated from EHB)</span></strong>
