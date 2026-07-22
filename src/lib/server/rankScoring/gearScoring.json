@@ -1,12 +1,19 @@
 {
-  "GEAR_SCORE_CAP": 26300,
+  "GEAR_SCORE_CAP": 26000,
   "gear": [
     {
       "name": "Neitiznot Faceguard",
-      "tier": "low",
-      "points": 100,
+      "tier": "middle",
+      "points": 200,
       "icon": "Neitiznot faceguard",
       "items": [{ "name": "Basilisk jaw" }]
+    },
+    {
+      "name": "Belle's Folly",
+      "tier": "low",
+      "points": 100,
+      "icon": "Belle's folly",
+      "items": [{ "name": "Belle's folly (tarnished)" }]
     },
     {
       "name": "Full Bloodmoon",
@@ -346,20 +353,14 @@
     },
     {
       "name": "Sanguinesti Staff",
-      "tier": "middle",
-      "points": 200,
+      "tier": "side",
+      "points": 150,
       "items": [{ "name": "Sanguinesti staff (uncharged)" }]
     },
     {
-      "name": "Staff of the Dead",
-      "tier": "middle",
-      "points": 200,
-      "items": [{ "name": "Staff of the dead" }]
-    },
-    {
       "name": "Dragon Hunter Wand",
-      "tier": "middle",
-      "points": 200,
+      "tier": "side",
+      "points": 150,
       "items": [{ "name": "Dragon hunter wand" }]
     },
     {
@@ -441,9 +442,10 @@
       "items": [{ "name": "Eye of ayak (uncharged)" }]
     },
     {
-      "name": "Doom Cloth",
-      "tier": "middle",
-      "points": 200,
+      "name": "Confliction Gauntlets",
+      "tier": "end",
+      "points": 300,
+      "icon": "Confliction gauntlets",
       "items": [{ "name": "Mokhaiotl cloth" }]
     },
     {
@@ -591,20 +593,20 @@
     },
     {
       "name": "Justiciar Faceguard",
-      "tier": "end",
-      "points": 300,
+      "tier": "side",
+      "points": 150,
       "items": [{ "name": "Justiciar faceguard" }]
     },
     {
       "name": "Justiciar Chestguard",
-      "tier": "end",
-      "points": 300,
+      "tier": "side",
+      "points": 150,
       "items": [{ "name": "Justiciar chestguard" }]
     },
     {
       "name": "Justiciar Legguards",
-      "tier": "end",
-      "points": 300,
+      "tier": "side",
+      "points": 150,
       "items": [{ "name": "Justiciar legguards" }]
     },
     {
@@ -715,19 +717,19 @@
     {
       "name": "Virtus Mask",
       "tier": "side",
-      "points": 150,
+      "points": 200,
       "items": [{ "name": "Virtus mask" }]
     },
     {
       "name": "Virtus Robe Top",
       "tier": "side",
-      "points": 150,
+      "points": 200,
       "items": [{ "name": "Virtus robe top" }]
     },
     {
       "name": "Virtus Robe Bottom",
       "tier": "side",
-      "points": 150,
+      "points": 200,
       "items": [{ "name": "Virtus robe bottom" }]
     },
     {
