@@ -62,7 +62,11 @@ detail.
   (staff/mod/special titles) are **included** with a baseline estimated from the clan's
   legacy EHB ladder (`ehbRank` / `EHB_RANK_THRESHOLDS` in `$lib/ranks`, mirroring the bot's
   `config/ranks.json` `ehbMin`), flagged `est`, so only no-Temple / not-cached members are
-  left out.
+  left out. The comparison reads the member's WOM role from the cached
+  **`vs_rank_sim.wom_role`** column (populated on refresh; SQL in
+  `db/scripts/rank_sim_wom_role.sql`), so it needs **no live WOM call** — a WOM rate-limit no
+  longer blocks it (the roster is fetched only for the roster-size / not-cached coverage
+  counts, and the comparison degrades gracefully when it's unavailable).
 - **Display**: `src/lib/server/meData.ts` `loadRankBreakdown` re-scores the cached row
   with the current config; `src/lib/profile/RankPanel.svelte` renders it (per-component
   ⓘ explainers; zero-score setup tips on /me via `showSetupTips`). The panel also shows
