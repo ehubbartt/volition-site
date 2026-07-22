@@ -20,8 +20,6 @@ import { calculateGearPoints, calculateCAPoints } from '$lib/server/rankScoring'
 import { usesIronmanEhb, computeIronmanEhb } from '$lib/server/rankScoring/ehb';
 import { getApprovedGearNamesByRsn } from '$lib/server/rankClaims';
 import { setPlayerRank } from '$lib/server/playerStats';
-import { checkAndSaveRank } from '$lib/server/rankCheck';
-import { rsnExactPattern } from '$lib/server/users';
 import { microCached } from '$lib/server/microCache';
 import { RANK_ORDER, RANK_LABEL, rankIndex, toRankValue, ehbRank, type RankValue } from '$lib/ranks';
 import type { Actions, PageServerLoad } from './$types';
@@ -445,60 +443,6 @@ export const actions: Actions = {
 			// How many of this pass's pending members are still unfetched — >0 tells
 			// the page to auto-submit the next batch (0 without `since`: single-batch).
 			remaining: since ? Math.max(0, pending.length - processed) : 0
-		};
-	},
-
-	// Re-check ONE member's rank on demand: fetch their live data, cache the breakdown, and
-	// (when both stats sources responded) persist players.rank — the same path as a member's
-	// own /me "Check my rank", run by an admin for any registered member by RSN. For a quick
-	// single refresh without sweeping the whole roster.
-	recheck: async ({ locals, request }) => {
-		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
-
-		const rsnInput = ((await request.formData()).get('rsn') ?? '').toString().trim();
-		if (!rsnInput) return fail(400, { recheckError: 'Enter an RSN to re-check.' });
-
-		// Resolve the member from the site users table (case/underscore-insensitive) so we
-		// can fold in their approved gear claims and write to the right player record.
-		const { data: users, error: userErr } = await db()
-			.from('vs_users')
-			.select('id, rsn, discord_id, account_type')
-			.ilike('rsn', rsnExactPattern(rsnInput))
-			.limit(2);
-		if (userErr) return fail(500, { recheckError: `Lookup failed: ${userErr.message}` });
-		if (!users || users.length === 0) {
-			return fail(404, {
-				recheckError: `No site member with RSN "${rsnInput}". They must have logged in and set this RSN on their profile. (Use Refresh for roster-only members.)`
-			});
-		}
-		if (users.length > 1) {
-			return fail(409, { recheckError: `More than one member matches "${rsnInput}" — resolve the duplicate first.` });
-		}
-		const u = users[0] as { id: string; rsn: string; discord_id: string | null; account_type: string | null };
-
-		const result = await checkAndSaveRank({
-			userId: u.id,
-			rsn: u.rsn,
-			discordId: u.discord_id,
-			accountType: u.account_type
-		});
-		if (!result.ok) return fail(502, { recheckError: result.error });
-
-		const o = result.outcome;
-		return {
-			recheckOk: true,
-			recheckRsn: u.rsn,
-			recheckRank: o.rank,
-			recheckSaved: o.saved,
-			recheckPrevRank: o.prevRank,
-			recheckRankedUp: o.rankedUp,
-			recheckNote: o.skippedSave
-				? 'Computed from partial data — Temple or WikiSync was unavailable, so players.rank was NOT changed (avoids a wrong demotion). Try again shortly.'
-				: o.saved
-					? null
-					: o.saveReason === 'no_player'
-						? 'Breakdown cached, but no clan player record was found to save the rank to.'
-						: 'Breakdown cached, but writing players.rank failed — try again.'
 		};
 	},
 

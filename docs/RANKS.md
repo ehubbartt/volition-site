@@ -57,11 +57,12 @@ detail.
   when both stats sources responded. `/me`'s `checkRank` (with its per-user cooldown + rank-up
   celebration) and the admin **"Re-check one player"** both call it, so the two paths score,
   cache, and save identically.
-- **`/admin/rank-sim` "Re-check one player"** (`recheck` action): an admin runs the same
-  single-player live check for any registered member by RSN (resolved from `vs_users`, so it
-  folds in their approved gear claims and writes the right `players.rank`) — an on-demand
-  refresh without sweeping the whole roster. Roster-only members not on the site aren't
-  eligible; use the bulk **Refresh** for those.
+- **Admin "Re-check rank" on `/u/[rsn]`** (`recheck` action): an admin viewing any member's
+  profile gets a button (shown when `data.canRecheck`, i.e. `isAdmin`) that runs the same
+  single-player live check for that member — resolved from `vs_users`, so it folds in their
+  approved gear claims and writes the right `players.rank`. The page load re-runs afterward,
+  so the rank panel reflects the fresh result. An on-demand refresh without sweeping the whole
+  roster via `/admin/rank-sim`.
 - **`/admin/rank-sim`**: bulk refresh into `vs_rank_sim` (batched, WOM-rate-limited),
   instant re-scoring while tuning, threshold suggestion, bulk apply to `players.rank`,
   and the live comparison vs in-game WOM roles. The refresh auto-chains one batch at a

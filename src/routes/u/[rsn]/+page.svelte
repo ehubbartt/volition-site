@@ -1,9 +1,11 @@
 <script lang="ts">
-	import type { PageData } from './$types';
+	import type { PageData, ActionData } from './$types';
+	import { enhance } from '$app/forms';
 	import CardInspector3D from '$lib/cards/CardInspector3D.svelte';
 	import type { UserCard } from '$lib/cards/rarity';
 	import { CLAN_LABEL } from '$lib/clans';
 	import type { ClanValue } from '$lib/clans';
+	import { rankColor } from '$lib/ranks';
 	import WalletList from '$lib/WalletList.svelte';
 	import ProfileBanner from '$lib/profile/ProfileBanner.svelte';
 	import ProfileTabs from '$lib/profile/ProfileTabs.svelte';
@@ -13,10 +15,12 @@
 	import StatsPanel from '$lib/profile/StatsPanel.svelte';
 	import EmptyState from '$lib/profile/EmptyState.svelte';
 
-	let { data }: { data: PageData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	type Tab = 'rank' | 'collection' | 'stats' | 'wallet';
 	let tab = $state<Tab>('rank');
+
+	let rechecking = $state(false);
 
 	// Collection card the viewer modal is showing (null = closed).
 	let viewing = $state<UserCard | null>(null);
@@ -59,6 +63,34 @@
 
 	{#if tab === 'rank'}
 		<ProfilePanel>
+			{#if data.canRecheck}
+				<div class="admin-recheck">
+					<form
+						method="POST"
+						action="?/recheck"
+						use:enhance={() => {
+							rechecking = true;
+							return async ({ update }) => {
+								await update({ reset: false });
+								rechecking = false;
+							};
+						}}
+					>
+						<button class="btn" type="submit" disabled={rechecking}>
+							{rechecking ? 'Re-checking…' : 'Re-check rank'}
+						</button>
+					</form>
+					{#if form && 'recheckOk' in form && form.recheckOk}
+						<span class="recheck-msg ok">
+							Updated: <strong style="color:{rankColor(form.recheckRank)}">{form.recheckRank}</strong>
+							{#if form.recheckRankedUp && form.recheckPrevRank}(up from {form.recheckPrevRank}){/if}
+							{#if !form.recheckSaved && form.recheckNote}— {form.recheckNote}{/if}
+						</span>
+					{:else if form && 'recheckError' in form && form.recheckError}
+						<span class="recheck-msg err">{form.recheckError}</span>
+					{/if}
+				</div>
+			{/if}
 			<RankPanel
 				rank={data.rankBreakdown}
 				currentRank={data.currentRank}
@@ -116,5 +148,22 @@
 
 	.muted {
 		color: var(--muted);
+	}
+
+	.admin-recheck {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.6rem;
+		margin-bottom: 0.9rem;
+	}
+	.recheck-msg {
+		font-size: 0.85rem;
+	}
+	.recheck-msg.ok {
+		color: var(--success, #6aa84f);
+	}
+	.recheck-msg.err {
+		color: var(--danger);
 	}
 </style>
