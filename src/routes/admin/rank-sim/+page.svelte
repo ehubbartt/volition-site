@@ -38,6 +38,8 @@
 	// Live comparison (new-system projection vs in-game WOM roles).
 	let comparing = $state(false);
 	let showAllCompared = $state(false);
+
+	let rechecking = $state(false);
 	let comparison = $derived(
 		form && 'comparison' in form && form.comparison ? form.comparison : null
 	);
@@ -190,6 +192,57 @@
 					<input type="checkbox" bind:checked={skipTracked} disabled={refreshing} />
 					<span>Skip players who already have Temple data</span>
 				</label>
+			</form>
+		</div>
+	</div>
+
+	<!-- Re-check one player -------------------------------------------------- -->
+	<div class="card">
+		<div class="row between">
+			<div>
+				<strong>Re-check one player</strong>
+				<p class="muted small">
+					Runs a live rank check for a single member — same as their own
+					<em>Check my rank</em> — and saves the result to their clan rank. Use it when
+					someone needs an immediate refresh without sweeping the whole roster.
+				</p>
+				{#if form && 'recheckOk' in form && form.recheckOk}
+					<p class="ok small">
+						{form.recheckRsn}:
+						<strong style="color:{rankColor(form.recheckRank)}">{form.recheckRank}</strong>
+						{#if form.recheckRankedUp && form.recheckPrevRank}
+							— ranked up from <span style="color:{rankColor(form.recheckPrevRank)}">{form.recheckPrevRank}</span>
+						{/if}
+						{#if form.recheckSaved}· saved to clan rank{/if}
+						{#if form.recheckNote}<br /><span class="muted">{form.recheckNote}</span>{/if}
+					</p>
+				{:else if form && 'recheckError' in form && form.recheckError}
+					<p class="err small">{form.recheckError}</p>
+				{/if}
+			</div>
+			<form
+				method="POST"
+				action="?/recheck"
+				use:enhance={() => {
+					rechecking = true;
+					return async ({ update }) => {
+						await update({ reset: false });
+						rechecking = false;
+					};
+				}}
+			>
+				<input
+					class="rsn-input"
+					type="text"
+					name="rsn"
+					placeholder="RSN"
+					autocomplete="off"
+					maxlength="12"
+					disabled={rechecking}
+				/>
+				<button class="btn primary" type="submit" disabled={rechecking}>
+					{rechecking ? 'Checking…' : 'Re-check'}
+				</button>
 			</form>
 		</div>
 	</div>
@@ -682,6 +735,10 @@
 	}
 	input {
 		width: 100%;
+	}
+	.rsn-input {
+		width: 9rem;
+		margin-right: 0.4rem;
 	}
 	/* .btn uses the base OSRS bronze button (app.css); variants just retint text. */
 	.btn.primary {
