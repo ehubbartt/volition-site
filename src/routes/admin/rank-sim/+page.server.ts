@@ -69,11 +69,22 @@ async function getRosterCached() {
 	}).catch(() => null);
 }
 
+const SIM_COLS_BASE =
+	'rsn, wom_id, ehb, total_level, gear_points, clog_finished, clog_available, months_in_clan, ca_points, temple_available, wikisync_available, ca_tier, fetched_at';
+
 async function readSimRows(): Promise<SimRow[]> {
-	return selectAll<SimRow>(
-		'vs_rank_sim',
-		'rsn, wom_id, ehb, total_level, gear_points, clog_finished, clog_available, months_in_clan, ca_points, temple_available, wikisync_available, ca_tier, wom_role, fetched_at'
-	);
+	try {
+		return await selectAll<SimRow>('vs_rank_sim', `${SIM_COLS_BASE}, wom_role`);
+	} catch (e) {
+		// Tolerate the wom_role column not being applied yet (db/scripts/rank_sim_wom_role.sql):
+		// load without it so the page still works — roles read as null (→ EHB-estimated in the
+		// comparison) until the SQL is run and a refresh repopulates them.
+		if (e instanceof Error && e.message.includes('wom_role')) {
+			const rows = await selectAll<Omit<SimRow, 'wom_role'>>('vs_rank_sim', SIM_COLS_BASE);
+			return rows.map((r) => ({ ...r, wom_role: null }));
+		}
+		throw e;
+	}
 }
 
 // Map lowercase rsn → the player's CURRENT stored rank (players.rank), for the
