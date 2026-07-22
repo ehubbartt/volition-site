@@ -264,15 +264,51 @@ export function calculateCAPoints(completedTaskIds: number[] | null | undefined)
 	return { caPoints, tasksCompleted, wikiPoints, highestTier };
 }
 
+// The next combat-achievement TIER a player can bank, given their current wiki-point
+// total — the reward it grants (the CA rank component only moves on whole-tier rewards)
+// and how many more CA points they need to reach it. Null when every tier is banked.
+// Used by the rank advisor to quantify "finish the next CA tier".
+export function nextCaTier(wikiPoints: number): { tier: string; reward: number; pointsNeeded: number } | null {
+	for (const tier of CA_TIER_ORDER) {
+		const threshold = CA.tiers[tier]?.cumulativeForReward;
+		if (threshold == null) continue;
+		if (wikiPoints < threshold) {
+			return {
+				tier,
+				reward: CA.tierCompletionRewards[tier] ?? 0,
+				pointsNeeded: Math.max(0, Math.ceil(threshold - wikiPoints))
+			};
+		}
+	}
+	return null;
+}
+
 // --- Normalizations (all clamped 0..1), caps from RankScoringConfig ----------
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+// Normalize a raw value against a cap with a diminishing-returns exponent. exponent = 1
+// is linear (raw/cap); exponent < 1 (e.g. 0.5 = sqrt) front-loads the reward so early
+// progress moves the score most while the cap still tops out at 1.
+export function curveNorm(raw: number, cap: number, exponent = 1): number {
+	if (cap <= 0) return 0;
+	const base = clamp01(raw / cap);
+	return exponent === 1 ? base : Math.pow(base, exponent);
+}
+
+// The gear points at which the gear component maxes: the configured cap, or the gear
+// table's full point sum when the cap is unset (0) — today's behaviour.
+export function effectiveGearCap(config: RankScoringConfig): number {
+	return config.caps.gear && config.caps.gear > 0 ? config.caps.gear : GEAR_SCORE_CAP;
+}
 
 export function computeScores(inputs: RankInputs, config: RankScoringConfig): ScoreBreakdown {
 	const caps = config.caps;
 	const w = config.weights;
+	const curves = config.curves ?? { gear: 1, ehb: 1 };
 
-	const gear = GEAR_SCORE_CAP > 0 ? clamp01(inputs.gearPoints / GEAR_SCORE_CAP) : 0;
-	const ehb = inputs.ehb > 0 && caps.ehb > 0 ? clamp01(inputs.ehb / caps.ehb) : 0;
+	const gearCap = effectiveGearCap(config);
+	const gear = gearCap > 0 ? curveNorm(inputs.gearPoints, gearCap, curves.gear) : 0;
+	const ehb = inputs.ehb > 0 && caps.ehb > 0 ? curveNorm(inputs.ehb, caps.ehb, curves.ehb) : 0;
 	const ca = inputs.caPoints > 0 && CA_MAX_POINTS > 0 ? clamp01(inputs.caPoints / CA_MAX_POINTS) : 0;
 	const time = caps.months > 0 ? clamp01(inputs.monthsInClan / caps.months) : 0;
 	const clog =

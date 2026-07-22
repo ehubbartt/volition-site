@@ -71,6 +71,34 @@ export const RANK_IMG: Record<RankValue, string | null> = {
 	tzkal: '/ranks/TzKal.webp'
 };
 
+// The clan's LEGACY EHB-only rank ladder (pre-composite system) — mirrors the bot's
+// config/ranks.json `ehbMin` values. Kept as a fallback "current rank" for members whose
+// WOM group role doesn't map to a clan rank (staff/mod/special titles): the rank-sim
+// comparison estimates where the old EHB system would place them so they can still be
+// included instead of dropped. Keep in sync with the bot's ranks.json if it changes.
+export const EHB_RANK_THRESHOLDS: { ehbMin: number; rank: RankValue }[] = [
+	{ ehbMin: 0, rank: 'bronze' },
+	{ ehbMin: 150, rank: 'iron' },
+	{ ehbMin: 300, rank: 'steel' },
+	{ ehbMin: 450, rank: 'gold' },
+	{ ehbMin: 600, rank: 'mithril' },
+	{ ehbMin: 750, rank: 'adamant' },
+	{ ehbMin: 1000, rank: 'rune' },
+	{ ehbMin: 1250, rank: 'dragon' },
+	{ ehbMin: 1500, rank: 'sage' },
+	{ ehbMin: 1750, rank: 'legend' },
+	{ ehbMin: 2000, rank: 'myth' },
+	{ ehbMin: 2500, rank: 'tztok' },
+	{ ehbMin: 3000, rank: 'tzkal' }
+];
+
+// The legacy EHB rank for a given EHB: the highest ladder rung whose ehbMin it clears.
+export function ehbRank(ehb: number): RankValue {
+	let out: RankValue = 'bronze';
+	for (const t of EHB_RANK_THRESHOLDS) if (ehb >= t.ehbMin) out = t.rank;
+	return out;
+}
+
 const UNRANKED_COLOR = '#9aa0a6';
 
 // Coerce an arbitrary wom-role string to a known RankValue (lowercased) or null.

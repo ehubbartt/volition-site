@@ -21,7 +21,7 @@ import { usesIronmanEhb, computeIronmanEhb } from '$lib/server/rankScoring/ehb';
 import { getApprovedGearNamesByRsn } from '$lib/server/rankClaims';
 import { setPlayerRank } from '$lib/server/playerStats';
 import { microCached } from '$lib/server/microCache';
-import { RANK_ORDER, RANK_LABEL, rankIndex, toRankValue, type RankValue } from '$lib/ranks';
+import { RANK_ORDER, RANK_LABEL, rankIndex, toRankValue, ehbRank, type RankValue } from '$lib/ranks';
 import type { Actions, PageServerLoad } from './$types';
 
 // Admin rank-distribution simulator. Mirrors voli-disc-bot/scripts/simulateRanks.js as
@@ -53,6 +53,7 @@ interface SimRow {
 	temple_available: boolean;
 	wikisync_available: boolean;
 	ca_tier: string;
+	wom_role: string | null; // cached WOM group role, so the comparison needs no live WOM call
 	fetched_at: string | null;
 }
 
@@ -68,11 +69,22 @@ async function getRosterCached() {
 	}).catch(() => null);
 }
 
+const SIM_COLS_BASE =
+	'rsn, wom_id, ehb, total_level, gear_points, clog_finished, clog_available, months_in_clan, ca_points, temple_available, wikisync_available, ca_tier, fetched_at';
+
 async function readSimRows(): Promise<SimRow[]> {
-	return selectAll<SimRow>(
-		'vs_rank_sim',
-		'rsn, wom_id, ehb, total_level, gear_points, clog_finished, clog_available, months_in_clan, ca_points, temple_available, wikisync_available, ca_tier, fetched_at'
-	);
+	try {
+		return await selectAll<SimRow>('vs_rank_sim', `${SIM_COLS_BASE}, wom_role`);
+	} catch (e) {
+		// Tolerate the wom_role column not being applied yet (db/scripts/rank_sim_wom_role.sql):
+		// load without it so the page still works — roles read as null (→ EHB-estimated in the
+		// comparison) until the SQL is run and a refresh repopulates them.
+		if (e instanceof Error && e.message.includes('wom_role')) {
+			const rows = await selectAll<Omit<SimRow, 'wom_role'>>('vs_rank_sim', SIM_COLS_BASE);
+			return rows.map((r) => ({ ...r, wom_role: null }));
+		}
+		throw e;
+	}
 }
 
 // Map lowercase rsn → the player's CURRENT stored rank (players.rank), for the
@@ -272,7 +284,12 @@ function parseConfigFromForm(form: FormData, base: RankScoringConfig): RankScori
 			months: num('c_months', base.caps.months),
 			clog: num('c_clog', base.caps.clog),
 			levelMin: num('c_levelMin', base.caps.levelMin),
-			levelRange: num('c_levelRange', base.caps.levelRange)
+			levelRange: num('c_levelRange', base.caps.levelRange),
+			gear: num('c_gear', base.caps.gear)
+		},
+		curves: {
+			gear: num('curve_gear', base.curves.gear),
+			ehb: num('curve_ehb', base.curves.ehb)
 		},
 		thresholds: RANK_ORDER.map((womRole) => ({
 			womRole,
@@ -317,7 +334,12 @@ export const actions: Actions = {
 	refresh: async ({ locals, request }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
 
-		const since = ((await request.formData()).get('since') ?? '').toString();
+		const form = await request.formData();
+		const since = (form.get('since') ?? '').toString();
+		// Skip roster members who already have a Temple-complete cached row — only fetch
+		// the ones still missing collection-log data (new members, or a prior run where
+		// Temple was private/down). Makes a top-up sweep fast instead of re-fetching everyone.
+		const onlyMissing = form.get('onlyMissing') === '1';
 
 		// Cached across batches: one WOM group call per run instead of one per batch.
 		const roster = await getRosterCached();
@@ -333,13 +355,20 @@ export const actions: Actions = {
 
 		const existing = await readSimRows();
 		const fetchedAt = new Map(existing.map((r) => [r.rsn.toLowerCase(), r.fetched_at]));
+		// Members who already have collection-log data — skipped when onlyMissing is set.
+		const hasTemple = new Set(
+			existing.filter((r) => r.temple_available).map((r) => r.rsn.toLowerCase())
+		);
 
 		// This pass's pending set: members whose last fetch predates the run start
 		// (never-fetched sorts as '' — always pending). Without `since` (manual single
-		// batch), everyone is eligible and the stalest-first order picks the batch.
-		const pending = since
-			? rosterEntries.filter((e) => (fetchedAt.get(e.rsn.toLowerCase()) ?? '') < since)
-			: rosterEntries.slice();
+		// batch), everyone is eligible and the stalest-first order picks the batch. When
+		// onlyMissing is set, members who already have Temple data are dropped entirely.
+		const pending = (
+			since
+				? rosterEntries.filter((e) => (fetchedAt.get(e.rsn.toLowerCase()) ?? '') < since)
+				: rosterEntries.slice()
+		).filter((e) => !onlyMissing || !hasTemple.has(e.rsn.toLowerCase()));
 
 		// Stalest first: never-fetched (null) before oldest timestamp.
 		const worklist = pending
@@ -386,6 +415,8 @@ export const actions: Actions = {
 					temple_available: temple != null,
 					wikisync_available: ca != null,
 					ca_tier: caResult.highestTier,
+					wom_role: entry.womRole, // cache the in-game role so compare needs no live WOM call
+
 					gear_detail: { matchedItems: gear.matchedItems, missedItems: gear.missedItems, partials: gear.partials },
 					ca_detail: {
 						tasksCompleted: caResult.tasksCompleted,
@@ -503,20 +534,18 @@ export const actions: Actions = {
 	compare: async ({ locals }) => {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
 
-		const roster = await getRosterCached();
-		if (!roster) {
-			return fail(502, { compareError: 'WOM clan roster unavailable (likely rate-limited) — try again shortly.' });
-		}
-
 		const config = await getRankConfig(true);
 		const [rows, current] = await Promise.all([readSimRows(), readCurrentRanks()]);
-		const simByRsn = new Map(rows.map((r) => [r.rsn.toLowerCase(), r]));
+		// The comparison runs entirely off the cached rows — wom_role is cached during the
+		// refresh — so it never needs a live WOM call. The roster is fetched only for coverage
+		// stats (size / not-yet-cached), and is OPTIONAL: a WOM rate-limit no longer blocks it.
+		const roster = await getRosterCached();
+		const cachedRsns = new Set(rows.map((r) => r.rsn.toLowerCase()));
 
 		let up = 0;
 		let down = 0;
 		let same = 0;
-		let unmappedRole = 0; // staff/unrecognized WOM roles (owner, deputy_owner, …)
-		let notCached = 0; // roster members with no vs_rank_sim row yet
+		let unmappedRole = 0; // staff/special WOM roles — included via an EHB-estimated baseline
 		let noTemple = 0; // cached but no Temple data — gear/clog score 0, would skew everything
 		let storedMatches = 0; // players.rank already equals the projection
 		let storedCompared = 0;
@@ -526,19 +555,15 @@ export const actions: Actions = {
 		const players: {
 			rsn: string;
 			womRole: string | null;
-			womRank: RankValue | null;
+			womRank: RankValue | null; // the baseline rank used for the delta (in-game or EHB-estimated)
+			estimated: boolean; // baseline came from the legacy EHB ladder (no mapped in-game rank)
 			projected: RankValue;
 			stored: RankValue | null;
 			delta: number | null;
 			composite: number;
 		}[] = [];
 
-		for (const e of Object.values(roster)) {
-			const row = simByRsn.get(e.rsn.toLowerCase());
-			if (!row) {
-				notCached++;
-				continue;
-			}
+		for (const row of rows) {
 			// No Temple data → gear + clog score 0 through no fault of the player's, which
 			// would read as a mass demotion. Excluded outright (counted for coverage).
 			if (!row.temple_available) {
@@ -558,30 +583,32 @@ export const actions: Actions = {
 				config
 			);
 			const projected = determineProjectedRank(scores.composite, config);
-			const stored = toRankValue(current.get(e.rsn.toLowerCase()) ?? null);
+			const stored = toRankValue(current.get(row.rsn.toLowerCase()) ?? null);
 			if (stored) {
 				storedCompared++;
 				if (stored === projected) storedMatches++;
 			}
-			const womRank = toRankValue(e.womRole);
-			let delta: number | null = null;
-			if (womRank) {
-				delta = rankIndex(projected) - rankIndex(womRank);
-				if (delta > 0) up++;
-				else if (delta < 0) down++;
-				else same++;
-				deltaHist.set(delta, (deltaHist.get(delta) ?? 0) + 1);
-				// Both distributions cover the SAME population (compared members only) so
-				// the two histograms are directly comparable.
-				womDist[womRank] = (womDist[womRank] ?? 0) + 1;
-				projectedDist[projected] = (projectedDist[projected] ?? 0) + 1;
-			} else {
-				unmappedRole++;
-			}
+			// Current-rank baseline: the member's cached in-game WOM rank when it maps to a
+			// clan rank, otherwise (staff/mod/special title that doesn't map) fall back to what
+			// the clan's legacy EHB ladder would give them, so they're included in the
+			// movement + distribution instead of dropped. `estimated` flags the fallback.
+			const womRank = toRankValue(row.wom_role);
+			const estimated = !womRank;
+			const baseline = womRank ?? ehbRank(row.ehb);
+			if (estimated) unmappedRole++; // INCLUDED (baseline estimated from EHB), not skipped
+			const delta = rankIndex(projected) - rankIndex(baseline);
+			if (delta > 0) up++;
+			else if (delta < 0) down++;
+			else same++;
+			deltaHist.set(delta, (deltaHist.get(delta) ?? 0) + 1);
+			// Both distributions cover the SAME population so the histograms are comparable.
+			womDist[baseline] = (womDist[baseline] ?? 0) + 1;
+			projectedDist[projected] = (projectedDist[projected] ?? 0) + 1;
 			players.push({
-				rsn: e.rsn,
-				womRole: e.womRole,
-				womRank,
+				rsn: row.rsn,
+				womRole: row.wom_role,
+				womRank: baseline,
+				estimated,
 				projected,
 				stored,
 				delta,
@@ -589,22 +616,29 @@ export const actions: Actions = {
 			});
 		}
 
-		// Biggest movers first; unmapped roles sink to the bottom.
+		// Biggest movers first (every compared member now has a delta — in-game or EHB-estimated).
 		players.sort((a, b) => Math.abs(b.delta ?? -1) - Math.abs(a.delta ?? -1) || (b.delta ?? 0) - (a.delta ?? 0));
 		const compared = up + down + same;
 		const avgAbsDelta = compared
 			? players.reduce((s, p) => s + Math.abs(p.delta ?? 0), 0) / compared
 			: 0;
+		// Coverage stats need the roster; when it's unavailable (rate-limited), fall back to
+		// the cached population so the comparison still renders.
+		const notCached = roster ? Object.keys(roster).filter((k) => !cachedRsns.has(k)).length : 0;
+		const rosterSize = roster ? Object.keys(roster).length : rows.length;
 
 		return {
 			compareOk: true,
 			comparison: {
-				rosterSize: Object.keys(roster).length,
+				rosterSize,
+				rosterAvailable: !!roster,
 				compared,
 				up,
 				down,
 				same,
-				unmappedRole,
+				// Members with no mapped in-game rank (staff/mod/special) — now INCLUDED with a
+				// baseline estimated from the legacy EHB ladder rather than dropped.
+				estimatedBaseline: unmappedRole,
 				notCached,
 				noTemple,
 				storedMatches,

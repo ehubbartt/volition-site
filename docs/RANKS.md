@@ -11,9 +11,26 @@ detail.
   the gear table `rankScoring/gearScoring.json`), `calculateCAPoints` (WikiSync task ids
   vs `rankScoring/combatAchievements.json`, whole-tier rewards only),
   `determineProjectedRank` (thresholds → womRole).
-- **Config**: `src/lib/server/rankConfig.ts` — weights/caps/thresholds live in the
+- **Config**: `src/lib/server/rankConfig.ts` — weights/caps/curves/thresholds live in the
   `bot_config` row `rank_scoring` (edited via `/admin/rank-sim`, 60s cache);
   `DEFAULT_RANK_CONFIG` is only the fallback.
+- **Progression curves (gear + EHB)**: gear and EHB are the two highest-weighted
+  components but their caps sit near the top of the account ladder, so a linear
+  normalization leaves most of the roster bunched at the bottom of both bars (flat
+  mid-game). Two config knobs fix this without touching the distribution:
+  - `caps.gear` — the gear points at which the gear bar maxes. `0` (default) =
+    `GEAR_SCORE_CAP` (the gear table's full sum, today's behaviour); a lower value (e.g.
+    `12000`) lets a strong-but-not-BiS setup read near full. `effectiveGearCap(config)`
+    resolves it; the gear grid + `GEAR_SCORE_CAP` invariant are unchanged.
+  - `curves.gear` / `curves.ehb` — diminishing-returns exponents applied in `curveNorm`
+    (`(raw/cap) ** exponent`). `1` = linear (default); `0.5` = sqrt, front-loading early
+    progress so mid-game hours/gear move the score most. Clamped to `[0.2, 1]`.
+  Defaults reproduce today's scoring exactly, so live ranks don't move until an admin sets
+  them in `/admin/rank-sim`. Changing them raises everyone's raw composite, so **re-run
+  "Suggest thresholds"** after — the curves control *how rewarding climbing feels*, the
+  thresholds control *the distribution* (independent knobs). Recommended starting point
+  for this roster: `caps.gear 12000` / `curves.gear 0.6`, `caps.ehb 1500` /
+  `curves.ehb 0.5`.
 - **Inputs**: `src/lib/server/rankData.ts` — `fetchPlayerRankInputs(rsn, roster?,
   manualGearNames?, accountType?)`: EHB/join-date/total-level from WiseOldMan, gear + clog
   slots from TempleOSRS, CAs from WikiSync. Availability flags (`templeAvailable`,
@@ -36,10 +53,54 @@ detail.
   mirrors it to Discord). A saved climb returns `form.rankUp` → the confetti overlay.
 - **`/admin/rank-sim`**: bulk refresh into `vs_rank_sim` (batched, WOM-rate-limited),
   instant re-scoring while tuning, threshold suggestion, bulk apply to `players.rank`,
-  and the live comparison vs in-game WOM roles.
+  and the live comparison vs in-game WOM roles. The refresh auto-chains one batch at a
+  time over the whole WOM roster; **"Skip players who already have Temple data"** (on by
+  default, `onlyMissing`) drops members whose cached row is already Temple-complete so a
+  top-up only fetches new members / prior Temple outages — uncheck for a full re-fetch.
+  The **live comparison** measures each member's projected rank against their current
+  in-game rank (their WOM group role). Members whose WOM role doesn't map to a clan rank
+  (staff/mod/special titles) are **included** with a baseline estimated from the clan's
+  legacy EHB ladder (`ehbRank` / `EHB_RANK_THRESHOLDS` in `$lib/ranks`, mirroring the bot's
+  `config/ranks.json` `ehbMin`), flagged `est`, so only no-Temple / not-cached members are
+  left out. The comparison reads the member's WOM role from the cached
+  **`vs_rank_sim.wom_role`** column (populated on refresh; SQL in
+  `db/scripts/rank_sim_wom_role.sql`), so it needs **no live WOM call** — a WOM rate-limit no
+  longer blocks it (the roster is fetched only for the roster-size / not-cached coverage
+  counts, and the comparison degrades gracefully when it's unavailable).
 - **Display**: `src/lib/server/meData.ts` `loadRankBreakdown` re-scores the cached row
   with the current config; `src/lib/profile/RankPanel.svelte` renders it (per-component
-  ⓘ explainers; zero-score setup tips on /me via `showSetupTips`).
+  ⓘ explainers; zero-score setup tips on /me via `showSetupTips`). The panel also shows
+  the **next-rank badge** you're working toward and an **All clan ranks** modal (built
+  client-side from `$lib/ranks` `RANK_ORDER` / `RANK_IMG`).
+
+## Rank-up advisor ("How do I rank up?")
+
+`src/lib/server/rankScoring/rankAdvice.ts` — `buildRankAdvice(inputs, config, overrides)`
+turns a member's cached inputs into actionable guidance toward their **next** rank:
+
+- Ranks every unearned gear entry **easiest-to-obtain first**, tagging each as **boss** or
+  **non-boss** (`fromBoss` = any still-missing piece is a curated `itemEhb.json` drop).
+  Boss/raid items get a real obtain-time + points/hour from the curated drop-rate math
+  (`$lib/ehb` `bestEhbSource` + admin `vs_ehb_overrides` item pins). Non-boss items show no
+  time — Temple's `itemEhc.json` `ehc` is used ONLY as an *easiness* ordering signal (a low
+  value means a cheap, common pickup), never as a displayed number, because `ehc` is an
+  item's marginal share of its category's completion, not a standalone grind (a Zenyte shard
+  reads ~5 min). Cheap non-boss items (EHC ≤ `EASY_ENTRY_EHC`) sort into the easy band;
+  rare/crafted items sort last.
+- For every composite component it computes a realistic **potential** (reachable fill) and
+  the composite gain that unlocks — gear (top targets' points), EHB (bossing those drops
+  adds hours), collection log (trackable gear fills slots), CAs (`nextCaTier` in
+  `rankScoring.ts` — the next whole-tier reward), total level (a +50 bump), and time
+  (passive). Steps are ordered by composite gain.
+- Estimates only: EHB assumes efficient play, and crafted/upgraded gear (Oathplate, …)
+  has no obtain-time data (shown without a time).
+
+Served lazily from **`src/routes/api/rank-advice/+server.ts`** (`memberEndpoint`, reads the
+signed-in member's freshest `vs_rank_sim` row). The /me Rank tab fetches it only when the
+member presses **"How do I rank up?"**, then tints each score bar with a per-component
+overlay showing the reachable gain and renders the step-by-step plan + gear targets. `/u/[rsn]`
+omits the button (no `adviceEndpoint` prop) but still shows the next-rank badge + all-ranks
+modal.
 
 ## Manual gear claims (untrackable items)
 

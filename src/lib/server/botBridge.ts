@@ -10,7 +10,7 @@ import { serverFetch } from './http';
 // SECURITY: the bot must only trust messages from THIS webhook's id in THAT
 // channel (it ignores everyone else) — that check lives in the bot repo.
 
-export type BotMessageType = 'grant_role';
+export type BotMessageType = 'grant_role' | 'post_intro' | 'onboard_verified' | 'onboard_ready_to_join';
 
 export interface GrantRolePayload {
 	discord_id: string;
@@ -19,7 +19,51 @@ export interface GrantRolePayload {
 	username?: string | null;
 }
 
-type PayloadFor<T extends BotMessageType> = T extends 'grant_role' ? GrantRolePayload : Record<string, unknown>;
+// Site onboarding posts the member's introduction into the Discord intro channel on
+// their behalf (the bot owns the channel/forum + the format). The bot handler renders
+// the same 5-field layout the Discord intro modal produces today.
+export interface PostIntroPayload {
+	discord_id: string;
+	username?: string | null;
+	rsn?: string | null;
+	// The origin channel (where /onboard-test ran) — the bot drops a visible "intro
+	// received → relayed to intros" confirmation here so it's seen in the test channel.
+	channel_id?: string | null;
+	// The five intro fields, matching the Discord intro modal.
+	basic_info: string;
+	stats_info: string;
+	clan_history: string;
+	goals_interests: string;
+	additional_info: string;
+}
+
+// Version B verified the member on the site (RSN → WiseOldMan gate). The bot mirrors
+// the Discord-side effects of verification: verified role, nickname = RSN. Rank + the
+// in-game invite still ride the existing WOM listener / /syncuser (untouched).
+export interface OnboardVerifiedPayload {
+	discord_id: string;
+	rsn: string;
+	username?: string | null;
+}
+
+// The site's onboarding reached the join step — the bot posts a "ready to invite
+// in-game" prompt back into the origin channel (the join-ticket channel).
+export interface OnboardReadyToJoinPayload {
+	channel_id: string;
+	discord_id: string;
+	rsn?: string | null;
+	username?: string | null;
+}
+
+type PayloadFor<T extends BotMessageType> = T extends 'grant_role'
+	? GrantRolePayload
+	: T extends 'post_intro'
+		? PostIntroPayload
+		: T extends 'onboard_verified'
+			? OnboardVerifiedPayload
+			: T extends 'onboard_ready_to_join'
+				? OnboardReadyToJoinPayload
+				: Record<string, unknown>;
 
 export function isBridgeConfigured(): boolean {
 	return !!env.DISCORD_BOT_BRIDGE_WEBHOOK_URL;
@@ -72,7 +116,7 @@ function buildBody(type: string, payload: Record<string, unknown>) {
 }
 
 export async function sendBotMessage<T extends BotMessageType>(type: T, payload: PayloadFor<T>): Promise<boolean> {
-	const res = await postToWebhook(buildBody(type, payload as Record<string, unknown>));
+	const res = await postToWebhook(buildBody(type, payload as unknown as Record<string, unknown>));
 	if (!res.ok) console.error('[bot-bridge] send failed:', type, res.status ?? '', res.error ?? '');
 	return res.ok;
 }

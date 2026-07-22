@@ -24,6 +24,10 @@
 	let refreshRemaining = $state<number | null>(null);
 	let refreshRetries = $state(0); // consecutive retryable failures (WOM rate-limit backoff)
 	let refreshForm = $state<HTMLFormElement>();
+	// Skip members who already have Temple data — a fast top-up that only fetches players
+	// still missing collection-log data (new members / prior Temple outages). Uncheck for a
+	// full re-fetch of everyone's current stats.
+	let skipTracked = $state(true);
 	const MAX_REFRESH_RETRIES = 5;
 	const RETRY_DELAY_MS = 25_000; // long enough for WOM's per-minute window to reset
 	let recalcing = $state(false);
@@ -65,10 +69,18 @@
 
 	const capKeys = [
 		['c_ehb', 'ehb', 'EHB cap'],
+		['c_gear', 'gear', 'Gear cap (0 = table sum)'],
 		['c_months', 'months', 'Months cap'],
 		['c_clog', 'clog', 'Clog slots cap'],
 		['c_levelMin', 'levelMin', 'Level floor'],
 		['c_levelRange', 'levelRange', 'Level range']
+	] as const;
+
+	// Diminishing-returns exponents for gear/EHB (1 = linear, 0.5 = sqrt — front-loads
+	// early progress so the mid-game isn't flat).
+	const curveKeys = [
+		['curve_gear', 'gear', 'Gear curve'],
+		['curve_ehb', 'ehb', 'EHB curve']
 	] as const;
 
 	let weightSum = $derived(
@@ -134,6 +146,7 @@
 					// the server can tell what's already been refreshed this run.
 					if (!runSince) runSince = new Date().toISOString();
 					formData.set('since', runSince);
+					formData.set('onlyMissing', skipTracked ? '1' : '0');
 					refreshing = true;
 					return async ({ update, result }) => {
 						await update({ reset: false });
@@ -166,13 +179,17 @@
 				}}
 			>
 				<button class="btn" type="submit" disabled={refreshing}>
-					{refreshing ? 'Fetching all…' : 'Refresh all'}
+					{refreshing ? 'Fetching…' : skipTracked ? 'Fetch missing' : 'Refresh all'}
 				</button>
 				{#if refreshing}
 					<button class="btn" type="button" onclick={() => (stopRequested = true)}>
 						Stop after this batch
 					</button>
 				{/if}
+				<label class="skip-toggle">
+					<input type="checkbox" bind:checked={skipTracked} disabled={refreshing} />
+					<span>Skip players who already have Temple data</span>
+				</label>
 			</form>
 		</div>
 	</div>
@@ -219,12 +236,17 @@
 			<p class="muted small">
 				{comparison.compared} of {comparison.rosterSize} members compared · {comparison.noTemple}
 				excluded (no Temple data) · {comparison.notCached} not in the cache yet ·
-				{comparison.unmappedRole} with staff/unmapped WOM roles.
+				{comparison.estimatedBaseline} with staff/special WOM roles included via an EHB-estimated
+				current rank.
 				<code>players.rank</code> already matches the projection for
 				{comparison.storedMatches}/{comparison.storedCompared}.
+				{#if !comparison.rosterAvailable}
+					<br /><em>WOM roster unavailable right now — comparing cached players only (coverage
+					counts approximate).</em>
+				{/if}
 			</p>
 
-			<strong class="mt">Ranks in game right now (WOM)</strong>
+			<strong class="mt">Current ranks <span class="hint">(in game; staff/special estimated from EHB)</span></strong>
 			<div class="rank-hist">
 				{#each comparison.dist as d (d.rank)}
 					<div class="rcol" title={`${d.label}: ${d.inGame} in game · ${d.projected} projected`}>
@@ -288,9 +310,13 @@
 						{#each comparedRows as p (p.rsn)}
 							<tr>
 								<td>{p.rsn}</td>
-								<td>
-									{#if p.womRank}<span style="color:{rankColor(p.womRank)}">{p.womRank}</span>
-									{:else}<span class="muted">{p.womRole ?? '—'}</span>{/if}
+								<td
+									title={p.estimated
+										? `No mapped in-game rank (WOM role: ${p.womRole ?? '—'}) — estimated from EHB via the legacy ladder`
+										: ''}
+								>
+									{#if p.womRank}<span style="color:{rankColor(p.womRank)}">{p.womRank}</span>{/if}
+									{#if p.estimated}<span class="est-tag">est</span>{/if}
 								</td>
 								<td><span style="color:{rankColor(p.projected)}">{p.projected}</span></td>
 								<td class:up={p.delta != null && p.delta > 0} class:down={p.delta != null && p.delta < 0}>
@@ -350,6 +376,16 @@
 					<label>
 						<span>{label}</span>
 						<input type="number" step="1" {name} value={config.caps[key]} />
+					</label>
+				{/each}
+			</div>
+
+			<strong class="mt">Progression curves <span class="hint">(1 = linear · 0.5 = sqrt, front-loads early progress)</span></strong>
+			<div class="grid">
+				{#each curveKeys as [name, key, label]}
+					<label>
+						<span>{label}</span>
+						<input type="number" step="0.05" min="0.2" max="1" {name} value={config.curves[key]} />
 					</label>
 				{/each}
 			</div>
@@ -798,5 +834,33 @@
 		.cols {
 			grid-template-columns: 1fr;
 		}
+	}
+	.skip-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-top: 0.5rem;
+		font-size: 0.8rem;
+		color: var(--muted);
+		cursor: pointer;
+	}
+	.skip-toggle input {
+		cursor: pointer;
+	}
+	.hint {
+		font-weight: 400;
+		font-size: 0.78rem;
+		color: var(--muted);
+	}
+	.est-tag {
+		margin-left: 0.25rem;
+		font-size: 0.6rem;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: var(--muted);
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		padding: 0 0.2rem;
+		vertical-align: middle;
 	}
 </style>
