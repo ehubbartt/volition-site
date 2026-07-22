@@ -51,6 +51,17 @@ detail.
   inputs (+ the member's approved gear claims), caches them in `vs_rank_sim`, and — only
   when BOTH Temple and WikiSync responded — writes the rank to `players.rank` (the bot
   mirrors it to Discord). A saved climb returns `form.rankUp` → the confetti overlay.
+- **Single-player core** (`src/lib/server/rankCheck.ts` `checkAndSaveRank`): the shared body
+  of the above — fetch live inputs, cache the breakdown (reusing any case/underscore-variant
+  `vs_rank_sim` row so a spelling mismatch never duplicates), and persist `players.rank` only
+  when both stats sources responded. `/me`'s `checkRank` (with its per-user cooldown + rank-up
+  celebration) and the admin **"Re-check one player"** both call it, so the two paths score,
+  cache, and save identically.
+- **`/admin/rank-sim` "Re-check one player"** (`recheck` action): an admin runs the same
+  single-player live check for any registered member by RSN (resolved from `vs_users`, so it
+  folds in their approved gear claims and writes the right `players.rank`) — an on-demand
+  refresh without sweeping the whole roster. Roster-only members not on the site aren't
+  eligible; use the bulk **Refresh** for those.
 - **`/admin/rank-sim`**: bulk refresh into `vs_rank_sim` (batched, WOM-rate-limited),
   instant re-scoring while tuning, threshold suggestion, bulk apply to `players.rank`,
   and the live comparison vs in-game WOM roles. The refresh auto-chains one batch at a

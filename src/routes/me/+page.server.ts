@@ -3,13 +3,9 @@ import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isValidClan } from '$lib/clans';
 import { isValidAccountType } from '$lib/accountTypes';
-import { isRsnTaken, rsnExactPattern } from '$lib/server/users';
-import { setPlayerRank, getPlayerRank } from '$lib/server/playerStats';
-import { getApprovedGearNames, submitGearClaim } from '$lib/server/rankClaims';
-import { rankIndex } from '$lib/ranks';
-import { getRankConfig } from '$lib/server/rankConfig';
-import { fetchPlayerRankInputs } from '$lib/server/rankData';
-import { scorePlayer } from '$lib/server/rankScoring';
+import { isRsnTaken } from '$lib/server/users';
+import { submitGearClaim } from '$lib/server/rankClaims';
+import { checkAndSaveRank } from '$lib/server/rankCheck';
 import { THEME_COOKIE, isTheme } from '$lib/themes';
 import type { Actions } from './$types';
 
@@ -66,100 +62,41 @@ export const actions: Actions = {
 		}
 		lastRankCheck.set(locals.user.id, Date.now());
 
-		try {
-			// Approved manual gear claims merge into the gear calculation (items the
-			// Temple clog can't prove — see rankClaims.ts).
-			const manualGear = await getApprovedGearNames(locals.user.id);
-			const [config, inputs] = await Promise.all([
-				getRankConfig(),
-				fetchPlayerRankInputs(rsn, undefined, manualGear, locals.user.account_type)
-			]);
-			const { rank } = scorePlayer(inputs, config);
+		// Shared with the admin single-player re-check (see $lib/server/rankCheck.ts): fetch
+		// live inputs + approved gear claims, cache the breakdown in vs_rank_sim, and persist
+		// players.rank when both stats sources responded. The page load re-runs after this
+		// action and rebuilds the Rank tab from that row — one rendering path.
+		const result = await checkAndSaveRank({
+			userId: locals.user.id,
+			rsn,
+			discordId: locals.user.discord_id,
+			accountType: locals.user.account_type
+		});
+		if (!result.ok) {
+			lastRankCheck.delete(locals.user.id); // let them retry a transient failure now
+			return fail(500, { rankError: `${result.error} Screenshot this and ping an admin.` });
+		}
 
-			// Cache the freshly-fetched inputs + piece-level detail in vs_rank_sim (same
-			// shape the admin rank-sim writes). The page load re-runs after this action and
-			// rebuilds the Rank tab breakdown from this row — one rendering path.
-			//
-			// The upsert's onConflict key (rsn) is CASE-SENSITIVE, but the admin rank-sim
-			// keys rows by the WOM canonical rsn while this action uses the profile rsn.
-			// Reuse the exact key of any case/underscore-variant row that already exists,
-			// so a member whose profile spelling differs from WOM updates that row instead
-			// of minting a duplicate (loadRankBreakdown reads the table case-insensitively).
-			const { data: existingRows } = await db()
-				.from('vs_rank_sim')
-				.select('rsn')
-				.ilike('rsn', rsnExactPattern(rsn))
-				.order('fetched_at', { ascending: false })
-				.limit(1);
-			const { error: cacheErr } = await db()
-				.from('vs_rank_sim')
-				.upsert(
-					{
-						rsn: existingRows?.[0]?.rsn ?? rsn,
-						wom_id: inputs.womId,
-						ehb: inputs.ehb,
-						total_level: inputs.totalLevel,
-						gear_points: inputs.gearPoints,
-						clog_finished: inputs.clogFinished,
-						clog_available: inputs.clogAvailable,
-						months_in_clan: Math.round(inputs.monthsInClan * 100) / 100,
-						ca_points: inputs.caPoints,
-						temple_available: inputs.templeAvailable,
-						wikisync_available: inputs.wikisyncAvailable,
-						ca_tier: inputs.caTier,
-						gear_detail: inputs.gearDetail,
-						ca_detail: inputs.caDetail,
-						fetched_at: new Date().toISOString()
-					},
-					{ onConflict: 'rsn' }
-				);
-			if (cacheErr) {
-				lastRankCheck.delete(locals.user.id);
-				console.error(`[rank] vs_rank_sim upsert failed for "${rsn}": ${cacheErr.message}${cacheErr.code ? ` (${cacheErr.code})` : ''}`);
-				return fail(500, {
-					rankError: `Could not save your rank breakdown — ${cacheErr.message}${cacheErr.code ? ` (${cacheErr.code})` : ''}. Screenshot this and ping an admin.`
-				});
-			}
-
-			// If a stats source was down (Temple/WikiSync), its component degrades to 0 and
-			// the composite is artificially low. Show the breakdown, but DON'T persist the
-			// rank — the bot mirrors players.rank to a Discord role, so writing a degraded
-			// score off a transient 429/outage could wrongly demote the member.
-			if (!inputs.templeAvailable || !inputs.wikisyncAvailable) {
-				return {
-					rankOk: true,
-					rankSaved: false,
-					rankNote:
-						'Computed from partial data — a stats source (Temple/WikiSync) was unavailable, so your clan rank was not updated to avoid an inaccurate change. Try again shortly.'
-				};
-			}
-
-			// Mirror the computed rank to the clan player record (the bot syncs it to
-			// Discord). A missing player record isn't fatal — the breakdown still renders.
-			// The pre-write rank feeds the rank-up celebration: only a genuine climb that
-			// was actually SAVED celebrates (rankIndex compares positions in RANK_ORDER).
-			const prevRank = await getPlayerRank(locals.user.discord_id, rsn);
-			const write = await setPlayerRank(locals.user.discord_id, rsn, rank);
-			const rankedUp =
-				write.ok && prevRank != null && rankIndex(rank) > rankIndex(prevRank);
+		const o = result.outcome;
+		if (o.skippedSave) {
 			return {
 				rankOk: true,
-				rankSaved: write.ok,
-				rankUp: rankedUp ? { from: prevRank, to: rank } : null,
-				rankNote: write.ok
-					? null
-					: write.reason === 'no_player'
-						? 'Computed from your latest data, but no clan player record was found to save your rank to yet.'
-						: 'Your breakdown was updated, but saving your clan rank failed — try again later.'
+				rankSaved: false,
+				rankNote:
+					'Computed from partial data — a stats source (Temple/WikiSync) was unavailable, so your clan rank was not updated to avoid an inaccurate change. Try again shortly.'
 			};
-		} catch (e) {
-			lastRankCheck.delete(locals.user.id); // let them retry a transient failure now
-			const detail = e instanceof Error ? e.message : String(e);
-			console.error(`[rank] check failed for "${rsn}":`, e);
-			return fail(500, {
-				rankError: `Rank check failed — ${detail}. Screenshot this and ping an admin.`
-			});
 		}
+		return {
+			rankOk: true,
+			rankSaved: o.saved,
+			// Only a genuine, SAVED climb celebrates (rankedUp compares RANK_ORDER positions).
+			rankUp: o.rankedUp && o.prevRank ? { from: o.prevRank, to: o.rank } : null,
+			rankNote: o.saved
+				? null
+				: o.saveReason === 'no_player'
+					? 'Computed from your latest data, but no clan player record was found to save your rank to yet.'
+					: 'Your breakdown was updated, but saving your clan rank failed — try again later.'
+		};
 	},
 
 	// Claim an untrackable gear item for rank scoring (GE-bought / combined outside the
