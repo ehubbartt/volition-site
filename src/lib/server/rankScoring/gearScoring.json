@@ -1,5 +1,5 @@
 {
-  "GEAR_SCORE_CAP": 27700,
+  "GEAR_SCORE_CAP": 27600,
   "gear": [
     {
       "name": "Neitiznot Faceguard",
@@ -45,12 +45,6 @@
       "tier": "low",
       "points": 100,
       "items": [{ "name": "Fire cape" }]
-    },
-    {
-      "name": "Amulet of Fury",
-      "tier": "low",
-      "points": 100,
-      "items": [{ "name": "Uncut onyx" }]
     },
     {
       "name": "Berserker Ring",
@@ -164,7 +158,6 @@
       "points": 100,
       "items": [{ "name": "Ring of the gods" }]
     },
-
     {
       "name": "Bandos Chestplate",
       "tier": "middle",
@@ -477,7 +470,6 @@
       "icon": "Venator ring",
       "items": [{ "name": "Venator vestige" }]
     },
-
     {
       "name": "Torva Full Helm",
       "tier": "end",
@@ -692,7 +684,6 @@
       "points": 300,
       "items": [{ "name": "Avernic treads" }]
     },
-
     {
       "name": "Scythe of Vitur",
       "tier": "mega",
