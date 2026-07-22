@@ -59,6 +59,8 @@ export const actions: Actions = {
 		const clogItems = flag('clog_items');
 		// Group clue uniques into per-tier "gain N new uniques" tiles.
 		const groupClues = flag('group_clues');
+		// Exclude boss jars (Jar of dirt, …) from the item pool.
+		const noJars = flag('no_jars');
 		// Keep-line reroll: hold one row/column of the current draft (e.g. 'r2', 'c0').
 		const keepRaw = (form.get('keep') ?? '').toString();
 		const keep = /^[rc][0-9]+$/.test(keepRaw) ? keepRaw : null;
@@ -72,6 +74,7 @@ export const actions: Actions = {
 			includeOwned: owned,
 			includeClogItems: clogItems,
 			groupClueItems: groupClues,
+			excludeJars: noJars,
 			keepLineKey: keep
 		});
 
