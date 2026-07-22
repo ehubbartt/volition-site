@@ -159,6 +159,7 @@
       "name": "Primordial Boots",
       "tier": "middle",
       "points": 200,
+      "icon": "Primordial Boots",
       "items": [{ "name": "Dragon boots" }, { "name": "Primordial crystal" }]
     },
     {
@@ -171,6 +172,7 @@
       "name": "Avernic Defender",
       "tier": "middle",
       "points": 200,
+      "icon": "Avernic defender",
       "items": [{ "name": "Avernic defender hilt" }]
     },
     {
@@ -463,24 +465,28 @@
       "name": "Torva Full Helm",
       "tier": "end",
       "points": 300,
+      "icon": "Torva Full Helm",
       "items": [{ "name": "Torva full helm (damaged)" }]
     },
     {
       "name": "Torva Platebody",
       "tier": "end",
       "points": 300,
+      "icon": "Torva platebody",
       "items": [{ "name": "Torva platebody (damaged)" }]
     },
     {
       "name": "Torva Platelegs",
       "tier": "end",
       "points": 300,
+      "icon": "Torva platelegs",
       "items": [{ "name": "Torva platelegs (damaged)" }]
     },
     {
       "name": "Amulet of Rancour",
       "tier": "end",
       "points": 300,
+      "icon": "Amulet of Rancour",
       "items": [{ "name": "Araxyte fang" }]
     },
     {
