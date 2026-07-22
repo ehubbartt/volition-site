@@ -741,7 +741,7 @@
     {
       "name": "Nightmare Staff",
       "tier": "side",
-      "points": 250,
+      "points": 200,
       "items": [{ "name": "Nightmare staff" }]
     },
     {
@@ -765,21 +765,21 @@
     {
       "name": "Spectral Spirit Shield",
       "tier": "side",
-      "points": 250,
+      "points": 150,
       "icon": "Spectral spirit shield",
       "items": [{ "name": "Spectral sigil" }]
     },
     {
       "name": "Elysian Spirit Shield",
       "tier": "side",
-      "points": 250,
+      "points": 200,
       "icon": "Elysian spirit shield",
       "items": [{ "name": "Elysian sigil" }]
     },
     {
       "name": "Arcane Spirit Shield",
       "tier": "side",
-      "points": 250,
+      "points": 200,
       "icon": "Arcane spirit shield",
       "items": [{ "name": "Arcane sigil" }]
     },
