@@ -1,5 +1,5 @@
 {
-  "GEAR_SCORE_CAP": 26100,
+  "GEAR_SCORE_CAP": 27700,
   "gear": [
     {
       "name": "Neitiznot Faceguard",
@@ -18,19 +18,27 @@
     {
       "name": "Trident of the Swamp",
       "tier": "low",
-      "points": 100,
+      "points": 150,
       "icon": "Trident of the swamp",
       "items": [{ "name": "Magic fang" }]
     },
     {
-      "name": "Full Bloodmoon",
+      "name": "Bloodmoon Helm",
       "tier": "low",
       "points": 100,
-      "items": [
-        { "name": "Blood moon tassets" },
-        { "name": "Blood moon chestplate" },
-        { "name": "Blood moon helm" }
-      ]
+      "items": [{ "name": "Blood moon helm" }]
+    },
+    {
+      "name": "Bloodmoon Chestplate",
+      "tier": "low",
+      "points": 100,
+      "items": [{ "name": "Blood moon chestplate" }]
+    },
+    {
+      "name": "Bloodmoon Tassets",
+      "tier": "low",
+      "points": 100,
+      "items": [{ "name": "Blood moon tassets" }]
     },
     {
       "name": "Fire Cape",
@@ -65,7 +73,7 @@
     {
       "name": "Serpentine Helm",
       "tier": "low",
-      "points": 100,
+      "points": 150,
       "icon": "Serpentine helm",
       "items": [{ "name": "Serpentine visage" }]
     },
@@ -78,7 +86,7 @@
     {
       "name": "Toxic Blowpipe",
       "tier": "low",
-      "points": 100,
+      "points": 150,
       "icon": "Toxic blowpipe",
       "items": [{ "name": "Tanzanite fang" }]
     },
@@ -104,21 +112,21 @@
     {
       "name": "Ahrim/Bluemoon Helm",
       "tier": "low",
-      "points": 34,
+      "points": 100,
       "note": "Each robe piece counts on its own — you don't need the full set. Ahrim's hood or Blue moon helm.",
       "items": [{ "name": ["Ahrim's hood", "Blue moon helm"] }]
     },
     {
       "name": "Ahrim/Bluemoon Top",
       "tier": "low",
-      "points": 33,
+      "points": 100,
       "note": "Each robe piece counts on its own — you don't need the full set. Ahrim's robetop or Blue moon chestplate.",
       "items": [{ "name": ["Ahrim's robetop", "Blue moon chestplate"] }]
     },
     {
       "name": "Ahrim/Bluemoon Legs",
       "tier": "low",
-      "points": 33,
+      "points": 100,
       "note": "Each robe piece counts on its own — you don't need the full set. Ahrim's robeskirt or Blue moon tassets.",
       "items": [{ "name": ["Ahrim's robeskirt", "Blue moon tassets"] }]
     },
@@ -192,7 +200,7 @@
     {
       "name": "Bow of Faerdhinen",
       "tier": "middle",
-      "points": 200,
+      "points": 250,
       "icon": "Bow of faerdhinen (c)",
       "note": "We assume your FIRST enhanced crystal weapon seed goes to the Bow of Faerdhinen.",
       "items": [{ "name": "Enhanced crystal weapon seed", "quantity": 1 }]
@@ -225,7 +233,7 @@
     {
       "name": "Dragon Hunter Lance",
       "tier": "middle",
-      "points": 200,
+      "points": 250,
       "icon": "Dragon hunter lance",
       "items": [{ "name": "Hydra's claw" }]
     },
@@ -336,7 +344,7 @@
     {
       "name": "Rigour Prayer Scroll",
       "tier": "middle",
-      "points": 200,
+      "points": 250,
       "items": [{ "name": "Dexterous prayer scroll" }]
     },
     {
@@ -373,13 +381,13 @@
     {
       "name": "Augury Prayer Scroll",
       "tier": "middle",
-      "points": 200,
+      "points": 250,
       "items": [{ "name": "Arcane prayer scroll" }]
     },
     {
       "name": "Dragon Warhammer",
       "tier": "middle",
-      "points": 200,
+      "points": 250,
       "items": [{ "name": "Dragon warhammer" }]
     },
     {
@@ -391,7 +399,7 @@
     {
       "name": "Voidwaker",
       "tier": "middle",
-      "points": 200,
+      "points": 250,
       "icon": "Voidwaker",
       "items": [
         { "name": "Voidwaker hilt" },
@@ -402,7 +410,7 @@
     {
       "name": "Dragon Claws",
       "tier": "middle",
-      "points": 200,
+      "points": 250,
       "items": [{ "name": "Dragon claws" }]
     },
     {
@@ -445,7 +453,7 @@
     {
       "name": "Eye of Ayak",
       "tier": "middle",
-      "points": 200,
+      "points": 250,
       "items": [{ "name": "Eye of ayak (uncharged)" }]
     },
     {
@@ -458,14 +466,14 @@
     {
       "name": "Bellator Ring",
       "tier": "middle",
-      "points": 200,
+      "points": 250,
       "icon": "Bellator ring",
       "items": [{ "name": "Bellator vestige" }]
     },
     {
       "name": "Venator Ring",
       "tier": "middle",
-      "points": 200,
+      "points": 250,
       "icon": "Venator ring",
       "items": [{ "name": "Venator vestige" }]
     },
@@ -473,21 +481,21 @@
     {
       "name": "Torva Full Helm",
       "tier": "end",
-      "points": 300,
+      "points": 350,
       "icon": "Torva full helm",
       "items": [{ "name": "Torva full helm (damaged)" }]
     },
     {
       "name": "Torva Platebody",
       "tier": "end",
-      "points": 300,
+      "points": 350,
       "icon": "Torva platebody",
       "items": [{ "name": "Torva platebody (damaged)" }]
     },
     {
       "name": "Torva Platelegs",
       "tier": "end",
-      "points": 300,
+      "points": 350,
       "icon": "Torva platelegs",
       "items": [{ "name": "Torva platelegs (damaged)" }]
     },
@@ -521,7 +529,7 @@
     {
       "name": "Soulreaper Axe",
       "tier": "end",
-      "points": 300,
+      "points": 350,
       "icon": "Soulreaper axe",
       "items": [
         { "name": "Eye of the duke" },
@@ -533,19 +541,19 @@
     {
       "name": "Masori Mask",
       "tier": "end",
-      "points": 300,
+      "points": 350,
       "items": [{ "name": "Masori mask" }]
     },
     {
       "name": "Masori Body",
       "tier": "end",
-      "points": 300,
+      "points": 350,
       "items": [{ "name": "Masori body" }]
     },
     {
       "name": "Masori Chaps",
       "tier": "end",
-      "points": 300,
+      "points": 350,
       "items": [{ "name": "Masori chaps" }]
     },
     {
@@ -564,19 +572,19 @@
     {
       "name": "Ancestral Hat",
       "tier": "end",
-      "points": 300,
+      "points": 350,
       "items": [{ "name": "Ancestral hat" }]
     },
     {
       "name": "Ancestral Robe Top",
       "tier": "end",
-      "points": 300,
+      "points": 350,
       "items": [{ "name": "Ancestral robe top" }]
     },
     {
       "name": "Ancestral Robe Bottom",
       "tier": "end",
-      "points": 300,
+      "points": 350,
       "items": [{ "name": "Ancestral robe bottom" }]
     },
     {
@@ -595,7 +603,7 @@
     {
       "name": "Imbued Heart",
       "tier": "end",
-      "points": 300,
+      "points": 350,
       "items": [{ "name": "Imbued heart" }]
     },
     {
