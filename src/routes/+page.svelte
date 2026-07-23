@@ -45,6 +45,28 @@
 	let search = $state('');
 	let sortBy = $state<'rsn' | 'vp' | 'rank'>('rsn');
 
+	// Remember the member-list sort across visits, in localStorage. $effect is client-only
+	// (never runs during SSR), so localStorage is safe here with no browser guard. The first
+	// run restores the saved choice; every later run persists the current one.
+	const MEMBER_SORT_KEY = 'volition:memberSort';
+	let sortRestored = false;
+	$effect(() => {
+		const current = sortBy; // track sortBy so this re-runs whenever the sort changes
+		try {
+			if (!sortRestored) {
+				sortRestored = true;
+				const saved = localStorage.getItem(MEMBER_SORT_KEY);
+				if ((saved === 'rsn' || saved === 'vp' || saved === 'rank') && saved !== current) {
+					sortBy = saved; // re-runs the effect; the restored value persists next pass
+					return;
+				}
+			}
+			localStorage.setItem(MEMBER_SORT_KEY, current);
+		} catch {
+			// Storage unavailable (private mode / quota) — the sort just won't persist.
+		}
+	});
+
 	// Live clock for the next-event countdown (client-only via $effect). Only ticks
 	// on the member dashboard — the logged-out page has no countdown.
 	let now = $state(today.getTime());
