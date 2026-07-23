@@ -196,15 +196,26 @@ export async function buildSections(userId: string, admin: boolean): Promise<Eve
 		if (!pb.locked_at) {
 			personal = { state: 'draft' };
 		} else {
-			const [tilesRes, doneRes] = await Promise.all([
-				db().from('vs_tiles').select('id', { count: 'exact', head: true }).eq('event_id', pb.id),
+			// A tile is complete iff its tile_key has an approved ledger credit — matching the
+			// board's own derivation (personalBoard.ts getCompletions keys approved submissions
+			// by target_id = tile_key). Count DISTINCT completed TILES, not submission rows:
+			// a tile can carry several approved credits (e.g. loot + collection), and line/
+			// blackout VP awards are approved submissions too (target_id = "vp:…"), so counting
+			// rows overcounts on both fronts. Intersecting with real tile_keys fixes both.
+			const [tilesRes, subsRes] = await Promise.all([
+				db().from('vs_tiles').select('tile_key').eq('event_id', pb.id),
 				db()
 					.from('vs_submissions')
-					.select('id', { count: 'exact', head: true })
+					.select('target_id')
 					.eq('event_id', pb.id)
+					.eq('user_id', userId)
 					.eq('status', 'approved')
 			]);
-			personal = { state: 'running', obtained: doneRes.count ?? 0, total: tilesRes.count ?? 0 };
+			const tileKeys = new Set(((tilesRes.data ?? []) as { tile_key: string }[]).map((t) => t.tile_key));
+			const approvedTargets = new Set(((subsRes.data ?? []) as { target_id: string }[]).map((s) => s.target_id));
+			let obtained = 0;
+			for (const key of tileKeys) if (approvedTargets.has(key)) obtained++;
+			personal = { state: 'running', obtained, total: tileKeys.size };
 		}
 	}
 
