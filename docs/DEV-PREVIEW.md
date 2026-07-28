@@ -1,3 +1,8 @@
+# Staging DB & local visual testing
+
+Two related things: how the **staging database** is cloned and kept in sync (most of this
+file), and how to **boot the site locally against it and screenshot pages** (last section).
+
 # Staging DB — cloning prod & keeping it in sync
 
 The site (and the Discord bot) run against a single Supabase Postgres. A **staging**
@@ -71,3 +76,86 @@ The app reads `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (server-only; see
 Settings → **API Keys** for the key, project URL for `SUPABASE_URL`) in the staging
 deploy's environment — see [`DEPLOY-STAGING.md`](DEPLOY-STAGING.md). Point the staging bot
 at the same DB too, or the bot keeps writing prod.
+
+## Local visual testing against staging
+
+Run the real app on your machine, pointed at the staging DB, signed in as yourself, and
+capture PNGs of any page — no Discord OAuth round-trip and no deploy.
+
+### 1. Point your shell at staging
+
+```bash
+export SUPABASE_URL="https://<staging-ref>.supabase.co"
+export SUPABASE_SERVICE_ROLE_KEY="…"
+export SUPER_ADMIN_DISCORD_IDS="<your discord id>"
+export PUBLIC_SITE_URL="http://localhost:5173"   # must be loopback — see the gate below
+```
+
+`PUBLIC_SITE_URL` has to be the local origin: `hooks.server.ts` 308-redirects every
+off-canonical host, so an `https://…` value bounces you straight off localhost.
+
+### 2. The dev-login shortcut
+
+`GET /auth/dev-login?next=/me` mints an ordinary `vs_sessions` row for an existing
+`vs_users` row and redirects. The account is `DEV_LOGIN_DISCORD_ID` if set, otherwise the
+first id in `SUPER_ADMIN_DISCORD_IDS` — i.e. you.
+
+It **grants no roles of its own.** Roles still resolve the normal way from the env
+allow-lists + `vs_admin_roles` (see [`AUTH.md`](AUTH.md)); you come out a super admin only
+because your id is already in `SUPER_ADMIN_DISCORD_IDS`. It never creates a user — if the
+id has no `vs_users` row you get a 404 saying so, rather than a silently invented account.
+
+**It cannot exist in a deploy.** `src/lib/server/devLogin.ts` ANDs five independent gates,
+each sufficient on its own:
+
+| # | Gate | Blocks |
+|---|---|---|
+| a | `dev` is true | any built bundle — Vite inlines `false`, so `npm run build` dead-code-eliminates the check to `return false` and the route can only 404 in prod *and* staging |
+| b | `DEV_LOGIN` is truthy (`1/true/on/yes`) | a plain local `npm run dev`, which has it off by default |
+| c | `NODE_ENV` is not `production` | production-mode processes |
+| d | no `FLY_APP_NAME` / `FLY_MACHINE_ID` / `FLY_ALLOC_ID` | a dev server started on a Fly machine |
+| e | `PUBLIC_SITE_URL` is loopback or unset | anything pointed at a real origin |
+
+Gate (a) is the load-bearing one; (b)–(e) only matter if someone runs `vite dev` on a
+server. If you ever need to verify: `npm run build` then read
+`.svelte-kit/output/server/entries/endpoints/auth/dev-login/_server.ts.js` — `devLoginEnabled`
+should be literally `return false`.
+
+### 3. Screenshot pages
+
+```bash
+DEV_LOGIN=1 npm run preview:shots -- / /me
+```
+
+`scripts/preview.mjs` boots `vite dev`, waits for `/health`, launches the pre-installed
+headless Chromium, signs in via dev-login, then navigates and captures each page into
+`preview-shots/` (gitignored). It reuses one tab so the session cookie carries across
+pages, and waits for network idle rather than a fixed delay — these pages hydrate and then
+fetch their real data from `/api/*`, so `load` fires well before there's anything to look
+at. Page errors are printed per shot.
+
+```
+--no-login        skip dev-login and shoot the signed-out site
+--out DIR         output directory (default preview-shots)
+--port N          dev-server port (default 5173)
+--width/--height  viewport (default 1440x900)
+--no-full-page    viewport-only instead of full-page capture
+PREVIEW_VERBOSE=1 stream the vite log
+```
+
+It has **no npm dependencies** — it drives Chromium over the DevTools protocol using
+Node's built-in `WebSocket` (Node 22+). That's deliberate: adding Playwright just to take a
+PNG would pull a browser-download postinstall into every `npm ci` on the deploy image. It
+finds the browser under `PLAYWRIGHT_BROWSERS_PATH` (default `/opt/pw-browsers`), preferring
+the headless shell; set `CHROMIUM_PATH` to override.
+
+**Network egress:** the machine running this needs to reach `<ref>.supabase.co`. In a
+sandboxed environment that host must be on the egress allow-list, or every page renders
+correctly but comes up empty — the shell and styling are fine and the data is missing,
+which is a confusingly quiet failure. Check it with:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' "$SUPABASE_URL/rest/v1/" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY"
+```
+
+`200`/`401` means reachable; `403` with `Host not in allowlist` is the egress policy.

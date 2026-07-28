@@ -8,3 +8,4 @@ build
 package-lock.json.bak
 claude.md
 db/migrations/
+preview-shots
