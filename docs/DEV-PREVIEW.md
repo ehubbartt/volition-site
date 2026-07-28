@@ -162,9 +162,27 @@ at. Page errors are printed per shot.
 --out DIR         output directory (default preview-shots)
 --port N          dev-server port (default 5173)
 --width/--height  viewport (default 1440x900)
---no-full-page    viewport-only instead of full-page capture
+--full-page       capture the whole scroll height instead of the viewport
+--max-height N    cap for --full-page (default 8000)
 PREVIEW_VERBOSE=1 stream the vite log
 ```
+
+Viewport capture is the default because full-page on a list-heavy page is rarely what you
+want — the signed-in home page runs to ~19,000px of member table, which is an unreadable
+strip. `--full-page` grows the viewport to the content height rather than using CDP's
+`captureBeyondViewport`, which leaves the page background painted at the original height
+and puts a black band under the fold.
+
+Two things it does so a screenshot can be trusted to be the page it claims:
+
+- **It waits for the navigation to commit** before any settling. `networkIdle` arms its
+  quiet timer immediately, so on a slow-starting navigation the whole wait could be
+  satisfied by the page being navigated *away from* — saving the old page under the new
+  page's filename.
+- **It re-tries a navigation that lands elsewhere**, then warns loudly if the final URL
+  still isn't what you asked for. Some redirects are real (signed-out `/me` → `/`), but
+  `readSession` fails *closed* — a transient Supabase read error signs the request out and
+  bounces it identically. Retrying absorbs the blip; the warning means look closer.
 
 It has **no npm dependencies** — it drives Chromium over the DevTools protocol using
 Node's built-in `WebSocket` (Node 22+). That's deliberate: adding Playwright just to take a

@@ -27,13 +27,15 @@ function parseArgs(argv) {
 		width: 1440,
 		height: 900,
 		login: true,
-		fullPage: true,
+		fullPage: false,
+		maxHeight: 8000,
 		timeout: 45_000
 	};
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
 		if (a === '--no-login') opts.login = false;
-		else if (a === '--no-full-page') opts.fullPage = false;
+		else if (a === '--full-page') opts.fullPage = true;
+		else if (a === '--max-height') opts.maxHeight = Number(argv[++i]);
 		else if (a === '--out') opts.out = argv[++i];
 		else if (a === '--port') opts.port = Number(argv[++i]);
 		else if (a === '--width') opts.width = Number(argv[++i]);
@@ -311,21 +313,68 @@ async function main() {
 	});
 	await cdp.send('Runtime.enable', {}, sessionId);
 
-	const goto = async (path) => {
-		const idle = networkIdle(cdp, sessionId);
-		await cdp.send('Page.navigate', { url: `${origin}${path}` }, sessionId);
-		await idle;
+	const evaluate = async (expression) => {
 		const { result } = await cdp.send(
 			'Runtime.evaluate',
-			{ expression: 'location.pathname + location.search', returnByValue: true },
+			{ expression, returnByValue: true, awaitPromise: true },
 			sessionId
 		);
 		return result.value;
 	};
 
+	// Network idle alone is not "ready" here. Pages render a skeleton, hydrate, THEN fetch
+	// from /api/* (the instantLoad pattern, see docs/PAGES.md) — so there's a quiet gap
+	// before the real request starts, and a screenshot taken in it catches empty
+	// placeholders. Every loading placeholder in this app carries `skeleton` in its class
+	// name, so wait for the last one to clear before shooting.
+	const waitForContent = async (timeoutMs = 15_000) => {
+		const deadline = Date.now() + timeoutMs;
+		while (Date.now() < deadline) {
+			const left = await evaluate(
+				`document.querySelectorAll('[class*="skeleton" i]').length`
+			);
+			if (!left) return true;
+			await sleep(150);
+		}
+		console.warn('[preview]   still showing skeletons after wait — data may be missing');
+		return false;
+	};
+
+	// Resolve when the NEW document has loaded. Without this gate the waits below can be
+	// satisfied by the page we're navigating away from — networkIdle arms its quiet timer
+	// immediately, so if the navigation is slow to issue its first request the whole wait
+	// completes while the old page is still on screen, and we screenshot it under the new
+	// page's filename. That produced one silently wrong /me capture before this existed.
+	const waitForLoad = (timeoutMs = 30_000) =>
+		new Promise((done) => {
+			const finish = () => {
+				clearTimeout(timer);
+				off();
+				done();
+			};
+			const off = cdp.on((msg) => {
+				if (msg.sessionId === sessionId && msg.method === 'Page.loadEventFired') finish();
+			});
+			const timer = setTimeout(finish, timeoutMs);
+		});
+
+	// waitContent is off for the sign-in hop: it only matters for a page we're about to
+	// photograph, and running it there just warns about the landing page's skeletons.
+	const goto = async (path, { waitContent = true } = {}) => {
+		const loaded = waitForLoad();
+		await cdp.send('Page.navigate', { url: `${origin}${path}` }, sessionId);
+		await loaded;
+		await networkIdle(cdp, sessionId);
+		if (waitContent) await waitForContent();
+		// Content that only mounted once the data arrived (images, wiki sprites) starts
+		// its own requests — settle once more now that they've been kicked off.
+		await networkIdle(cdp, sessionId, { quietMs: 500, timeoutMs: 10_000 });
+		return await evaluate('location.pathname + location.search');
+	};
+
 	// 4. Sign in first, so the screenshots show the signed-in pages.
 	if (opts.login) {
-		const landed = await goto('/auth/dev-login?next=/');
+		const landed = await goto('/auth/dev-login?next=/', { waitContent: false });
 		if (landed?.startsWith('/auth/dev-login')) {
 			throw new Error(
 				'dev-login did not sign in (still on /auth/dev-login). Is DEV_LOGIN set, and does a vs_users row exist for the configured Discord id?'
@@ -338,20 +387,60 @@ async function main() {
 	const results = [];
 	for (const path of opts.pages) {
 		const before = consoleErrors.length;
-		const landed = await goto(path);
+		// Retry a navigation that lands somewhere else. Some redirects are legitimate
+		// (signed-out /me → /), but a transient Supabase read makes readSession fail
+		// closed and bounce an authenticated request the same way — that's recoverable,
+		// and without a retry the shot silently saves the wrong page under this name.
+		let landed = await goto(path);
+		for (let attempt = 1; landed !== path && attempt <= 2; attempt++) {
+			console.warn(`[preview]   landed on ${landed}, expected ${path} — retry ${attempt}/2`);
+			landed = await goto(path);
+		}
 		// A little extra settle for fonts/images that resolve after the last response.
 		await sleep(400);
-		const { data } = await cdp.send(
-			'Page.captureScreenshot',
-			{ format: 'png', captureBeyondViewport: opts.fullPage },
-			sessionId
-		);
+
+		// Full page: grow the VIEWPORT to the content height and shoot normally, rather
+		// than using captureBeyondViewport — the latter leaves the page background painted
+		// at the original viewport height, so anything taller comes out with a black band
+		// below the fold. Clamped, because a long list (the home member table) can run to
+		// 20k px and produce an unreadable strip.
+		let resized = false;
+		if (opts.fullPage) {
+			const full = await evaluate('document.documentElement.scrollHeight');
+			const height = Math.min(full, opts.maxHeight);
+			if (full > opts.maxHeight) {
+				console.warn(
+					`[preview]   page is ${full}px tall — truncated to ${opts.maxHeight} (raise with --max-height)`
+				);
+			}
+			await cdp.send(
+				'Emulation.setDeviceMetricsOverride',
+				{ width: opts.width, height, deviceScaleFactor: 1, mobile: false },
+				sessionId
+			);
+			resized = true;
+			await sleep(250);
+		}
+
+		const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' }, sessionId);
+
+		if (resized) {
+			await cdp.send(
+				'Emulation.setDeviceMetricsOverride',
+				{ width: opts.width, height: opts.height, deviceScaleFactor: 1, mobile: false },
+				sessionId
+			);
+		}
 		const name = `${path === '/' ? 'home' : path.replace(/^\/|\/$/g, '').replace(/[^\w.-]+/g, '-')}.png`;
 		const file = join(outDir, name);
 		await writeFile(file, Buffer.from(data, 'base64'));
 		const errs = consoleErrors.slice(before);
 		results.push({ path, landed, file, errors: errs });
-		console.log(`[preview] ${path} → ${file}${landed !== path ? ` (landed on ${landed})` : ''}`);
+		if (landed !== path) {
+			console.warn(`[preview] ⚠ ${path} → ${file} — THIS IS ${landed}, not ${path}`);
+		} else {
+			console.log(`[preview] ${path} → ${file}`);
+		}
 		for (const e of errs) console.warn(`[preview]   page error: ${e.split('\n')[0]}`);
 	}
 
