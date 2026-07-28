@@ -82,15 +82,31 @@ export async function readSession(
 		return { user: cached.user, sessionId };
 	}
 
-	const { data, error } = await db()
-		.from('vs_sessions')
-		.select(
-			'id, expires_at, vs_users(id, discord_id, discord_username, rsn, clan_allegiance, account_type, welcome_pack_granted)'
-		)
-		.eq('id', sessionId)
-		.maybeSingle();
+	const read = () =>
+		db()
+			.from('vs_sessions')
+			.select(
+				'id, expires_at, vs_users(id, discord_id, discord_username, rsn, clan_allegiance, account_type, welcome_pack_granted)'
+			)
+			.eq('id', sessionId)
+			.maybeSingle();
 
-	if (error || !data) {
+	// A FAILED read and an ABSENT row are different answers, and conflating them signs
+	// people out over a network blip: `error` means we don't know, `!data` means the
+	// session is definitively gone. Retry once before giving up — a transient Supabase
+	// failure would otherwise bounce an authenticated request exactly like a real auth
+	// failure (it redirects to /, which reads as "randomly logged out").
+	let { data, error } = await read();
+	if (error) ({ data, error } = await read());
+
+	if (error) {
+		// Still unknown. Don't touch the cache — dropping the entry here throws away good
+		// state and guarantees the next request repeats the same failing round-trip.
+		console.error(`[auth] session read failed: ${error.message}`);
+		return null;
+	}
+
+	if (!data) {
 		sessionCache.delete(sessionId);
 		return null;
 	}

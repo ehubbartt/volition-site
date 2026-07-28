@@ -12,6 +12,12 @@ row, and sets the `vs_session` HTTP-only cookie. First-time users go to `/onboar
 cache, invalidated on logout and on any non-GET from that session). Logout is **POST-only**
 (a GET logout is CSRF/prefetch-triggerable).
 
+The session read distinguishes a **failed** lookup from an **absent** one: a Supabase error
+means "we don't know" and is retried once (and never evicts the cache), while a genuinely
+missing row means the session is gone and does. Conflating the two signed people out over a
+transient network blip — an authenticated request would redirect to `/` exactly like a real
+auth failure, which reads as "randomly logged out".
+
 **Local-only shortcut.** `GET /auth/dev-login` skips the OAuth round-trip when running
 `vite dev` with `DEV_LOGIN` set, so visual checks can run against signed-in pages. It
 creates a normal `vs_sessions` row for an existing `vs_users` row and **grants no roles of

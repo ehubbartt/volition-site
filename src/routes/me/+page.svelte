@@ -467,6 +467,8 @@
 		margin-top: 0.6rem;
 	}
 	.theme-option {
+		/* Positioning context for the visually-hidden input below. */
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		gap: 0.3rem;
@@ -485,8 +487,25 @@
 		border-color: var(--accent);
 		background: var(--accent-soft);
 	}
+	/* Visually hidden, but still FOCUSABLE and exposed to assistive tech. `display: none`
+	   removes the input from the accessibility tree entirely, which made the whole picker
+	   unreachable by keyboard and screen reader (and invisible to role-based queries in
+	   the e2e tests). The label below carries the visible state. */
 	.theme-option input {
-		display: none;
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		padding: 0;
+		border: 0;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+	/* Focus lands on the hidden input, so surface it on the label the user can see. */
+	.theme-option:has(input:focus-visible) {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
 	}
 	.swatches {
 		display: flex;

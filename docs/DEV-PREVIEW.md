@@ -176,10 +176,13 @@ Assert on *data*, not just on rendering. A page that renders perfectly with ever
 empty is precisely what a broken DB connection produces, and a render-only check sails
 straight past it — see `e2e/smoke.spec.ts`.
 
-One gotcha worth knowing before writing selectors: several controls hide their real input
-with `display: none` and style the surrounding `<label>` (the `/me` theme picker does this),
-which drops them out of the accessibility tree. `getByRole('radio')` cannot see them and
-`.check()` cannot act on them — click the label, as a user would.
+One gotcha worth knowing before writing selectors: controls that hide their real input and
+style the surrounding `<label>` instead. If the input is `display: none` it is gone from the
+accessibility tree entirely — `getByRole` can't see it, and neither keyboard nor screen
+reader can operate it. That's a bug to fix, not to work around (the `/me` theme picker used
+to do this). The correct pattern is visually-hidden-but-focusable (1px + `clip-path`), which
+`getByRole` *can* find — but it still isn't clickable, so `.check()` times out waiting for
+visibility. Drive those the way a keyboard user does: `.focus()` then `Space`.
 
 ### 4. Screenshot pages
 

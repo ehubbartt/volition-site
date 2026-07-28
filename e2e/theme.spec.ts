@@ -6,15 +6,37 @@ import { test, expect } from '@playwright/test';
 // row — but the path it exercises (enhance → ?/action → cookie → hooks.server.ts →
 // <html data-theme>) is the same one every mutating feature here uses.
 
-const html = (page: import('@playwright/test').Page) => page.locator('html');
+type Page = import('@playwright/test').Page;
 
-// The theme radios are styled `display: none` with the surrounding <label> as the
-// visible control, which drops them out of the accessibility tree — getByRole('radio')
-// cannot see them, and .check() cannot act on them. So click the label, which is what a
-// user does anyway. (That styling is also why the picker is unreachable by keyboard and
-// screen reader; a visually-hidden input would fix both. Not changed here.)
-const themeOption = (page: import('@playwright/test').Page, name: RegExp) =>
-	page.locator('.theme-option').filter({ hasText: name });
+const html = (page: Page) => page.locator('html');
+const themeRadio = (page: Page, name: RegExp) => page.getByRole('radio', { name });
+
+// The input is visually hidden (1px, clipped) with the label as the visible control, so
+// it is focusable but not clickable — `.check()` would time out waiting for it to become
+// visible. Select it the way a keyboard user does: focus, then Space. That also exercises
+// the interaction that `display: none` used to make impossible.
+async function pickTheme(page: Page, name: RegExp) {
+	const radio = themeRadio(page, name);
+	await radio.focus();
+	await page.keyboard.press('Space');
+	await expect(radio).toBeChecked();
+}
+
+test('the theme picker is reachable by role', async ({ page }) => {
+	await page.goto('/me');
+	await expect(page.locator('.me-skeleton')).toHaveCount(0);
+
+	// Guards the accessibility fix: these inputs used to be `display: none`, which drops
+	// them out of the accessibility tree — unreachable by keyboard and screen reader, and
+	// invisible to role queries. If someone reverts that styling, this fails.
+	await expect(themeRadio(page, /old school/i)).toBeAttached();
+	await expect(themeRadio(page, /emberforge/i)).toBeAttached();
+	await expect(themeRadio(page, /clan hall/i)).toBeAttached();
+
+	// And focusable, which is the part `display: none` broke.
+	await themeRadio(page, /old school/i).focus();
+	await expect(themeRadio(page, /old school/i)).toBeFocused();
+});
 
 test('picking a theme persists across a reload', async ({ page }) => {
 	await page.goto('/me');
@@ -24,7 +46,7 @@ test('picking a theme persists across a reload', async ({ page }) => {
 	const target = original === 'ember' ? 'royal' : 'ember';
 	const label = target === 'ember' ? /emberforge/i : /clan hall/i;
 
-	await themeOption(page, label).click();
+	await pickTheme(page, label);
 
 	// Applied optimistically on the client…
 	await expect(html(page)).toHaveAttribute('data-theme', target);
@@ -39,7 +61,7 @@ test('picking a theme persists across a reload', async ({ page }) => {
 	if (original) {
 		const back =
 			original === 'ember' ? /emberforge/i : original === 'royal' ? /clan hall/i : /old school/i;
-		await themeOption(page, back).click();
+		await pickTheme(page, back);
 		await expect(html(page)).toHaveAttribute('data-theme', original);
 	}
 });
