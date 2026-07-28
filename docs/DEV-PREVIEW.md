@@ -92,6 +92,33 @@ Since the scripts are idempotent, you can also re-apply the whole set to staging
 catch it up. (`apply.sh` runs `psql` with `ON_ERROR_STOP`, so a bad statement fails loudly
 instead of half-applying.)
 
+### `apply.sh` needs a real machine — it can't run from a sandboxed container
+
+`apply.sh` speaks the Postgres wire protocol over raw TCP (port 5432). That works from a
+laptop, but **not from a sandboxed/remote dev container whose egress is limited to HTTPS**,
+which is how the hosted coding agents run. There, connections to the pooler hang and then
+reset even though DNS resolves and `STAGING_DB_URL` is set correctly — the port is blocked,
+not the credentials.
+
+The tell is that port 443 to the same project works while 5432 and 6543 do not:
+
+```bash
+# resolves fine, then hangs — the DB port is not reachable
+psql "$STAGING_DB_URL" -c 'select 1'
+# but the PostgREST API on 443 answers immediately
+curl -s -o /dev/null -w '%{http_code}\n' "$SUPABASE_URL/rest/v1/" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY"
+```
+
+Don't burn time re-checking the connection string, the password encoding, or the grants when
+you see this — none of them are the cause, and no `sslmode`/pooler-host variation gets around
+a closed port.
+
+**Apply schema changes from the Supabase dashboard → SQL Editor instead.** Paste the
+`db/scripts/*.sql` file and run it; the scripts are idempotent, so this is equivalent to what
+`apply.sh` would have done. Everything that talks to Supabase over HTTPS — the dev server,
+`npm run test:e2e`, `npm run preview:shots`, and any `SUPABASE_URL`-based row reads and writes
+— works normally in these containers. It is only DDL that needs the dashboard.
+
 ## Pointing the staging site at the staging DB
 
 The app reads `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (server-only; see
@@ -224,6 +251,20 @@ curl -s "$SUPABASE_URL/rest/v1/vs_users?select=discord_id&limit=1" \
 | `403 Host not in allowlist` | sandboxed egress policy — add `<ref>.supabase.co` to it |
 | `42501 permission denied for schema public` | the grants a clone wiped — see § Role grants after a clone |
 | curl works but the dev server still can't connect | Node's `fetch` (what supabase-js uses) ignores `HTTPS_PROXY` unless `NODE_USE_ENV_PROXY=1`, so it goes direct and gets refused while curl succeeds. `preview.mjs` sets this for the dev server whenever a proxy is configured; set it yourself for a bare `npm run dev` behind one |
+| `psql` / `db/apply.sh` hangs, then resets | the DB port isn't reachable from a sandboxed container — see § `apply.sh` needs a real machine |
+
+#### An unexplained signed-out run
+
+While this harness was being built, roughly **1 run in 4** came up signed out: the home page
+rendered its logged-out state and `/me` bounced to `/`. It correlated with freshly booted
+`vite dev` servers and was consistent for a whole run rather than flickering per request.
+
+The root cause was never found. Ruled out: a bad service-role key, missing grants, the egress
+proxy, navigation timing in the specs, and a stale server holding the port. Two changes
+partly cover it — `readSession` no longer treats a failed lookup as "no such session" (it
+retries once and keeps the cache), and the Playwright config retries once — and it has not
+recurred since, including on a cold container. It was never explained, though, so if you see
+it again treat it as a real lead rather than flakiness.
 
 To confirm the key itself is a live service-role key, decode its claims (it's a JWT):
 

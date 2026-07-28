@@ -9,6 +9,10 @@ set -euo pipefail
 #
 # Reads Session-pooler connection strings from the environment (include ?sslmode=require):
 #   PROD_DB_URL, STAGING_DB_URL
+#
+# Needs raw TCP to port 5432. In a sandboxed dev container that only allows HTTPS egress,
+# this hangs and resets no matter how correct the URL is — apply the SQL from the Supabase
+# dashboard's SQL Editor there instead. See docs/DEV-PREVIEW.md.
 # Optional:
 #   PG_BIN=/usr/local/opt/libpq/bin   dir holding a v15+ psql (`brew install libpq`)
 #
