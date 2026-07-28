@@ -52,6 +52,7 @@ whose names are fixed by the tooling that loads them.
 | Site onboarding flow (the `/welcome/[token]` join) | [`docs/ONBOARDING.md`](docs/ONBOARDING.md) |
 | The Dink drop-tracking pipeline | [`docs/event-builder-and-dink-tracking.md`](docs/event-builder-and-dink-tracking.md) |
 | Deploying / configuring staging | [`docs/DEPLOY-STAGING.md`](docs/DEPLOY-STAGING.md) |
+| Cloning prod → staging / keeping staging's data & schema in sync | [`docs/DEV-PREVIEW.md`](docs/DEV-PREVIEW.md) |
 | Outstanding ops (RLS lockdown, prod ship) | [`docs/PENDING-OPS.md`](docs/PENDING-OPS.md) |
 
 ## At a glance
