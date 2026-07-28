@@ -60,8 +60,9 @@ whose names are fixed by the tooling that loads them.
 - **Stack:** SvelteKit 2 + Svelte 5 (runes), TypeScript, `adapter-node`, Fly.io (Node 22),
   Supabase (`@supabase/supabase-js`, server-side only).
 - **Commands:** `npm run dev`, `npm run build`, `npm run check` (svelte-check — run before
-  pushing; there is no automated test suite), `npm run preview:shots -- / /me` (boot + screenshot
-  pages locally against staging — see [`docs/DEV-PREVIEW.md`](docs/DEV-PREVIEW.md)).
+  pushing), `npm run test:e2e` (Playwright end-to-end against staging, specs in `e2e/`),
+  `npm run preview:shots -- / /me` (screenshot pages locally). Testing setup:
+  [`docs/DEV-PREVIEW.md`](docs/DEV-PREVIEW.md).
 - **Non-negotiables:** site tables are `vs_`-prefixed; DB access is server-only
   (`src/lib/server/`); roles come from env allow-lists + `vs_admin_roles` grants; form
   actions use `use:enhance`; styling uses the CSS tokens in `src/app.css`; hand-applied SQL

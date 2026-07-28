@@ -9,3 +9,6 @@ package-lock.json.bak
 claude.md
 db/migrations/
 preview-shots
+e2e/.auth
+test-results
+playwright-report

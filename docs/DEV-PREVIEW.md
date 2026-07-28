@@ -144,51 +144,66 @@ server. If you ever need to verify: `npm run build` then read
 `.svelte-kit/output/server/entries/endpoints/auth/dev-login/_server.ts.js` — `devLoginEnabled`
 should be literally `return false`.
 
-### 3. Screenshot pages
+### 3. End-to-end tests
 
 ```bash
-DEV_LOGIN=1 npm run preview:shots -- / /me
+npm run test:e2e            # headless
+npm run test:e2e:ui         # interactive runner
+npm run test:e2e:report     # last HTML report
 ```
 
-`scripts/preview.mjs` boots `vite dev`, waits for `/health`, launches the pre-installed
-headless Chromium, signs in via dev-login, then navigates and captures each page into
-`preview-shots/` (gitignored). It reuses one tab so the session cookie carries across
-pages, and waits for network idle rather than a fixed delay — these pages hydrate and then
-fetch their real data from `/api/*`, so `load` fires well before there's anything to look
-at. Page errors are printed per shot.
+Playwright (`@playwright/test`), specs in `e2e/`. `playwright.config.ts` boots `vite dev`
+itself (`webServer`), so there is nothing to start by hand — just have the staging env vars
+exported. `e2e/auth.setup.ts` runs first, signs in through dev-login once, and saves the
+session to `e2e/.auth/user.json`; every other spec starts from that state.
+
+Notes on how it's wired:
+
+- **The browser is the one already on disk.** Playwright pins a Chromium revision it would
+  normally download; the config points `executablePath` at whatever `chromium-*` build sits
+  under `PLAYWRIGHT_BROWSERS_PATH` instead (override with `CHROMIUM_PATH`). Revisions don't
+  need to match — this image ships 1194 and drives fine under the 1234 Playwright expects.
+  So **never run `npx playwright install`**; nothing needs downloading.
+- **It is not in the production image.** `@playwright/test` is a devDependency with no
+  install script, so `npm ci --include=dev` in the Dockerfile's build stage costs a few MB
+  and downloads no browsers, and `npm prune --omit=dev` strips it before the final stage.
+- **One worker, no parallelism.** These run against a shared database; parallel writes
+  across workers would race.
+- **One retry by default.** `readSession` fails *closed*, so a transient Supabase read
+  signs a request out and redirects it exactly like a real auth failure.
+
+Assert on *data*, not just on rendering. A page that renders perfectly with everything
+empty is precisely what a broken DB connection produces, and a render-only check sails
+straight past it — see `e2e/smoke.spec.ts`.
+
+One gotcha worth knowing before writing selectors: several controls hide their real input
+with `display: none` and style the surrounding `<label>` (the `/me` theme picker does this),
+which drops them out of the accessibility tree. `getByRole('radio')` cannot see them and
+`.check()` cannot act on them — click the label, as a user would.
+
+### 4. Screenshot pages
+
+```bash
+npm run preview:shots -- / /me
+```
+
+`scripts/preview.mjs` boots `vite dev`, signs in via dev-login, and captures each page into
+`preview-shots/` (gitignored). It is only the camera — for clicking, filling forms, or
+asserting anything, write a spec in `e2e/` instead.
 
 ```
 --no-login        skip dev-login and shoot the signed-out site
 --out DIR         output directory (default preview-shots)
 --port N          dev-server port (default 5173)
 --width/--height  viewport (default 1440x900)
---full-page       capture the whole scroll height instead of the viewport
---max-height N    cap for --full-page (default 8000)
-PREVIEW_VERBOSE=1 stream the vite log
+--full-page       whole scroll height instead of the viewport
 ```
 
-Viewport capture is the default because full-page on a list-heavy page is rarely what you
-want — the signed-in home page runs to ~19,000px of member table, which is an unreadable
-strip. `--full-page` grows the viewport to the content height rather than using CDP's
-`captureBeyondViewport`, which leaves the page background painted at the original height
-and puts a black band under the fold.
+Viewport capture is the default because full-page on a list-heavy page is rarely useful —
+the signed-in home page runs to ~19,000px of member table, an unreadable strip.
 
-Two things it does so a screenshot can be trusted to be the page it claims:
-
-- **It waits for the navigation to commit** before any settling. `networkIdle` arms its
-  quiet timer immediately, so on a slow-starting navigation the whole wait could be
-  satisfied by the page being navigated *away from* — saving the old page under the new
-  page's filename.
-- **It re-tries a navigation that lands elsewhere**, then warns loudly if the final URL
-  still isn't what you asked for. Some redirects are real (signed-out `/me` → `/`), but
-  `readSession` fails *closed* — a transient Supabase read error signs the request out and
-  bounces it identically. Retrying absorbs the blip; the warning means look closer.
-
-It has **no npm dependencies** — it drives Chromium over the DevTools protocol using
-Node's built-in `WebSocket` (Node 22+). That's deliberate: adding Playwright just to take a
-PNG would pull a browser-download postinstall into every `npm ci` on the deploy image. It
-finds the browser under `PLAYWRIGHT_BROWSERS_PATH` (default `/opt/pw-browsers`), preferring
-the headless shell; set `CHROMIUM_PATH` to override.
+It warns `⚠ THIS IS /x, not /y` when a page redirects somewhere other than what you asked
+for, so a shot is never silently the wrong page.
 
 ### Troubleshooting
 
