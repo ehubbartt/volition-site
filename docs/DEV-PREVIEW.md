@@ -54,6 +54,29 @@ Only `public` is copied — never the Supabase-managed `auth` / `storage` schema
 those can break the project). Staging therefore gets a real copy of member data; fine for
 our own clan, just be aware.
 
+### Role grants after a clone
+
+`pg_restore --clean --no-privileges` DROPs every object and brings it back with **no
+grants**, so Supabase's API roles lose access to schema `public`. PostgREST then fails
+every request with:
+
+```
+{"code":"42501","message":"permission denied for schema public"}
+```
+
+That reads like a bad service-role key — it isn't; the key is fine and the grants are
+gone. Every consumer (site, bot, Dink worker) breaks at once, so **check grants before
+you go hunting for a key problem.** `clone-from-prod.sh` now re-applies
+[`db/scripts/restore_supabase_grants.sql`](../db/scripts/restore_supabase_grants.sql)
+automatically at the end of each restore. On a database cloned before that change, apply
+it once by hand:
+
+```bash
+db/apply.sh --staging db/scripts/restore_supabase_grants.sql
+```
+
+or paste the file into the Supabase dashboard → **SQL Editor** (no local `psql` needed).
+
 ## Keep the schema in sync (new tables/columns)
 
 Whenever a `db/scripts/*.sql` (or `db/functions/*.sql`) is applied to prod, apply the same
@@ -149,13 +172,27 @@ PNG would pull a browser-download postinstall into every `npm ci` on the deploy 
 finds the browser under `PLAYWRIGHT_BROWSERS_PATH` (default `/opt/pw-browsers`), preferring
 the headless shell; set `CHROMIUM_PATH` to override.
 
-**Network egress:** the machine running this needs to reach `<ref>.supabase.co`. In a
-sandboxed environment that host must be on the egress allow-list, or every page renders
-correctly but comes up empty — the shell and styling are fine and the data is missing,
-which is a confusingly quiet failure. Check it with:
+### Troubleshooting
+
+Pages render correctly but come up **empty** — right shell, right styling, no data. That
+is always the DB connection, and it's quiet because the pages fetch their data after
+hydration. Check it directly:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' "$SUPABASE_URL/rest/v1/" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY"
+curl -s "$SUPABASE_URL/rest/v1/vs_users?select=discord_id&limit=1" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
 ```
 
-`200`/`401` means reachable; `403` with `Host not in allowlist` is the egress policy.
+| Symptom | Cause |
+|---|---|
+| `403 Host not in allowlist` | sandboxed egress policy — add `<ref>.supabase.co` to it |
+| `42501 permission denied for schema public` | the grants a clone wiped — see § Role grants after a clone |
+| curl works but the dev server still can't connect | Node's `fetch` (what supabase-js uses) ignores `HTTPS_PROXY` unless `NODE_USE_ENV_PROXY=1`, so it goes direct and gets refused while curl succeeds. `preview.mjs` sets this for the dev server whenever a proxy is configured; set it yourself for a bare `npm run dev` behind one |
+
+To confirm the key itself is a live service-role key, decode its claims (it's a JWT):
+
+```bash
+node -e "console.log(JSON.parse(Buffer.from(process.env.SUPABASE_SERVICE_ROLE_KEY.split('.')[1],'base64url')))"
+```
+
+Expect `role: "service_role"`, a matching `ref`, and an `exp` in the future.

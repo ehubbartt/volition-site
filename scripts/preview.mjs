@@ -213,11 +213,24 @@ async function main() {
 
 	// 1. vite dev. PUBLIC_SITE_URL is forced to the local origin because hooks.server.ts
 	//    308-redirects every off-canonical host — an https value would bounce us away.
+	//
+	//    Behind an egress proxy (sandboxed dev containers), Node's built-in fetch — which
+	//    is what supabase-js uses — ignores HTTPS_PROXY unless NODE_USE_ENV_PROXY is set,
+	//    so every DB call goes direct and gets refused while curl to the same host works.
+	//    Opt in when a proxy is configured; NO_PROXY already exempts loopback, so the
+	//    dev server's own traffic is unaffected. No-op when no proxy is set.
+	const proxyEnv = {};
+	if ((process.env.HTTPS_PROXY || process.env.https_proxy) && !process.env.NODE_USE_ENV_PROXY) {
+		proxyEnv.NODE_USE_ENV_PROXY = '1';
+		console.log('[preview] egress proxy detected — enabling NODE_USE_ENV_PROXY for the dev server.');
+	}
+
 	console.log(`[preview] starting vite dev on ${origin} …`);
 	const vite = spawn('npx', ['vite', 'dev', '--port', String(opts.port), '--strictPort'], {
 		cwd: ROOT,
 		env: {
 			...process.env,
+			...proxyEnv,
 			PUBLIC_SITE_URL: origin,
 			DEV_LOGIN: opts.login ? '1' : (process.env.DEV_LOGIN ?? ''),
 			NODE_ENV: 'development'
