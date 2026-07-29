@@ -328,6 +328,7 @@ export interface BattleshipView extends Omit<BattleshipSnapshot, 'sides'> {
 	sides: RedactedSide[];
 	/** The viewer's side, or null for a spectator. */
 	viewerSide: number | null;
+	viewerUserId: string | null;
 	viewerIsCaptain: boolean;
 	viewerIsAdmin: boolean;
 }
@@ -372,6 +373,7 @@ export function redactFor(
 		...snap,
 		sides,
 		viewerSide,
+		viewerUserId: viewer.userId,
 		viewerIsCaptain: !!side && side.captainUserId === viewer.userId,
 		viewerIsAdmin: viewer.isAdmin
 	};

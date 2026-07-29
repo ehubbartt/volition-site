@@ -143,6 +143,29 @@ poll-on-read backstop stays drain-only so it remains cheap.
 
 ---
 
+## The one non-item recording path (Battleship)
+
+Everything above is **item-driven**: a drop is recorded only if the item is in the active
+tracked-item allowlist. The Battleship event scores drops by **value** and ignores the item
+entirely, so no allowlist can express what it needs ("any drop over 5m") and it gets a
+second admission rule in the proxy:
+
+- `vs_value_tracked_rsns` (a view in `db/scripts/battleship.sql`) names the members in a
+  **live battle** and the gp floor for each. It only emits players whose event is `open`
+  and in the `battle` phase, so recording stops by itself when a game ends — no prune job,
+  same declarative style as the self-test pin's expiry.
+- The proxy records a loot stack when the item is tracked **or** the dropper has a floor
+  and that stack clears it. Per-stack, never the summed total. A missing or erroring view
+  degrades to "nobody is value-tracked", so this path can't break bingo tracking.
+- `processDinkDrops` arms the bomb **before and independently of** tile matching, so one
+  drop can credit a bingo tile, a personal-board tile *and* arm a bomb. Idempotency comes
+  from `unique (vs_battleship_arsenal.event_id, drop_key)`, which matters because the
+  reconcile pass deliberately re-runs recent drops.
+- Such a drop is stamped with the verdict **`bomb`** rather than `no_tile`, so it doesn't
+  read as a failure in `/admin/dink-drops`.
+
+Full ruleset and implementation map: [`BATTLESHIP.md`](BATTLESHIP.md).
+
 ## Tile completion types — WATCH BOTH WAYS
 
 A drop credits a tile if the item id/name matches, **regardless of how it arrived** — a

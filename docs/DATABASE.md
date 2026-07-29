@@ -47,6 +47,12 @@ or change the access/authorization model.
   (completions, swaps, path choices) and `vs_duo_tiles`. Postgres function
   `vs_accept_invite(...)` atomically forms a team on invite accept (`db/functions/`).
 - **Bingo:** `vs_bingo_completions` (+ admin tile management).
+- **Battleship:** `vs_battleship_teams` (a side + its `fleet` jsonb),
+  `vs_battleship_shots` (one row per square fired at — `unique (event_id, target_side,
+  cell)` is the no-double-fire rule), `vs_battleship_arsenal` (earned bombs — `unique
+  (event_id, drop_key)` makes Dink intake idempotent), plus the `vs_value_tracked_rsns`
+  view the Dink proxy reads to record drops on VALUE rather than by item. See
+  [`BATTLESHIP.md`](BATTLESHIP.md).
 - **Dink tracking:** `vs_dink_drops` (recorded matched drops), `vs_dink_manual_items`
   (event-decoupled per-member tracked-item "pins", e.g. the connection self-test), and the
   live views `vs_active_player_tiles` → `vs_dink_token_items` / `vs_active_tracked_items` /
