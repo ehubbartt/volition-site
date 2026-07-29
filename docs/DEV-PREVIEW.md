@@ -89,18 +89,68 @@ db/apply.sh --staging db/scripts/your_change.sql
 ```
 
 Since the scripts are idempotent, you can also re-apply the whole set to staging anytime to
-catch it up. (`apply.sh` runs `psql` with `ON_ERROR_STOP`, so a bad statement fails loudly
-instead of half-applying.)
+catch it up. A bad statement always fails loudly instead of half-applying — see the two
+transports below for exactly how.
 
-### `apply.sh` needs a real machine — it can't run from a sandboxed container
+### How `apply.sh` reaches the database (psql, or HTTPS in a container)
 
-`apply.sh` speaks the Postgres wire protocol over raw TCP (port 5432). That works from a
-laptop, but **not from a sandboxed/remote dev container whose egress is limited to HTTPS**,
-which is how the hosted coding agents run. There, connections to the pooler hang and then
-reset even though DNS resolves and `STAGING_DB_URL` is set correctly — the port is blocked,
-not the credentials.
+`apply.sh` has two transports and picks one per target:
 
-The tell is that port 443 to the same project works while 5432 and 6543 do not:
+| Transport | Wire | Used when |
+|---|---|---|
+| `psql` | Postgres protocol, raw TCP :5432 | the database answers on that port — i.e. from a laptop |
+| Management API | plain HTTPS :443 | raw TCP is blocked — i.e. from a sandboxed dev container |
+
+On a laptop nothing changes: `psql` runs the file with `ON_ERROR_STOP`, aborting at the
+first bad statement. In a container, `apply.sh` notices the failed connection and POSTs the
+file to the Supabase Management API's query endpoint instead
+(`POST https://api.supabase.com/v1/projects/<ref>/database/query`). That path needs `SUPABASE_ACCESS_TOKEN` (a Supabase personal access token) in the
+environment; the staging project ref is read out of `STAGING_DB_URL`, or from
+`SUPABASE_STAGING_REF` if you'd rather set it explicitly.
+
+The output tells you which one ran:
+
+```
+   (STAGING_DB_URL is unreachable over TCP — falling back to the Management API)
+── applying your_change.sql → STAGING_DB_URL (Management API, project rvkrlyxdiqqlknvcbhcu) ──
+✓ done.
+```
+
+Force one with `DB_APPLY_VIA=psql` or `DB_APPLY_VIA=api` when you want to test a specific
+path. The TCP probe costs a few seconds per target before falling back; `PGCONNECT_TIMEOUT`
+(default 5) or `DB_APPLY_VIA=api` cuts that out.
+
+**The API transport is staging-only unless you deliberately open prod.** The access token is
+account-scoped — there is no staging-only Supabase token, so the same credential that
+applies to staging can reach prod. `apply.sh` therefore never derives, guesses, or defaults
+the prod project ref: `--prod` over HTTPS refuses to run unless `SUPABASE_PROD_REF` is set,
+and `--both` fails on the prod leg before staging is touched. In a container with no
+`PROD_DB_URL`, prod stays exactly as unreachable as it was before.
+
+```
+$ db/apply.sh --prod db/scripts/your_change.sql
+refusing to touch prod over HTTPS: set $SUPABASE_PROD_REF explicitly, or run this from a
+machine with raw TCP to $PROD_DB_URL
+```
+
+Two differences worth knowing about the API transport:
+
+- **It is atomic.** The whole file goes over as one statement batch, which Postgres wraps in
+  an implicit transaction, so a failure rolls the entire script back rather than stopping
+  part-way as `psql` does. Both exit non-zero with the Postgres error (and its line number)
+  on stderr; neither leaves a silent half-apply.
+- **Statements that can't run inside a transaction** — `CREATE INDEX CONCURRENTLY`,
+  `VACUUM` — need the `psql` transport, or the dashboard. Nothing in `db/` uses them today.
+
+You can still paste any `db/scripts/*.sql` into the dashboard → **SQL Editor** by hand; the
+scripts are idempotent, so it's equivalent.
+
+### Why raw TCP fails in a container
+
+In a sandboxed/remote dev container whose egress is limited to HTTPS — how the hosted coding
+agents run — connections to the pooler hang and then reset even though DNS resolves and
+`STAGING_DB_URL` is set correctly. The port is blocked, not the credentials. Port 443 to the
+same project works while 5432 and 6543 do not:
 
 ```bash
 # resolves fine, then hangs — the DB port is not reachable
@@ -111,13 +161,9 @@ curl -s -o /dev/null -w '%{http_code}\n' "$SUPABASE_URL/rest/v1/" -H "apikey: $S
 
 Don't burn time re-checking the connection string, the password encoding, or the grants when
 you see this — none of them are the cause, and no `sslmode`/pooler-host variation gets around
-a closed port.
-
-**Apply schema changes from the Supabase dashboard → SQL Editor instead.** Paste the
-`db/scripts/*.sql` file and run it; the scripts are idempotent, so this is equivalent to what
-`apply.sh` would have done. Everything that talks to Supabase over HTTPS — the dev server,
-`npm run test:e2e`, `npm run preview:shots`, and any `SUPABASE_URL`-based row reads and writes
-— works normally in these containers. It is only DDL that needs the dashboard.
+a closed port. `apply.sh` handles it for you; everything else that talks to Supabase over
+HTTPS (the dev server, `npm run test:e2e`, `npm run preview:shots`, row reads and writes) was
+never affected.
 
 ## Pointing the staging site at the staging DB
 
@@ -251,7 +297,9 @@ curl -s "$SUPABASE_URL/rest/v1/vs_users?select=discord_id&limit=1" \
 | `403 Host not in allowlist` | sandboxed egress policy — add `<ref>.supabase.co` to it |
 | `42501 permission denied for schema public` | the grants a clone wiped — see § Role grants after a clone |
 | curl works but the dev server still can't connect | Node's `fetch` (what supabase-js uses) ignores `HTTPS_PROXY` unless `NODE_USE_ENV_PROXY=1`, so it goes direct and gets refused while curl succeeds. `preview.mjs` sets this for the dev server whenever a proxy is configured; set it yourself for a bare `npm run dev` behind one |
-| `psql` / `db/apply.sh` hangs, then resets | the DB port isn't reachable from a sandboxed container — see § `apply.sh` needs a real machine |
+| `psql` hangs, then resets | the DB port isn't reachable from a sandboxed container — see § Why raw TCP fails in a container. `db/apply.sh` detects this and switches to HTTPS on its own |
+| `db/apply.sh` says `$SUPABASE_ACCESS_TOKEN is not set` | it fell back to the Management API and has no token — put a Supabase personal access token in the environment |
+| `db/apply.sh --prod` refuses over HTTPS | by design: the prod ref is never derived. See § How `apply.sh` reaches the database |
 
 #### An unexplained signed-out run
 
