@@ -663,7 +663,7 @@ export async function earnBomb(input: {
  */
 export async function activeBattleshipFor(
 	userId: string
-): Promise<{ eventId: string; side: number; tiers: Tier[]; slug: string; name: string } | null> {
+): Promise<{ eventId: string; side: number; tiers: Tier[]; slug: string; name: string; startsAt: string | null } | null> {
 	const sb = db();
 	const { data: signups } = await sb.from('vs_event_signups').select('event_id, team_id').eq('user_id', userId);
 	const rows = ((signups ?? []) as { event_id: string; team_id: string | null }[]).filter((s) => s.team_id);
@@ -671,12 +671,12 @@ export async function activeBattleshipFor(
 
 	const { data: events } = await sb
 		.from('vs_events')
-		.select('id, slug, name, structure')
+		.select('id, slug, name, structure, starts_at')
 		.eq('kind', BATTLESHIP_KIND)
 		.eq('status', 'open')
 		.in('id', rows.map((r) => r.event_id));
 
-	for (const ev of (events ?? []) as { id: string; slug: string; name: string; structure: unknown }[]) {
+	for (const ev of (events ?? []) as { id: string; slug: string; name: string; structure: unknown; starts_at: string | null }[]) {
 		const bs = readStructure(ev.structure);
 		if (bs.phase !== 'battle') continue;
 		const teamId = rows.find((r) => r.event_id === ev.id)?.team_id;
@@ -693,7 +693,8 @@ export async function activeBattleshipFor(
 			side: (side as { side: number }).side,
 			tiers: bs.tiers?.length ? bs.tiers : DEFAULT_TIERS,
 			slug: ev.slug,
-			name: ev.name
+			name: ev.name,
+			startsAt: ev.starts_at
 		};
 	}
 	return null;

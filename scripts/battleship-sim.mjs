@@ -183,6 +183,21 @@ try {
 	}
 	check('side 2 was auto-placed after not placing', snap.sides[1].placedAt !== null);
 
+	// The dink-proxy's only Battleship dependency: this view tells it whose drops to
+	// record on value alone. If it's empty, no real drop ever becomes a bomb.
+	const rsns = snap.sides.flatMap((s) => s.members).map((m) => m.rsn).filter(Boolean).map((r) => r.toLowerCase());
+	const { data: tracked } = await sb.from('vs_value_tracked_rsns').select('rsn, min_value').in('rsn', rsns);
+	check(
+		'every player is value-tracked for the proxy once the battle opens',
+		(tracked ?? []).length === new Set(rsns).size,
+		`${(tracked ?? []).length} of ${new Set(rsns).size}`
+	);
+	check(
+		'the floor served to the proxy is the tier-1 threshold',
+		(tracked ?? []).every((r) => Number(r.min_value) === snap.config.tiers[0].min_value),
+		`got ${[...new Set((tracked ?? []).map((r) => r.min_value))].join(',')}`
+	);
+
 	// ── 7. earning bombs ─────────────────────────────────────────────────────
 	step(7, 'Earn bombs from drops');
 	const tiers = snap.config.tiers;
@@ -197,6 +212,76 @@ try {
 	const second = await bs.earnBomb({ eventId, side: 1, userId: players[0].id, value: tiers[2].min_value, dropKey: dupKey, itemName: 'Twisted bow' });
 	check('the same drop mints one bomb', first.minted && !second.minted, `first=${first.minted} second=${second.minted}`);
 	check('a 50m drop is tier 3', first.tier === 3, `tier=${first.tier}`);
+
+	// ── 7a. the real Dink path ───────────────────────────────────────────────
+	// earnBomb() above is the unit; this is the integration. Write a row exactly like
+	// the proxy writes, drain it with the real consumer, and prove a bomb comes out —
+	// including that the reconcile pass (which re-runs recent drops) doesn't mint a
+	// second one.
+	step('7a', 'Arm a bomb through processDinkDrops');
+	const dink = await server.ssrLoadModule('/src/lib/server/dinkDrops.ts');
+	const dropper = snap.sides[0].members.find((m) => m.rsn);
+	const dropKey = `sim-dink-${SEED}-${Date.now().toString(36)}`;
+	const { error: dErr } = await sb.from('vs_dink_drops').insert({
+		rsn: dropper.rsn,
+		item_id: 20997,
+		item_name: 'Twisted bow',
+		quantity: 1,
+		value: tiers[2].min_value + 1,
+		source: 'Simulation',
+		dink_ts: new Date().toISOString(),
+		drop_key: dropKey,
+		notif_type: 'loot'
+	});
+	check('drop row written like the proxy would', !dErr, dErr?.message);
+
+	// The consumer drains a bounded batch of the WHOLE queue, oldest first, so on a busy
+	// database our fresh drop can sit behind a backlog. Drain until it's been seen.
+	const drainUntilProcessed = async (key) => {
+		for (let i = 0; i < 20; i++) {
+			const { data } = await sb.from('vs_dink_drops').select('processed').eq('drop_key', key).maybeSingle();
+			if (data?.processed) return true;
+			const res = await dink.processDinkDrops({ suppressFeed: true });
+			if (res.processed === 0) return false;
+		}
+		return false;
+	};
+
+	const before = (await bs.loadBattleship(SLUG)).arsenal.length;
+	check('the drop reached the consumer', await drainUntilProcessed(dropKey));
+	let afterSnap = await bs.loadBattleship(SLUG);
+	check('the drop armed a bomb', afterSnap.arsenal.length === before + 1, `${before} → ${afterSnap.arsenal.length}`);
+	const armed = afterSnap.arsenal.find((a) => a.itemName === 'Twisted bow' && a.value >= tiers[2].min_value);
+	check('it landed on the dropper\'s side and tier', !!armed && armed.side === 1 && armed.tier === 3,
+		armed ? `side=${armed.side} tier=${armed.tier}` : 'not found');
+
+	const { data: verdict } = await sb.from('vs_dink_drops').select('outcome, event_id').eq('drop_key', dropKey).maybeSingle();
+	check('the drop is stamped as a bomb, not "didn\'t credit"', verdict?.outcome === 'bomb', verdict?.outcome);
+	check('the bomb is attributed to this event', verdict?.event_id === eventId);
+
+	// The reconcile pass deliberately re-runs recent un-credited drops. Minting must be
+	// idempotent against it — this is what unique (event_id, drop_key) is for. Reset just
+	// THIS drop the way reconcile would, rather than calling the global pass, which would
+	// resurface days of unrelated rows on a shared database.
+	await sb.from('vs_dink_drops').update({ processed: false, outcome: null }).eq('drop_key', dropKey);
+	check('the re-surfaced drop was re-consumed', await drainUntilProcessed(dropKey));
+	afterSnap = await bs.loadBattleship(SLUG);
+	check('reconcile does not mint a second bomb', afterSnap.arsenal.length === before + 1,
+		`arsenal=${afterSnap.arsenal.length}`);
+
+	// A sub-threshold drop from the same player must arm nothing.
+	const smallKey = `sim-dink-small-${SEED}-${Date.now().toString(36)}`;
+	await sb.from('vs_dink_drops').insert({
+		rsn: dropper.rsn, item_id: 526, item_name: 'Bones', quantity: 1,
+		value: tiers[0].min_value - 1, source: 'Simulation',
+		dink_ts: new Date().toISOString(), drop_key: smallKey, notif_type: 'loot'
+	});
+	await drainUntilProcessed(smallKey);
+	afterSnap = await bs.loadBattleship(SLUG);
+	check('a sub-threshold drop arms nothing', afterSnap.arsenal.length === before + 1,
+		`arsenal=${afterSnap.arsenal.length}`);
+
+	await sb.from('vs_dink_drops').delete().in('drop_key', [dropKey, smallKey]);
 
 	// ── 7b. concurrency ──────────────────────────────────────────────────────
 	// The serial fight below would pass even if the guards were read-then-write, so
@@ -231,10 +316,13 @@ try {
 		`${claimed.length} claimed, ${new Set(claimed).size} distinct`);
 	check('the second bomb saw the overlap as skipped',
 		both.filter((r) => r.ok).some((r) => r.value.skipped.length > 0) || both.some((r) => !r.ok));
-	// A bomb that lost EVERY cell to the race is handed back, not burnt.
-	check('a bomb that lands nothing is refunded',
-		both.every((r) => r.ok || /still banked/.test(r.error)),
-		both.filter((r) => !r.ok).map((r) => r.error).join('; '));
+	// A bomb that wins no cell — whether the pre-flight caught it or it lost the race
+	// after claiming — must still be in the bank. Assert the bank, not the message.
+	snap = await bs.loadBattleship(SLUG);
+	const losers = overlap.filter((b, i) => !both[i].ok);
+	check('a bomb that lands nothing stays banked',
+		losers.every((b) => !snap.arsenal.find((a) => a.id === b.id)?.spentAt),
+		losers.map((_, i) => both[i].ok ? '' : both[i].error).filter(Boolean).join('; '));
 
 	// Bombs actually spent so far — the fight below adds to this, and step 9 reconciles.
 	const raceSpent = 1 + both.filter((r) => r.ok).length;
@@ -349,6 +437,12 @@ try {
 	);
 	const spentWithoutShots = spent.filter((a) => !snap.shots.some((s) => s.bombId && a.spentAt && s.tier === a.tier));
 	check('no bomb was spent without leaving a crater', spentWithoutShots.length < spent.length);
+
+	// Tracking must stop on its own when the game ends — the view is declarative, so
+	// there is no prune job to forget to run.
+	const { data: stillTracked } = await sb.from('vs_value_tracked_rsns').select('rsn').in('rsn', rsns);
+	check('players stop being value-tracked once the game is over', (stillTracked ?? []).length === 0,
+		`${(stillTracked ?? []).length} still tracked`);
 
 	// ── 10. redaction ────────────────────────────────────────────────────────
 	step(10, 'The enemy fleet must not leak to a player');
