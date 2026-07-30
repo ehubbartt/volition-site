@@ -112,6 +112,13 @@ which of their ships are sunk. Never their ship positions. This is enforced serv
 - `src/routes/admin/battleship/` — game list + creation; `[slug]/` is the tester.
 - `src/routes/events/[slug]/battleship/` — the player page (instant-nav, per
   [`PAGES.md`](PAGES.md)).
+
+> **Routing.** `/events/[slug]` **redirects** a Battleship event here. That generic page is
+> the DuoWolf pairing flow — it offers "invite them to duo" — so an event that fell through
+> to it would let players form their own duos when sides are supposed to come from the
+> captains' draft. `eventsList.ts` also counts Battleship as a signup-flow event so the
+> `/events` list shows "Sign up by" rather than treating it as solo. Both are covered by
+> `e2e/battleship.spec.ts`.
 - `db/scripts/battleship.sql` — schema. Apply with `db/apply.sh --both`.
 - `scripts/battleship-sim.mjs` — the end-to-end simulation (`npm run sim:battleship`).
 
@@ -148,6 +155,13 @@ An event with 32 people firing at once can't rely on read-then-write, so nothing
 
 Phase advance is **poll-on-read**: the first page load after the placement deadline opens
 the battle. Same pattern as personal-board VP settling — no scheduler to keep alive.
+
+**Bulk drafting is not a loop over `draftPick`.** Each `draftPick` reloads the whole
+snapshot (~15 round trips), so draining a 32-player pool one call at a time took over a
+minute and timed out the request. `autoDraftRemaining` is one load, one conditional update
+per side, and one structure write. It keeps the CAS — the update only claims rows still
+`team_id is null`, and only rows it actually claimed enter the draft log — so a captain
+picking concurrently can skew the sides by more than one but can never double-assign.
 
 ### Redaction
 

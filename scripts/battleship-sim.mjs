@@ -129,13 +129,30 @@ try {
 	});
 	check('out-of-turn pick refused', !wrongTurn.ok, wrongTurn.ok ? 'it was allowed' : wrongTurn.error);
 
+	// Pick a handful by hand (the captains' path), then bulk-draft the rest (the admin
+	// path). Both have to produce the same balanced result.
 	let guard = 0;
-	while (snap.pool.length > 0 && guard++ < PLAYERS + 5) {
+	while (snap.pool.length > Math.floor(PLAYERS / 2) && guard++ < PLAYERS + 5) {
 		const target = pick(snap.pool);
 		const res = await bs.draftPick({ eventId, side: snap.draft.turn, userId: target.userId });
 		if (!res.ok) throw new Error(`draft pick failed: ${res.error}`);
 		snap = await bs.loadBattleship(SLUG);
 	}
+	const handPicked = snap.draft.picks.length;
+
+	const bulk = await bs.autoDraftRemaining(eventId);
+	check('bulk draft drained the pool', bulk.ok, bulk.ok ? '' : bulk.error);
+	if (!bulk.ok) throw new Error(bulk.error);
+	snap = await bs.loadBattleship(SLUG);
+	check(
+		'bulk draft logged every pick it claimed',
+		snap.draft.picks.length === PLAYERS - 2,
+		`log=${snap.draft.picks.length} expected=${PLAYERS - 2} (hand-picked ${handPicked})`
+	);
+	// Re-running it on a drained pool is a no-op, not an error.
+	const again = await bs.autoDraftRemaining(eventId);
+	check('bulk draft on an empty pool is refused cleanly', !again.ok || again.value?.picked === 0,
+		again.ok ? `picked=${again.value?.picked}` : again.error);
 	check('pool is empty', snap.pool.length === 0, `pool=${snap.pool.length}`);
 	const sizes = snap.sides.map((s) => s.members.length);
 	check('sides are balanced', Math.abs(sizes[0] - sizes[1]) <= 1, `sides=${sizes.join(' vs ')}`);

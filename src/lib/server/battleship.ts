@@ -533,6 +533,68 @@ export async function draftPick(input: {
 	return okResult();
 }
 
+/**
+ * Draft the ENTIRE remaining pool in one go, alternating sides from wherever the draft
+ * is now. Used by the tester's "auto-draft the rest" and by an admin closing out a draft
+ * whose captains have gone quiet.
+ *
+ * Deliberately not a loop over draftPick(): that reloads the whole snapshot per pick
+ * (~15 round trips each), so a 32-player pool took over a minute and blew past request
+ * timeouts. This is one load, one conditional update per side, and one structure write.
+ *
+ * The CAS is kept — the update only claims rows still `team_id is null`, and only the
+ * rows it actually claimed go into the draft log. If a captain picks concurrently the
+ * sides can end up off by more than one; that's an accepted trade for a bulk admin tool.
+ */
+export async function autoDraftRemaining(eventId: string): Promise<Result<{ picked: number }>> {
+	const snap = await loadBattleshipById(eventId);
+	if (!snap) return errResult('Game not found');
+	if (snap.phase !== 'draft') return errResult('The draft is not open');
+	if (snap.pool.length === 0) return okResult({ picked: 0 });
+
+	// Continue the alternation from the picks already made.
+	const bySide = new Map<number, string[]>();
+	const order: { side: number; user_id: string }[] = [];
+	let picksMade = snap.draft.picks.length;
+	for (const p of snap.pool) {
+		const side = draftTurn(picksMade++, snap.firstSide);
+		if (!bySide.has(side)) bySide.set(side, []);
+		bySide.get(side)!.push(p.userId);
+		order.push({ side, user_id: p.userId });
+	}
+
+	const sb = db();
+	const claimed = new Set<string>();
+	for (const [side, userIds] of bySide) {
+		const teamId = snap.sides.find((s) => s.side === side)?.teamId;
+		if (!teamId) return errResult(`Side ${side} has no team`);
+		const { data, error } = await sb
+			.from('vs_event_signups')
+			.update({ team_id: teamId })
+			.eq('event_id', eventId)
+			.in('user_id', userIds)
+			.is('team_id', null)
+			.select('user_id');
+		if (error) return errResult(error.message);
+		for (const row of (data ?? []) as { user_id: string }[]) claimed.add(row.user_id);
+	}
+
+	const at = new Date().toISOString();
+	const picks = [
+		...snap.draft.picks,
+		...order.filter((o) => claimed.has(o.user_id)).map((o) => ({ ...o, at }))
+	];
+	const res = await patchStructure(eventId, { draft: { picks } });
+	if (!res.ok) return res;
+
+	// Pool drained → straight into placement, same as the last manual pick would.
+	if (claimed.size === snap.pool.length) {
+		const opened = await openPlacement(eventId);
+		if (!opened.ok) return opened;
+	}
+	return okResult({ picked: claimed.size });
+}
+
 /** Open the 1-hour placement window. Sets the deadline the battle opens at. */
 export async function openPlacement(eventId: string): Promise<Result> {
 	const snap = await loadBattleshipById(eventId);

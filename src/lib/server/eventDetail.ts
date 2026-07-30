@@ -10,6 +10,7 @@ import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 import { buildBingoDetail, type BingoDetail } from './bingoPage';
 import type { Steering } from '$lib/swrResource.svelte';
 import { DUO_WOLF_EVENT_SLUG } from './duoWolfTiles';
+import { BATTLESHIP_KIND } from './battleship';
 import { loadDuoStandings, type DuoStandings } from './duoStandings';
 
 // Builds the /events/[slug] detail payload for /api/events/[slug]. The page has NO
@@ -151,6 +152,14 @@ export async function buildEventDetail(
 	if (isTaskEvent(event.kind)) return { kind: 'redirect', to: `/event/${slug}` };
 	if ((event.status === 'preview' || event.status === 'draft') && !isAdmin(user)) {
 		return { kind: 'not_found' };
+	}
+
+	// Battleship has its own page for the whole lifecycle (signup → draft → placement →
+	// battle). It must NOT fall through to the generic detail below: that page is the
+	// DuoWolf pairing flow, so a Battleship event served there would offer players
+	// "invite them to duo" — teams come from the captains' draft, not from pairing up.
+	if (event.kind === BATTLESHIP_KIND) {
+		return { kind: 'redirect', to: `/events/${slug}/battleship` };
 	}
 
 	// Once the DuoWolf climb is LIVE (event open + its start time has arrived), the board IS

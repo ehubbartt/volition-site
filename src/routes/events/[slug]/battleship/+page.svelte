@@ -144,12 +144,22 @@
 
 		<!-- ── Signup ─────────────────────────────────────────────────── -->
 		{#if game.phase === 'signup'}
+			{@const joined = game.pool.some((p) => p.userId === game.viewerUserId)}
 			<section class="card">
 				<h2>Signups</h2>
-				<p class="muted">{game.pool.length} signed up so far.</p>
-				<form method="POST" action="?/join" use:enhance>
-					<button class="btn primary" type="submit">Join the event</button>
-				</form>
+				<p class="muted">
+					{game.pool.length} signed up so far.
+					{#if game.event.signupClosesAt}
+						Signups close {new Date(game.event.signupClosesAt).toLocaleString()}.
+					{/if}
+				</p>
+				{#if joined}
+					<p class="ok">You're in the pool. The captains will draft sides when signups close.</p>
+				{:else}
+					<form method="POST" action="?/join" use:enhance>
+						<button class="btn primary" type="submit">Join the event</button>
+					</form>
+				{/if}
 			</section>
 
 		<!-- ── Draft ──────────────────────────────────────────────────── -->
@@ -321,6 +331,32 @@
 						</div>
 					{/each}
 				</div>
+			</section>
+
+		<!-- ── Everything else: setup, or placement seen by a non-participant ── -->
+		{:else}
+			<section class="card">
+				<h2>{game.phase === 'placement' ? 'Fleets are being placed' : 'Not open yet'}</h2>
+				<p class="muted">
+					{#if game.phase === 'placement'}
+						Both sides are hiding their ships. The battle opens
+						{game.placementEndsAt
+							? `at ${new Date(game.placementEndsAt).toLocaleTimeString()}`
+							: 'shortly'}.
+					{:else}
+						This game hasn't opened for signups yet.
+					{/if}
+				</p>
+				{#if game.sides.length}
+					<div class="rosters">
+						{#each game.sides as s (s.side)}
+							<div>
+								<h3 style="color: {s.color}">{s.name} <span class="muted">({s.members.length})</span></h3>
+								<ul class="roster">{#each s.members as m (m.userId)}<li>{m.rsn ?? '—'}</li>{/each}</ul>
+							</div>
+						{/each}
+					</div>
+				{/if}
 			</section>
 		{/if}
 	{/if}

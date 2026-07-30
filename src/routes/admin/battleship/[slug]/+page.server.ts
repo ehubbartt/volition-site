@@ -2,6 +2,7 @@ import { redirect, fail, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import {
+	autoDraftRemaining,
 	draftPick,
 	fireBomb,
 	grantBomb,
@@ -114,13 +115,8 @@ export const actions: Actions = {
 		const eventId = await eventIdFor(params.slug);
 		if (!eventId) return fail(404, { error: 'Game not found' });
 
-		for (let guard = 0; guard < 500; guard++) {
-			const snap = await loadBattleship(params.slug);
-			if (!snap || snap.phase !== 'draft' || snap.pool.length === 0) break;
-			const res = await draftPick({ eventId, side: snap.draft.turn, userId: snap.pool[0].userId });
-			if (!res.ok) return fail(400, { error: res.error });
-		}
-		return { ok: true };
+		const res = await autoDraftRemaining(eventId);
+		return res.ok ? { ok: true } : fail(400, { error: res.error });
 	},
 
 	autoPlace: async ({ locals, params, request }) => {

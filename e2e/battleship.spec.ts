@@ -117,6 +117,15 @@ test.describe.serial('Battleship', () => {
 		await expect(craters).not.toHaveCount(0);
 	});
 
+	test('the generic event page never serves a Battleship event', async ({ page }) => {
+		// /events/[slug] is the DuoWolf pairing page — it offers "invite them to duo".
+		// A Battleship event reaching it would let players form duos, when sides are
+		// supposed to come from the captains' draft. It must redirect to its own page.
+		await page.goto(`/events/${SLUG}`);
+		await expect(page).toHaveURL(`/events/${SLUG}/battleship`);
+		await expect(page.getByText(/invite/i)).toHaveCount(0);
+	});
+
 	test('the player view withholds the enemy fleet', async ({ page }) => {
 		await page.goto(`/events/${SLUG}/battleship`);
 
