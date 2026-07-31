@@ -161,6 +161,14 @@ apply_to() {
 		echo "── applying $(basename "$file") → $name (psql) ──"
 		apply_via_psql "$url"
 	else
+		# An UNSET url is not the same failure as an unreachable one, and saying "run
+		# this from a machine with raw TCP" to someone sitting at exactly such a machine
+		# sends them hunting for a network problem they don't have.
+		if [ -z "$url" ] && [ -z "$ref" ]; then
+			die "\$$name is not set — export it first (see docs/DEV-PREVIEW.md § One-time setup).
+It is read from the SHELL, not from .env:
+  export $name=\"postgresql://postgres.REF:PW@aws-0-REGION.pooler.supabase.com:5432/postgres?sslmode=require\""
+		fi
 		[ -n "$ref" ] || die "$ref_hint"
 		valid_ref "$ref" || die "'$ref' is not a valid Supabase project ref (20 lowercase alphanumerics)"
 		echo "── applying $(basename "$file") → $name (Management API, project $ref) ──"
