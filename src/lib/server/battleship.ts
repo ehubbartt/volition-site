@@ -16,6 +16,7 @@
 //     Two players firing at once therefore split the cells instead of both "hitting".
 
 import { db } from './db';
+import { renderMarkdown } from '$lib/markdown';
 import {
 	autoPlace,
 	bombCells,
@@ -97,6 +98,8 @@ export interface BattleshipSnapshot {
 		slug: string;
 		name: string;
 		description: string | null;
+		/** Markdown-rendered `description`, so the page can show the full rules blurb. */
+		descriptionHtml: string | null;
 		status: string;
 		signupOpensAt: string | null;
 		signupClosesAt: string | null;
@@ -267,7 +270,8 @@ export async function loadBattleship(slug: string): Promise<BattleshipSnapshot |
 
 	const snap: BattleshipSnapshot = {
 		event: {
-			id: ev.id, slug: ev.slug, name: ev.name, description: ev.description, status: ev.status,
+			id: ev.id, slug: ev.slug, name: ev.name, description: ev.description,
+			descriptionHtml: renderMarkdown(ev.description), status: ev.status,
 			signupOpensAt: ev.signup_opens_at, signupClosesAt: ev.signup_closes_at,
 			startsAt: ev.starts_at, endsAt: ev.ends_at
 		},
