@@ -132,6 +132,15 @@
 			{/if}
 		</header>
 
+		{#if game.event.descriptionHtml}
+			<!-- Shown in FULL, deliberately not collapsed: the /events card already
+			     truncates to a 160-char teaser, so clicking in is how someone reads the
+			     whole thing. -->
+			<section class="card rules">
+				<div class="description">{@html game.event.descriptionHtml}</div>
+			</section>
+		{/if}
+
 		{#if form && 'error' in form && form.error}<p class="err">{form.error}</p>{/if}
 		{#if form && 'report' in form && form.report}<p class="ok">{form.report}</p>{/if}
 
@@ -374,6 +383,16 @@
 	.sideBadge { display: flex; align-items: center; gap: 0.4rem; border: 1px solid var(--c, var(--border-strong)); border-radius: var(--radius); padding: 0.3rem 0.6rem; background: var(--surface-alt); }
 	.pill { font-size: 0.7rem; border: 1px solid var(--accent); color: var(--accent); border-radius: 999px; padding: 0.05rem 0.35rem; }
 	.banner { background: var(--success-bg); border: 1px solid var(--success); color: var(--success); padding: 0.6rem; border-radius: var(--radius); margin: 0; font-family: var(--font-heading); }
+	.rules { display: grid; gap: 0.4rem; }
+	.description :global(p) { margin: 0 0 0.6rem; }
+	.description :global(p:last-child) { margin-bottom: 0; }
+	.description :global(ul), .description :global(ol) { margin: 0 0 0.6rem; padding-left: 1.2rem; }
+	.description :global(li) { margin-bottom: 0.2rem; }
+	.description :global(strong) { color: var(--text); }
+	.description :global(h1), .description :global(h2), .description :global(h3) {
+		font-family: var(--font-heading); color: var(--heading); font-size: 1rem; margin: 0.8rem 0 0.35rem;
+	}
+	.description :global(hr) { border: 0; border-top: 1px solid var(--border); margin: 0.8rem 0; }
 	.boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1.25rem; }
 	.stat { font-size: 0.8rem; color: var(--muted); margin: 0.5rem 0 0; }
 	.placewrap { display: grid; grid-template-columns: minmax(16rem, 2fr) minmax(12rem, 1fr); gap: 1.25rem; }
