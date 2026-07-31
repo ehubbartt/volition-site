@@ -164,6 +164,12 @@
 				</p>
 				{#if joined}
 					<p class="ok">You're in the pool. The captains will draft sides when signups close.</p>
+					<form method="POST" action="?/leave" use:enhance>
+						<button class="btn subtle" type="submit">Leave the event</button>
+					</form>
+					<p class="muted small">
+						You can drop out any time before the draft starts — after that, ask an admin.
+					</p>
 				{:else}
 					<form method="POST" action="?/join" use:enhance>
 						<button class="btn primary" type="submit">Join the event</button>
@@ -419,6 +425,9 @@
 	.btn.small { font-size: 0.78rem; padding: 0.25rem 0.5rem; }
 	.btn.tiny { font-size: 0.7rem; padding: 0.1rem 0.35rem; }
 	.btn.primary, .btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+	/* Leaving is a real option but not the thing we're nudging anyone toward. */
+	.btn.subtle { color: var(--muted); border-color: var(--border); }
+	.btn.subtle:hover { color: var(--danger); border-color: var(--danger); }
 	.err { color: var(--danger); background: var(--danger-bg); border: 1px solid var(--danger); padding: 0.5rem; border-radius: var(--radius); margin: 0; }
 	.ok { color: var(--success); background: var(--success-bg); border: 1px solid var(--success); padding: 0.5rem; border-radius: var(--radius); margin: 0; }
 </style>

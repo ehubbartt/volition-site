@@ -109,6 +109,22 @@ try {
 	check(`${PLAYERS} in the pool`, snap.pool.length === PLAYERS, `pool=${snap.pool.length}`);
 	check('phase is signup', snap.phase === 'signup', snap.phase);
 
+	// ── 3b. leaving ──────────────────────────────────────────────────────────
+	step('3b', 'Drop out and rejoin while signups are open');
+	const quitter = players[PLAYERS - 1];
+	const left = await bs.leaveEvent({ eventId, userId: quitter.id });
+	check('a member can leave during signups', left.ok, left.ok ? '' : left.error);
+	snap = await bs.loadBattleship(SLUG);
+	check('the pool shrank', snap.pool.length === PLAYERS - 1, `pool=${snap.pool.length}`);
+
+	const leaveTwice = await bs.leaveEvent({ eventId, userId: quitter.id });
+	check('leaving twice is refused, not a silent no-op', !leaveTwice.ok, leaveTwice.ok ? 'allowed' : leaveTwice.error);
+
+	// Put them back so the draft still has a full pool.
+	await sb.from('vs_event_signups').insert({ event_id: eventId, user_id: quitter.id });
+	snap = await bs.loadBattleship(SLUG);
+	check('rejoining restores the pool', snap.pool.length === PLAYERS, `pool=${snap.pool.length}`);
+
 	// ── 4. draft ─────────────────────────────────────────────────────────────
 	step(4, 'Run the draft');
 	const captains = [players[0].id, players[1].id];
@@ -158,6 +174,18 @@ try {
 	check('sides are balanced', Math.abs(sizes[0] - sizes[1]) <= 1, `sides=${sizes.join(' vs ')}`);
 	check('everyone is on a side', sizes[0] + sizes[1] === PLAYERS, `total=${sizes[0] + sizes[1]}`);
 	check('draft ended into placement', snap.phase === 'placement', snap.phase);
+
+	// The guard that actually matters: once the draft is over, a drafted player must not
+	// be able to walk out and leave their side a ship short with nobody behind it.
+	const drafted = snap.sides[0].members[0];
+	const lateLeave = await bs.leaveEvent({ eventId, userId: drafted.userId });
+	check('a drafted member cannot leave', !lateLeave.ok, lateLeave.ok ? 'it was allowed!' : lateLeave.error);
+	snap = await bs.loadBattleship(SLUG);
+	check(
+		'their side is still intact after the refused leave',
+		snap.sides[0].members.some((m) => m.userId === drafted.userId),
+		'the member vanished from their side'
+	);
 
 	// Board size must follow the headcount, not a constant.
 	const expectedSize = rules.boardSizeFor(Math.max(...sizes));

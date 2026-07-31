@@ -1,6 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { fireBomb, loadBattleship, placeFleet } from '$lib/server/battleship';
+import { fireBomb, leaveEvent, loadBattleship, placeFleet } from '$lib/server/battleship';
 import type { Actions } from './$types';
 
 // ACTIONS ONLY — the page has no server load. Its data comes from
@@ -101,5 +101,19 @@ export const actions: Actions = {
 			.from('vs_event_signups')
 			.insert({ event_id: e.id, user_id: locals.user.id });
 		return insErr ? fail(400, { error: insErr.message }) : { ok: true };
+	},
+
+	leave: async ({ locals, params }) => {
+		if (!locals.user) return fail(401, { error: 'Sign in first' });
+		const { data: ev } = await db()
+			.from('vs_events')
+			.select('id')
+			.eq('slug', params.slug)
+			.maybeSingle();
+		if (!ev) return fail(404, { error: 'Game not found' });
+
+		// leaveEvent owns the rules (signup phase only, never once drafted).
+		const res = await leaveEvent({ eventId: (ev as { id: string }).id, userId: locals.user.id });
+		return res.ok ? { ok: true, left: true } : fail(400, { error: res.error });
 	}
 };
