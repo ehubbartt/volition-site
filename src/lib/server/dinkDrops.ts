@@ -18,6 +18,7 @@ import { getBingoState, getTileStatus } from '$lib/bingo/state';
 import { postBingoCredit } from '$lib/server/dropsFeed';
 import { creditPersonalTile, loadPersonalBoard } from '$lib/server/personalBoard';
 import { getTrackedItemsForUser, type ActiveItemTile } from '$lib/server/dinkAllowlist';
+import { activeBattleshipFor, earnBomb } from '$lib/server/battleship';
 
 // Slugs whose auto-credits should NOT post to the public bingo feed. The old dink-self-test
 // event lived here; it's now a manual pin with no event, so there's nothing to suppress —
@@ -33,6 +34,11 @@ interface DropRow {
 	quantity: number;
 	received_at: string;
 	notif_type: string;
+	// Battleship scores drops by VALUE, not by item, so the consumer needs the gp figure
+	// and the proxy's dedup key (which is what makes minting a bomb idempotent).
+	value?: number | null;
+	source?: string | null;
+	drop_key?: string | null;
 	// Dink screenshot for the drop (proxy-uploaded public URL) — becomes the credited
 	// submission's proof image so reviewers can eyeball the actual drop.
 	image_url?: string | null;
@@ -71,7 +77,8 @@ type Outcome =
 	| 'duplicate'
 	| 'partial'
 	| 'consumed' // a prior partial that has now been rolled into a completed collect-N tile
-	| 'reverted';
+	| 'reverted'
+	| 'bomb'; // matched no tile, but was big enough to arm a Battleship bomb
 
 // Resolve an RSN to a site user id (case-insensitive, mirrors clan.ts/users.ts).
 async function resolveUserId(rsn: string): Promise<string | null> {
@@ -380,7 +387,7 @@ export async function processDinkDrops(
 
 	const { data: drops, error } = await sb
 		.from('vs_dink_drops')
-		.select('id, event_id, rsn, item_id, item_name, quantity, received_at, notif_type, image_url')
+		.select('id, event_id, rsn, item_id, item_name, quantity, received_at, notif_type, image_url, value, source, drop_key')
 		.eq('processed', false)
 		.order('received_at', { ascending: true })
 		.limit(BATCH);
@@ -506,13 +513,55 @@ export async function processDinkDrops(
 	}
 
 	// Priority when one drop touches several candidates (e.g. an event tile + a board tile).
-	const RANK: Record<string, number> = { credited: 5, partial: 4, duplicate: 3, timing: 2, no_user: 1, no_tile: 0, consumed: 0, reverted: 0 };
+	const RANK: Record<string, number> = { credited: 5, partial: 4, duplicate: 3, timing: 2, no_user: 1, no_tile: 0, consumed: 0, reverted: 0, bomb: 0 };
+
+	// Battleship arms on VALUE, not on a tracked item, so it can't ride the tile index —
+	// it's a separate per-drop check. Cached per user for the batch, same as objectives.
+	const battleshipByUser = new Map<string, Awaited<ReturnType<typeof activeBattleshipFor>>>();
+	async function battleshipFor(userId: string) {
+		if (battleshipByUser.has(userId)) return battleshipByUser.get(userId) ?? null;
+		let game: Awaited<ReturnType<typeof activeBattleshipFor>> = null;
+		try {
+			game = await activeBattleshipFor(userId);
+		} catch (e) {
+			// A missing table (schema not applied yet) must not stall the whole drain.
+			console.warn('[dink] battleship lookup failed:', e instanceof Error ? e.message : e);
+		}
+		battleshipByUser.set(userId, game);
+		return game;
+	}
 
 	for (const drop of rows) {
 		const rsnKey = drop.rsn.toLowerCase();
 		if (!userIdByRsn.has(rsnKey)) userIdByRsn.set(rsnKey, await resolveUserId(drop.rsn));
 		const userId = userIdByRsn.get(rsnKey) ?? null;
 		if (!userId) { outcomeById.set(drop.id, 'no_user'); continue; }
+
+		// Arm a bomb BEFORE the tile matching, and independently of it: a drop can both
+		// complete a bingo tile and arm a bomb, exactly as it can credit an event tile and
+		// a personal-board tile. earnBomb is idempotent on drop_key, so the reconcile pass
+		// re-running this drop can never mint a second bomb.
+		let bombed: { tier: number; eventId: string } | null = null;
+		const game = await battleshipFor(userId);
+		if (game && drop.drop_key) {
+			// The activation rule the rest of the pipeline uses: a drop from before the
+			// battle opened never arms anything.
+			const inWindow =
+				!game.startsAt || new Date(drop.received_at).getTime() >= new Date(game.startsAt).getTime();
+			if (inWindow) {
+				const res = await earnBomb({
+					eventId: game.eventId,
+					side: game.side,
+					userId,
+					value: Number(drop.value) || 0,
+					dropKey: drop.drop_key,
+					itemName: drop.item_name,
+					source: drop.source ?? null,
+					tiers: game.tiers
+				});
+				if (res.minted && res.tier) bombed = { tier: res.tier, eventId: game.eventId };
+			}
+		}
 
 		// WATCH BOTH WAYS: match on item id (preferred) / name regardless of notif_type, so a
 		// loot drop OR a collection unlock of the item credits the tile. Idempotency below makes
@@ -522,7 +571,19 @@ export async function processDinkDrops(
 			if (o.item_id != null && drop.item_id != null) return o.item_id === drop.item_id;
 			return !!dname && (o.item_name ?? '').toLowerCase() === dname;
 		});
-		if (candidates.length === 0) { outcomeById.set(drop.id, 'no_tile'); continue; }
+		if (candidates.length === 0) {
+			// No tile wanted it, but it armed a bomb — say so, so /admin/dink-drops doesn't
+			// file a working Battleship drop under "Didn't credit".
+			if (bombed) {
+				outcomeById.set(drop.id, 'bomb');
+				tileIdByDrop.set(drop.id, `bomb:t${bombed.tier}`);
+				eventIdByDrop.set(drop.id, bombed.eventId);
+				credited += 1;
+			} else {
+				outcomeById.set(drop.id, 'no_tile');
+			}
+			continue;
+		}
 
 		// Credit every matching candidate (a drop may complete an event tile AND a board
 		// tile). Track the best outcome; if any candidate hit a transient error, leave the
@@ -542,6 +603,14 @@ export async function processDinkDrops(
 			}
 		}
 		if (retry) continue; // not added to outcomeById → stays unprocessed → retried
+		// A drop that armed a bomb AND matched nothing creditable still reads as a bomb.
+		if (bombed && (best === 'no_tile' || best === 'timing')) {
+			outcomeById.set(drop.id, 'bomb');
+			tileIdByDrop.set(drop.id, `bomb:t${bombed.tier}`);
+			eventIdByDrop.set(drop.id, bombed.eventId);
+			credited += 1;
+			continue;
+		}
 		outcomeById.set(drop.id, best);
 		if (bestTile) tileIdByDrop.set(drop.id, bestTile);
 		if (bestEvent) eventIdByDrop.set(drop.id, bestEvent);

@@ -48,11 +48,12 @@ whose names are fixed by the tooling that loads them.
 | Login, sessions, roles, ban gate, audit | [`docs/AUTH.md`](docs/AUTH.md) |
 | UI, wiki images, bingo tiles, styling | [`docs/FRONTEND.md`](docs/FRONTEND.md) |
 | Building any event / board / bingo | [`docs/EVENTS.md`](docs/EVENTS.md) |
+| The Battleship event (draft → placement → drops-as-bombs) | [`docs/BATTLESHIP.md`](docs/BATTLESHIP.md) |
 | Rank scoring, /me rank check, gear claims | [`docs/RANKS.md`](docs/RANKS.md) |
 | Site onboarding flow (the `/welcome/[token]` join) | [`docs/ONBOARDING.md`](docs/ONBOARDING.md) |
 | The Dink drop-tracking pipeline | [`docs/event-builder-and-dink-tracking.md`](docs/event-builder-and-dink-tracking.md) |
 | Deploying / configuring staging | [`docs/DEPLOY-STAGING.md`](docs/DEPLOY-STAGING.md) |
-| Cloning prod → staging / keeping staging's data & schema in sync | [`docs/DEV-PREVIEW.md`](docs/DEV-PREVIEW.md) |
+| Cloning prod → staging / keeping staging's data & schema in sync; running + screenshotting the site locally against staging | [`docs/DEV-PREVIEW.md`](docs/DEV-PREVIEW.md) |
 | Outstanding ops (RLS lockdown, prod ship) | [`docs/PENDING-OPS.md`](docs/PENDING-OPS.md) |
 
 ## At a glance
@@ -60,7 +61,10 @@ whose names are fixed by the tooling that loads them.
 - **Stack:** SvelteKit 2 + Svelte 5 (runes), TypeScript, `adapter-node`, Fly.io (Node 22),
   Supabase (`@supabase/supabase-js`, server-side only).
 - **Commands:** `npm run dev`, `npm run build`, `npm run check` (svelte-check — run before
-  pushing; there is no automated test suite).
+  pushing), `npm run test:e2e` (Playwright end-to-end against staging, specs in `e2e/`),
+  `npm run sim:battleship` (scripted full Battleship game against staging),
+  `npm run preview:shots -- / /me` (screenshot pages locally). Testing setup:
+  [`docs/DEV-PREVIEW.md`](docs/DEV-PREVIEW.md).
 - **Non-negotiables:** site tables are `vs_`-prefixed; DB access is server-only
   (`src/lib/server/`); roles come from env allow-lists + `vs_admin_roles` grants; form
   actions use `use:enhance`; styling uses the CSS tokens in `src/app.css`; hand-applied SQL

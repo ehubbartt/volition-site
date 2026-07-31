@@ -51,4 +51,12 @@ echo "▸ Dumping prod (public schema + data)…"
 echo "▸ Restoring into staging…"
 "$PGRESTORE" --clean --if-exists --no-owner --no-privileges -d "$STAGING_DB_URL" "$dump"
 
+# --clean DROPs every object and --no-privileges carries no GRANTs back, so the
+# restored tables have no grants to Supabase's API roles. PostgREST then answers
+# every request with `42501 permission denied for schema public` — which reads like
+# a bad service-role key, but is purely missing grants. Put them back.
+echo "▸ Restoring Supabase role grants…"
+PSQL="${PG_BIN:+$PG_BIN/}psql"
+"$PSQL" "$STAGING_DB_URL" -v ON_ERROR_STOP=1 -q -f "$(dirname "$0")/scripts/restore_supabase_grants.sql"
+
 echo "✓ Staging now mirrors prod. (First-run 'does not exist, skipping' notices are harmless.)"

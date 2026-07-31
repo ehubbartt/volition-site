@@ -1,5 +1,6 @@
 import { db } from './db';
 import { microCached } from './microCache';
+import { BATTLESHIP_KIND } from './battleship';
 import { markdownPreview } from '$lib/markdown';
 import {
 	BINGO_EVENT_SLUG,
@@ -46,11 +47,14 @@ interface EventRow {
 	ends_at: string | null;
 }
 
-// Only duo (and signup-configured custom) events use the signup flow. bingo/simple/
-// sequential are solo — even if a bingo borrows signup_opens_at as its start alias.
+// Only duo, battleship (and signup-configured custom) events use the signup flow.
+// bingo/simple/sequential are solo — even if a bingo borrows signup_opens_at as its
+// start alias. Battleship signs up individually and is drafted into sides afterwards,
+// so the "sign up by" line is the right prompt for it too.
 function hasSignupFlow(ev: EventRow): boolean {
 	return (
 		ev.kind === 'duo' ||
+		ev.kind === BATTLESHIP_KIND ||
 		(ev.kind === 'custom' && (ev.signup_opens_at != null || ev.signup_closes_at != null))
 	);
 }

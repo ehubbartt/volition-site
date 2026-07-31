@@ -12,6 +12,21 @@ row, and sets the `vs_session` HTTP-only cookie. First-time users go to `/onboar
 cache, invalidated on logout and on any non-GET from that session). Logout is **POST-only**
 (a GET logout is CSRF/prefetch-triggerable).
 
+The session read distinguishes a **failed** lookup from an **absent** one: a Supabase error
+means "we don't know" and is retried once (and never evicts the cache), while a genuinely
+missing row means the session is gone and does. Conflating the two signed people out over a
+transient network blip — an authenticated request would redirect to `/` exactly like a real
+auth failure, which reads as "randomly logged out".
+
+**Local-only shortcut.** `GET /auth/dev-login` skips the OAuth round-trip when running
+`vite dev` with `DEV_LOGIN` set, so visual checks can run against signed-in pages. It
+creates a normal `vs_sessions` row for an existing `vs_users` row and **grants no roles of
+its own** — the role model below is untouched, so it only reaches super admin because the
+id is already in `SUPER_ADMIN_DISCORD_IDS`. Five ANDed gates keep it out of deploys, the
+load-bearing one being that `dev` is a build-time constant, so every built bundle
+dead-code-eliminates it to a bare 404. Details and the full gate table:
+[`DEV-PREVIEW.md`](DEV-PREVIEW.md) § Local visual testing.
+
 ## Roles (`src/lib/server/auth.ts`)
 
 Roles are the union of **env allow-lists** and **DB grants**:

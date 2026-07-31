@@ -13,6 +13,7 @@ system works.
 | Auth, roles, ban, audit | [`AUTH.md`](AUTH.md) | you touch login, sessions, roles, the ban gate, or audit logging |
 | Frontend & shared UI | [`FRONTEND.md`](FRONTEND.md) | you build UI, use wiki images / bingo tiles, or touch styling |
 | Events / boards / bingo | [`EVENTS.md`](EVENTS.md) | you build any new event, board, or bingo (the shared spine) |
+| Battleship event | [`BATTLESHIP.md`](BATTLESHIP.md) | you touch the draft/placement/battle event where drops become bombs |
 | Ranks (scoring, checks, gear claims) | [`RANKS.md`](RANKS.md) | you touch the composite rank formula, /me rank check, rank-sim, or manual gear claims |
 | Dink auto-tracking | [`event-builder-and-dink-tracking.md`](event-builder-and-dink-tracking.md) | you work on the drop-tracking pipeline |
 | Staging deploy | [`DEPLOY-STAGING.md`](DEPLOY-STAGING.md) | you deploy or configure the staging app |
@@ -26,8 +27,9 @@ system works.
   [`DATABASE.md`](DATABASE.md).
 - Other libs: `arctic` (Discord OAuth), `three` (3D cards), `sharp`, `marked`, `zod`.
 - `/health` returns JSON and bypasses auth/redirects for Fly's uptime probe.
-- Scripts: `npm run dev`, `npm run build`, `npm run check` (svelte-check). No automated
-  test suite — run `check` before pushing and verify changes manually.
+- Scripts: `npm run dev`, `npm run build`, `npm run check` (svelte-check),
+  `npm run test:e2e` (Playwright, specs in `e2e/`), `npm run sim:battleship` (scripted
+  end-to-end game). Run `check` before pushing.
 
 ## Request lifecycle (`src/hooks.server.ts`)
 

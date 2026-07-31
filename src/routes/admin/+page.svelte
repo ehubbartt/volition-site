@@ -33,6 +33,12 @@
 			show: data.admin
 		},
 		{
+			href: '/admin/battleship',
+			title: 'Battleship',
+			desc: 'Create and run a Battleship event — draft the pool, place fleets, and drive a whole game by hand.',
+			show: data.admin
+		},
+		{
 			href: '/admin/crate-sim',
 			title: 'Crate Simulator',
 			desc: 'Bulk-simulate gamba crate opens — VP/GP generated, return ratio, and drop rates.',
