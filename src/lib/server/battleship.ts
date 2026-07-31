@@ -599,6 +599,39 @@ export async function autoDraftRemaining(eventId: string): Promise<Result<{ pick
 	return okResult({ picked: claimed.size });
 }
 
+/**
+ * Drop out of the event.
+ *
+ * Only while the pool is still forming. Once the captains start drafting, the sides are
+ * being balanced around exactly who is in the pool — pulling someone out mid-draft would
+ * leave a side short with no way to refill it, and after placement it would leave a fleet
+ * on the board with nobody behind it. Both cases need an admin, not a self-serve button.
+ *
+ * Deliberately allowed even after `signup_closes_at` has passed, as long as the draft
+ * hasn't begun: someone who knows they can't make it is better out of the pool than
+ * drafted and absent.
+ */
+export async function leaveEvent(input: { eventId: string; userId: string }): Promise<Result> {
+	const snap = await loadBattleshipById(input.eventId);
+	if (!snap) return errResult('Game not found');
+	if (snap.phase !== 'signup') {
+		return errResult('The draft has already started — ask an admin if you need to drop out');
+	}
+
+	// `is team_id null` is belt-and-braces behind the phase check: it makes it impossible
+	// to delete a signup that has already been drafted onto a side, whatever the phase says.
+	const { data, error } = await db()
+		.from('vs_event_signups')
+		.delete()
+		.eq('event_id', input.eventId)
+		.eq('user_id', input.userId)
+		.is('team_id', null)
+		.select('id');
+	if (error) return errResult(error.message);
+	if (!data || data.length === 0) return errResult("You're not signed up for this event");
+	return okResult();
+}
+
 /** Open the 1-hour placement window. Sets the deadline the battle opens at. */
 export async function openPlacement(eventId: string): Promise<Result> {
 	const snap = await loadBattleshipById(eventId);

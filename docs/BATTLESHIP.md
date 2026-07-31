@@ -21,7 +21,7 @@ pipeline this hangs off.
 
 | Phase | What happens | How it ends |
 |---|---|---|
-| `signup` | Members join the event. | An admin picks two captains and starts the draft. |
+| `signup` | Members join — and may drop back out. | An admin picks two captains and starts the draft. |
 | `draft` | Captains **alternate** picks from the pool. | The pool empties — placement opens automatically. |
 | `placement` | Each side hides its fleet on its own grid. | The **1-hour** window closes (admin-configurable). |
 | `battle` | Drops arm bombs; bombs are fired at the enemy grid. | One side's whole fleet is sunk. |
@@ -29,6 +29,14 @@ pipeline this hangs off.
 
 The draft is plain alternating ("each captain picks from the pool until everyone is
 picked"). With an odd pool the side picking first ends up one player larger.
+
+**Leaving** (`leaveEvent`) is self-serve during `signup` only — including after
+`signup_closes_at` has passed, as long as the draft hasn't begun, since someone who knows
+they can't make it is better out of the pool than drafted and absent. Once drafted it's
+refused: the sides were balanced around who was in the pool, and after placement a
+departure would leave a fleet on the board with nobody behind it. The delete is also
+scoped `where team_id is null`, so a drafted signup can't be removed whatever the phase
+field says. Removing a drafted player is an admin job, not a button.
 
 Placement is on a **deadline**, not a gate: when the window closes the battle opens whether
 or not both sides placed. A side that never placed gets a random legal fleet, because a
