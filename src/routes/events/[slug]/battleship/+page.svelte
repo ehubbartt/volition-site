@@ -289,7 +289,10 @@
 
 					{#if game.phase === 'battle'}
 						<div class="fire">
-							<h3>Your arsenal</h3>
+							<h3>
+								Your bombs
+								{#if firable.length}<span class="muted">— {firable.length} ready to fire</span>{/if}
+							</h3>
 							{#if firable.length === 0}
 								<p class="muted">
 									No bombs banked. Any single drop worth
@@ -319,6 +322,44 @@
 									<button class="btn primary" type="submit" disabled={!anchor || !selected}>Fire</button>
 								</form>
 							{/if}
+
+							<!-- The whole side's banked ammunition. Everyone can SEE it; who may
+							     fire what is the rule below (and enforced server-side). Without
+							     this a member had no idea what their team was sitting on. -->
+							<div class="team">
+								<h3>
+									Team arsenal
+									<span class="muted">— {myBombs.length} banked</span>
+								</h3>
+								{#if myBombs.length === 0}
+									<p class="muted small">Nothing banked yet.</p>
+								{:else}
+									<ul class="teamlist">
+										{#each myBombs as b (b.id)}
+											{@const t = game.config.tiers.find((x) => x.tier === b.tier)}
+											{@const mine = b.earnedBy === game.viewerUserId}
+											{@const canFire = mine || game.viewerIsCaptain}
+											<li class:mine>
+												<strong>{t?.name}</strong>
+												<span class="muted">{t?.span}×{t?.span}</span>
+												<span class="who">
+													{mine ? 'you' : (me?.members.find((m) => m.userId === b.earnedBy)?.rsn ?? 'a teammate')}
+												</span>
+												<span class="muted item">{b.itemName ?? 'drop'}</span>
+												{#if canFire}<span class="tag">yours to fire</span>{/if}
+											</li>
+										{/each}
+									</ul>
+								{/if}
+								<p class="muted small">
+									{#if game.viewerIsCaptain}
+										You're captain — you can fire any of these, so nothing goes stale when
+										someone's offline.
+									{:else}
+										You fire the bombs you earned. Your captain can fire any of the side's.
+									{/if}
+								</p>
+							</div>
 
 							<!-- Manual claim, for members who don't run Dink. Uses the shared
 							     submission modal so proof capture (drag, paste, multi-image)
@@ -459,6 +500,17 @@
 	.bomb { display: grid; gap: 0.1rem; text-align: left; cursor: pointer; background: var(--surface-alt); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 0.3rem 0.5rem; font-family: var(--font-body); font-size: 0.78rem; }
 	.bomb.active { border-color: var(--accent); background: var(--accent-soft); }
 	.claim { margin-top: 0.9rem; border-top: 1px solid var(--border); padding-top: 0.6rem; display: grid; gap: 0.4rem; justify-items: start; }
+	.team { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 0.75rem; }
+	.teamlist { list-style: none; padding: 0; margin: 0 0 0.5rem; display: grid; gap: 0.25rem; max-height: 12rem; overflow-y: auto; }
+	.teamlist li {
+		display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;
+		font-size: 0.8rem; padding: 0.25rem 0.4rem; border-radius: var(--radius);
+		background: var(--surface-alt); border: 1px solid var(--border);
+	}
+	.teamlist li.mine { border-color: var(--accent); }
+	.teamlist .who { color: var(--text); }
+	.teamlist .item { flex: 1 1 8rem; }
+	.tag { font-size: 0.68rem; border: 1px solid var(--success); color: var(--success); border-radius: 999px; padding: 0.02rem 0.35rem; }
 	.inline { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 	.btn { background: var(--surface-alt); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 0.35rem 0.7rem; cursor: pointer; font-family: var(--font-body); font-size: 0.85rem; }
 	.btn:hover { border-color: var(--accent); }

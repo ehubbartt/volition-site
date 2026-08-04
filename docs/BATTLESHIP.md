@@ -81,9 +81,22 @@ All three thresholds are set per event when it's created.
 > other servers. Keeping the smallest bomb above that means they need no config change to
 > play. Dropping tier 1 below 3m would silently exclude them.
 
-A bomb goes into the side's **arsenal** and stays there until someone fires it. The member
-who earned it can fire it; **the captain can fire any of the side's bombs**, so nothing goes
-stale when someone logs off for the night.
+A bomb goes into the side's **arsenal** and stays there until someone fires it.
+
+**Who can fire what:**
+
+| | Bombs they earned | Teammates' bombs |
+|---|---|---|
+| A member | ✅ fires them | 👀 sees them, can't fire |
+| The captain | ✅ | ✅ |
+
+The captain's blanket permission exists so nothing goes stale when someone logs off for the
+night with a Broadside banked. Enforced server-side in `fireBomb`, not by the UI.
+
+The battle page shows this as two sections: **Your bombs** (clickable, the ones you may
+fire) and **Team arsenal** (everything the side has banked, with who earned each and a
+"yours to fire" tag). Everyone can see the whole side's ammunition — a member who couldn't
+would have no idea whether the team was sitting on a Broadside or nothing at all.
 
 ### Firing
 
