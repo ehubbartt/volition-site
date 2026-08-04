@@ -26,6 +26,8 @@
 		span = 1,
 		/** Ship ids fully sunk — drawn even when the fleet itself is withheld. */
 		sunkShipIds = [],
+		/** The COMMITTED anchor — drawn persistently, unlike the transient hover preview. */
+		target = null,
 		disabled = false,
 		onpick = undefined
 	}: {
@@ -35,6 +37,7 @@
 		mode?: 'view' | 'target';
 		span?: number;
 		sunkShipIds?: string[];
+		target?: { x: number; y: number } | null;
 		disabled?: boolean;
 		onpick?: (x: number, y: number) => void;
 	} = $props();
@@ -53,6 +56,19 @@
 		if (mode !== 'target' || !hover) return new Set<string>();
 		const ax = Math.min(hover.x, maxAnchor);
 		const ay = Math.min(hover.y, maxAnchor);
+		const out = new Set<string>();
+		for (let dy = 0; dy < span; dy++) for (let dx = 0; dx < span; dx++) out.add(cellId(ax + dx, ay + dy));
+		return out;
+	});
+
+	// The squares the CHOSEN shot will cover. Separate from the hover preview on purpose:
+	// hover is exploratory and vanishes the moment the pointer leaves, but a player who has
+	// picked a square then moves to the Fire button — and losing the highlight at exactly
+	// that moment means firing off a line of text alone.
+	const targetCells = $derived.by(() => {
+		if (!target) return new Set<string>();
+		const ax = Math.min(target.x, maxAnchor);
+		const ay = Math.min(target.y, maxAnchor);
 		const out = new Set<string>();
 		for (let dy = 0; dy < span; dy++) for (let dx = 0; dx < span; dx++) out.add(cellId(ax + dx, ay + dy));
 		return out;
@@ -90,6 +106,7 @@
 					class:miss={shot && !shot.hit}
 					class:sunk
 					class:preview={previewCells.has(id)}
+					class:target={targetCells.has(id)}
 					disabled={mode !== 'target' || disabled}
 					aria-label="{columnLabel(x)}{y + 1}{shot ? (shot.hit ? ' — hit' : ' — miss') : ''}{ship &&
 					!shot
@@ -248,10 +265,19 @@
 		color: rgba(255, 200, 160, 0.65);
 	}
 
+	/* Exploring: a soft wash that follows the pointer. */
 	.cell.preview {
-		outline: 2px solid var(--accent);
+		outline: 2px solid rgba(255, 152, 31, 0.7);
 		outline-offset: -2px;
-		background: rgba(255, 152, 31, 0.32);
+		background: rgba(255, 152, 31, 0.22);
+	}
+	/* Chosen: stays put until you fire or pick elsewhere, and reads as committed. */
+	.cell.target {
+		outline: 2px solid var(--yellow);
+		outline-offset: -2px;
+		background: rgba(255, 152, 31, 0.45);
+		box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5);
+		z-index: 1;
 	}
 
 	.mark {

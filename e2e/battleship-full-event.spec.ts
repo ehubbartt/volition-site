@@ -460,10 +460,19 @@ test.describe.serial(`Battleship — full ${PLAYERS}-player event (${LABEL})`, (
 		await expect(red.locator('.bomb')).not.toHaveCount(0);
 
 		await red.locator('.bomb').first().click();
-		await red.locator('.board').nth(1).locator('.cell').first().click();
-		await expect(red.getByText(/aiming/i)).toBeVisible();
+		// Tapping a square must be retried until hydration, exactly like everywhere else.
+		for (let attempt = 0; attempt < 12; attempt++) {
+			await red.locator('.board').nth(1).locator('.cell').first().click();
+			if (await red.locator('.cell.target').count()) break;
+			await red.waitForTimeout(400);
+		}
+		// The Fire button names the square it will hit, and the chosen footprint stays lit
+		// on the board — on a phone especially, "which squares am I about to hit" cannot
+		// depend on hovering.
+		await expect(red.getByRole('button', { name: /^fire at /i })).toBeVisible();
+		await expect(red.locator('.board').nth(1).locator('.cell.target')).not.toHaveCount(0);
 		await shot(red, 'aiming-preview');
-		await red.getByRole('button', { name: /^fire$/i }).click();
+		await red.getByRole('button', { name: /^fire at /i }).click();
 		await expect(red.locator('.ok')).toContainText(/hit|miss/i);
 		await shot(red, 'after-first-shot');
 

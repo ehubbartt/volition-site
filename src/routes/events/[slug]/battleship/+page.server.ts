@@ -138,6 +138,24 @@ export const actions: Actions = {
 		const files = form.getAll('proof').filter((f): f is File => f instanceof File && f.size > 0);
 		if (files.length === 0) return fail(400, { error: 'Attach a screenshot of the drop', claim: true });
 
+		// One claim in the queue at a time. The value is self-reported, so the only real
+		// check is a human looking at the screenshot — and someone firing off ten claims
+		// for the same drop makes it far likelier one slips through on a busy queue.
+		// Reviewers see them one at a time instead.
+		const { data: pending } = await db()
+			.from('vs_submissions')
+			.select('id')
+			.eq('event_id', snap.event.id)
+			.eq('user_id', locals.user.id)
+			.eq('status', 'pending')
+			.limit(1);
+		if (pending?.length) {
+			return fail(400, {
+				error: 'You already have a claim waiting for review — it has to be decided before you send another.',
+				claim: true
+			});
+		}
+
 		const label = form.get('item')?.toString().trim() || null;
 		const res = await createSubmission({
 			eventId: snap.event.id,

@@ -192,6 +192,7 @@
 						sunkShipIds={sunkIds(enemy?.side ?? 0)}
 						mode={game.phase === 'battle' && selected ? 'target' : 'view'}
 						span={selectedTier?.span ?? 1}
+						target={targetAnchor}
 						onpick={(x, y) => (targetAnchor = { x, y })}
 					/>
 					<p class="stat">
@@ -229,12 +230,14 @@
 							<input type="hidden" name="y" value={targetAnchor?.y ?? ''} />
 							<span class="muted">
 								{#if targetAnchor}
-									Aiming {selectedTier?.name} at {cellLabel(`${targetAnchor.x},${targetAnchor.y}`)}
+									{selectedTier?.name} · {selectedTier?.span}×{selectedTier?.span} · {cellLabel(`${targetAnchor.x},${targetAnchor.y}`)}
 								{:else}
 									Click the target board to aim.
 								{/if}
 							</span>
-							<button class="btn primary" type="submit" disabled={!targetAnchor || !selected}>Fire</button>
+							<button class="btn primary" type="submit" disabled={!targetAnchor || !selected}>
+								{targetAnchor ? `Fire at ${cellLabel(`${targetAnchor.x},${targetAnchor.y}`)}` : 'Fire'}
+							</button>
 						</form>
 					{/if}
 				</div>

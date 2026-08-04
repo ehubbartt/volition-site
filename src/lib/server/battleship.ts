@@ -352,7 +352,13 @@ export function redactFor(
 
 	const sides: RedactedSide[] = snap.sides.map((s) => {
 		const hitCells = new Set(snap.shots.filter((sh) => sh.targetSide === s.side).map((sh) => sh.cell));
-		const canSeeFleet = viewer.isAdmin || (viewerSide !== null && s.side === viewerSide);
+		// An admin who is PLAYING is a player first. Handing them the enemy fleet would
+		// let a captain read their opponent's board — and at a clan event the captains
+		// are very likely to be admins. Only a NON-PARTICIPANT admin (running the tester
+		// or spectating) sees both fleets; the admin tester page reads the raw snapshot
+		// directly and is unaffected.
+		const adminSpectator = viewer.isAdmin && viewerSide === null;
+		const canSeeFleet = adminSpectator || (viewerSide !== null && s.side === viewerSide);
 		return {
 			side: s.side,
 			name: s.name,

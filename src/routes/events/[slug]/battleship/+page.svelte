@@ -43,6 +43,13 @@
 	let claimOpen = $state(false);
 	const selected = $derived(firable.find((b) => b.id === selectedBomb) ?? firable[0]);
 	const selectedTier = $derived(game?.config.tiers.find((t) => t.tier === selected?.tier));
+	// Clamped exactly as the board and the server clamp it, so the readout, the highlight
+	// and what actually gets hit can never disagree.
+	const target = $derived.by(() => {
+		if (!anchor || !game) return null;
+		const max = Math.max(0, game.config.size - (selectedTier?.span ?? 1));
+		return { x: Math.min(anchor.x, max), y: Math.min(anchor.y, max) };
+	});
 
 	const shotsAt = (side: number | null | undefined) =>
 		game && side != null ? game.shots.filter((s) => s.targetSide === side) : [];
@@ -288,6 +295,7 @@
 								sunkShipIds={sunkIdsFor(foe?.side)}
 								mode={game.phase === 'battle' && selected ? 'target' : 'view'}
 								span={selectedTier?.span ?? 1}
+								{target}
 								onpick={(x, y) => (anchor = { x, y })}
 							/></div>
 							<p class="stat osrs-inset">
@@ -322,14 +330,16 @@
 								</div>
 								<form method="POST" action="?/fire" use:enhance class="inline">
 									<input type="hidden" name="arsenal_id" value={selected?.id ?? ''} />
-									<input type="hidden" name="x" value={anchor?.x ?? ''} />
-									<input type="hidden" name="y" value={anchor?.y ?? ''} />
+									<input type="hidden" name="x" value={target?.x ?? ''} />
+									<input type="hidden" name="y" value={target?.y ?? ''} />
 									<span class="muted">
-										{anchor
-											? `Aiming ${selectedTier?.name} at ${cellLabel(cellId(anchor.x, anchor.y))}`
-											: 'Click their board to aim.'}
+										{target
+											? `${selectedTier?.name} · ${selectedTier?.span}×${selectedTier?.span} · ${cellLabel(cellId(target.x, target.y))}`
+											: 'Tap their board to choose a square.'}
 									</span>
-									<button class="btn primary" type="submit" disabled={!anchor || !selected}>Fire</button>
+									<button class="btn primary" type="submit" disabled={!target || !selected}>
+										{target ? `Fire at ${cellLabel(cellId(target.x, target.y))}` : 'Fire'}
+									</button>
 								</form>
 							{/if}
 

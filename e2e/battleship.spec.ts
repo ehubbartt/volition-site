@@ -98,7 +98,8 @@ test.describe.serial('Battleship', () => {
 		// Aim at a square on the enemy board and fire. A 3x3 clamps to fit, so any
 		// square is a legal click. Aiming is a client-side handler, so retry until the
 		// page has hydrated and the readout confirms the anchor.
-		const aimed = page.getByText(/aiming broadside at/i);
+		// Readout now names the bomb, its footprint and the square: "Broadside · 3×3 · A1".
+		const aimed = page.getByText(/broadside\s*·\s*3×3\s*·/i);
 		for (let attempt = 0; attempt < 12; attempt++) {
 			await page.locator('.board').nth(1).locator('.cell').first().click();
 			try {
@@ -109,7 +110,15 @@ test.describe.serial('Battleship', () => {
 			}
 		}
 		await expect(aimed).toBeVisible();
-		await page.getByRole('button', { name: /^fire$/i }).click();
+
+		// The footprint you are about to hit must be visible BEFORE firing, and must
+		// SURVIVE the pointer moving to the Fire button — otherwise you're firing off a
+		// line of text alone. A Broadside is 3x3, so exactly 9 squares stay marked.
+		await expect(page.locator('.cell.preview')).not.toHaveCount(0);
+		await page.mouse.move(5, 5); // pointer well away from the board
+		await expect(page.locator('.cell.target')).toHaveCount(9);
+
+		await page.getByRole('button', { name: /^fire at /i }).click();
 
 		// The report is the proof the shot actually resolved server-side.
 		await expect(page.locator('.ok')).toContainText(/hits?|already cratered|sank/i);
@@ -155,19 +164,24 @@ test.describe.serial('Battleship', () => {
 		await expect(boards.nth(0).locator('.cell.ship')).not.toHaveCount(0);
 		await expect(boards.nth(1).locator('.cell.ship')).toHaveCount(0);
 
-		// The PAYLOAD-level contract (enemy `fleet` is null for a player) can't be
-		// asserted here: dev-login only signs in a super-admin, and redactFor
-		// deliberately hands admins both fleets so the tester can render them. That
-		// contract is covered as a real non-admin player in scripts/battleship-sim.mjs
-		// (step 10). What we can assert here is that the enemy summary — names, lengths,
-		// sunk flags — is present without leaking positions to the rendered board.
+		// The PAYLOAD-level contract, which is now assertable here: a playing admin is a
+		// PLAYER first, so the enemy fleet is withheld from them too. (It was not always —
+		// admins used to receive both fleets, which at a clan event where the captains are
+		// admins meant a captain could read their opponent's board.)
 		const payload = await page.evaluate(async (slug) => {
 			const res = await fetch(`/api/battleship/${slug}`);
 			return res.text();
 		}, SLUG);
 		const parsed = JSON.parse(payload);
-		expect(parsed.game.viewerSide).not.toBeNull();
+		const mySide = parsed.game.viewerSide;
+		expect(mySide).not.toBeNull();
 		for (const side of parsed.game.sides) {
+			if (side.side === mySide) {
+				expect(Array.isArray(side.fleet), 'own fleet should be visible').toBe(true);
+			} else {
+				expect(side.fleet, 'enemy fleet must be withheld even from an admin who plays').toBeNull();
+			}
+			// Names, lengths and sunk flags stay public on both sides — positions do not.
 			expect(Array.isArray(side.fleetSummary)).toBe(true);
 			expect(side.fleetSummary.length).toBeGreaterThan(0);
 		}

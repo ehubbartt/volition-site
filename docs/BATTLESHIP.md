@@ -121,6 +121,16 @@ was already hit, the shot is refused and the bomb stays banked instead of being 
 which of their ships are sunk. Never their ship positions. This is enforced server-side
 (see `redactFor` below), not by the UI.
 
+> **An admin who is PLAYING is redacted like anyone else.** Only a non-participant admin
+> (running the tester, or spectating) receives both fleets. This matters because at a clan
+> event the captains are usually admins — leaving admins unredacted would have let a
+> captain read their opponent's board.
+
+**Aiming.** Hovering a square previews the footprint, and *clicking commits it*: the chosen
+squares stay lit until you fire or pick elsewhere, and the button reads "Fire at F7". The
+preview alone is not enough — it follows the pointer, so it vanishes exactly when you move
+to the Fire button, and on a phone there is no hover at all.
+
 ---
 
 ## Part 2 — Implementation
@@ -297,6 +307,11 @@ flipped).
 
 > The claim's result renders **next to the form**, not at the top of the page. The form
 > sits at the bottom of a long page and top-of-page feedback read as "nothing happened".
+
+**One pending claim per member at a time.** The value is self-reported, so the only real
+check is a human looking at the screenshot — and someone firing off ten claims for the same
+drop makes it far likelier one slips through on a busy queue. Note that *inflating* a value
+buys nothing beyond the top tier: 999b and 50m both arm a 3×3.
 
 > **Staging needs the `vs-bingo-proofs` storage bucket.** Prod has it; staging did not,
 > which silently broke every proof upload (not just Battleship's) with "Bucket not found".
