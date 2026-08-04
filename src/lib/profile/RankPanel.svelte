@@ -145,7 +145,8 @@
 		ca: '#4aa6b5',
 		clog: '#7bbf6a',
 		level: '#b06bd6',
-		time: '#8d8d8d'
+		time: '#8d8d8d',
+		tcg: '#d9a441'
 	};
 	// Fast lookup of the advice for a given component key while rendering the bars.
 	const adviceByKey = $derived(new Map((advice?.components ?? []).map((c) => [c.key, c])));
@@ -228,7 +229,8 @@
 		ca: 'Scored on tier-completion rewards, not in-game CA points: fully finishing a tier (Easy → Grandmaster, in order) banks that tier\'s reward — partly-finished tiers count for nothing. The cap is all six tier rewards, so this bar only moves when you complete a whole tier. Task completion is read from the RuneLite WikiSync plugin.',
 		time: "Months since you were added to the clan's WiseOldMan group. The bar fills toward the configured months cap.",
 		clog: 'Collection-log slots completed, read from your TempleOSRS profile. The bar fills toward the configured slots cap.',
-		level: 'Total level from your latest WiseOldMan snapshot. Only levels above the configured minimum score — the bar measures where you sit between that minimum and the cap.'
+		level: 'Total level from your latest WiseOldMan snapshot. Only levels above the configured minimum score — the bar measures where you sit between that minimum and the cap.',
+		tcg: 'Your Volition TCG collection: how many distinct cards you own out of every obtainable card. Owning one copy of a card counts (any finish) — a full set is 100%. Open packs on the site to fill it.'
 	};
 
 	// "Set this up" hint for a zero-score component: what's missing and where to fix it.
@@ -288,6 +290,12 @@
 					href: 'https://wiseoldman.net',
 					link: 'wiseoldman.net',
 					ext: true
+				};
+			case 'tcg':
+				return {
+					text: 'No Volition TCG cards yet — open packs to start your collection, then re-check.',
+					href: '/gamba',
+					link: 'Open packs'
 				};
 			default:
 				return null;
@@ -366,7 +374,7 @@
 		<div class="comps">
 			{#each rank.components as c (c.key)}
 				{@const a = adviceOn ? adviceByKey.get(c.key) : undefined}
-				<div class="comp" class:maxed={c.raw >= c.cap}>
+				<div class="comp" class:maxed={c.cap > 0 && c.raw >= c.cap}>
 					<div class="comp-top">
 						<span class="comp-label">
 							{c.label}

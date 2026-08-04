@@ -13,7 +13,7 @@ import type { RequestHandler } from './$types';
 // { available:false } when they've never checked their rank.
 
 const COLS =
-	'ehb, total_level, gear_points, clog_finished, clog_available, months_in_clan, ca_points, gear_detail, ca_detail, fetched_at';
+	'ehb, total_level, gear_points, clog_finished, clog_available, months_in_clan, ca_points, tcg_owned, tcg_total, gear_detail, ca_detail, fetched_at';
 
 interface GearDetail {
 	matchedItems?: { name: string }[];
@@ -46,6 +46,8 @@ export const GET: RequestHandler = memberEndpoint(async (user) => {
 				clog_available: number;
 				months_in_clan: number;
 				ca_points: number;
+				tcg_owned: number | null;
+				tcg_total: number | null;
 				gear_detail: GearDetail | null;
 				ca_detail: CADetail | null;
 				fetched_at: string | null;
@@ -63,6 +65,8 @@ export const GET: RequestHandler = memberEndpoint(async (user) => {
 			monthsInClan: row.months_in_clan ?? 0,
 			caPoints: row.ca_points ?? 0,
 			caWikiPoints: row.ca_detail?.wikiPoints ?? 0,
+			tcgOwned: row.tcg_owned ?? 0,
+			tcgTotal: row.tcg_total ?? 0,
 			gearMatched: (row.gear_detail?.matchedItems ?? []).map((m) => m.name),
 			gearPartials: (row.gear_detail?.partials ?? []).map((p) => ({ name: p.name, missing: p.missing }))
 		},

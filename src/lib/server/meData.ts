@@ -125,6 +125,8 @@ interface RankSimRow {
 	clog_available: number;
 	months_in_clan: number;
 	ca_points: number;
+	tcg_owned: number | null;
+	tcg_total: number | null;
 	temple_available: boolean;
 	wikisync_available: boolean;
 	ca_tier: string;
@@ -134,7 +136,7 @@ interface RankSimRow {
 }
 
 const SIM_ROW_COLUMNS =
-	'rsn, ehb, total_level, gear_points, clog_finished, clog_available, months_in_clan, ca_points, temple_available, wikisync_available, ca_tier, gear_detail, ca_detail, fetched_at';
+	'rsn, ehb, total_level, gear_points, clog_finished, clog_available, months_in_clan, ca_points, tcg_owned, tcg_total, temple_available, wikisync_available, ca_tier, gear_detail, ca_detail, fetched_at';
 
 // Build the full per-section breakdown the /me Rank tab shows, recomputing scores
 // from the cached row with the CURRENT config so it stays in sync as the formula is
@@ -148,7 +150,9 @@ function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
 			clogFinished: row.clog_finished,
 			clogAvailable: row.clog_available,
 			monthsInClan: row.months_in_clan,
-			caPoints: row.ca_points
+			caPoints: row.ca_points,
+			tcgOwned: row.tcg_owned ?? 0,
+			tcgTotal: row.tcg_total ?? 0
 		},
 		config
 	);
@@ -158,7 +162,9 @@ function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
 		ca: { raw: row.ca_points, cap: CA_MAX_POINTS },
 		time: { raw: Math.round(row.months_in_clan * 10) / 10, cap: config.caps.months },
 		clog: { raw: row.clog_finished, cap: config.caps.clog },
-		level: { raw: row.total_level ?? 0, cap: config.caps.levelMin + config.caps.levelRange }
+		level: { raw: row.total_level ?? 0, cap: config.caps.levelMin + config.caps.levelRange },
+		// Raw = distinct released cards owned; cap = total obtainable (full set → maxed).
+		tcg: { raw: row.tcg_owned ?? 0, cap: row.tcg_total ?? 0 }
 	};
 	const components = describeComposite(scores, config).map((c) => ({
 		...c,

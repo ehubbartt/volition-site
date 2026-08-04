@@ -26,5 +26,11 @@ create table if not exists public.vs_rank_sim (
 alter table public.vs_rank_sim add column if not exists gear_detail jsonb;
 alter table public.vs_rank_sim add column if not exists ca_detail jsonb;
 
+-- Volition TCG collection component (added later): how many distinct released cards
+-- the member owns (tcg_owned) out of the total obtainable (tcg_total). Cached per
+-- check so the /me Rank tab can score the TCG bar without re-reading vs_user_cards.
+alter table public.vs_rank_sim add column if not exists tcg_owned integer;
+alter table public.vs_rank_sim add column if not exists tcg_total integer;
+
 -- New columns need a PostgREST schema-cache reload before the API sees them.
 notify pgrst, 'reload schema';

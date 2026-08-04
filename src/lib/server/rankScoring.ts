@@ -4,10 +4,11 @@
 // "Check my rank" action and the admin rank-sim recalc feed raw player inputs +
 // the tunable RankScoringConfig (from bot_config, see rankConfig.ts) through here.
 //
-// composite = gear*0.35 + ehb*0.25 + ca*0.10 + time*0.10 + clog*0.10 + level*0.10
+// composite = gear*0.35 + ehb*0.25 + ca*0.10 + time*0.05 + clog*0.10 + level*0.10 + tcg*0.05
 // (weights/thresholds/caps are config-driven; the gear point table + CA point map
 // are bundled reference data that rarely changes — gearScoring.json /
-// combatAchievements.json, copied from the bot's config/.)
+// combatAchievements.json, copied from the bot's config/. The `tcg` component is the
+// member's Volition TCG collection completion — see tcgProgress.ts.)
 
 import gearScoring from './rankScoring/gearScoring.json';
 import combatAchievements from './rankScoring/combatAchievements.json';
@@ -61,6 +62,11 @@ export interface RankInputs {
 	clogAvailable: number;
 	monthsInClan: number;
 	caPoints: number;
+	// Volition TCG collection completion (distinct released cards owned / obtainable).
+	// Filled by the caller that has the member's site user id (rankCheck / rank-sim) —
+	// the external-data layer keyed by RSN can't read it, so it defaults to 0 / 0 there.
+	tcgOwned: number;
+	tcgTotal: number;
 }
 
 export interface ScoreBreakdown {
@@ -71,6 +77,7 @@ export interface ScoreBreakdown {
 	time: number;
 	clog: number;
 	level: number;
+	tcg: number;
 }
 
 // --- Gear: match a Temple collection-log payload against the gear table ------
@@ -319,11 +326,19 @@ export function computeScores(inputs: RankInputs, config: RankScoringConfig): Sc
 		inputs.totalLevel && inputs.totalLevel >= caps.levelMin && caps.levelRange > 0
 			? clamp01((inputs.totalLevel - caps.levelMin) / caps.levelRange)
 			: 0;
+	// Volition TCG completion: distinct released cards owned over obtainable. Full set = 1.
+	const tcg = inputs.tcgTotal > 0 ? clamp01(inputs.tcgOwned / inputs.tcgTotal) : 0;
 
 	const composite =
-		gear * w.gear + ehb * w.ehb + ca * w.ca + time * w.time + clog * w.clog + level * w.level;
+		gear * w.gear +
+		ehb * w.ehb +
+		ca * w.ca +
+		time * w.time +
+		clog * w.clog +
+		level * w.level +
+		tcg * w.tcg;
 
-	return { composite, gear, ehb, ca, time, clog, level };
+	return { composite, gear, ehb, ca, time, clog, level, tcg };
 }
 
 // --- Per-component description (for the on-profile rank breakdown) -----------
@@ -331,7 +346,7 @@ export function computeScores(inputs: RankInputs, config: RankScoringConfig): Sc
 // order, each with its weight, normalized 0..1 score, and weighted contribution
 // to the composite (normalized × weight). Pure — the /me Rank tab pairs this with
 // the raw inputs (gearPoints, ehb, …) and caps for the "x / cap" displays.
-export type ComponentKey = 'gear' | 'ehb' | 'ca' | 'time' | 'clog' | 'level';
+export type ComponentKey = 'gear' | 'ehb' | 'ca' | 'time' | 'clog' | 'level' | 'tcg';
 
 export interface ComponentDetail {
 	key: ComponentKey;
@@ -347,7 +362,8 @@ const COMPONENT_LABELS: { key: ComponentKey; label: string }[] = [
 	{ key: 'ca', label: 'Combat achievements' },
 	{ key: 'time', label: 'Time in clan' },
 	{ key: 'clog', label: 'Collection log' },
-	{ key: 'level', label: 'Total level' }
+	{ key: 'level', label: 'Total level' },
+	{ key: 'tcg', label: 'Volition TCG' }
 ];
 
 export function describeComposite(scores: ScoreBreakdown, config: RankScoringConfig): ComponentDetail[] {

@@ -17,6 +17,8 @@ export interface RankWeights {
 	time: number;
 	clog: number;
 	level: number;
+	// Volition TCG collection completion (see tcgProgress.ts / rankScoring.ts).
+	tcg: number;
 }
 
 export interface RankCaps {
@@ -59,7 +61,7 @@ export interface RankScoringConfig {
 // are now the canonical copies (the bot's source script has since been removed) — keep
 // them in sync by hand if the bot's tables change.
 export const DEFAULT_RANK_CONFIG: RankScoringConfig = {
-	weights: { gear: 0.35, ehb: 0.25, ca: 0.1, time: 0.1, clog: 0.1, level: 0.1 },
+	weights: { gear: 0.35, ehb: 0.25, ca: 0.1, time: 0.05, clog: 0.1, level: 0.1, tcg: 0.05 },
 	// gear: 0 = normalize against the gear table's full point sum (today's behaviour).
 	caps: { ehb: 3000, months: 12, clog: 1200, levelMin: 2000, levelRange: 376, gear: 0 },
 	// 1 / 1 = linear (today's behaviour). Lower to front-load progression (0.5 = sqrt).
@@ -92,7 +94,18 @@ const CACHE_TTL_MS = 60_000;
 // fall back field-by-field to the defaults, and keep thresholds in valid rank order.
 function sanitize(raw: unknown): RankScoringConfig {
 	const r = (raw ?? {}) as Partial<RankScoringConfig>;
-	const merged = { ...DEFAULT_RANK_CONFIG.weights, ...(r.weights ?? {}) };
+	const storedWeights = (r.weights ?? {}) as Partial<RankWeights>;
+	const merged = { ...DEFAULT_RANK_CONFIG.weights, ...storedWeights };
+	// One-time migration for configs saved before the Volition TCG category existed:
+	// such rows carry no `tcg` weight. Carve TCG's weight out of Time-in-clan (the
+	// intended rebalance — 5 points moved from time to TCG) instead of letting the
+	// spread-in default inflate the weight sum and dilute every component during the
+	// normalise below. Idempotent: rows that already carry `tcg` (all new saves) skip this.
+	if (!('tcg' in storedWeights)) {
+		const move = DEFAULT_RANK_CONFIG.weights.tcg;
+		merged.time = Math.max(0, (Number(merged.time) || 0) - move);
+		merged.tcg = move;
+	}
 	// The composite is Σ(component·weight) and the thresholds are calibrated for weights
 	// that sum to 1. A hand-edited row whose weights sum to e.g. 1.3 would scale every
 	// score up and make the thresholds meaningless, so normalise to sum 1 here (keeping

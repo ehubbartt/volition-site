@@ -64,7 +64,8 @@
 		['w_ca', 'ca', 'Combat Achv'],
 		['w_time', 'time', 'Time in clan'],
 		['w_clog', 'clog', 'Collection log'],
-		['w_level', 'level', 'Total level']
+		['w_level', 'level', 'Total level'],
+		['w_tcg', 'tcg', 'Volition TCG']
 	] as const;
 
 	const capKeys = [
@@ -474,6 +475,7 @@
 			<span>Time {summary.componentAverages.time.toFixed(3)}</span>
 			<span>Clog {summary.componentAverages.clog.toFixed(3)}</span>
 			<span>Level {summary.componentAverages.level.toFixed(3)}</span>
+			<span>TCG {summary.componentAverages.tcg.toFixed(3)}</span>
 			<span class="strong">Composite {summary.componentAverages.composite.toFixed(3)}</span>
 		</div>
 
