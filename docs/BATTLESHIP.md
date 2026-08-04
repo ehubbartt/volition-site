@@ -311,6 +311,18 @@ driven through the real UI:
 BATTLESHIP_FULL=1 npx playwright test e2e/battleship-full-event.spec.ts
 ```
 
+It runs at **two viewports** — set `BATTLESHIP_MOBILE=1` for a 390×844 touch phone —
+because the board is the risk and a desktop run can't answer "can a person actually place
+a ship and aim a bomb at this size". Both runs assert the page never scrolls sideways, the
+cells stay square, and (on mobile) that cells clear a 24px tap floor. Screenshots land in
+`e2e-shots/desktop/` and `e2e-shots/mobile/`.
+
+> **Phones get a cell-size floor, not smaller cells.** A 19×19 board on a 390px screen
+> would give ~12px cells — far under what a thumb can hit, and a mis-tap here *fires a
+> bomb at the wrong square with no undo*. Below `--min-cell` (26px) the board scrolls
+> **inside its own box** rather than shrinking, with the row numbers pinned so you can
+> still say where you hit. The page itself never scrolls sideways.
+
 Skipped unless `BATTLESHIP_FULL=1` so the normal suite stays fast. It seeds 60 players,
 signs **two browser contexts in as two different captains** (minting session rows directly
 rather than adding an auth surface, since dev-login only signs in the owner), drafts from

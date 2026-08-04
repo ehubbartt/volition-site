@@ -112,11 +112,18 @@
 	.wrap {
 		--gap: 1px;
 		--label: 1.3rem;
+		/* Floor on cell size. 0 on desktop (cells just fill the column); on a phone a
+		   19x19 board would otherwise give ~12px cells, far under the ~44px a thumb
+		   needs — and a mis-tap here FIRES A BOMB at the wrong square, which can't be
+		   undone. Below the floor the board scrolls inside itself instead of shrinking. */
+		--min-cell: 0px;
 		display: grid;
 		grid-template-columns: var(--label) minmax(0, 1fr);
 		grid-template-rows: 1rem minmax(0, 1fr);
 		gap: 0.15rem;
 		width: 100%;
+		overflow-x: auto;
+		overscroll-behavior-x: contain;
 	}
 	.corner {
 		grid-column: 1;
@@ -134,11 +141,18 @@
 		grid-column: 2;
 		grid-row: 1;
 		grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+		min-width: calc(var(--n) * (var(--min-cell) + var(--gap)));
 	}
 	.rowheads {
 		grid-column: 1;
 		grid-row: 2;
 		grid-template-rows: repeat(var(--n), minmax(0, 1fr));
+		/* Pinned while the board scrolls under it — the row number is half of how you
+		   tell someone where you hit. */
+		position: sticky;
+		left: 0;
+		z-index: 2;
+		background: var(--surface-alt);
 	}
 	.colheads span,
 	.rowheads span {
@@ -163,6 +177,7 @@
 		/* Square play area at ANY board size — this is what keeps the cells square and
 		   the whole board inside its column. */
 		aspect-ratio: 1;
+		min-width: calc(var(--n) * (var(--min-cell) + var(--gap)));
 		padding: var(--gap);
 		background-color: #0b2733;
 		background-image:
@@ -246,7 +261,10 @@
 
 	@media (max-width: 720px) {
 		.wrap {
-			--label: 1rem;
+			--label: 1.1rem;
+			/* Big enough to hit reliably; the board scrolls sideways within its own box
+			   rather than making the PAGE scroll. */
+			--min-cell: 26px;
 		}
 	}
 </style>

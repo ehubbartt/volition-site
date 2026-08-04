@@ -20,8 +20,16 @@ import { BASE_URL } from '../playwright.config';
 
 const RUN = /^(1|true|yes)$/i.test(process.env.BATTLESHIP_FULL ?? '');
 const PLAYERS = Number(process.env.BATTLESHIP_PLAYERS ?? 60);
-const SLUG = `full-event-${Date.now().toString(36)}`;
-const SHOTS = 'e2e-shots';
+
+// Run the WHOLE rehearsal at a real phone size as well as a desktop one. The board is
+// the risk: at 19x19 a phone gets ~13px cells, and "can a person actually place a ship
+// and aim a bomb at that size" is not something a desktop run can answer.
+const MOBILE = /^(1|true|yes|mobile)$/i.test(process.env.BATTLESHIP_MOBILE ?? '');
+const VIEWPORT = MOBILE ? { width: 390, height: 844 } : { width: 1440, height: 900 };
+const LABEL = MOBILE ? 'mobile' : 'desktop';
+
+const SLUG = `full-event-${LABEL}-${Date.now().toString(36)}`;
+const SHOTS = `e2e-shots/${LABEL}`;
 
 let vite: ViteDevServer;
 let sb: any;
@@ -37,6 +45,29 @@ async function shot(page: Page, name: string) {
 	const file = join(SHOTS, `${String(shotNo).padStart(2, '0')}-${name}.png`);
 	await page.screenshot({ path: file, fullPage: false });
 	console.log(`  📸 ${file}`);
+}
+
+/** Nothing may push the page sideways — the killer layout bug on a phone. */
+async function expectNoSideScroll(page: Page, where: string) {
+	const o = await page.evaluate(() => {
+		const d = document.documentElement;
+		return { scroll: d.scrollWidth, client: d.clientWidth };
+	});
+	expect(o.scroll, `${where}: page scrolls sideways (${o.scroll} > ${o.client})`).toBeLessThanOrEqual(
+		o.client + 1
+	);
+}
+
+/** Board cells must stay square wherever they render. */
+async function expectSquareCells(page: Page, where: string) {
+	const m = await page.evaluate(() => {
+		const c = document.querySelector('.cell');
+		if (!c) return null;
+		const r = c.getBoundingClientRect();
+		return { w: r.width, h: r.height };
+	});
+	if (!m) return;
+	expect(Math.abs(m.w - m.h), `${where}: cells are ${m.w}x${m.h}, not square`).toBeLessThan(1);
 }
 
 /**
@@ -96,7 +127,7 @@ async function drain(dropKey: string) {
 	return false;
 }
 
-test.describe.serial('Battleship — full 60-player event', () => {
+test.describe.serial(`Battleship — full ${PLAYERS}-player event (${LABEL})`, () => {
 	test.skip(!RUN, 'set BATTLESHIP_FULL=1 to run the full-event rehearsal');
 	test.describe.configure({ timeout: 15 * 60_000 });
 
@@ -131,13 +162,15 @@ test.describe.serial('Battleship — full 60-player event', () => {
 
 		await sb.from('vs_event_signups').insert(players.map((p) => ({ event_id: eventId, user_id: p.id })));
 
-		redCtx = await browser.newContext();
-		blueCtx = await browser.newContext();
+		redCtx = await browser.newContext({ viewport: VIEWPORT, hasTouch: MOBILE, isMobile: MOBILE });
+		blueCtx = await browser.newContext({ viewport: VIEWPORT, hasTouch: MOBILE, isMobile: MOBILE });
 		await signInAs(redCtx, players[0].id); // captain, side 1
 		await signInAs(blueCtx, players[1].id); // captain, side 2
 		red = await redCtx.newPage();
 		blue = await blueCtx.newPage();
-		admin = await (await browser.newContext({ storageState: 'e2e/.auth/user.json' })).newPage();
+		admin = await (
+			await browser.newContext({ storageState: 'e2e/.auth/user.json', viewport: VIEWPORT })
+		).newPage();
 	});
 
 	test.afterAll(async () => {
@@ -160,7 +193,11 @@ test.describe.serial('Battleship — full 60-player event', () => {
 		await red.goto(`/events/${SLUG}/battleship`);
 		await expect(red.getByRole('heading', { name: /rehearsal/i })).toBeVisible();
 		await expect(red.getByText(new RegExp(`${PLAYERS} signed up`))).toBeVisible();
+		await expectNoSideScroll(red, 'signup');
 		await shot(red, 'signup-captain-view');
+
+		// The Dink checker has to be reachable from here — untracked drops arm nothing.
+		await expect(red.locator('a[href="/dink-check"]').first()).toBeVisible();
 
 		// A member who is signed up can drop back out.
 		await expect(red.getByRole('button', { name: /leave the event/i })).toBeVisible();
@@ -214,7 +251,27 @@ test.describe.serial('Battleship — full 60-player event', () => {
 	test('3 · each side hides its fleet in its own browser', async () => {
 		await red.goto(`/events/${SLUG}/battleship`);
 		await expect(red.getByRole('heading', { name: /hide your fleet/i })).toBeVisible();
+		await expectNoSideScroll(red, 'placement');
+		await expectSquareCells(red, 'placement');
 		await shot(red, 'placement-empty-board');
+
+		// PLACE THE FIRST SHIP BY HAND, cell by cell — on a phone this is the moment that
+		// decides whether the board is usable at all, and auto-place would skip right past it.
+		const firstCell = red.locator('.cell').first();
+		const box = await firstCell.boundingBox();
+		console.log(`  cell hit-area: ${box!.width.toFixed(1)}x${box!.height.toFixed(1)}px`);
+		// A mis-tap fires a bomb at the wrong square and can't be undone, so on a phone
+		// the cells have to stay big enough to hit deliberately.
+		if (MOBILE) {
+			expect(box!.width, 'mobile cells are too small to tap reliably').toBeGreaterThanOrEqual(24);
+		}
+		for (let attempt = 0; attempt < 12; attempt++) {
+			await red.locator('.water .cell').nth(0).click();
+			if (await red.locator('.cell.ship').count()) break;
+			await red.waitForTimeout(400);
+		}
+		await expect(red.locator('.cell.ship')).not.toHaveCount(0);
+		await shot(red, 'placement-first-ship-by-hand');
 
 		// Place through the UI: "Random" then lock in, which exercises the client-side
 		// rules and the server re-validation on the same payload.
@@ -249,6 +306,8 @@ test.describe.serial('Battleship — full 60-player event', () => {
 		// Own hulls visible, enemy hulls never.
 		await expect(red.locator('.board').nth(0).locator('.cell.ship')).not.toHaveCount(0);
 		await expect(red.locator('.board').nth(1).locator('.cell.ship')).toHaveCount(0);
+		await expectNoSideScroll(red, 'battle');
+		await expectSquareCells(red, 'battle');
 		await shot(red, 'battle-open-red');
 	});
 
@@ -304,7 +363,11 @@ test.describe.serial('Battleship — full 60-player event', () => {
 		const claimant = snap.sides[0].members.find((m: any) => m.userId !== players[0].id);
 
 		// Sign the claimant in and submit through the real form, proof image and all.
-		const ctx = await red.context().browser()!.newContext();
+		const ctx = await red.context().browser()!.newContext({
+			viewport: VIEWPORT,
+			hasTouch: MOBILE,
+			isMobile: MOBILE
+		});
 		await signInAs(ctx, claimant.userId);
 		const claimPage = await ctx.newPage();
 		await claimPage.goto(`/events/${SLUG}/battleship`);
@@ -427,27 +490,46 @@ test.describe.serial('Battleship — full 60-player event', () => {
 		expect(snap.shots.filter((s: any) => s.targetSide === 2).length).toBe(firedBefore + 9);
 		console.log('  tier-3 bomb claimed 9 squares ✓');
 
-		// Now grind the rest of the enemy fleet down so the win condition is exercised.
-		let guard = 0;
-		while (guard++ < 400) {
+		// Grind the enemy fleet down so the win condition is exercised. Batched on
+		// purpose: one snapshot load per ROUND rather than per bomb. The board is 361
+		// squares now, and a per-bomb reload made this take minutes and time out.
+		let rounds = 0;
+		while (rounds++ < 40) {
 			snap = await bs.loadBattleship(SLUG);
 			if (snap.winner) break;
-			let bomb = snap.arsenal.find((a: any) => a.side === 1 && !a.spentAt);
-			if (!bomb) {
+
+			// Top the arsenal up so every round makes real progress.
+			const banked = snap.arsenal.filter((a: any) => a.side === 1 && !a.spentAt).length;
+			for (let i = banked; i < 20; i++) {
 				await bs.grantBomb({ eventId, side: 1, tier: 3, note: 'rehearsal ammo' });
-				continue;
 			}
-			const tier = tiers.find((t: any) => t.tier === bomb.tier);
-			const fired = new Set(snap.shots.filter((s: any) => s.targetSide === 2).map((s: any) => s.cell));
-			let a = null;
-            for (let y = 0; y <= size - tier.span && !a; y++) {
-				for (let x = 0; x <= size - tier.span && !a; x++) {
-					const cells = rules.bombCells({ x, y }, tier.span, size);
-					if (cells.some((c: string) => !fired.has(c))) a = { x, y };
+			if (banked < 20) snap = await bs.loadBattleship(SLUG);
+
+			// Track craters locally so the whole round fires off one read.
+			const fired = new Set<string>(
+				snap.shots.filter((s: any) => s.targetSide === 2).map((s: any) => s.cell)
+			);
+			let progressed = false;
+			for (const bomb of snap.arsenal.filter((a: any) => a.side === 1 && !a.spentAt)) {
+				const tier = tiers.find((t: any) => t.tier === bomb.tier);
+				let a: { x: number; y: number } | null = null;
+				for (let y = 0; y <= size - tier.span && !a; y++) {
+					for (let x = 0; x <= size - tier.span && !a; x++) {
+						const cells = rules.bombCells({ x, y }, tier.span, size);
+						if (cells.some((c: string) => !fired.has(c))) a = { x, y };
+					}
 				}
+				if (!a) break;
+				const r = await bs.fireBomb({
+					eventId, arsenalId: bomb.id, byUserId: players[0].id, anchor: a, force: true
+				});
+				if (!r.ok) continue;
+				progressed = true;
+				for (const c of r.value.cells) fired.add(c.cell);
+				for (const c of r.value.skipped) fired.add(c);
+				if (r.value.defeated) break;
 			}
-			if (!a) break;
-			await bs.fireBomb({ eventId, arsenalId: bomb.id, byUserId: players[0].id, anchor: a, force: true });
+			if (!progressed) break;
 		}
 
 		snap = await bs.loadBattleship(SLUG);
@@ -469,6 +551,7 @@ test.describe.serial('Battleship — full 60-player event', () => {
 
 		await red.goto(`/events/${SLUG}/battleship`);
 		await expect(red.locator('.banner')).toContainText(/won/i);
+		await expectNoSideScroll(red, 'victory');
 		await shot(red, 'victory-red');
 		await blue.goto(`/events/${SLUG}/battleship`);
 		await shot(blue, 'defeat-blue');
