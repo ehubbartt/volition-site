@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import { swrResource } from '$lib/swrResource.svelte';
 	import Skeleton from '$lib/Skeleton.svelte';
+	import TileSubmitModal from '$lib/TileSubmitModal.svelte';
 	import BoardGrid from '$lib/battleship/BoardGrid.svelte';
 	import {
 		autoPlace,
@@ -39,6 +40,7 @@
 	let anchor = $state<{ x: number; y: number } | null>(null);
 	// Did the last action come from the manual-claim form? Decides where its message goes.
 	const isClaim = $derived(!!form && 'claim' in form && !!form.claim);
+	let claimOpen = $state(false);
 	const selected = $derived(firable.find((b) => b.id === selectedBomb) ?? firable[0]);
 	const selectedTier = $derived(game?.config.tiers.find((t) => t.tier === selected?.tier));
 
@@ -318,36 +320,17 @@
 								</form>
 							{/if}
 
-							<!-- Manual claim, for members who don't run Dink. Reviewed like any
-							     other proof submission; approval arms the bomb. -->
-							<details class="claim">
-								<summary>Not using Dink? Claim a drop manually</summary>
-								<form method="POST" action="?/claim" use:enhance enctype="multipart/form-data" class="claimform">
-									<label>
-										Drop value
-										<input name="value" placeholder="5m" required />
-									</label>
-									<label>
-										What dropped <span class="muted">(optional)</span>
-										<input name="item" placeholder="Twisted bow" />
-									</label>
-									<label>
-										Screenshot
-										<input type="file" name="proof" accept="image/*" required />
-									</label>
-									<button class="btn" type="submit">Submit claim</button>
-								</form>
-								{#if isClaim && form && 'error' in form && form.error}
-									<p class="err small">{form.error}</p>
-								{/if}
+							<!-- Manual claim, for members who don't run Dink. Uses the shared
+							     submission modal so proof capture (drag, paste, multi-image)
+							     behaves exactly as it does everywhere else on the site. -->
+							<div class="claim">
+								<button class="btn subtle" onclick={() => (claimOpen = true)}>
+									Not using Dink? Claim a drop
+								</button>
 								{#if isClaim && form && 'report' in form && form.report}
 									<p class="ok small">{form.report}</p>
 								{/if}
-								<p class="muted small">
-									An admin reviews it, then the bomb appears in your arsenal. Value is the
-									single drop, not a whole trip.
-								</p>
-							</details>
+							</div>
 						</div>
 					{/if}
 				</section>
@@ -412,6 +395,28 @@
 	{/if}
 </div>
 
+{#if claimOpen && game}
+	<TileSubmitModal
+		tile={{ id: 'bomb', name: 'Claim a drop' }}
+		submitUrl="?/claim"
+		submitLabel="Submit"
+		requireImage
+		note="For members who don't run Dink. An admin reviews it, then the bomb appears in your arsenal. Value is the SINGLE drop, not a whole trip."
+		onclose={() => (claimOpen = false)}
+	>
+		{#snippet fields()}
+			<label>
+				Drop value
+				<input name="value" placeholder="5m" required />
+			</label>
+			<label>
+				What dropped <span class="muted">(optional)</span>
+				<input name="item" placeholder="Twisted bow" />
+			</label>
+		{/snippet}
+	</TileSubmitModal>
+{/if}
+
 <style>
 	.page { max-width: 68rem; margin: 0 auto; padding: 1rem; display: grid; gap: 1rem; }
 	header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
@@ -453,15 +458,7 @@
 	.bombs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.6rem; max-height: 11rem; overflow-y: auto; }
 	.bomb { display: grid; gap: 0.1rem; text-align: left; cursor: pointer; background: var(--surface-alt); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 0.3rem 0.5rem; font-family: var(--font-body); font-size: 0.78rem; }
 	.bomb.active { border-color: var(--accent); background: var(--accent-soft); }
-	.claim { margin-top: 0.9rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
-	.claim summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
-	.claim summary:hover { color: var(--accent); }
-	.claimform { display: flex; gap: 0.6rem; align-items: flex-end; flex-wrap: wrap; margin-top: 0.6rem; }
-	.claimform label { display: grid; gap: 0.2rem; font-size: 0.82rem; }
-	.claimform input {
-		background: var(--surface-alt); color: var(--text); border: 1px solid var(--border);
-		border-radius: var(--radius); padding: 0.35rem 0.45rem; font-family: var(--font-body); font-size: 0.85rem;
-	}
+	.claim { margin-top: 0.9rem; border-top: 1px solid var(--border); padding-top: 0.6rem; display: grid; gap: 0.4rem; justify-items: start; }
 	.inline { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 	.btn { background: var(--surface-alt); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 0.35rem 0.7rem; cursor: pointer; font-family: var(--font-body); font-size: 0.85rem; }
 	.btn:hover { border-color: var(--accent); }

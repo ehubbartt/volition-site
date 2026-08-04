@@ -309,17 +309,34 @@ test.describe.serial('Battleship — full 60-player event', () => {
 		const claimPage = await ctx.newPage();
 		await claimPage.goto(`/events/${SLUG}/battleship`);
 
-		await claimPage.getByText(/not using dink/i).click();
+		// Opens the SHARED submission modal (TileSubmitModal) — same proof capture every
+		// other submission on the site uses. Retry the open in case it lands pre-hydration.
+		const modal = claimPage.locator('[role="dialog"]');
+		for (let i = 0; i < 12; i++) {
+			await claimPage.getByRole('button', { name: /not using dink/i }).click();
+			try {
+				await modal.waitFor({ state: 'visible', timeout: 2_000 });
+				break;
+			} catch {
+				/* not hydrated yet */
+			}
+		}
+		await expect(modal).toBeVisible();
 		await shot(claimPage, 'manual-claim-form');
-		await claimPage.locator('input[name="value"]').fill('30m');
-		await claimPage.locator('input[name="item"]').fill('Elidinis’ ward');
-		// A tiny but genuine PNG, uploaded the way a member would attach a screenshot.
+
+		await modal.locator('input[name="value"]').fill('30m');
+		await modal.locator('input[name="item"]').fill('Elidinis’ ward');
+		// A tiny but genuine PNG, attached the way a member would.
 		const png = Buffer.from(
 			'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
 			'base64'
 		);
-		await claimPage.locator('input[name="proof"]').setInputFiles({ name: 'drop.png', mimeType: 'image/png', buffer: png });
-		await claimPage.getByRole('button', { name: /submit claim/i }).click();
+		await modal.locator('input[type="file"]').setInputFiles({ name: 'drop.png', mimeType: 'image/png', buffer: png });
+		await shot(claimPage, 'manual-claim-filled');
+		await modal.getByRole('button', { name: /^submit/i }).click();
+
+		// The modal closes itself on success — that IS the confirmation.
+		await expect(modal).toHaveCount(0);
 		await expect(claimPage.locator('.ok')).toContainText(/claim submitted/i);
 		await shot(claimPage, 'manual-claim-submitted');
 
