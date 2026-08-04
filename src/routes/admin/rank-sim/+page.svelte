@@ -376,7 +376,9 @@
 				{#each capKeys as [name, key, label]}
 					<label>
 						<span>{label}</span>
-						<input type="number" step="1" {name} value={config.caps[key]} />
+						<!-- Gear cap accepts a fraction of the table sum (e.g. 0.95), so it allows
+						     decimals; the other caps are whole counts. -->
+						<input type="number" step={key === 'gear' ? 'any' : '1'} min="0" {name} value={config.caps[key]} />
 					</label>
 				{/each}
 			</div>
