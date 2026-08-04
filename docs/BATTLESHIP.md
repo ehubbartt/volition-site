@@ -250,3 +250,44 @@ unless `--keep`.
 - **RLS.** The three new tables inherit the repo's current posture (see
   [`PENDING-OPS.md`](PENDING-OPS.md) §1). `enable_rls.sql` loops every public table, so
   re-applying it covers them with no edit.
+
+### Manual claims (members who can't run Dink)
+
+Not everyone runs Dink, and a drop nobody records is a bomb nobody gets. The battle page
+carries a **"Not using Dink? Claim a drop manually"** form: the member enters the drop's
+value (accepts `5m`, `5,000,000` or `5000000`), optionally names the item, attaches a
+screenshot, and submits.
+
+That does **not** arm anything. It files a normal `vs_submissions` row
+(`target_id = 'bomb:<value>'`, status `pending`) which shows up in `/admin/submissions`
+alongside every other proof, because the value is self-reported and needs a human behind
+it. Approving the row calls `mintBombsForApprovedClaims`, which arms a bomb of the tier
+matching the claimed value on the claimant's side.
+
+Idempotency is the arsenal's `unique (event_id, drop_key)` again, keyed on the SUBMISSION
+id (`manual:<submission id>`) — so revoking and re-approving mints nothing further, and a
+concurrent double-approve mints once (the hook only receives the ids the approval actually
+flipped).
+
+> The claim's result renders **next to the form**, not at the top of the page. The form
+> sits at the bottom of a long page and top-of-page feedback read as "nothing happened".
+
+> **Staging needs the `vs-bingo-proofs` storage bucket.** Prod has it; staging did not,
+> which silently broke every proof upload (not just Battleship's) with "Bucket not found".
+> Created to match prod: public, no size limit, no MIME restriction.
+
+### The full-event rehearsal
+
+`e2e/battleship-full-event.spec.ts` is the dress rehearsal — a whole 60-player event
+driven through the real UI:
+
+```bash
+BATTLESHIP_FULL=1 npx playwright test e2e/battleship-full-event.spec.ts
+```
+
+Skipped unless `BATTLESHIP_FULL=1` so the normal suite stays fast. It seeds 60 players,
+signs **two browser contexts in as two different captains** (minting session rows directly
+rather than adding an auth surface, since dev-login only signs in the owner), drafts from
+both, places both fleets through the placement editor, feeds the battle with Dink payloads
+shaped exactly like the proxy writes them plus a manual claim through the review queue,
+and fires until a fleet is gone. Screenshots of every stage land in `e2e-shots/`.

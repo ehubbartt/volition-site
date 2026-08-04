@@ -951,6 +951,71 @@ async function loadBattleshipById(eventId: string): Promise<BattleshipSnapshot |
 	return loadBattleship((data as { slug: string }).slug);
 }
 
+/** Prefix for a manual bomb claim's `vs_submissions.target_id` — `bomb:<gp value>`. */
+export const BOMB_CLAIM_PREFIX = 'bomb:';
+
+export function bombClaimTarget(value: number): string {
+	return `${BOMB_CLAIM_PREFIX}${Math.max(0, Math.round(value))}`;
+}
+
+export function parseBombClaim(targetId: string | null): number | null {
+	if (!targetId?.startsWith(BOMB_CLAIM_PREFIX)) return null;
+	const v = Number(targetId.slice(BOMB_CLAIM_PREFIX.length));
+	return Number.isFinite(v) && v >= 0 ? v : null;
+}
+
+/**
+ * Mint bombs for manual claims that an admin has just APPROVED.
+ *
+ * Members who don't run Dink submit the drop's value plus a screenshot; the row goes
+ * through the normal /admin/submissions queue, and approving it lands here. Called with
+ * the ids the approval actually flipped, so a concurrent double-approve mints once.
+ *
+ * Idempotent twice over: the arsenal's unique (event_id, drop_key) keyed on the
+ * SUBMISSION id means re-approving after a revoke can never mint a second bomb.
+ */
+export async function mintBombsForApprovedClaims(
+	submissionIds: string[]
+): Promise<{ minted: number }> {
+	if (submissionIds.length === 0) return { minted: 0 };
+	const sb = db();
+
+	const { data: rows, error } = await sb
+		.from('vs_submissions')
+		.select('id, event_id, user_id, target_id, target_label, status')
+		.in('id', submissionIds)
+		.eq('status', 'approved');
+	if (error || !rows?.length) return { minted: 0 };
+
+	let minted = 0;
+	for (const r of rows as {
+		id: string; event_id: string | null; user_id: string | null;
+		target_id: string; target_label: string | null;
+	}[]) {
+		const value = parseBombClaim(r.target_id);
+		if (value == null || !r.event_id || !r.user_id) continue;
+
+		// Which side is the claimant on? A claim from someone not drafted arms nothing.
+		const game = await activeBattleshipFor(r.user_id);
+		if (!game || game.eventId !== r.event_id) continue;
+
+		const res = await earnBomb({
+			eventId: r.event_id,
+			side: game.side,
+			userId: r.user_id,
+			value,
+			// Keyed on the submission, NOT on a synthetic id — that's what makes a
+			// revoke-then-re-approve mint nothing further.
+			dropKey: `manual:${r.id}`,
+			itemName: r.target_label ?? 'Manual claim',
+			source: 'Manual claim',
+			tiers: game.tiers
+		});
+		if (res.minted) minted++;
+	}
+	return { minted };
+}
+
 /** Admin escape hatch: hand a side a bomb without a drop (testing, make-goods). */
 export async function grantBomb(input: {
 	eventId: string;
