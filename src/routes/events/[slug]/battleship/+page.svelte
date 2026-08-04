@@ -499,8 +499,9 @@
 
 	/* ── Boards ─────────────────────────────────────────────────────── */
 	.boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1.25rem; }
-	.board { min-width: 0; }
-	.boardwell { padding: 0.55rem; border-radius: 3px; }
+	.boardwell { padding: 0.5rem; }
+	/* Boards stay square and never outgrow their column. */
+	.board { min-width: 0; max-width: 34rem; }
 	/* The readout under each grid, styled like an in-game info strip. */
 	.stat {
 		margin: 0.5rem 0 0; padding: 0.35rem 0.6rem; font-size: 0.8rem;

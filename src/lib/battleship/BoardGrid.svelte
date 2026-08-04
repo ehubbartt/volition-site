@@ -3,6 +3,10 @@
 	// visible) and the enemy's (only craters), so hit/miss rendering can never drift
 	// between the two. Purely presentational: it renders what it is given and reports
 	// clicks, it never decides what is legal.
+	//
+	// Layout note: the labels and the play area are SEPARATE grids sharing one gap, so
+	// the water is exactly the n×n play area (nothing bleeds under the labels) and the
+	// cells can be driven off `aspect-ratio` to stay square at any board size.
 	import { cellId, columnLabel, type CellId, type Ship } from './rules';
 
 	interface ShotLike {
@@ -59,130 +63,190 @@
 		onpick(Math.min(x, maxAnchor), Math.min(y, maxAnchor));
 	}
 
-	const rows = $derived(Array.from({ length: size }, (_, i) => i));
+	const axis = $derived(Array.from({ length: size }, (_, i) => i));
 </script>
 
 <div class="wrap" style="--n: {size}">
 	<div class="corner"></div>
-	{#each rows as x (x)}
-		<div class="colhead" style="grid-column: {x + 2}; grid-row: 1">{columnLabel(x)}</div>
-	{/each}
+	<div class="colheads">
+		{#each axis as x (x)}<span>{columnLabel(x)}</span>{/each}
+	</div>
+	<div class="rowheads">
+		{#each axis as y (y)}<span>{y + 1}</span>{/each}
+	</div>
 
-	{#each rows as y (y)}
-		<div class="rowhead" style="grid-column: 1; grid-row: {y + 2}">{y + 1}</div>
-		{#each rows as x (x)}
-			{@const id = cellId(x, y)}
-			{@const shot = shotByCell.get(id)}
-			{@const ship = shipByCell.get(id)}
-			{@const sunk = ship ? sunkSet.has(ship.id) : false}
-			<button
-				type="button"
-				class="cell"
-				class:ship={!!ship && !shot}
-				class:hit={shot?.hit}
-				class:miss={shot && !shot.hit}
-				class:sunk
-				class:preview={previewCells.has(id)}
-				class:clickable={mode === 'target' && !disabled}
-				style="grid-column: {x + 2}; grid-row: {y + 2}"
-				disabled={mode !== 'target' || disabled}
-				aria-label="{columnLabel(x)}{y + 1}{shot ? (shot.hit ? ' — hit' : ' — miss') : ''}{ship &&
-				!shot
-					? ' — your ship'
-					: ''}"
-				onmouseenter={() => (hover = { x, y })}
-				onfocus={() => (hover = { x, y })}
-				onmouseleave={() => (hover = null)}
-				onblur={() => (hover = null)}
-				onclick={() => pick(x, y)}
-			>
-				{#if shot?.hit}<span class="mark">✳</span>
-				{:else if shot}<span class="mark dot">•</span>{/if}
-			</button>
+	<div class="water" class:aiming={mode === 'target' && !disabled}>
+		{#each axis as y (y)}
+			{#each axis as x (x)}
+				{@const id = cellId(x, y)}
+				{@const shot = shotByCell.get(id)}
+				{@const ship = shipByCell.get(id)}
+				{@const sunk = ship ? sunkSet.has(ship.id) : false}
+				<button
+					type="button"
+					class="cell"
+					class:ship={!!ship && !shot}
+					class:hit={shot?.hit}
+					class:miss={shot && !shot.hit}
+					class:sunk
+					class:preview={previewCells.has(id)}
+					disabled={mode !== 'target' || disabled}
+					aria-label="{columnLabel(x)}{y + 1}{shot ? (shot.hit ? ' — hit' : ' — miss') : ''}{ship &&
+					!shot
+						? ' — your ship'
+						: ''}"
+					onmouseenter={() => (hover = { x, y })}
+					onfocus={() => (hover = { x, y })}
+					onmouseleave={() => (hover = null)}
+					onblur={() => (hover = null)}
+					onclick={() => pick(x, y)}
+				>
+					{#if shot?.hit}<span class="mark">✳</span>{/if}
+				</button>
+			{/each}
 		{/each}
-	{/each}
+	</div>
 </div>
 
 <style>
 	.wrap {
+		--gap: 1px;
+		--label: 1.3rem;
 		display: grid;
-		grid-template-columns: 1.4rem repeat(var(--n), minmax(0, 1fr));
-		grid-template-rows: 1.1rem repeat(var(--n), auto);
-		gap: 2px;
-		max-width: 100%;
-	}
-	.colhead,
-	.rowhead {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 0.7rem;
-		color: var(--muted);
-		text-shadow: var(--ts);
+		grid-template-columns: var(--label) minmax(0, 1fr);
+		grid-template-rows: 1rem minmax(0, 1fr);
+		gap: 0.15rem;
+		width: 100%;
 	}
 	.corner {
 		grid-column: 1;
 		grid-row: 1;
 	}
-	.cell {
-		aspect-ratio: 1;
-		min-width: 0;
-		padding: 0;
-		border: 1px solid var(--border);
-		border-radius: 2px;
-		background: var(--surface-alt);
-		color: var(--text);
-		font-size: 0.8rem;
-		line-height: 1;
+	.colheads,
+	.rowheads {
+		display: grid;
+		gap: var(--gap);
+		font-size: clamp(0.45rem, calc(22rem / var(--n) / 3), 0.7rem);
+		color: var(--muted);
+		text-shadow: var(--ts);
+	}
+	.colheads {
+		grid-column: 2;
+		grid-row: 1;
+		grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+	}
+	.rowheads {
+		grid-column: 1;
+		grid-row: 2;
+		grid-template-rows: repeat(var(--n), minmax(0, 1fr));
+	}
+	.colheads span,
+	.rowheads span {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		/* Water. Kept subtle so ships and craters carry the contrast. */
-		box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+		min-width: 0;
+		overflow: hidden;
 	}
-	.cell.clickable {
+
+	/* THE SEA. One continuous body of water under the whole play area — a gradient per
+	   cell would read as 361 tiles, not an ocean. Depth gradient + two offset swell
+	   bands + a fine ripple, all static (no animation: this sits behind a grid someone
+	   is reading, and it must not fight for attention or annoy reduced-motion users). */
+	.water {
+		grid-column: 2;
+		grid-row: 2;
+		display: grid;
+		grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+		grid-template-rows: repeat(var(--n), minmax(0, 1fr));
+		gap: var(--gap);
+		/* Square play area at ANY board size — this is what keeps the cells square and
+		   the whole board inside its column. */
+		aspect-ratio: 1;
+		padding: var(--gap);
+		background-color: #0b2733;
+		background-image:
+			repeating-linear-gradient(
+				100deg,
+				rgba(255, 255, 255, 0.045) 0 2px,
+				transparent 2px 9px
+			),
+			repeating-linear-gradient(
+				78deg,
+				rgba(120, 200, 220, 0.05) 0 3px,
+				transparent 3px 17px
+			),
+			radial-gradient(120% 90% at 30% 0%, #17495c 0%, #0d2f3d 45%, #071d27 100%);
+		box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.55);
+		border-radius: 2px;
+	}
+	.water.aiming .cell:not(:disabled) {
 		cursor: crosshair;
 	}
+
+	.cell {
+		/* The global OSRS <button> style sets min-height 38px and a bronze border-image;
+		   both have to go or the cells stop being square and the sea disappears. */
+		min-height: 0;
+		min-width: 0;
+		padding: 0;
+		margin: 0;
+		border: none;
+		border-image: none;
+		border-radius: 0;
+		background: rgba(255, 255, 255, 0.028);
+		box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+		color: var(--text);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: clamp(0.4rem, calc(26rem / var(--n) / 2), 0.85rem);
+		line-height: 1;
+	}
+	.cell:hover:not(:disabled) {
+		background: rgba(255, 255, 255, 0.1);
+	}
+
+	/* A hull: metal grey, deliberately opaque so it reads as sitting ON the water. */
 	.cell.ship {
-		/* A hull has to read at a glance against water in every theme, so mix toward the
-		   theme's own text colour rather than hardcoding a grey. */
-		background: color-mix(in srgb, var(--text) 34%, var(--surface-alt));
-		border-color: color-mix(in srgb, var(--text) 55%, transparent);
-		box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+		background: linear-gradient(180deg, #8d8f92, #5f6367);
+		box-shadow:
+			inset 0 1px 0 rgba(255, 255, 255, 0.35),
+			inset 0 -1px 0 rgba(0, 0, 0, 0.45);
 	}
+
+	/* A miss is a splash ring on open water, not a grey dot. */
 	.cell.miss {
-		background: var(--surface-alt);
-		color: var(--muted);
+		background:
+			radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.5) 0 12%, transparent 14%),
+			radial-gradient(circle at 50% 50%, transparent 26%, rgba(255, 255, 255, 0.28) 28% 34%, transparent 36%),
+			rgba(255, 255, 255, 0.03);
 	}
+
 	.cell.hit {
-		background: var(--danger-bg);
-		border-color: var(--danger);
-		color: var(--danger);
+		background: radial-gradient(circle at 50% 45%, #ff6a3d 0%, #a11b0b 60%, #5c0f06 100%);
+		color: #ffe6b0;
+		box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.6);
 	}
 	.cell.sunk {
-		background: #1a0f0d;
-		border-color: #7a1010;
+		background: radial-gradient(circle at 50% 45%, #4a1109 0%, #24070a 70%, #12040a 100%);
+		color: rgba(255, 200, 160, 0.65);
 	}
+
 	.cell.preview {
 		outline: 2px solid var(--accent);
 		outline-offset: -2px;
-		background: var(--accent-soft);
+		background: rgba(255, 152, 31, 0.32);
 	}
+
 	.mark {
 		font-weight: bold;
-		text-shadow: var(--ts);
+		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
 	}
-	.dot {
-		font-size: 1.1rem;
-	}
+
 	@media (max-width: 720px) {
 		.wrap {
-			grid-template-columns: 1rem repeat(var(--n), minmax(0, 1fr));
-			gap: 1px;
-		}
-		.colhead,
-		.rowhead {
-			font-size: 0.55rem;
+			--label: 1rem;
 		}
 	}
 </style>

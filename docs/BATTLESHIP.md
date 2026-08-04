@@ -133,7 +133,12 @@ which of their ships are sunk. Never their ship positions. This is enforced serv
   identically. Cells are `"x,y"` strings — the same identity the database's unique index
   uses. Never build one by hand; go through `cellId`/`parseCell`.
 - `src/lib/battleship/BoardGrid.svelte` — one grid, used for both boards everywhere, so
-  hit/miss rendering can't drift between your water and theirs.
+  hit/miss rendering can't drift between your water and theirs. Two points worth keeping:
+  the labels and the play area are **separate grids sharing one gap**, so the sea is
+  exactly the n×n play area and `aspect-ratio: 1` on it keeps cells square at any board
+  size (verified square with no horizontal overflow at 1440 / 1024 / 390px); and the cells
+  must reset `min-height` and `border-image`, because they are `<button>`s and app.css's
+  global bronze frame would otherwise force them 38px tall and rectangular.
 - `src/lib/server/battleship.ts` — the store: load a snapshot, and the actions
   (`startDraft`, `draftPick`, `placeFleet`, `startBattle`, `earnBomb`, `fireBomb`).
 - `src/lib/server/battleshipPage.ts` — the member payload. Its only job is that everything
