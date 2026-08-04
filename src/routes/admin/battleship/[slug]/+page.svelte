@@ -64,7 +64,7 @@
 	{#if form && 'report' in form && form.report}<p class="ok">{form.report}</p>{/if}
 
 	<!-- ── Phase driver ────────────────────────────────────────────────── -->
-	<section class="card">
+	<section class="osrs-panel">
 		<h2>Run the game</h2>
 
 		{#if game.phase === 'signup'}
@@ -156,7 +156,7 @@
 
 	<!-- ── Boards ──────────────────────────────────────────────────────── -->
 	{#if sides.length === 2}
-		<section class="card">
+		<section class="osrs-panel">
 			<div class="actbar">
 				<span class="muted">Acting as</span>
 				{#each sides as s (s.side)}
@@ -242,7 +242,7 @@
 		</section>
 
 		<!-- ── Rosters ─────────────────────────────────────────────────── -->
-		<section class="card">
+		<section class="osrs-panel">
 			<h2>Sides</h2>
 			<div class="rosters">
 				{#each sides as s (s.side)}
@@ -269,7 +269,6 @@
 	h3 { font-family: var(--font-heading); font-size: 0.95rem; margin: 0 0 0.4rem; }
 	.back { color: var(--muted); text-decoration: none; font-size: 0.85rem; }
 	.back:hover { color: var(--accent); }
-	.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0.85rem; box-shadow: var(--shadow-card); }
 	.tags { display: flex; gap: 0.35rem; flex-wrap: wrap; }
 	.pill { font-size: 0.72rem; padding: 0.1rem 0.4rem; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface-alt); }
 	.pill.accent { border-color: var(--accent); color: var(--accent); }
@@ -284,15 +283,12 @@
 		background: var(--surface-alt); color: var(--text); border: 1px solid var(--border);
 		border-radius: var(--radius); padding: 0.35rem 0.45rem; font-family: var(--font-body); font-size: 0.85rem;
 	}
-	.btn {
-		background: var(--surface-alt); color: var(--text); border: 1px solid var(--border-strong);
-		border-radius: var(--radius); padding: 0.35rem 0.7rem; cursor: pointer;
-		font-family: var(--font-body); font-size: 0.85rem; text-decoration: none; display: inline-block;
-	}
-	.btn:hover { border-color: var(--accent); }
+	/* Modifier only — app.css already gives every <button> the bronze OSRS frame,
+	   and overriding it here is what made these read as unstyled. */
+	.btn { text-decoration: none; display: inline-flex; align-items: center; }
 	.btn:disabled { opacity: 0.45; cursor: not-allowed; }
-	.btn.small { font-size: 0.78rem; padding: 0.25rem 0.5rem; }
-	.btn.primary, .btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+	.btn.small { min-height: 30px; padding: 1px 10px; font-size: 0.8rem; }
+	.btn.primary, .btn.active { color: var(--yellow); }
 	.draftgrid { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.5rem 0; }
 	.actbar { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
 	.boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1.25rem; }

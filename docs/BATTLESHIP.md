@@ -6,7 +6,7 @@ way to attack is to play the game: **any drop you get becomes a bomb**, and the 
 drop the bigger the hole it makes in the other side's water. First side to sink the enemy
 fleet wins.
 
-Sized for **~32 players** (16 a side) but the board scales with whoever actually signs up.
+Sized for **60 players** (30 a side, a 19×19 board) but it scales to whoever actually signs up.
 
 This doc is both the ruleset (numbers are first-pass and meant to be tuned) and the map of
 the implementation. See also [`EVENTS.md`](EVENTS.md) for the shared events spine and
@@ -44,20 +44,28 @@ side with no ships cannot be shot at and would stall the event for everyone else
 
 ### The board scales with the draft
 
-Water per player is fixed (6 squares), so the grid grows with the headcount and the game
-doesn't turn into a needle hunt at 48 players or a bloodbath at 20:
+Water per player is fixed (**12 squares**), so the grid grows with the headcount — bombs
+arrive in proportion to headcount, so board area has to as well or a big event just
+saturates its board:
 
-| Per side | Board | Fleet | Ship squares |
-|---|---|---|---|
-| 10 | 8×8 | 5·4·3 | 12 |
-| 16 | **10×10** | **5·4·3·3·2** | **17** |
-| 24 | 12×12 | 5·5·4·4·3·3·2 | 26 |
-| 32 | 14×14 | 5·5·4·4·3·3·3·3·2·2 | 34 |
+| Players | Per side | Board | Squares | Ships | Ship squares |
+|---|---|---|---|---|---|
+| 16 | 8 | **10×10** | 100 | 5 | 17 |
+| 32 | 16 | 14×14 | 196 | 10 | 34 |
+| 48 | 24 | 17×17 | 289 | 14 | 49 |
+| **60** | **30** | **19×19** | **361** | **18** | **63** |
+| 100 | 50 | 24×24 | 576 | 29 | 100 |
 
-**16 a side — a 32-player event — is exactly the classic 10×10 Battleship board with the
-classic fleet.** That's the anchor the scaling is built around. Bigger boards keep the same
-~17% ship density by adding more ships, not longer ones. Bounds are 8×8 and 20×20; an admin
-can also pin a size when creating the event.
+**A 16-player event is exactly the classic 10×10 board with the classic 5/4/3/3/2 fleet.**
+Bigger boards keep the same ~17% ship density by adding more ships, not longer ones.
+Bounds are 8×8 and 24×24; an admin can pin an exact size when creating the event.
+
+> **This dial was raised after the 60-player rehearsal.** At 6 squares per player, 60
+> players got a 14×14 board and the rehearsal took 185 shots on 196 squares to finish —
+> i.e. it ran until the board was nearly all craters, and that was with *random* targeting.
+> Real players hunt around their hits, so they'd have got there much sooner. 12 doubles the
+> water. It's still a guess against unmeasured drop rates: raise it further if events end
+> too quickly.
 
 Ships are placed horizontally or vertically, may **touch** but not overlap (standard rules).
 

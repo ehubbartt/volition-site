@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { boardSizeFor } from '../src/lib/battleship/rules';
 
 // Drives a whole Battleship game through the ADMIN TESTER UI — create, seed, draft,
 // place, battle, fire — then checks the player view redacts the enemy fleet.
@@ -85,8 +86,9 @@ test.describe.serial('Battleship', () => {
 		await page.getByRole('button', { name: /open the battle/i }).click();
 		await expect(page.locator('.pill', { hasText: /^battle$/i })).toBeVisible();
 
-		// Both boards render every square once the battle is on.
-		const size = 8; // 6 a side → the 8x8 floor
+		// Both boards render every square once the battle is on. Derived from the rules
+		// rather than hardcoded, so a change to the scaling dial doesn't silently pass.
+		const size = boardSizeFor(6); // 12 players → 6 a side
 		await expect(page.locator('.wrap').first().locator('.cell')).toHaveCount(size * size);
 
 		// ── fire ─────────────────────────────────────────────────────────────

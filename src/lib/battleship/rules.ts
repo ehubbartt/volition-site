@@ -72,9 +72,22 @@ export function columnLabel(x: number): string {
 // ── Board sizing ────────────────────────────────────────────────────────────
 
 export const MIN_SIZE = 8;
-export const MAX_SIZE = 20;
-/** Water per player on a side. 6 puts 16-a-side (a 32-player event) on the classic 10x10. */
-const CELLS_PER_PLAYER = 6;
+export const MAX_SIZE = 24;
+/**
+ * Water per player on a side — the dial that sets how long an event lasts.
+ *
+ * Bombs arrive in proportion to headcount, so board area has to scale with headcount too
+ * or a big event just saturates its board. The first pass used 6, which put 16-a-side on
+ * the classic 10x10 — but the 60-player rehearsal needed 185 shots on a 196-square board
+ * to finish, i.e. it ran until the board was nearly all craters. Real players hunt around
+ * their hits rather than firing at random, so they would have got there far sooner.
+ *
+ * 12 doubles the water: 30-a-side now gets 19x19 (361 squares) instead of 14x14 (196).
+ * At a rough 1 qualifying drop per player per day that is a week-ish of play rather than
+ * a day or two. It is a guess against unmeasured drop rates — raise it if events end too
+ * quickly, and note an admin can always pin an exact size when creating the event.
+ */
+const CELLS_PER_PLAYER = 12;
 
 /**
  * Board edge for a given per-side headcount. Deliberately a function of TEAM size, not
