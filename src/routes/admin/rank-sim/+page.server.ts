@@ -19,7 +19,7 @@ import {
 import { calculateGearPoints, calculateCAPoints } from '$lib/server/rankScoring';
 import { usesIronmanEhb, computeIronmanEhb } from '$lib/server/rankScoring/ehb';
 import { getApprovedGearNamesByRsn } from '$lib/server/rankClaims';
-import { getTcgProgress, getReleasedCardIds } from '$lib/server/tcgProgress';
+import { getTcgProgress, getTcgCatalog } from '$lib/server/tcgProgress';
 import { setPlayerRank } from '$lib/server/playerStats';
 import { microCached } from '$lib/server/microCache';
 import { RANK_ORDER, RANK_LABEL, rankIndex, toRankValue, ehbRank, type RankValue } from '$lib/ranks';
@@ -402,9 +402,9 @@ export const actions: Actions = {
 		// Site account types, so GIM members get iron-rate EHB (rankScoring/ehb.ts).
 		const accountTypeByRsn = await readAccountTypes();
 		// Site user ids, so each player's Volition TCG collection completion can be scored.
-		// Warm the released-card set once up front (cached) so per-player lookups are cheap.
+		// Warm the card catalog once up front (cached) so per-player lookups are cheap.
 		const userIdByRsn = await readUserIdsByRsn();
-		await getReleasedCardIds();
+		await getTcgCatalog();
 		let processed = 0;
 		for (const entry of worklist) {
 			// GIM accounts: re-derive EHB from boss KCs on iron rates (fetched in parallel).

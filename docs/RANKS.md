@@ -12,17 +12,20 @@ collection). This doc is the map; the code carries the detail.
   vs `rankScoring/combatAchievements.json`, whole-tier rewards only),
   `determineProjectedRank` (thresholds → womRole). The seven components are gear, EHB,
   combat achievements, time-in-clan, collection log, total level, and **Volition TCG**
-  (`tcg`) — distinct released cards owned / obtainable, so a full set = 100% of that
-  component. The default weights are gear 0.35 · ehb 0.25 · ca 0.10 · time 0.05 ·
-  clog 0.10 · level 0.10 · tcg 0.05.
+  (`tcg`) — owned card variants / obtainable, so a full set = 100% of that component. The
+  default weights are gear 0.35 · ehb 0.25 · ca 0.10 · time 0.05 · clog 0.10 · level 0.10 ·
+  tcg 0.05.
 - **Volition TCG component**: `src/lib/server/tcgProgress.ts` — `getTcgProgress(userId)`
-  returns `{ owned, total }` at the DISTINCT-CARD level (own one copy of a card, any
-  finish → it counts) over every card in a released pack. It's kept out of the pure
-  scoring module (DB I/O) and folded in by the caller that has the member's site user id
-  (`rankCheck.ts`, the rank-sim refresh, onboarding) before scoring; `fetchPlayerRankInputs`
-  (RSN-keyed external data) can't read it and leaves it 0. The counts are cached on the
-  member's `vs_rank_sim` row (`tcg_owned` / `tcg_total`) so the breakdown re-scores without
-  re-reading `vs_user_cards`.
+  returns `{ owned, total }` counted the SAME way the Collection tab does (`cardProfile.ts`):
+  at the VARIANT level — each finish a card can roll (Holo / Reverse / Normal) is its own
+  slot, and a secret rare is a single mystery slot until any finish is owned. The finish
+  logic is shared via `src/lib/cards/finishVariants.ts` (`possibleFinishes`) so the rank
+  count and the grid never diverge. Cards from **elemental** packs (event gifts, not freely
+  obtainable) are excluded entirely. It's kept out of the pure scoring module (DB I/O) and
+  folded in by the caller that has the member's site user id (`rankCheck.ts`, the rank-sim
+  refresh, onboarding) before scoring; `fetchPlayerRankInputs` (RSN-keyed external data)
+  can't read it and leaves it 0. The counts are cached on the member's `vs_rank_sim` row
+  (`tcg_owned` / `tcg_total`) so the breakdown re-scores without re-reading `vs_user_cards`.
 - **Config**: `src/lib/server/rankConfig.ts` — weights/caps/curves/thresholds live in the
   `bot_config` row `rank_scoring` (edited via `/admin/rank-sim`, 60s cache);
   `DEFAULT_RANK_CONFIG` is only the fallback. `sanitize()` normalizes the weights to sum 1

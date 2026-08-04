@@ -230,7 +230,7 @@
 		time: "Months since you were added to the clan's WiseOldMan group. The bar fills toward the configured months cap.",
 		clog: 'Collection-log slots completed, read from your TempleOSRS profile. The bar fills toward the configured slots cap.',
 		level: 'Total level from your latest WiseOldMan snapshot. Only levels above the configured minimum score — the bar measures where you sit between that minimum and the cap.',
-		tcg: 'Your Volition TCG collection: how many distinct cards you own out of every obtainable card. Owning one copy of a card counts (any finish) — a full set is 100%. Open packs on the site to fill it.'
+		tcg: 'Your Volition TCG collection: how many card variants you own out of every obtainable one — each finish (Holo / Reverse / Normal) is its own slot, matching the Collection tab. Event-only elemental cards are excluded. A full set is 100%.'
 	};
 
 	// "Set this up" hint for a zero-score component: what's missing and where to fix it.
