@@ -37,9 +37,11 @@ collection). This doc is the map; the code carries the detail.
   components but their caps sit near the top of the account ladder, so a linear
   normalization leaves most of the roster bunched at the bottom of both bars (flat
   mid-game). Two config knobs fix this without touching the distribution:
-  - `caps.gear` — the gear points at which the gear bar maxes. `0` (default) =
-    `GEAR_SCORE_CAP` (the gear table's full sum, today's behaviour); a lower value (e.g.
-    `12000`) lets a strong-but-not-BiS setup read near full. `effectiveGearCap(config)`
+  - `caps.gear` — the gear points at which the gear bar maxes. `0` = `GEAR_SCORE_CAP` (the
+    gear table's full sum); a value in `(0, 1]` is a **fraction** of that sum (default
+    `0.95` → the bar maxes at 95% of the total gear points, and stays 95% when the point
+    table is reshuffled); a value `> 1` is an absolute gear-point figure (e.g. `12000`).
+    Lowering it lets a strong-but-not-BiS setup read near full. `effectiveGearCap(config)`
     resolves it; the gear grid + `GEAR_SCORE_CAP` invariant are unchanged.
   - `curves.gear` / `curves.ehb` — diminishing-returns exponents applied in `curveNorm`
     (`(raw/cap) ** exponent`). `1` = linear (default); `0.5` = sqrt, front-loading early

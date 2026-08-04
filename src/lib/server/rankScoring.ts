@@ -305,7 +305,14 @@ export function curveNorm(raw: number, cap: number, exponent = 1): number {
 // The gear points at which the gear component maxes: the configured cap, or the gear
 // table's full point sum when the cap is unset (0) — today's behaviour.
 export function effectiveGearCap(config: RankScoringConfig): number {
-	return config.caps.gear && config.caps.gear > 0 ? config.caps.gear : GEAR_SCORE_CAP;
+	const g = config.caps.gear;
+	// 0 / unset  → the gear table's full point sum (the gear bar maxes at 100% of points).
+	// (0, 1]     → a FRACTION of that sum, so "0.95" means the bar maxes at 95% of the total
+	//              points and stays 95% even when the gear table's points are reshuffled.
+	// > 1        → an absolute gear-point value.
+	if (!g || g <= 0) return GEAR_SCORE_CAP;
+	if (g <= 1) return GEAR_SCORE_CAP * g;
+	return g;
 }
 
 export function computeScores(inputs: RankInputs, config: RankScoringConfig): ScoreBreakdown {

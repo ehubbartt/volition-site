@@ -70,7 +70,7 @@
 
 	const capKeys = [
 		['c_ehb', 'ehb', 'EHB cap'],
-		['c_gear', 'gear', 'Gear cap (0 = table sum)'],
+		['c_gear', 'gear', 'Gear cap (0 = table sum · ≤1 = fraction of it · >1 = points)'],
 		['c_months', 'months', 'Months cap'],
 		['c_clog', 'clog', 'Clog slots cap'],
 		['c_levelMin', 'levelMin', 'Level floor'],
