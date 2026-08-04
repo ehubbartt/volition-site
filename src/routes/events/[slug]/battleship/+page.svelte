@@ -181,6 +181,10 @@
 						<button class="btn primary" type="submit">Join the event</button>
 					</form>
 				{/if}
+				<p class="muted small dinktip">
+					Your drops only become bombs if Dink is reporting them —
+					<a href="/dink-check">test your setup →</a> before the battle starts.
+				</p>
 			</section>
 
 		<!-- ── Draft ──────────────────────────────────────────────────── -->
@@ -248,6 +252,10 @@
 							</button>
 						</form>
 						{#if me?.placed}<p class="ok small">Your fleet is locked in. You can still re-place until the window closes.</p>{/if}
+						<p class="muted small dinktip">
+							Last chance to <a href="/dink-check">check your Dink setup →</a> — once the
+							battle opens, untracked drops don't arm anything.
+						</p>
 					</div>
 				</div>
 			</section>
@@ -373,6 +381,10 @@
 								{#if isClaim && form && 'report' in form && form.report}
 									<p class="ok small">{form.report}</p>
 								{/if}
+								<p class="muted small">
+									Drops not turning into bombs?
+									<a href="/dink-check">Check your Dink setup →</a>
+								</p>
 							</div>
 						</div>
 					{/if}
@@ -565,6 +577,9 @@
 	.teamlist .item { flex: 1 1 8rem; color: var(--muted); }
 	.tag { font-size: 0.68rem; color: var(--success); border: 1px solid var(--success); border-radius: 3px; padding: 0.02rem 0.35rem; }
 	.claim { margin-top: 0.9rem; display: grid; gap: 0.5rem; justify-items: start; }
+	.dinktip { margin: 0.6rem 0 0; }
+	a { color: var(--accent); }
+	a:hover { color: var(--yellow); }
 	.inline { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
 
 	/* ── Description ────────────────────────────────────────────────── */

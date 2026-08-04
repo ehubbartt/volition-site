@@ -119,6 +119,18 @@ test.describe.serial('Battleship', () => {
 		await expect(craters).not.toHaveCount(0);
 	});
 
+	test('the battle page points at the Dink checker', async ({ page }) => {
+		// Untracked drops arm nothing, so "is my Dink working?" has to be one click away
+		// from the board rather than something a member has to go hunting for.
+		await page.goto(`/events/${SLUG}/battleship`);
+		const link = page.locator('a[href="/dink-check"]');
+		await expect(link.first()).toBeVisible();
+
+		// And it must actually reach the checker, not 404.
+		await link.first().click();
+		await expect(page).toHaveURL('/dink-check');
+	});
+
 	test('the generic event page never serves a Battleship event', async ({ page }) => {
 		// /events/[slug] is the DuoWolf pairing page — it offers "invite them to duo".
 		// A Battleship event reaching it would let players form duos, when sides are
