@@ -13,7 +13,8 @@ import { getRankConfig } from './rankConfig';
 import { fetchPlayerRankInputs } from './rankData';
 import { getTcgProgress } from './tcgProgress';
 import { scorePlayer } from './rankScoring';
-import { setPlayerRank, getPlayerRank } from './playerStats';
+import { setPlayerRank, getPlayerRank, setPlayerSignatureRank } from './playerStats';
+import { completedFromNormalized, earnedSignatureTier } from '$lib/rankSignature';
 import { rankIndex } from '$lib/ranks';
 
 export interface RankCheckTarget {
@@ -66,7 +67,10 @@ export async function checkAndSaveRank(target: RankCheckTarget): Promise<RankChe
 		// data can't read it — see rankData.ts) before scoring + caching.
 		inputs.tcgOwned = tcg.owned;
 		inputs.tcgTotal = tcg.total;
-		const { rank } = scorePlayer(inputs, config);
+		const { rank, scores } = scorePlayer(inputs, config);
+		// Signature (prestige) rank: how many whole categories are maxed → the tier earned.
+		const signatureKey =
+			earnedSignatureTier(completedFromNormalized(scores as unknown as Record<string, number>))?.key ?? null;
 
 		// Cache the freshly-fetched inputs + piece-level detail in vs_rank_sim. The
 		// upsert's onConflict key (rsn) is CASE-SENSITIVE, but the admin rank-sim keys rows
@@ -135,6 +139,9 @@ export async function checkAndSaveRank(target: RankCheckTarget): Promise<RankChe
 		// A missing player record isn't fatal — the breakdown still cached above.
 		const prevRank = await getPlayerRank(discordId, rsn);
 		const write = await setPlayerRank(discordId, rsn, rank);
+		// Refresh the earned signature tier on the player row (bot `/sync` reads it). Only on
+		// full data — a degraded check exits above, so completions here aren't understated.
+		await setPlayerSignatureRank(discordId, rsn, signatureKey);
 		const rankedUp = write.ok && prevRank != null && rankIndex(rank) > rankIndex(prevRank);
 		return {
 			ok: true,

@@ -3,7 +3,7 @@ import type { SessionUser } from './auth';
 import { CLAN_OPTIONS } from '$lib/clans';
 import { ACCOUNT_TYPES } from '$lib/accountTypes';
 import { loadCardProfile } from './cardProfile';
-import { getPlayerRank } from './playerStats';
+import { getPlayerRank, getSignaturePref } from './playerStats';
 import { rsnExactPattern } from './users';
 import { getRankConfig, type RankScoringConfig } from './rankConfig';
 import { listGearClaims, claimableGearItems } from './rankClaims';
@@ -255,11 +255,12 @@ export async function loadRankBreakdown(rsn: string | null): Promise<{
 }
 
 export async function buildMeData(user: SessionUser) {
-	const [profile, currentRank, rank, gearClaims] = await Promise.all([
+	const [profile, currentRank, rank, gearClaims, signaturePref] = await Promise.all([
 		loadCardProfile(user),
 		getPlayerRank(user.discord_id, user.rsn),
 		loadRankBreakdown(user.rsn),
-		listGearClaims(user.id)
+		listGearClaims(user.id),
+		getSignaturePref(user.discord_id, user.rsn)
 	]);
 
 	return {
@@ -268,6 +269,8 @@ export async function buildMeData(user: SessionUser) {
 		currentRank,
 		rankBreakdown: rank.breakdown,
 		rankBreakdownError: rank.error,
+		// The member's "show my signature rank in Discord" toggle (players.prefer_signature_rank).
+		signaturePref,
 		// Manual gear claims (untrackable items): the member's own claims + the
 		// claimable gear-table item names for the submit form's picker.
 		gearClaims,

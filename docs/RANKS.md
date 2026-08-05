@@ -88,6 +88,15 @@ shows). Three tiers, over the seven scored categories:
   X / 7 tracker, the three tiers with unlock rules, and a per-category checklist) plus an
   earned chip beside the clan rank. Completion tracks the LIVE caps, so tuning a cap in the
   rank-sim changes what counts as "complete" automatically.
+- **In-game display toggle** (`db/scripts/player_signature_rank.sql`): two columns on the
+  shared `players` row, WRITTEN BY THE SITE and READ BY THE BOT's future `/sync`:
+  `signature_rank` (the tier the member currently qualifies for, refreshed on each full
+  rank check in `checkAndSaveRank` → `setPlayerSignatureRank`) and `prefer_signature_rank`
+  (the member's toggle, set from the `/me` signature panel via the `setSignaturePref`
+  action → `playerStats.setSignaturePref`). `players.rank` is deliberately left as the
+  composite WOM role so the current rank displays + Discord role sync keep working; `/sync`
+  combines the three to tell admins which in-game rank to set. The toggle is scoped to `/me`
+  (passed to `RankPanel` as the `signatureControl` snippet); public `/u` profiles omit it.
 
 ## Where scoring runs
 

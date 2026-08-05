@@ -70,6 +70,17 @@ export function completedCategoryCount(categories: CategoryProgress[]): number {
 	return categories.filter(isCategoryComplete).length;
 }
 
+// The seven scored category keys (matches rankScoring's ComponentKey). A category is
+// complete when its normalized score is 1 (raw ≥ cap), so the server can count completions
+// straight from a ScoreBreakdown without re-deriving raw/cap.
+export const SIGNATURE_CATEGORY_KEYS = ['gear', 'ehb', 'ca', 'time', 'clog', 'level', 'tcg'] as const;
+
+// Count completed categories from a normalized 0..1 score map (a ScoreBreakdown). A tiny
+// epsilon absorbs float noise so a genuinely-maxed bar always counts.
+export function completedFromNormalized(norm: Record<string, number>): number {
+	return SIGNATURE_CATEGORY_KEYS.filter((k) => (norm[k] ?? 0) >= 1 - 1e-9).length;
+}
+
 // The highest signature tier a member has earned for `completed` maxed categories, or null.
 export function earnedSignatureTier(completed: number): SignatureTier | null {
 	let earned: SignatureTier | null = null;

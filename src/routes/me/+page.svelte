@@ -12,6 +12,7 @@
 	import Skeleton from '$lib/Skeleton.svelte';
 	import ProfileBanner from '$lib/profile/ProfileBanner.svelte';
 	import RankPanel from '$lib/profile/RankPanel.svelte';
+	import { earnedSignatureTier } from '$lib/rankSignature';
 	import GearClaimModal from '$lib/profile/GearClaimModal.svelte';
 	import RankUpCelebration from '$lib/RankUpCelebration.svelte';
 	import ProfileTabs from '$lib/profile/ProfileTabs.svelte';
@@ -282,6 +283,33 @@
 					{:else if form?.rankOk && form?.rankNote}
 						<p class="rank-note muted small">{form.rankNote}</p>
 					{/if}
+				{/snippet}
+				{#snippet signatureControl()}
+					{@const earned = rank ? earnedSignatureTier(rank.signature.completed) : null}
+					<form
+						class="sig-pref"
+						method="POST"
+						action="?/setSignaturePref"
+						use:enhance={() => async ({ update }) => {
+							await update({ reset: false });
+						}}
+					>
+						<!-- Send the flipped value explicitly (a checkbox omits itself when off). -->
+						<input type="hidden" name="prefer" value={data.signaturePref ? '0' : '1'} />
+						<label class="sig-toggle">
+							<input
+								type="checkbox"
+								checked={data.signaturePref}
+								onchange={(e) => e.currentTarget.form?.requestSubmit()}
+							/>
+							<span>Show my signature rank in Discord instead of my clan rank</span>
+						</label>
+						<p class="muted small sig-pref-note">
+							{#if earned}You currently qualify for <strong>{earned.label}</strong>. {/if}An admin applies your
+							choice in Discord via <code>/sync</code> — it takes effect once you've earned a signature rank.
+							{#if form?.signatureError}<span class="rank-error">{form.signatureError}</span>{/if}
+						</p>
+					</form>
 				{/snippet}
 			</RankPanel>
 			<!-- Manual gear claims: items the Temple collection log can't prove (GE-bought
@@ -731,6 +759,33 @@
 	}
 	.rank-note {
 		margin: 0 0 0.85rem;
+	}
+
+	/* Signature-rank preference toggle (inside the signature panel). */
+	.sig-pref {
+		margin: 0.6rem 0 0.2rem;
+		padding: 0.6rem 0.7rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+	}
+	.sig-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.88rem;
+		cursor: pointer;
+	}
+	.sig-toggle input {
+		width: 1.05rem;
+		height: 1.05rem;
+		flex-shrink: 0;
+		accent-color: var(--accent);
+		cursor: pointer;
+	}
+	.sig-pref-note {
+		margin: 0.4rem 0 0;
+		line-height: 1.45;
 	}
 
 	.small {

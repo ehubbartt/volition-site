@@ -122,7 +122,8 @@
 		onClaim,
 		adviceEndpoint,
 		actions,
-		status
+		status,
+		signatureControl
 	}: {
 		rank: RankBreakdownView | null;
 		currentRank?: string | null;
@@ -137,6 +138,9 @@
 		adviceEndpoint?: string;
 		actions?: Snippet;
 		status?: Snippet;
+		/** Self-only (/me): the "show my signature rank in Discord" toggle form, rendered
+		 * inside the signature panel. Omitted on public profiles. */
+		signatureControl?: Snippet;
 	} = $props();
 
 	// --- Rank advisor + rank-ladder reference ---------------------------------
@@ -490,6 +494,8 @@
 					</div>
 				{/each}
 			</div>
+
+			{#if signatureControl}{@render signatureControl()}{/if}
 
 			<details class="sig-cats">
 				<summary>Which categories count · {rank.signature.completed}/{rank.signature.total} done</summary>

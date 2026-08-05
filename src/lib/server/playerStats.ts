@@ -161,6 +161,45 @@ export async function setPlayerRank(
 	return { ok: true, rank: womRole };
 }
 
+// --- Signature (prestige) rank + its display preference -------------------
+// Both columns live on the shared `players` row and are read by the bot's future
+// `/sync` (see db/scripts/player_signature_rank.sql). The site writes the earned tier
+// on each rank check; the member sets the preference from /me.
+
+// The signature tier the member currently qualifies for ('savant' / 'curator' /
+// 'paragon'), or null. Written by the rank check — best-effort (a missing player row or
+// a write error is non-fatal; the breakdown still cached elsewhere).
+export async function setPlayerSignatureRank(
+	discordId: string | null,
+	rsn: string | null,
+	signatureKey: string | null
+): Promise<void> {
+	const row = await findPlayerRow(discordId, rsn, 'id');
+	if (!row) return;
+	await db().from('players').update({ signature_rank: signatureKey }).eq('id', row.id as number);
+}
+
+// The member's toggle: prefer their signature rank over their composite clan rank.
+export async function getSignaturePref(discordId: string | null, rsn: string | null): Promise<boolean> {
+	const row = await findPlayerRow(discordId, rsn, 'prefer_signature_rank');
+	return row ? row.prefer_signature_rank === true : false;
+}
+
+export async function setSignaturePref(
+	discordId: string | null,
+	rsn: string | null,
+	prefer: boolean
+): Promise<RankWriteResult> {
+	const row = await findPlayerRow(discordId, rsn, 'id');
+	if (!row) return { ok: false, reason: 'no_player' };
+	const { error } = await db()
+		.from('players')
+		.update({ prefer_signature_rank: prefer })
+		.eq('id', row.id as number);
+	if (error) return { ok: false, reason: 'error' };
+	return { ok: true, rank: prefer ? 'signature' : 'composite' };
+}
+
 // --- GP balance (players.gold_balance) ------------------------------------
 // A cashable GP balance shared with the bot (sibling of points/VP). Players convert
 // their unpaid wallet_items into it (convertWalletToGold) and spend it on packs

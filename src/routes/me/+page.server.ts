@@ -6,6 +6,7 @@ import { isValidAccountType } from '$lib/accountTypes';
 import { isRsnTaken } from '$lib/server/users';
 import { submitGearClaim } from '$lib/server/rankClaims';
 import { checkAndSaveRank } from '$lib/server/rankCheck';
+import { setSignaturePref } from '$lib/server/playerStats';
 import { THEME_COOKIE, isTheme } from '$lib/themes';
 import type { Actions } from './$types';
 
@@ -46,6 +47,23 @@ export const actions: Actions = {
 			sameSite: 'lax'
 		});
 		return { themeSaved: true };
+	},
+
+	// Toggle "show my signature (prestige) rank in Discord instead of my clan rank". Writes
+	// players.prefer_signature_rank; a future Discord /sync reads it (with signature_rank) to
+	// tell admins which in-game rank to set. players.rank itself is unchanged here.
+	setSignaturePref: async ({ locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		const prefer = (await request.formData()).get('prefer') === '1';
+		const res = await setSignaturePref(locals.user.discord_id, locals.user.rsn, prefer);
+		if (!res.ok)
+			return fail(res.reason === 'no_player' ? 404 : 502, {
+				signatureError:
+					res.reason === 'no_player'
+						? 'No clan player record found to save this to yet — check your rank first.'
+						: 'Could not save your preference — try again.'
+			});
+		return { signaturePrefSaved: true, signaturePref: prefer };
 	},
 
 	// Fetch the signed-in player's live data, compute their composite rank with the
