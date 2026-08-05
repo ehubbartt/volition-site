@@ -263,8 +263,10 @@ matched no tile is stamped `bomb`, so it doesn't show up in `/admin/dink-drops` 
 3. `/admin/battleship` → **New game**. Set the signup window and, if you want, the tier
    thresholds and a fixed board size.
 4. Members join at `/events/<slug>/battleship`.
-5. When signups close, pick the two captains and **start the draft**. Captains pick from
-   the pool (the tester can also auto-draft the rest).
+5. When signups close, pick the two captains and **start the draft**. Picks are made at
+   `/admin/battleship/<slug>`, which is **admin-only** — there is no captain-facing draft
+   screen, so either the captains are admins or an admin drives the board while they call
+   their picks. "Auto-draft the rest" drains whatever is left.
 6. The pool emptying opens the **1-hour placement window**; members hide their fleets.
 7. The battle opens on its own at the deadline. From there it runs itself: drops arm
    bombs, members fire them, and the event ends when a fleet is gone.
@@ -272,6 +274,50 @@ matched no tile is stamped `bomb`, so it doesn't show up in `/admin/dink-drops` 
 The tester at `/admin/battleship/<slug>` can drive every one of those steps by hand as
 either side — including granting bombs — so a whole game can be rehearsed without waiting
 on real drops.
+
+### The two-person dress rehearsal
+
+The simulation and the Playwright rehearsal both drive the app as one process. Neither
+answers "does this work for a second human on their own phone" — nobody but the maintainer
+has ever loaded the page. This is how to check that with one other person.
+
+**Three things to settle before you start.**
+
+| | Why it blocks a two-person test | Options |
+|---|---|---|
+| `STAGING_ADMIN_ONLY = 'true'` (`fly.staging.toml`) | Staging refuses non-admins, so your tester can't load the site at all. | Set it `'false'` and redeploy staging, **or** run the rehearsal on prod as an `unlisted` + `test` event. |
+| The proxy's value-tracking change is undeployed | No real drop arms a bomb. | Test the manual-claim and admin-grant paths instead, **or** `npx wrangler deploy` in `dink-proxy` first. |
+| The draft is admin-only | A non-admin captain can't make their own picks. | Grant the other captain an admin role, **or** drive the draft yourself while they call picks. |
+
+**Two players gets an 8×8 board with three ships** — the minimum — which is exactly what
+you want for a mechanics run: a game ends in a few bombs. Do that pass first, then, if you
+want to see the real thing, create a second game with the size pinned to **25** and use the
+random-placement button rather than placing 31 ships by hand.
+
+1. **Create.** `/admin/battleship` → New game. Tick **test** (so it's deletable afterwards)
+   and **unlisted** (so it stays off the events list). Leave the size blank.
+2. **Join.** Both of you open `/events/<slug>/battleship` and join. Have them **leave and
+   rejoin** — that path is self-serve only until the draft starts.
+3. **Draft.** `/admin/battleship/<slug>` → choose both captains → start the draft → pick,
+   or auto-draft the rest. Check their screen reads "Draft in progress".
+4. **Place.** Both place fleets on the player page (or hit random), then lock in. **Check
+   they cannot see your board** — their second grid should be empty water.
+5. **Open the battle** from the tester, or wait out the placement window.
+6. **Arm a bomb.** Two paths worth exercising:
+   - *Manual claim* — the one most members without Dink will use. Player page → "Not using
+     Dink? Claim a drop" → item, value, screenshot. Approve it at `/admin/submissions` and
+     the bomb lands in their arsenal. Only one claim can be pending per member at a time.
+   - *Admin grant* — the tester's "+Cannonball / Bombard / Broadside" buttons, for ammo on
+     demand.
+7. **Fire.** Pick a bomb under **Your bombs**, click a square on the enemy grid — the
+   footprint stays lit and the button reads "Fire at F7" — then fire. Worth checking: hits
+   and misses both render, a sink is announced, and a **non-captain has no fire button on a
+   teammate's bomb** in Team arsenal (the captain does).
+8. **Finish** by sinking the last ship, then delete the game from `/admin/battleship`.
+
+> **The page does not poll.** It revalidates on navigation, not on a timer, so your tester
+> will not see your shot until they reload. Decide whether that's acceptable before the
+> real event — it's the most likely "is it broken?" question on the day.
 
 ### Testing
 
