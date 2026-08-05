@@ -4,6 +4,7 @@ import { ensureWelcomePack } from './welcomePack';
 import { loadPlayerTasks } from './tasks';
 import type { SessionUser } from './auth';
 import { RANK_ORDER, RANK_LABEL, RANK_COLOR, rankIndex } from '$lib/ranks';
+import { SIGNATURE_TIERS } from '$lib/rankSignature';
 import type { Directory, Member, RankBucket, Stats, TaskSummary } from '$lib/home';
 
 // Builds the homepage's streamed data blocks. Served as JSON by /api/home so the
@@ -22,6 +23,10 @@ interface PlayerRow {
 	points: number | null;
 	clan_joined_at: string | null;
 	created_at: string | null;
+	// Present once db/scripts/player_signature_rank.sql is applied; undefined otherwise
+	// (we select '*', so a missing column is simply absent — never an error).
+	signature_rank?: string | null;
+	prefer_signature_rank?: boolean | null;
 }
 
 interface SiteUserRow {
@@ -105,18 +110,21 @@ export async function buildDirectory(user: {
 	// The roster + site-user tables are identical for every viewer and are the two
 	// heaviest reads on the site → micro-cache them (30s; rank/VP changes surfacing
 	// half a minute late is invisible). Everything derived below is per-request.
-	const { playerRows, siteUsers } = await microCached('home:roster', 30_000, async () => {
+	const { playerRows, siteUsers, templeRows } = await microCached('home:roster', 30_000, async () => {
 		const sb = db();
-		const [playersRes, siteUsersRes] = await Promise.all([
+		const [playersRes, siteUsersRes, templeRes] = await Promise.all([
 			// Paginate: the full clan roster + all site users can exceed the 1000-row cap.
-			fetchAllFiltered((f, t) =>
-				sb.from('players').select('id, rsn, discord_id, rank, points, clan_joined_at, created_at').range(f, t)
-			),
-			fetchAllFiltered((f, t) => sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null).range(f, t))
+			// select('*') so the signature-rank columns are picked up when present but a DB
+			// without them applied yet doesn't error (the fields just read undefined).
+			fetchAllFiltered((f, t) => sb.from('players').select('*').range(f, t)),
+			fetchAllFiltered((f, t) => sb.from('vs_users').select('discord_id, rsn').not('rsn', 'is', null).range(f, t)),
+			// Who has a linked/scored TempleOSRS collection log — for the rank-breakdown shading.
+			fetchAllFiltered((f, t) => sb.from('vs_rank_sim').select('rsn, temple_available').range(f, t))
 		]);
 		return {
 			playerRows: (playersRes.data ?? []) as PlayerRow[],
-			siteUsers: (siteUsersRes.data ?? []) as SiteUserRow[]
+			siteUsers: (siteUsersRes.data ?? []) as SiteUserRow[],
+			templeRows: (templeRes.data ?? []) as { rsn: string; temple_available: boolean | null }[]
 		};
 	});
 
@@ -157,19 +165,43 @@ export async function buildDirectory(user: {
 		}))
 		.sort((a, b) => a.rsn.localeCompare(b.rsn, undefined, { sensitivity: 'base' }));
 
-	// Rank breakdown in ladder order; unrecognized / null ranks collapse to one
-	// "Unranked" bucket appended at the end.
-	const rankCounts = new Map<string, number>();
-	let unranked = 0;
+	// Rank breakdown. Each member is counted once by the rank they DISPLAY — their signature
+	// (prestige) rank when they've opted into it and earned one, otherwise their composite
+	// ladder rank; unrecognized / null ranks collapse to one "Unranked" bucket. Within every
+	// bucket we also track how many have NO linked TempleOSRS log (they can't be fully scored,
+	// so they bunch at the bottom) → rendered as a lighter shade so the real spread shows.
+	const templeByRsn = new Map<string, boolean>();
+	for (const t of templeRows) if (t.rsn) templeByRsn.set(normRsn(t.rsn), t.temple_available === true);
+
+	const sigKeys = new Set(SIGNATURE_TIERS.map((t) => t.key));
+	type Bucket = { count: number; noTemple: number };
+	const counts = new Map<string, Bucket>();
+	const bump = (key: string, hasTemple: boolean) => {
+		const b = counts.get(key) ?? { count: 0, noTemple: 0 };
+		b.count += 1;
+		if (!hasTemple) b.noTemple += 1;
+		counts.set(key, b);
+	};
 	for (const p of playerRows) {
-		if (rankIndex(p.rank) === -1) unranked += 1;
-		else rankCounts.set(p.rank as string, (rankCounts.get(p.rank as string) ?? 0) + 1);
+		const hasTemple = templeByRsn.get(normRsn(p.rsn)) === true;
+		const sig = p.prefer_signature_rank && p.signature_rank ? String(p.signature_rank).toLowerCase() : null;
+		if (sig && sigKeys.has(sig)) bump(sig, hasTemple);
+		else if (rankIndex(p.rank) === -1) bump('unranked', hasTemple);
+		else bump(p.rank as string, hasTemple);
 	}
-	const rankBreakdown: RankBucket[] = RANK_ORDER.filter((r) => (rankCounts.get(r) ?? 0) > 0)
-		.map((r) => ({ value: r as string, label: RANK_LABEL[r], color: RANK_COLOR[r], count: rankCounts.get(r) ?? 0 }));
-	if (unranked > 0) {
-		rankBreakdown.push({ value: 'unranked', label: 'Unranked', color: '#9aa0a6', count: unranked });
-	}
+
+	const toBucket = (value: string, label: string, color: string, img: string | null): RankBucket | null => {
+		const b = counts.get(value);
+		if (!b || b.count === 0) return null;
+		return { value, label, color, count: b.count, noTempleCount: b.noTemple, img };
+	};
+	// Ladder (bronze → tzkal), then the prestige tiers (their pinnacle sits above the ladder),
+	// then the Unranked catch-all.
+	const rankBreakdown: RankBucket[] = [
+		...RANK_ORDER.map((r) => toBucket(r as string, RANK_LABEL[r], RANK_COLOR[r], null)),
+		...SIGNATURE_TIERS.map((t) => toBucket(t.key, t.label, t.color, t.img)),
+		toBucket('unranked', 'Unranked', '#9aa0a6', null)
+	].filter((b): b is RankBucket => b !== null);
 
 	const recentMembers = [...members]
 		.filter((m) => m.joinedAt)

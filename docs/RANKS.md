@@ -88,6 +88,12 @@ shows). Three tiers, over the seven scored categories:
   X / 7 tracker, the three tiers with unlock rules, and a per-category checklist) plus an
   earned chip beside the clan rank. Completion tracks the LIVE caps, so tuning a cap in the
   rank-sim changes what counts as "complete" automatically.
+- **Home rank breakdown** (`homeData.ts` → `+page.svelte`): counts each member by the rank
+  they DISPLAY (effective — prestige when they've opted in + earned, else composite), so the
+  Savant/Curator/Paragon tiers appear as their own bars. Within every bar, members with no
+  linked TempleOSRS log (`vs_rank_sim.temple_available` false / missing) are drawn as a
+  lighter shade of the rank colour — they can't be fully scored, so separating them shows the
+  real spread. `players` is read with `select('*')` so the signature columns are optional.
 - **In-game display toggle** (`db/scripts/player_signature_rank.sql`): two columns on the
   shared `players` row, WRITTEN BY THE SITE and READ BY THE BOT's future `/sync`:
   `signature_rank` (the tier the member currently qualifies for, refreshed on each full
