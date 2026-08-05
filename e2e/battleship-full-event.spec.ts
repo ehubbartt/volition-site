@@ -4,9 +4,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BASE_URL } from '../playwright.config';
 
-// A WHOLE 60-PLAYER EVENT, driven through the real UI by two signed-in captains.
+// A WHOLE 80-PLAYER EVENT, driven through the real UI by two signed-in captains.
 //
-// This is the dress rehearsal, not a unit test. It seeds 60 players, drafts them from
+// This is the dress rehearsal, not a unit test. It seeds 80 players, drafts them from
 // TWO browser contexts (one per captain, each signed in as a different member), places
 // both fleets, feeds the battle with Dink payloads shaped exactly like the proxy writes
 // plus manual claims through the admin review queue, and fires every bomb tier while
@@ -19,10 +19,10 @@ import { BASE_URL } from '../playwright.config';
 // It is skipped by default so `npm run test:e2e` stays fast — set BATTLESHIP_FULL=1.
 
 const RUN = /^(1|true|yes)$/i.test(process.env.BATTLESHIP_FULL ?? '');
-const PLAYERS = Number(process.env.BATTLESHIP_PLAYERS ?? 60);
+const PLAYERS = Number(process.env.BATTLESHIP_PLAYERS ?? 80);
 
 // Run the WHOLE rehearsal at a real phone size as well as a desktop one. The board is
-// the risk: at 19x19 a phone gets ~13px cells, and "can a person actually place a ship
+// the risk: at 25x25 a phone gets ~10px cells, and "can a person actually place a ship
 // and aim a bomb at that size" is not something a desktop run can answer.
 const MOBILE = /^(1|true|yes|mobile)$/i.test(process.env.BATTLESHIP_MOBILE ?? '');
 const VIEWPORT = MOBILE ? { width: 390, height: 844 } : { width: 1440, height: 900 };
@@ -204,7 +204,7 @@ test.describe.serial(`Battleship — full ${PLAYERS}-player event (${LABEL})`, (
 	});
 
 	// ── 2. draft ────────────────────────────────────────────────────────────
-	test('2 · two captains draft 60 players from two browsers', async () => {
+	test(`2 · two captains draft ${PLAYERS} players from two browsers`, async () => {
 		const start = await bs.startDraft({
 			eventId,
 			captains: [players[0].id, players[1].id],

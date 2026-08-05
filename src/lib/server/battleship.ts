@@ -644,7 +644,16 @@ export async function openPlacement(eventId: string): Promise<Result> {
 	if (!snap) return errResult('Game not found');
 	const minutes = snap.config.placement_minutes;
 	const endsAt = new Date(Date.now() + minutes * 60_000).toISOString();
-	return patchStructure(eventId, { phase: 'placement', placement_ends_at: endsAt });
+	// PIN the board size here. Until now it floats with the headcount (`bs.size ??
+	// boardSizeFor`), which is what makes it scale with the draft — but from the moment
+	// ships go on it, a size that can still move is a live hazard: removing a drafted
+	// member, or changing the scaling dial in code, would shrink the board out from under
+	// fleets whose cells are already stored, putting hulls off the edge.
+	return patchStructure(eventId, {
+		phase: 'placement',
+		placement_ends_at: endsAt,
+		size: snap.config.size
+	});
 }
 
 /** Store a side's fleet. Validated ship-by-ship; rejects a partial fleet. */

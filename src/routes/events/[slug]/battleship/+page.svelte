@@ -282,7 +282,7 @@
 							/></div>
 							<p class="stat osrs-inset">
 								{standing(game.viewerSide)?.afloat ?? 0}/{standing(game.viewerSide)?.totalCells ?? 0} squares afloat
-								· {standing(game.viewerSide)?.lost ?? 0} ships lost
+								· {standing(game.viewerSide)?.lost ?? 0} ship{(standing(game.viewerSide)?.lost ?? 0) === 1 ? '' : 's'} lost
 							</p>
 						</div>
 

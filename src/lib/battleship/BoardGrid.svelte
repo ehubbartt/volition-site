@@ -130,7 +130,7 @@
 		--gap: 1px;
 		--label: 1.3rem;
 		/* Floor on cell size. 0 on desktop (cells just fill the column); on a phone a
-		   19x19 board would otherwise give ~12px cells, far under the ~44px a thumb
+		   25x25 board would otherwise give ~10px cells, far under the ~44px a thumb
 		   needs — and a mis-tap here FIRES A BOMB at the wrong square, which can't be
 		   undone. Below the floor the board scrolls inside itself instead of shrinking. */
 		--min-cell: 0px;

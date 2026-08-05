@@ -6,7 +6,7 @@ way to attack is to play the game: **any drop you get becomes a bomb**, and the 
 drop the bigger the hole it makes in the other side's water. First side to sink the enemy
 fleet wins.
 
-Sized for **60 players** (30 a side, a 19×19 board) but it scales to whoever actually signs up.
+Sized for **80 players** (40 a side, a 25×25 board) but it scales to whoever actually signs up.
 
 This doc is both the ruleset (numbers are first-pass and meant to be tuned) and the map of
 the implementation. See also [`EVENTS.md`](EVENTS.md) for the shared events spine and
@@ -44,28 +44,34 @@ side with no ships cannot be shot at and would stall the event for everyone else
 
 ### The board scales with the draft
 
-Water per player is fixed (**12 squares**), so the grid grows with the headcount — bombs
+Water per player is fixed (**15 squares**), so the grid grows with the headcount — bombs
 arrive in proportion to headcount, so board area has to as well or a big event just
 saturates its board:
 
 | Players | Per side | Board | Squares | Ships | Ship squares |
 |---|---|---|---|---|---|
-| 16 | 8 | **10×10** | 100 | 5 | 17 |
-| 32 | 16 | 14×14 | 196 | 10 | 34 |
-| 48 | 24 | 17×17 | 289 | 14 | 49 |
-| **60** | **30** | **19×19** | **361** | **18** | **63** |
-| 100 | 50 | 24×24 | 576 | 29 | 100 |
+| 12 | 6 | **10×10** | 100 | 5 | 17 |
+| 32 | 16 | 16×16 | 256 | 13 | 46 |
+| 48 | 24 | 19×19 | 361 | 18 | 63 |
+| 60 | 30 | 22×22 | 484 | 24 | 83 |
+| **80** | **40** | **25×25** | **625** | **31** | **107** |
+| 100 | 50 | 25×25 (capped) | 625 | 31 | 107 |
 
-**A 16-player event is exactly the classic 10×10 board with the classic 5/4/3/3/2 fleet.**
+**A 12-player event is exactly the classic 10×10 board with the classic 5/4/3/3/2 fleet.**
 Bigger boards keep the same ~17% ship density by adding more ships, not longer ones.
-Bounds are 8×8 and 24×24; an admin can pin an exact size when creating the event.
+Bounds are 8×8 and 25×25; an admin can pin an exact size when creating the event.
 
-> **This dial was raised after the 60-player rehearsal.** At 6 squares per player, 60
-> players got a 14×14 board and the rehearsal took 185 shots on 196 squares to finish —
-> i.e. it ran until the board was nearly all craters, and that was with *random* targeting.
-> Real players hunt around their hits, so they'd have got there much sooner. 12 doubles the
-> water. It's still a guess against unmeasured drop rates: raise it further if events end
-> too quickly.
+> **This dial has been raised twice.** At 6 squares per player, 60 players got a 14×14
+> board and the rehearsal took 185 shots on 196 squares to finish — i.e. it ran until the
+> board was nearly all craters, and that was with *random* targeting. Real players hunt
+> around their hits, so they'd have got there much sooner. 12 doubled the water; 15 is set
+> from the event actually being run — 80 players on 25×25. It's still a guess against
+> unmeasured drop rates: raise it further if events end too quickly.
+
+> **25×25 is the ceiling, and it's a display limit rather than a game one.** Past that a
+> grid stops reading as a board: cells fall under a comfortable size on a desktop viewport,
+> and a phone has to scroll through more of the board than it can show. A larger event gets
+> a longer event, not more water.
 
 Ships are placed horizontally or vertically, may **touch** but not overlap (standard rules).
 
@@ -319,7 +325,7 @@ buys nothing beyond the top tier: 999b and 50m both arm a 3×3.
 
 ### The full-event rehearsal
 
-`e2e/battleship-full-event.spec.ts` is the dress rehearsal — a whole 60-player event
+`e2e/battleship-full-event.spec.ts` is the dress rehearsal — a whole 80-player event
 driven through the real UI:
 
 ```bash
@@ -332,13 +338,13 @@ a ship and aim a bomb at this size". Both runs assert the page never scrolls sid
 cells stay square, and (on mobile) that cells clear a 24px tap floor. Screenshots land in
 `e2e-shots/desktop/` and `e2e-shots/mobile/`.
 
-> **Phones get a cell-size floor, not smaller cells.** A 19×19 board on a 390px screen
-> would give ~12px cells — far under what a thumb can hit, and a mis-tap here *fires a
+> **Phones get a cell-size floor, not smaller cells.** A 25×25 board on a 390px screen
+> would give ~10px cells — far under what a thumb can hit, and a mis-tap here *fires a
 > bomb at the wrong square with no undo*. Below `--min-cell` (26px) the board scrolls
 > **inside its own box** rather than shrinking, with the row numbers pinned so you can
 > still say where you hit. The page itself never scrolls sideways.
 
-Skipped unless `BATTLESHIP_FULL=1` so the normal suite stays fast. It seeds 60 players,
+Skipped unless `BATTLESHIP_FULL=1` so the normal suite stays fast. It seeds 80 players,
 signs **two browser contexts in as two different captains** (minting session rows directly
 rather than adding an auth surface, since dev-login only signs in the owner), drafts from
 both, places both fleets through the placement editor, feeds the battle with Dink payloads

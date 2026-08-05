@@ -179,7 +179,7 @@
 					/>
 					<p class="stat">
 						{standing(actingSide)?.afloat ?? 0}/{standing(actingSide)?.totalCells ?? 0} afloat ·
-						{standing(actingSide)?.lost ?? 0} ships lost
+						{standing(actingSide)?.lost ?? 0} ship{(standing(actingSide)?.lost ?? 0) === 1 ? '' : 's'} lost
 					</p>
 				</div>
 

@@ -2,7 +2,7 @@ import { redirect, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { createBattleship, BATTLESHIP_KIND } from '$lib/server/battleship';
-import { DEFAULT_TIERS } from '$lib/battleship/rules';
+import { DEFAULT_TIERS, MIN_SIZE, MAX_SIZE } from '$lib/battleship/rules';
 import type { Actions, PageServerLoad } from './$types';
 
 // Battleship game list + creation. Form-heavy and rare, so it keeps a classic server
@@ -77,8 +77,13 @@ export const actions: Actions = {
 
 		const sizeRaw = form.get('size')?.toString().trim();
 		const size = sizeRaw ? Number(sizeRaw) : undefined;
-		if (sizeRaw && (!Number.isFinite(size) || size! < 8 || size! > 20)) {
-			return fail(400, { error: 'Board size has to be between 8 and 20 (leave it blank to scale with signups)' });
+		// Bounds come from the rules, not a second copy of them — a pinned size that the
+		// board itself would clamp is a trap, and the old hardcoded 20 rejected sizes the
+		// automatic scaling now produces.
+		if (sizeRaw && (!Number.isFinite(size) || size! < MIN_SIZE || size! > MAX_SIZE)) {
+			return fail(400, {
+				error: `Board size has to be between ${MIN_SIZE} and ${MAX_SIZE} (leave it blank to scale with signups)`
+			});
 		}
 
 		const placementRaw = form.get('placement_minutes')?.toString().trim();
