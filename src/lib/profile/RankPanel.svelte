@@ -8,6 +8,7 @@
 	import { itemImageUrl, wikiPageUrl } from '$lib/wikiImage';
 	import { retryImage } from '$lib/imageRetry';
 	import { formatEhb } from '$lib/ehb';
+	import { SIGNATURE_TIERS, earnedSignatureTier, nextSignatureTier } from '$lib/rankSignature';
 
 	// Shared Rank tab body for /me and /u/[rsn]: rank badge + composite, progress to
 	// the next rank, the weighted component breakdown, gear pieces, and combat
@@ -58,7 +59,15 @@
 		caDetail: CADetailView | null;
 		templeAvailable: boolean;
 		wikisyncAvailable: boolean;
+		signature: SignatureView;
 		fetchedAt: string | null;
+	}
+	// Signature ranks: how many whole categories are maxed + which tier that earns.
+	interface SignatureView {
+		completed: number;
+		total: number;
+		earnedKey: string | null;
+		categories: { key: string; label: string; complete: boolean }[];
 	}
 
 	// The rank advisor payload (from /api/rank-advice). Kept in sync with rankAdvice.ts.
@@ -190,6 +199,13 @@
 	const targetRank = $derived(rank ? (rank.nextRank ?? rank.rank) : null);
 	const targetImg = $derived(targetRank ? rankImg(targetRank) : null);
 
+	// Signature ranks: the tier the member currently holds + the next one to chase. Resolved
+	// from the shared tier list so the ladder, the earned badge, and the count all agree.
+	const sigEarned = $derived(rank ? earnedSignatureTier(rank.signature.completed) : null);
+	const sigNext = $derived(rank ? nextSignatureTier(rank.signature.completed) : null);
+	// Badge files are wired later; fall back to a coloured chip if one 404s so nothing breaks.
+	let sigImgFailed = $state<Record<string, boolean>>({});
+
 	const pct = (n: number) => `${Math.round(n * 100)}%`;
 	// Near-threshold honesty: the composite gets one decimal so 34.9% can't display as
 	// the 35% threshold it hasn't crossed, and next-rank progress FLOORS so 99.6% reads
@@ -314,6 +330,14 @@
 				</strong>
 				{#if rank}
 					<span class="composite">Composite score {pct1(rank.composite)}</span>
+					{#if sigEarned}
+						<span class="sig-chip" style="color:{sigEarned.color}; border-color:{sigEarned.color}">
+							{#if sigEarned.img && !sigImgFailed[sigEarned.key]}
+								<img src={sigEarned.img} alt="" width="16" height="16" onerror={() => (sigImgFailed[sigEarned.key] = true)} />
+							{/if}
+							{sigEarned.label}
+						</span>
+					{/if}
 				{/if}
 			</div>
 		</div>
@@ -422,6 +446,62 @@
 					{/if}
 				</div>
 			{/each}
+		</div>
+
+		<!-- Signature ranks: prestige for fully completing whole categories -->
+		<div class="sig">
+			<div class="sig-head">
+				<h4>Signature ranks</h4>
+				<span class="sig-count">{rank.signature.completed} / {rank.signature.total} categories maxed</span>
+			</div>
+			<p class="muted small sig-intro">
+				Fully complete whole categories — maxing a bar above — to earn a <strong>signature rank</strong>: a
+				prestige badge that sits on top of your clan rank.
+				{#if sigEarned}
+					You hold <strong style="color:{sigEarned.color}">{sigEarned.label}</strong>.
+				{:else if sigNext}
+					Max {sigNext.required - rank.signature.completed} more to earn
+					<strong style="color:{sigNext.color}">{sigNext.label}</strong>.
+				{/if}
+			</p>
+
+			<div class="osrs-bar sig-bar">
+				<span class="osrs-bar-fill" style="width:{pct(rank.signature.completed / rank.signature.total)}"></span>
+			</div>
+
+			<div class="sig-tiers">
+				{#each SIGNATURE_TIERS as t (t.key)}
+					{@const earned = rank.signature.completed >= t.required}
+					{@const toGo = Math.max(0, t.required - rank.signature.completed)}
+					<div class="sig-tier" class:earned>
+						<div class="sig-badge">
+							{#if t.img && !sigImgFailed[t.key]}
+								<img src={t.img} alt={t.label} width="44" height="44" onerror={() => (sigImgFailed[t.key] = true)} />
+							{:else}
+								<span class="sig-badge-fallback" style="background:{t.color}">{t.required}</span>
+							{/if}
+						</div>
+						<div class="sig-tier-body">
+							<strong class="sig-name" style="color:{t.color}">{t.label}</strong>
+							<span class="sig-req muted">{t.required} of {rank.signature.total} categories maxed</span>
+							<span class="sig-blurb muted small">{t.blurb}</span>
+						</div>
+						<span class="sig-status" class:on={earned}>{earned ? '✓ earned' : `${toGo} to go`}</span>
+					</div>
+				{/each}
+			</div>
+
+			<details class="sig-cats">
+				<summary>Which categories count · {rank.signature.completed}/{rank.signature.total} done</summary>
+				<ul class="sig-cat-list">
+					{#each rank.signature.categories as c (c.key)}
+						<li class:done={c.complete}>
+							<span class="sig-mark">{c.complete ? '✓' : '○'}</span>
+							{c.label}
+						</li>
+					{/each}
+				</ul>
+			</details>
 		</div>
 
 		{#if adviceOn && advice}
@@ -675,6 +755,24 @@
 		color: var(--muted);
 		margin-top: 0.15rem;
 	}
+	/* Earned signature-rank chip beside the clan rank in the header. */
+	.sig-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		margin-top: 0.3rem;
+		padding: 0.1rem 0.45rem;
+		font-family: var(--font-heading);
+		font-size: 0.72rem;
+		border: 1px solid;
+		border-radius: 999px;
+		background: rgba(0, 0, 0, 0.25);
+		text-shadow: var(--ts);
+	}
+	.sig-chip img {
+		object-fit: contain;
+		image-rendering: -webkit-optimize-contrast;
+	}
 	.rank-id {
 		display: flex;
 		align-items: center;
@@ -769,6 +867,145 @@
 		font-size: 0.78rem;
 		font-family: var(--font-heading);
 		color: var(--accent);
+	}
+
+	/* --- Signature ranks panel --- */
+	.sig {
+		margin-top: 1.2rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border);
+	}
+	.sig-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+	.sig-head h4 {
+		margin: 0;
+		font-size: 0.98rem;
+		color: var(--text);
+	}
+	.sig-count {
+		font-family: var(--font-heading);
+		font-size: 0.8rem;
+		color: var(--accent);
+	}
+	.sig-intro {
+		margin: 0.35rem 0 0.6rem;
+		line-height: 1.5;
+	}
+	.sig-bar {
+		height: 0.7rem;
+		margin-bottom: 0.9rem;
+	}
+	.sig-tiers {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	.sig-tier {
+		display: flex;
+		align-items: center;
+		gap: 0.7rem;
+		padding: 0.5rem 0.65rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		opacity: 0.62;
+	}
+	/* An earned tier reads bright with its accent outline; unearned ones sit dimmed. */
+	.sig-tier.earned {
+		opacity: 1;
+		border-color: var(--border-strong);
+		background: var(--surface-alt);
+	}
+	.sig-badge {
+		flex-shrink: 0;
+		width: 44px;
+		height: 44px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.sig-badge img {
+		object-fit: contain;
+		image-rendering: -webkit-optimize-contrast;
+	}
+	.sig-badge-fallback {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 34px;
+		height: 34px;
+		border-radius: 999px;
+		font-family: var(--font-heading);
+		font-size: 1rem;
+		color: #1c1710;
+		box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+	}
+	.sig-tier-body {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.05rem;
+	}
+	.sig-name {
+		font-family: var(--font-heading);
+		font-size: 0.95rem;
+		text-shadow: var(--ts);
+	}
+	.sig-req {
+		font-size: 0.72rem;
+	}
+	.sig-blurb {
+		line-height: 1.35;
+	}
+	.sig-status {
+		flex-shrink: 0;
+		font-size: 0.72rem;
+		color: var(--muted);
+		text-align: right;
+	}
+	.sig-status.on {
+		color: var(--success, #6aa84f);
+		font-family: var(--font-heading);
+	}
+	.sig-cats {
+		margin-top: 0.7rem;
+	}
+	.sig-cats summary {
+		cursor: pointer;
+		font-size: 0.82rem;
+		color: var(--muted);
+	}
+	.sig-cat-list {
+		list-style: none;
+		margin: 0.5rem 0 0;
+		padding: 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+		gap: 0.25rem 0.75rem;
+		font-size: 0.85rem;
+	}
+	.sig-cat-list li {
+		display: flex;
+		align-items: baseline;
+		gap: 0.4rem;
+		color: var(--muted);
+	}
+	.sig-cat-list li.done {
+		color: var(--text);
+	}
+	.sig-cat-list .sig-mark {
+		width: 1em;
+		font-weight: 700;
+		color: var(--muted);
+	}
+	.sig-cat-list li.done .sig-mark {
+		color: var(--success, #6aa84f);
 	}
 
 	/* Gear pieces (collapsible) */

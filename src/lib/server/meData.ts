@@ -17,6 +17,7 @@ import {
 	CA_MAX_POINTS
 } from './rankScoring';
 import type { RankValue } from '$lib/ranks';
+import { isCategoryComplete, earnedSignatureTier } from '$lib/rankSignature';
 
 // Builds the /me page dataset for /api/me. The page has NO server load — its
 // universal load fires the fetch without awaiting, so navigating to /me completes
@@ -174,6 +175,24 @@ function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
 
 	const gear = buildGearGrid(row.gear_detail);
 
+	// Signature ranks: a prestige layer earned by FULLY completing whole categories (a
+	// category is complete when its bar is maxed — raw ≥ cap). Built from the same
+	// components the breakdown shows, so "maxed" and "counts toward a signature rank" agree.
+	const sigCategories = components.map((c) => ({
+		key: c.key,
+		label: c.label,
+		complete: isCategoryComplete({ raw: c.raw, cap: c.cap })
+	}));
+	const sigCompleted = sigCategories.filter((c) => c.complete).length;
+	const signature = {
+		completed: sigCompleted,
+		total: components.length,
+		// The tier the member currently holds (key only — the client resolves the badge/label
+		// from the shared SIGNATURE_TIERS list, which also drives the ladder display).
+		earnedKey: earnedSignatureTier(sigCompleted)?.key ?? null,
+		categories: sigCategories
+	};
+
 	// "How close am I to the next rank?" — thresholds map composite → rank; the
 	// next tier up (if any) gives the target, and progress is measured within the
 	// current tier's band so the bar restarts at each rank-up.
@@ -197,6 +216,7 @@ function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
 		caDetail: row.ca_detail,
 		templeAvailable: row.temple_available,
 		wikisyncAvailable: row.wikisync_available,
+		signature,
 		fetchedAt: row.fetched_at
 	};
 }
