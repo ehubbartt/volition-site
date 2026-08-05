@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import { rankColor } from '$lib/ranks';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
+	import RanksTabs from '$lib/admin/RanksTabs.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -101,6 +102,7 @@
 </svelte:head>
 
 <section class="wrap">
+	<RanksTabs />
 	<h1>Rank Simulator</h1>
 	<p class="muted">
 		Re-score the whole clan from cached data as you tune the composite weights and thresholds,

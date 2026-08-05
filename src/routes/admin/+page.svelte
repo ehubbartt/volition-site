@@ -45,15 +45,9 @@
 			show: data.admin
 		},
 		{
-			href: '/admin/rank-sim',
-			title: 'Rank Simulator',
-			desc: 'Tune the composite rank formula and preview the clan-wide rank spread before applying.',
-			show: data.admin
-		},
-		{
-			href: '/admin/rank-claims',
-			title: 'Rank Gear Claims',
-			desc: 'Review manual claims for gear the collection log can’t prove (crafted upgrades, variants combined outside the log).',
+			href: '/admin/ranks',
+			title: 'Ranks',
+			desc: 'Gear-claim approval, the rank simulator, and a mass rank re-check — all in one place.',
 			show: data.admin
 		},
 		{

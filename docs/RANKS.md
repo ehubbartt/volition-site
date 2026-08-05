@@ -27,7 +27,7 @@ collection). This doc is the map; the code carries the detail.
   can't read it and leaves it 0. The counts are cached on the member's `vs_rank_sim` row
   (`tcg_owned` / `tcg_total`) so the breakdown re-scores without re-reading `vs_user_cards`.
 - **Config**: `src/lib/server/rankConfig.ts` — weights/caps/curves/thresholds live in the
-  `bot_config` row `rank_scoring` (edited via `/admin/rank-sim`, 60s cache);
+  `bot_config` row `rank_scoring` (edited via `/admin/ranks/simulator`, 60s cache);
   `DEFAULT_RANK_CONFIG` is only the fallback. `sanitize()` normalizes the weights to sum 1
   and carries a one-time migration: a config saved before the TCG component existed (no
   `tcg` weight) has TCG's weight carved out of time-in-clan, matching the intended
@@ -47,7 +47,7 @@ collection). This doc is the map; the code carries the detail.
     (`(raw/cap) ** exponent`). `1` = linear (default); `0.5` = sqrt, front-loading early
     progress so mid-game hours/gear move the score most. Clamped to `[0.2, 1]`.
   Defaults reproduce today's scoring exactly, so live ranks don't move until an admin sets
-  them in `/admin/rank-sim`. Changing them raises everyone's raw composite, so **re-run
+  them in `/admin/ranks/simulator`. Changing them raises everyone's raw composite, so **re-run
   "Suggest thresholds"** after — the curves control *how rewarding climbing feels*, the
   thresholds control *the distribution* (independent knobs). Recommended starting point
   for this roster: `caps.gear 12000` / `curves.gear 0.6`, `caps.ehb 1500` /
@@ -115,13 +115,21 @@ shows). Three tiers, over the seven scored categories:
   single-player live check for that member — resolved from `vs_users`, so it folds in their
   approved gear claims and writes the right `players.rank`. The page load re-runs afterward,
   so the rank panel reflects the fresh result. An on-demand refresh without sweeping the whole
-  roster via `/admin/rank-sim`.
-- **`/admin/rank-sim`**: bulk refresh into `vs_rank_sim` (batched, WOM-rate-limited),
+  roster via `/admin/ranks/simulator`.
+- **`/admin/ranks/simulator`**: bulk refresh into `vs_rank_sim` (batched, WOM-rate-limited),
   instant re-scoring while tuning, threshold suggestion, bulk apply to `players.rank`,
   and the live comparison vs in-game WOM roles. The refresh auto-chains one batch at a
   time over the whole WOM roster; **"Skip players who already have Temple data"** (on by
   default, `onlyMissing`) drops members whose cached row is already Temple-complete so a
   top-up only fetches new members / prior Temple outages — uncheck for a full re-fetch.
+- **`/admin/ranks/mass-update`**: runs the full `checkAndSaveRank` (fetch → score → cache →
+  write `players.rank` + `signature_rank`) over EVERY site member, one small batch at a time,
+  auto-chaining until done. Unlike the simulator refresh (which only caches inputs), this also
+  applies the result, so it's the one-click "bring everyone's live rank up to date." Passes a
+  cached WOM roster into each check so it isn't re-fetched per member.
+- The three admin rank tools live under one hub, **`/admin/ranks`** (a `RanksTabs` bar):
+  Gear Claims (the default tab) · Simulator · Mass Update. Each is its own route with its own
+  load/actions; the bar just makes them read as one panel.
   The **live comparison** measures each member's projected rank against their current
   in-game rank (their WOM group role). Members whose WOM role doesn't map to a clan rank
   (staff/mod/special titles) are **included** with a baseline estimated from the clan's
@@ -185,7 +193,7 @@ to the log.) The claims channel covers them:
   item picker when it's selected — the Oathplate pieces use it to ask for the member's
   Oathplate shard collection-log count as proof they crafted the piece rather than receiving
   the finished item from a group mate.
-- **Admin**: `/admin/rank-claims` — pending queue with proofs, approve/reject + note.
+- **Admin**: `/admin/ranks/claims` — pending queue with proofs, approve/reject + note.
 - **Effect**: APPROVED claims (`vs_rank_item_claims`, `db/scripts/rank_item_claims.sql`)
   merge into `calculateGearPoints` as owned items (count 1) at the next `/me` rank check
   and the next rank-sim refresh — nothing rewrites cached rows retroactively.

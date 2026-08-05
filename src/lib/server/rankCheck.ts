@@ -10,7 +10,7 @@ import { db } from './db';
 import { rsnExactPattern } from './users';
 import { getApprovedGearNames } from './rankClaims';
 import { getRankConfig } from './rankConfig';
-import { fetchPlayerRankInputs } from './rankData';
+import { fetchPlayerRankInputs, type RosterEntry } from './rankData';
 import { getTcgProgress } from './tcgProgress';
 import { scorePlayer } from './rankScoring';
 import { setPlayerRank, getPlayerRank, setPlayerSignatureRank } from './playerStats';
@@ -52,7 +52,12 @@ export type RankCheckResult =
 // Fetch live inputs (WOM + Temple + WikiSync) for one player, score them with the current
 // config, cache the breakdown in vs_rank_sim, and — only when both Temple and WikiSync
 // responded — write players.rank. Never throws: transient failures come back as ok:false.
-export async function checkAndSaveRank(target: RankCheckTarget): Promise<RankCheckResult> {
+// Pass a pre-fetched `roster` (the bulk WOM group call) when checking MANY players in a row
+// — e.g. the mass rank update — so we don't re-fetch the whole clan once per player.
+export async function checkAndSaveRank(
+	target: RankCheckTarget,
+	opts?: { roster?: Record<string, RosterEntry> }
+): Promise<RankCheckResult> {
 	const { userId, rsn, discordId, accountType } = target;
 	try {
 		// Approved manual gear claims merge into the gear calculation (items the Temple
@@ -60,7 +65,7 @@ export async function checkAndSaveRank(target: RankCheckTarget): Promise<RankChe
 		const manualGear = await getApprovedGearNames(userId);
 		const [config, inputs, tcg] = await Promise.all([
 			getRankConfig(),
-			fetchPlayerRankInputs(rsn, undefined, manualGear, accountType),
+			fetchPlayerRankInputs(rsn, opts?.roster, manualGear, accountType),
 			getTcgProgress(userId)
 		]);
 		// Fold in the member's Volition TCG collection completion (RSN-keyed external
