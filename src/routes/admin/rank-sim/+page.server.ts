@@ -19,6 +19,7 @@ import {
 import { calculateGearPoints, calculateCAPoints } from '$lib/server/rankScoring';
 import { usesIronmanEhb, computeIronmanEhb } from '$lib/server/rankScoring/ehb';
 import { getApprovedGearNamesByRsn } from '$lib/server/rankClaims';
+import { getTcgProgress, getTcgCatalog } from '$lib/server/tcgProgress';
 import { setPlayerRank } from '$lib/server/playerStats';
 import { microCached } from '$lib/server/microCache';
 import { RANK_ORDER, RANK_LABEL, rankIndex, toRankValue, ehbRank, type RankValue } from '$lib/ranks';
@@ -50,6 +51,8 @@ interface SimRow {
 	clog_available: number;
 	months_in_clan: number;
 	ca_points: number;
+	tcg_owned: number | null;
+	tcg_total: number | null;
 	temple_available: boolean;
 	wikisync_available: boolean;
 	ca_tier: string;
@@ -70,7 +73,7 @@ async function getRosterCached() {
 }
 
 const SIM_COLS_BASE =
-	'rsn, wom_id, ehb, total_level, gear_points, clog_finished, clog_available, months_in_clan, ca_points, temple_available, wikisync_available, ca_tier, fetched_at';
+	'rsn, wom_id, ehb, total_level, gear_points, clog_finished, clog_available, months_in_clan, ca_points, tcg_owned, tcg_total, temple_available, wikisync_available, ca_tier, fetched_at';
 
 async function readSimRows(): Promise<SimRow[]> {
 	try {
@@ -102,6 +105,15 @@ async function readAccountTypes(): Promise<Map<string, string | null>> {
 	const rows = await selectAll<{ rsn: string | null; account_type: string | null }>('vs_users', 'rsn, account_type');
 	const m = new Map<string, string | null>();
 	for (const r of rows) if (r.rsn) m.set(r.rsn.toLowerCase(), r.account_type);
+	return m;
+}
+
+// Map lowercase rsn → the member's site user id (vs_users), so the refresh can fold in
+// each player's Volition TCG collection completion (tcgProgress.ts, keyed by user id).
+async function readUserIdsByRsn(): Promise<Map<string, string>> {
+	const rows = await selectAll<{ rsn: string | null; id: string }>('vs_users', 'id, rsn');
+	const m = new Map<string, string>();
+	for (const r of rows) if (r.rsn) m.set(r.rsn.toLowerCase(), r.id);
 	return m;
 }
 
@@ -139,7 +151,9 @@ function buildSummary(
 				clogFinished: row.clog_finished,
 				clogAvailable: row.clog_available,
 				monthsInClan: row.months_in_clan,
-				caPoints: row.ca_points
+				caPoints: row.ca_points,
+				tcgOwned: row.tcg_owned ?? 0,
+				tcgTotal: row.tcg_total ?? 0
 			},
 			config
 		);
@@ -186,6 +200,7 @@ function buildSummary(
 		time: avg('time'),
 		clog: avg('clog'),
 		level: avg('level'),
+		tcg: avg('tcg'),
 		composite: avg('composite')
 	};
 
@@ -277,7 +292,8 @@ function parseConfigFromForm(form: FormData, base: RankScoringConfig): RankScori
 			ca: num('w_ca', base.weights.ca),
 			time: num('w_time', base.weights.time),
 			clog: num('w_clog', base.weights.clog),
-			level: num('w_level', base.weights.level)
+			level: num('w_level', base.weights.level),
+			tcg: num('w_tcg', base.weights.tcg)
 		},
 		caps: {
 			ehb: num('c_ehb', base.caps.ehb),
@@ -385,6 +401,10 @@ export const actions: Actions = {
 		const manualGearByRsn = await getApprovedGearNamesByRsn();
 		// Site account types, so GIM members get iron-rate EHB (rankScoring/ehb.ts).
 		const accountTypeByRsn = await readAccountTypes();
+		// Site user ids, so each player's Volition TCG collection completion can be scored.
+		// Warm the card catalog once up front (cached) so per-player lookups are cheap.
+		const userIdByRsn = await readUserIdsByRsn();
+		await getTcgCatalog();
 		let processed = 0;
 		for (const entry of worklist) {
 			// GIM accounts: re-derive EHB from boss KCs on iron rates (fetched in parallel).
@@ -400,6 +420,8 @@ export const actions: Actions = {
 			// Keep WOM's EHB if the iron boss snapshot didn't come back (outage), rather
 			// than zeroing a GIM's EHB component.
 			const ehb = iron && bossKills ? Math.round(computeIronmanEhb(bossKills)) : entry.ehb;
+			// Volition TCG completion — 0 / total for roster members with no site account.
+			const tcg = await getTcgProgress(userIdByRsn.get(entry.rsn.toLowerCase()) ?? null);
 
 			const { error: upErr } = await sb.from('vs_rank_sim').upsert(
 				{
@@ -412,6 +434,8 @@ export const actions: Actions = {
 					clog_available: temple?.available ?? 0,
 					months_in_clan: Math.round(monthsBetween(entry.clanJoinedAt) * 100) / 100,
 					ca_points: caResult.caPoints,
+					tcg_owned: tcg.owned,
+					tcg_total: tcg.total,
 					temple_available: temple != null,
 					wikisync_available: ca != null,
 					ca_tier: caResult.highestTier,
@@ -505,7 +529,9 @@ export const actions: Actions = {
 						clogFinished: row.clog_finished,
 						clogAvailable: row.clog_available,
 						monthsInClan: row.months_in_clan,
-						caPoints: row.ca_points
+						caPoints: row.ca_points,
+						tcgOwned: row.tcg_owned ?? 0,
+						tcgTotal: row.tcg_total ?? 0
 					},
 					formConfig
 				).composite
@@ -578,7 +604,9 @@ export const actions: Actions = {
 					clogFinished: row.clog_finished,
 					clogAvailable: row.clog_available,
 					monthsInClan: row.months_in_clan,
-					caPoints: row.ca_points
+					caPoints: row.ca_points,
+					tcgOwned: row.tcg_owned ?? 0,
+					tcgTotal: row.tcg_total ?? 0
 				},
 				config
 			);
@@ -675,7 +703,9 @@ export const actions: Actions = {
 					clogFinished: row.clog_finished,
 					clogAvailable: row.clog_available,
 					monthsInClan: row.months_in_clan,
-					caPoints: row.ca_points
+					caPoints: row.ca_points,
+					tcgOwned: row.tcg_owned ?? 0,
+					tcgTotal: row.tcg_total ?? 0
 				},
 				config
 			);

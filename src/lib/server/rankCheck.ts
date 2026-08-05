@@ -11,6 +11,7 @@ import { rsnExactPattern } from './users';
 import { getApprovedGearNames } from './rankClaims';
 import { getRankConfig } from './rankConfig';
 import { fetchPlayerRankInputs } from './rankData';
+import { getTcgProgress } from './tcgProgress';
 import { scorePlayer } from './rankScoring';
 import { setPlayerRank, getPlayerRank } from './playerStats';
 import { rankIndex } from '$lib/ranks';
@@ -56,10 +57,15 @@ export async function checkAndSaveRank(target: RankCheckTarget): Promise<RankChe
 		// Approved manual gear claims merge into the gear calculation (items the Temple
 		// clog can't prove — see rankClaims.ts).
 		const manualGear = await getApprovedGearNames(userId);
-		const [config, inputs] = await Promise.all([
+		const [config, inputs, tcg] = await Promise.all([
 			getRankConfig(),
-			fetchPlayerRankInputs(rsn, undefined, manualGear, accountType)
+			fetchPlayerRankInputs(rsn, undefined, manualGear, accountType),
+			getTcgProgress(userId)
 		]);
+		// Fold in the member's Volition TCG collection completion (RSN-keyed external
+		// data can't read it — see rankData.ts) before scoring + caching.
+		inputs.tcgOwned = tcg.owned;
+		inputs.tcgTotal = tcg.total;
 		const { rank } = scorePlayer(inputs, config);
 
 		// Cache the freshly-fetched inputs + piece-level detail in vs_rank_sim. The
@@ -89,6 +95,8 @@ export async function checkAndSaveRank(target: RankCheckTarget): Promise<RankChe
 					temple_available: inputs.templeAvailable,
 					wikisync_available: inputs.wikisyncAvailable,
 					ca_tier: inputs.caTier,
+					tcg_owned: inputs.tcgOwned,
+					tcg_total: inputs.tcgTotal,
 					gear_detail: inputs.gearDetail,
 					ca_detail: inputs.caDetail,
 					fetched_at: new Date().toISOString()

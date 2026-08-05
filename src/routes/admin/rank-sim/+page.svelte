@@ -64,12 +64,13 @@
 		['w_ca', 'ca', 'Combat Achv'],
 		['w_time', 'time', 'Time in clan'],
 		['w_clog', 'clog', 'Collection log'],
-		['w_level', 'level', 'Total level']
+		['w_level', 'level', 'Total level'],
+		['w_tcg', 'tcg', 'Volition TCG']
 	] as const;
 
 	const capKeys = [
 		['c_ehb', 'ehb', 'EHB cap'],
-		['c_gear', 'gear', 'Gear cap (0 = table sum)'],
+		['c_gear', 'gear', 'Gear cap (0 = table sum · ≤1 = fraction of it · >1 = points)'],
 		['c_months', 'months', 'Months cap'],
 		['c_clog', 'clog', 'Clog slots cap'],
 		['c_levelMin', 'levelMin', 'Level floor'],
@@ -375,7 +376,9 @@
 				{#each capKeys as [name, key, label]}
 					<label>
 						<span>{label}</span>
-						<input type="number" step="1" {name} value={config.caps[key]} />
+						<!-- Gear cap accepts a fraction of the table sum (e.g. 0.95), so it allows
+						     decimals; the other caps are whole counts. -->
+						<input type="number" step={key === 'gear' ? 'any' : '1'} min="0" {name} value={config.caps[key]} />
 					</label>
 				{/each}
 			</div>
@@ -474,6 +477,7 @@
 			<span>Time {summary.componentAverages.time.toFixed(3)}</span>
 			<span>Clog {summary.componentAverages.clog.toFixed(3)}</span>
 			<span>Level {summary.componentAverages.level.toFixed(3)}</span>
+			<span>TCG {summary.componentAverages.tcg.toFixed(3)}</span>
 			<span class="strong">Composite {summary.componentAverages.composite.toFixed(3)}</span>
 		</div>
 

@@ -1,26 +1,47 @@
 # Ranks — composite scoring, checking, and manual gear claims
 
-The clan rank is a weighted composite of six components, scored server-side from three
-external sources plus one manual channel. This doc is the map; the code carries the
-detail.
+The clan rank is a weighted composite of seven components, scored server-side from three
+external sources plus two internal ones (manual gear claims and the site's Volition TCG
+collection). This doc is the map; the code carries the detail.
 
 ## Scoring pipeline
 
-- **Pure math**: `src/lib/server/rankScoring.ts` — `computeScores` (six normalized
+- **Pure math**: `src/lib/server/rankScoring.ts` — `computeScores` (seven normalized
   components × config weights), `calculateGearPoints` (Temple clog + manual claims vs
   the gear table `rankScoring/gearScoring.json`), `calculateCAPoints` (WikiSync task ids
   vs `rankScoring/combatAchievements.json`, whole-tier rewards only),
-  `determineProjectedRank` (thresholds → womRole).
+  `determineProjectedRank` (thresholds → womRole). The seven components are gear, EHB,
+  combat achievements, time-in-clan, collection log, total level, and **Volition TCG**
+  (`tcg`) — owned card variants / obtainable, so a full set = 100% of that component. The
+  default weights are gear 0.35 · ehb 0.25 · ca 0.10 · time 0.05 · clog 0.10 · level 0.10 ·
+  tcg 0.05.
+- **Volition TCG component**: `src/lib/server/tcgProgress.ts` — `getTcgProgress(userId)`
+  returns `{ owned, total }` counted the SAME way the Collection tab does (`cardProfile.ts`):
+  at the VARIANT level — each finish a card can roll (Holo / Reverse / Normal) is its own
+  slot, and a secret rare is a single mystery slot until any finish is owned. The finish
+  logic is shared via `src/lib/cards/finishVariants.ts` (`possibleFinishes`) so the rank
+  count and the grid never diverge. Cards from **elemental** packs (event gifts, not freely
+  obtainable) are excluded entirely. It's kept out of the pure scoring module (DB I/O) and
+  folded in by the caller that has the member's site user id (`rankCheck.ts`, the rank-sim
+  refresh, onboarding) before scoring; `fetchPlayerRankInputs` (RSN-keyed external data)
+  can't read it and leaves it 0. The counts are cached on the member's `vs_rank_sim` row
+  (`tcg_owned` / `tcg_total`) so the breakdown re-scores without re-reading `vs_user_cards`.
 - **Config**: `src/lib/server/rankConfig.ts` — weights/caps/curves/thresholds live in the
   `bot_config` row `rank_scoring` (edited via `/admin/rank-sim`, 60s cache);
-  `DEFAULT_RANK_CONFIG` is only the fallback.
+  `DEFAULT_RANK_CONFIG` is only the fallback. `sanitize()` normalizes the weights to sum 1
+  and carries a one-time migration: a config saved before the TCG component existed (no
+  `tcg` weight) has TCG's weight carved out of time-in-clan, matching the intended
+  rebalance instead of diluting every component. Idempotent — rows that already carry a
+  `tcg` weight skip it.
 - **Progression curves (gear + EHB)**: gear and EHB are the two highest-weighted
   components but their caps sit near the top of the account ladder, so a linear
   normalization leaves most of the roster bunched at the bottom of both bars (flat
   mid-game). Two config knobs fix this without touching the distribution:
-  - `caps.gear` — the gear points at which the gear bar maxes. `0` (default) =
-    `GEAR_SCORE_CAP` (the gear table's full sum, today's behaviour); a lower value (e.g.
-    `12000`) lets a strong-but-not-BiS setup read near full. `effectiveGearCap(config)`
+  - `caps.gear` — the gear points at which the gear bar maxes. `0` = `GEAR_SCORE_CAP` (the
+    gear table's full sum); a value in `(0, 1]` is a **fraction** of that sum (default
+    `0.95` → the bar maxes at 95% of the total gear points, and stays 95% when the point
+    table is reshuffled); a value `> 1` is an absolute gear-point figure (e.g. `12000`).
+    Lowering it lets a strong-but-not-BiS setup read near full. `effectiveGearCap(config)`
     resolves it; the gear grid + `GEAR_SCORE_CAP` invariant are unchanged.
   - `curves.gear` / `curves.ehb` — diminishing-returns exponents applied in `curveNorm`
     (`(raw/cap) ** exponent`). `1` = linear (default); `0.5` = sqrt, front-loading early

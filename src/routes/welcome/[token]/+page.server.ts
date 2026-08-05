@@ -19,6 +19,7 @@ import { loadRankBreakdown } from '$lib/server/meData';
 import { getOrCreateToken, configUrlFor, getMultiServer, setMultiServer } from '$lib/server/dinkTokens';
 import { getRankConfig } from '$lib/server/rankConfig';
 import { fetchPlayerRankInputs } from '$lib/server/rankData';
+import { getTcgProgress } from '$lib/server/tcgProgress';
 import { scorePlayer } from '$lib/server/rankScoring';
 import { setPlayerRank } from '$lib/server/playerStats';
 import { sendBotMessage } from '$lib/server/botBridge';
@@ -203,7 +204,13 @@ export const actions: Actions = {
 		const rsn = locals.user!.rsn;
 		if (!rsn) return fail(400, { rankError: 'Verify your RSN first.' });
 		try {
-			const [config, inputs] = await Promise.all([getRankConfig(), fetchPlayerRankInputs(rsn, undefined, [])]);
+			const [config, inputs, tcg] = await Promise.all([
+				getRankConfig(),
+				fetchPlayerRankInputs(rsn, undefined, []),
+				getTcgProgress(locals.user!.id)
+			]);
+			inputs.tcgOwned = tcg.owned;
+			inputs.tcgTotal = tcg.total;
 			const { rank } = scorePlayer(inputs, config);
 			const { data: existing } = await db()
 				.from('vs_rank_sim')
@@ -222,6 +229,8 @@ export const actions: Actions = {
 					clog_available: inputs.clogAvailable,
 					months_in_clan: Math.round(inputs.monthsInClan * 100) / 100,
 					ca_points: inputs.caPoints,
+					tcg_owned: inputs.tcgOwned,
+					tcg_total: inputs.tcgTotal,
 					temple_available: inputs.templeAvailable,
 					wikisync_available: inputs.wikisyncAvailable,
 					ca_tier: inputs.caTier,

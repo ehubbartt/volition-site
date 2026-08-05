@@ -17,6 +17,8 @@ export interface RankWeights {
 	time: number;
 	clog: number;
 	level: number;
+	// Volition TCG collection completion (see tcgProgress.ts / rankScoring.ts).
+	tcg: number;
 }
 
 export interface RankCaps {
@@ -25,9 +27,11 @@ export interface RankCaps {
 	clog: number; // collection-log slots cap (default 1200)
 	levelMin: number; // total level floor before any credit (default 2000)
 	levelRange: number; // level span above the floor for full credit (default 376 → 2376)
-	// Gear points at which the gear component maxes. 0 (default) = use the gear table's
-	// full point sum (GEAR_SCORE_CAP) — i.e. today's behaviour. Set a lower value so a
-	// strong-but-not-BiS setup reads near full and the mid-game isn't flat.
+	// Gear points at which the gear component maxes. 0 = the gear table's full point sum
+	// (GEAR_SCORE_CAP). A value in (0, 1] is a FRACTION of that sum (0.95 = the bar maxes at
+	// 95% of the total gear points, and stays 95% when the point table is reshuffled); a
+	// value > 1 is an absolute gear-point figure. Lowering it lets a strong-but-not-BiS
+	// setup read near full so the mid-game isn't flat. See effectiveGearCap.
 	gear: number;
 }
 
@@ -59,9 +63,10 @@ export interface RankScoringConfig {
 // are now the canonical copies (the bot's source script has since been removed) — keep
 // them in sync by hand if the bot's tables change.
 export const DEFAULT_RANK_CONFIG: RankScoringConfig = {
-	weights: { gear: 0.35, ehb: 0.25, ca: 0.1, time: 0.1, clog: 0.1, level: 0.1 },
-	// gear: 0 = normalize against the gear table's full point sum (today's behaviour).
-	caps: { ehb: 3000, months: 12, clog: 1200, levelMin: 2000, levelRange: 376, gear: 0 },
+	weights: { gear: 0.35, ehb: 0.25, ca: 0.1, time: 0.05, clog: 0.1, level: 0.1, tcg: 0.05 },
+	// gear: 0.95 = the gear bar maxes at 95% of the gear table's total points (see
+	// effectiveGearCap — a value in (0,1] is a fraction of GEAR_SCORE_CAP).
+	caps: { ehb: 3000, months: 12, clog: 1200, levelMin: 2000, levelRange: 376, gear: 0.95 },
 	// 1 / 1 = linear (today's behaviour). Lower to front-load progression (0.5 = sqrt).
 	curves: { gear: 1, ehb: 1 },
 	thresholds: [
@@ -92,7 +97,18 @@ const CACHE_TTL_MS = 60_000;
 // fall back field-by-field to the defaults, and keep thresholds in valid rank order.
 function sanitize(raw: unknown): RankScoringConfig {
 	const r = (raw ?? {}) as Partial<RankScoringConfig>;
-	const merged = { ...DEFAULT_RANK_CONFIG.weights, ...(r.weights ?? {}) };
+	const storedWeights = (r.weights ?? {}) as Partial<RankWeights>;
+	const merged = { ...DEFAULT_RANK_CONFIG.weights, ...storedWeights };
+	// One-time migration for configs saved before the Volition TCG category existed:
+	// such rows carry no `tcg` weight. Carve TCG's weight out of Time-in-clan (the
+	// intended rebalance — 5 points moved from time to TCG) instead of letting the
+	// spread-in default inflate the weight sum and dilute every component during the
+	// normalise below. Idempotent: rows that already carry `tcg` (all new saves) skip this.
+	if (!('tcg' in storedWeights)) {
+		const move = DEFAULT_RANK_CONFIG.weights.tcg;
+		merged.time = Math.max(0, (Number(merged.time) || 0) - move);
+		merged.tcg = move;
+	}
 	// The composite is Σ(component·weight) and the thresholds are calibrated for weights
 	// that sum to 1. A hand-edited row whose weights sum to e.g. 1.3 would scale every
 	// score up and make the thresholds meaningless, so normalise to sum 1 here (keeping

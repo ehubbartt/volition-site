@@ -42,6 +42,8 @@ export interface RankAdviceInputs {
 	monthsInClan: number;
 	caPoints: number;
 	caWikiPoints: number;
+	tcgOwned: number; // distinct released Volition TCG cards owned
+	tcgTotal: number; // distinct released cards obtainable
 	gearMatched: string[]; // completed gear-entry names
 	gearPartials: { name: string; missing: string[] }[];
 }
@@ -172,7 +174,9 @@ export function buildRankAdvice(inputs: RankAdviceInputs, config: RankScoringCon
 			clogFinished: inputs.clogFinished,
 			clogAvailable: inputs.clogAvailable,
 			monthsInClan: inputs.monthsInClan,
-			caPoints: inputs.caPoints
+			caPoints: inputs.caPoints,
+			tcgOwned: inputs.tcgOwned,
+			tcgTotal: inputs.tcgTotal
 		},
 		config
 	);
@@ -309,6 +313,15 @@ export function buildRankAdvice(inputs: RankAdviceInputs, config: RankScoringCon
 				const add = caps.months > 0 ? Math.min(1 - n, 3 / caps.months) : 0;
 				potential = Math.min(1, n + add);
 				advice = n >= 1 ? 'Max time-in-clan credit reached.' : 'This one is automatic — it climbs the longer you stay in the clan.';
+				break;
+			}
+			case 'tcg': {
+				// No obtain-time model for cards (pack luck), so no reachable-gain overlay —
+				// leave potential = n (never surfaces as a priced rank-up step). Advice only.
+				advice =
+					n >= 1
+						? 'Full Volition TCG collection — maxed for rank.'
+						: 'Collect Volition TCG cards — each new card you own nudges this bar toward a full set.';
 				break;
 			}
 		}

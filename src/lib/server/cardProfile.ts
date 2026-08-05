@@ -13,6 +13,7 @@ import {
 	type CardRarity
 } from '$lib/cards/rarity';
 import { isValidFinish, type CardFinish } from '$lib/cards/finishes';
+import { possibleFinishes as possibleCardFinishes } from '$lib/cards/finishVariants';
 import type { UserPack } from '$lib/cards/packs';
 
 // Shared builder for a player's card-game profile (collection, owned packs, VP,
@@ -191,45 +192,10 @@ export async function loadCardProfile(user: {
 		((catalogRes.data ?? []) as unknown as CatalogRow[]).map((c) => [c.id, c])
 	);
 
-	// Can a slot ever roll a given rarity? Mirrors the roller's fallback chain
-	// (gamba.ts makeSlotRoller): a slot's own weights, else the pack's rarity_weights,
-	// else uniform over every rarity the pack actually has cards in.
-	const hasPositive = (w: Record<string, number> | null | undefined): boolean =>
-		!!w && Object.values(w).some((v) => Number(v) > 0);
-	const slotCanRollRarity = (
-		pack: NonNullable<CatalogRow['vs_card_packs']>,
-		slotIndex: number,
-		rarity: string
-	): boolean => {
-		const sw = Array.isArray(pack.slot_weights) ? pack.slot_weights[slotIndex] : null;
-		if (hasPositive(sw)) return Number(sw![rarity] ?? 0) > 0;
-		if (hasPositive(pack.rarity_weights)) return Number(pack.rarity_weights![rarity] ?? 0) > 0;
-		return true; // uniform over present rarities — the card's own rarity is present
-	};
-
-	// Which finishes a card can actually have, ordered Holo → Reverse Holo → Normal.
-	// Normal is always possible. Holo/Reverse only if the card ISN'T full-art (the
-	// foil masks never apply to full-art) AND its pack can produce that finish FOR
-	// THIS card's rarity: with no slot_finishes the legacy positional rule lets any
-	// non-full-art card land Holo/Reverse; otherwise some slot must both offer the
-	// finish (>0%) AND be able to roll the card's rarity.
-	const possibleFinishes = (c: CatalogRow): CardFinish[] => {
-		if (c.full_art || !c.vs_card_packs) return ['normal'];
-		const pack = c.vs_card_packs;
-		const sf = Array.isArray(pack.slot_finishes) ? pack.slot_finishes : [];
-		const legacy = sf.length === 0;
-		const offers = (kind: 'holo' | 'reverse'): boolean => {
-			if (legacy) return true;
-			return sf.some(
-				(s, i) => ((kind === 'holo' ? s?.holo : s?.reverse) ?? 0) > 0 && slotCanRollRarity(pack, i, c.rarity)
-			);
-		};
-		const out: CardFinish[] = [];
-		if (offers('holo')) out.push('holo');
-		if (offers('reverse')) out.push('reverse');
-		out.push('normal');
-		return out;
-	};
+	// Which finishes a card can actually have (Holo → Reverse → Normal) — shared with the
+	// Volition TCG rank component via finishVariants.ts so the two count variants identically.
+	const possibleFinishes = (c: CatalogRow): CardFinish[] =>
+		possibleCardFinishes({ full_art: c.full_art, rarity: c.rarity, pack: c.vs_card_packs });
 
 	const greyVariant = (c: CatalogRow, rarity: CardRarity, finish: CardFinish): CollectionCard => ({
 		id: c.id,

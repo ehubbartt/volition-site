@@ -236,6 +236,10 @@ export async function fetchPlayerRankInputs(
 		clogFinished: temple?.finished ?? 0,
 		clogAvailable: temple?.available ?? 0,
 		caPoints: caResult.caPoints,
+		// TCG completion isn't readable from RSN-keyed external data — the caller that
+		// has the member's site user id (rankCheck) fills these in before scoring.
+		tcgOwned: 0,
+		tcgTotal: 0,
 		templeAvailable: temple != null,
 		wikisyncAvailable: ca != null,
 		caTier: caResult.highestTier,
