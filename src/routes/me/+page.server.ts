@@ -6,7 +6,8 @@ import { isValidAccountType } from '$lib/accountTypes';
 import { isRsnTaken } from '$lib/server/users';
 import { submitGearClaim } from '$lib/server/rankClaims';
 import { checkAndSaveRank } from '$lib/server/rankCheck';
-import { setSignaturePref } from '$lib/server/playerStats';
+import { setSignaturePref, setPlayerSignatureRank } from '$lib/server/playerStats';
+import { loadRankBreakdown } from '$lib/server/meData';
 import { THEME_COOKIE, isTheme } from '$lib/themes';
 import type { Actions } from './$types';
 
@@ -55,7 +56,16 @@ export const actions: Actions = {
 	setSignaturePref: async ({ locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
 		const prefer = (await request.formData()).get('prefer') === '1';
-		const res = await setSignaturePref(locals.user.discord_id, locals.user.rsn, prefer);
+		const { discord_id, rsn } = locals.user;
+
+		// Refresh the earned signature tier from the member's cached breakdown so the player
+		// row reflects their choice IMMEDIATELY — no "Re-check rank" needed. Authoritative
+		// (recomputed server-side from vs_rank_sim), so the toggle can't be spoofed. The
+		// composite players.rank still only refreshes on a full re-check (it needs live data).
+		const { breakdown } = await loadRankBreakdown(rsn);
+		await setPlayerSignatureRank(discord_id, rsn, breakdown?.signature.earnedKey ?? null);
+
+		const res = await setSignaturePref(discord_id, rsn, prefer);
 		if (!res.ok)
 			return fail(res.reason === 'no_player' ? 404 : 502, {
 				signatureError:
