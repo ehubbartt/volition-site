@@ -1,5 +1,6 @@
 import { redirect, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
+import { mintBombsForApprovedClaims } from '$lib/server/battleship';
 import { isAdmin } from '$lib/server/auth';
 import { grantPlayerVp } from '$lib/server/playerStats';
 import { decideSubmissions, revokeSubmissions } from '$lib/server/submissions';
@@ -120,6 +121,17 @@ export const actions: Actions = {
 				await grantVpForApproval(grantCtx, changedIds ?? ids);
 			} catch (e) {
 				console.error('[submissions] VP grant failed:', (e as Error).message);
+			}
+		}
+
+		// Battleship manual claims (members who can't run Dink) arm their bomb on
+		// approval. Keyed on the submission id, so a revoke-then-re-approve mints nothing
+		// further. Failures are logged, never fatal — the review itself already stood.
+		if (decision === 'approve' && (changedIds?.length ?? 0) > 0) {
+			try {
+				await mintBombsForApprovedClaims(changedIds ?? ids);
+			} catch (e) {
+				console.error('[submissions] battleship bomb mint failed:', (e as Error).message);
 			}
 		}
 

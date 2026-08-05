@@ -352,7 +352,13 @@ export function redactFor(
 
 	const sides: RedactedSide[] = snap.sides.map((s) => {
 		const hitCells = new Set(snap.shots.filter((sh) => sh.targetSide === s.side).map((sh) => sh.cell));
-		const canSeeFleet = viewer.isAdmin || (viewerSide !== null && s.side === viewerSide);
+		// An admin who is PLAYING is a player first. Handing them the enemy fleet would
+		// let a captain read their opponent's board — and at a clan event the captains
+		// are very likely to be admins. Only a NON-PARTICIPANT admin (running the tester
+		// or spectating) sees both fleets; the admin tester page reads the raw snapshot
+		// directly and is unaffected.
+		const adminSpectator = viewer.isAdmin && viewerSide === null;
+		const canSeeFleet = adminSpectator || (viewerSide !== null && s.side === viewerSide);
 		return {
 			side: s.side,
 			name: s.name,
@@ -638,7 +644,16 @@ export async function openPlacement(eventId: string): Promise<Result> {
 	if (!snap) return errResult('Game not found');
 	const minutes = snap.config.placement_minutes;
 	const endsAt = new Date(Date.now() + minutes * 60_000).toISOString();
-	return patchStructure(eventId, { phase: 'placement', placement_ends_at: endsAt });
+	// PIN the board size here. Until now it floats with the headcount (`bs.size ??
+	// boardSizeFor`), which is what makes it scale with the draft — but from the moment
+	// ships go on it, a size that can still move is a live hazard: removing a drafted
+	// member, or changing the scaling dial in code, would shrink the board out from under
+	// fleets whose cells are already stored, putting hulls off the edge.
+	return patchStructure(eventId, {
+		phase: 'placement',
+		placement_ends_at: endsAt,
+		size: snap.config.size
+	});
 }
 
 /** Store a side's fleet. Validated ship-by-ship; rejects a partial fleet. */
@@ -772,13 +787,28 @@ export async function activeBattleshipFor(
 
 	const { data: events } = await sb
 		.from('vs_events')
-		.select('id, slug, name, structure, starts_at')
+		.select('id, slug, name, structure, starts_at, created_at')
 		.eq('kind', BATTLESHIP_KIND)
 		.eq('status', 'open')
 		.in('id', rows.map((r) => r.event_id));
 
-	for (const ev of (events ?? []) as { id: string; slug: string; name: string; structure: unknown; starts_at: string | null }[]) {
-		const bs = readStructure(ev.structure);
+	// A drop arms a bomb in ONE event, so when a member is somehow in two live battles at
+	// once the choice has to be deterministic and defensible. Unordered, it was whichever
+	// row PostgREST happened to return first — and a test game left running would silently
+	// swallow drops meant for the real event. Real events beat test ones; newest wins the
+	// tie.
+	const candidates = ((events ?? []) as {
+		id: string; slug: string; name: string; structure: unknown;
+		starts_at: string | null; created_at: string;
+	}[])
+		.map((ev) => ({ ev, bs: readStructure(ev.structure) }))
+		.sort((a, b) => {
+			const test = Number(a.bs.test ?? false) - Number(b.bs.test ?? false);
+			if (test !== 0) return test;
+			return b.ev.created_at.localeCompare(a.ev.created_at);
+		});
+
+	for (const { ev, bs } of candidates) {
 		if (bs.phase !== 'battle') continue;
 		const teamId = rows.find((r) => r.event_id === ev.id)?.team_id;
 		if (!teamId) continue;
@@ -949,6 +979,71 @@ async function loadBattleshipById(eventId: string): Promise<BattleshipSnapshot |
 	const { data } = await db().from('vs_events').select('slug').eq('id', eventId).maybeSingle();
 	if (!data) return null;
 	return loadBattleship((data as { slug: string }).slug);
+}
+
+/** Prefix for a manual bomb claim's `vs_submissions.target_id` — `bomb:<gp value>`. */
+export const BOMB_CLAIM_PREFIX = 'bomb:';
+
+export function bombClaimTarget(value: number): string {
+	return `${BOMB_CLAIM_PREFIX}${Math.max(0, Math.round(value))}`;
+}
+
+export function parseBombClaim(targetId: string | null): number | null {
+	if (!targetId?.startsWith(BOMB_CLAIM_PREFIX)) return null;
+	const v = Number(targetId.slice(BOMB_CLAIM_PREFIX.length));
+	return Number.isFinite(v) && v >= 0 ? v : null;
+}
+
+/**
+ * Mint bombs for manual claims that an admin has just APPROVED.
+ *
+ * Members who don't run Dink submit the drop's value plus a screenshot; the row goes
+ * through the normal /admin/submissions queue, and approving it lands here. Called with
+ * the ids the approval actually flipped, so a concurrent double-approve mints once.
+ *
+ * Idempotent twice over: the arsenal's unique (event_id, drop_key) keyed on the
+ * SUBMISSION id means re-approving after a revoke can never mint a second bomb.
+ */
+export async function mintBombsForApprovedClaims(
+	submissionIds: string[]
+): Promise<{ minted: number }> {
+	if (submissionIds.length === 0) return { minted: 0 };
+	const sb = db();
+
+	const { data: rows, error } = await sb
+		.from('vs_submissions')
+		.select('id, event_id, user_id, target_id, target_label, status')
+		.in('id', submissionIds)
+		.eq('status', 'approved');
+	if (error || !rows?.length) return { minted: 0 };
+
+	let minted = 0;
+	for (const r of rows as {
+		id: string; event_id: string | null; user_id: string | null;
+		target_id: string; target_label: string | null;
+	}[]) {
+		const value = parseBombClaim(r.target_id);
+		if (value == null || !r.event_id || !r.user_id) continue;
+
+		// Which side is the claimant on? A claim from someone not drafted arms nothing.
+		const game = await activeBattleshipFor(r.user_id);
+		if (!game || game.eventId !== r.event_id) continue;
+
+		const res = await earnBomb({
+			eventId: r.event_id,
+			side: game.side,
+			userId: r.user_id,
+			value,
+			// Keyed on the submission, NOT on a synthetic id — that's what makes a
+			// revoke-then-re-approve mint nothing further.
+			dropKey: `manual:${r.id}`,
+			itemName: r.target_label ?? 'Manual claim',
+			source: 'Manual claim',
+			tiers: game.tiers
+		});
+		if (res.minted) minted++;
+	}
+	return { minted };
 }
 
 /** Admin escape hatch: hand a side a bomb without a drop (testing, make-goods). */

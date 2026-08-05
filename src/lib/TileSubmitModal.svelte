@@ -17,8 +17,21 @@
 		requireImage?: boolean; // if true, at least one image is needed to submit
 		submitLabel?: string; // verb on the button (default "Submit")
 		children?: Snippet; // optional extra content (e.g. tile details) above the form
+		// Extra inputs rendered INSIDE the form, above the dropper, so they post with it.
+		// `children` sits outside the form and can't carry fields — use this for anything
+		// the action needs (e.g. Battleship's drop value).
+		fields?: Snippet;
 	}
-	let { tile, submitUrl, onclose, note = '', requireImage = false, submitLabel = 'Submit', children }: Props = $props();
+	let {
+		tile,
+		submitUrl,
+		onclose,
+		note = '',
+		requireImage = false,
+		submitLabel = 'Submit',
+		children,
+		fields
+	}: Props = $props();
 
 	let stagedCount = $state(0);
 	let resetKey = $state(0);
@@ -73,6 +86,8 @@
 			}}
 		>
 			<input type="hidden" name="tile_id" value={tile.id} />
+
+			{#if fields}<div class="fields">{@render fields()}</div>{/if}
 
 			<ImageDropper bind:count={stagedCount} bind:error {resetKey} captureWindowPaste />
 
@@ -167,6 +182,28 @@
 		color: var(--danger, #e06666);
 		font-size: 0.85rem;
 		margin: 0.5rem 0 0;
+	}
+	/* Caller-supplied inputs. Styled here so every consumer's fields look the same
+	   rather than each page re-styling them. */
+	.fields {
+		display: grid;
+		gap: 0.55rem;
+		margin-bottom: 0.75rem;
+	}
+	.fields :global(label) {
+		display: grid;
+		gap: 0.2rem;
+		font-size: 0.85rem;
+	}
+	.fields :global(input) {
+		background: var(--surface-alt);
+		color: var(--text);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 0.4rem 0.5rem;
+		font-family: var(--font-body);
+		font-size: 0.9rem;
+		width: 100%;
 	}
 	.actions {
 		display: flex;
