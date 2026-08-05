@@ -787,13 +787,28 @@ export async function activeBattleshipFor(
 
 	const { data: events } = await sb
 		.from('vs_events')
-		.select('id, slug, name, structure, starts_at')
+		.select('id, slug, name, structure, starts_at, created_at')
 		.eq('kind', BATTLESHIP_KIND)
 		.eq('status', 'open')
 		.in('id', rows.map((r) => r.event_id));
 
-	for (const ev of (events ?? []) as { id: string; slug: string; name: string; structure: unknown; starts_at: string | null }[]) {
-		const bs = readStructure(ev.structure);
+	// A drop arms a bomb in ONE event, so when a member is somehow in two live battles at
+	// once the choice has to be deterministic and defensible. Unordered, it was whichever
+	// row PostgREST happened to return first — and a test game left running would silently
+	// swallow drops meant for the real event. Real events beat test ones; newest wins the
+	// tie.
+	const candidates = ((events ?? []) as {
+		id: string; slug: string; name: string; structure: unknown;
+		starts_at: string | null; created_at: string;
+	}[])
+		.map((ev) => ({ ev, bs: readStructure(ev.structure) }))
+		.sort((a, b) => {
+			const test = Number(a.bs.test ?? false) - Number(b.bs.test ?? false);
+			if (test !== 0) return test;
+			return b.ev.created_at.localeCompare(a.ev.created_at);
+		});
+
+	for (const { ev, bs } of candidates) {
 		if (bs.phase !== 'battle') continue;
 		const teamId = rows.find((r) => r.event_id === ev.id)?.team_id;
 		if (!teamId) continue;

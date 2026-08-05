@@ -240,8 +240,14 @@ Battleship needed a second admission rule.
    matching, so one drop can credit a bingo tile, a personal-board tile *and* arm a bomb —
    the same "credit every matching candidate" rule the consumer already follows.
 
-Two rules it inherits from the rest of the pipeline: a drop received **before** the battle
-opened arms nothing, and re-running a drop mints nothing further (the reconcile pass
+**A drop arms a bomb in exactly one event.** `activeBattleshipFor` picks it, and the pick
+is ordered: a **real** event beats a **test** one, and the newest wins the tie. Unordered
+it was whichever row PostgREST returned first — which meant a test game left running in the
+`battle` phase silently swallowed drops meant for the live event. (The 80-player simulation
+found this the hard way, against a preview game that was still open.)
+
+Two more rules it inherits from the rest of the pipeline: a drop received **before** the
+battle opened arms nothing, and re-running a drop mints nothing further (the reconcile pass
 deliberately re-runs recent drops, so this happens routinely). A drop that armed a bomb but
 matched no tile is stamped `bomb`, so it doesn't show up in `/admin/dink-drops` under
 "Didn't credit".
