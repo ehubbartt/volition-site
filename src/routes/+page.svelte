@@ -543,7 +543,8 @@
 										<div
 											class="bar-fill light"
 											title="{r.noTempleCount} with no linked TempleOSRS log"
-											style="width:{(r.noTempleCount / maxRankCount) * 100}%; background:{r.color}"
+											style="width:{(r.noTempleCount / maxRankCount) *
+												100}%; background:color-mix(in srgb, {r.color} 72%, white)"
 										></div>
 									{/if}
 								</div>
@@ -1277,11 +1278,9 @@
 		height: 100%;
 		min-width: 2px;
 	}
-	/* Members with no linked TempleOSRS log — a lighter/faded shade of the same rank colour
-	   so the solid (scored) portion reads as the real spread. */
-	.bar-fill.light {
-		opacity: 0.32;
-	}
+	/* Members with no linked TempleOSRS log — a whiter tint of the same rank colour (stays
+	   close to the main colour, just lighter) so the solid scored portion still reads as the
+	   real spread. The tint is applied inline via color-mix on the rank colour. */
 	.bar-count {
 		text-align: right;
 		font-family: var(--font-heading);
