@@ -8,6 +8,7 @@
 	import { rsnToSlug } from '$lib/rsn';
 	import StatCard from '$lib/StatCard.svelte';
 	import Skeleton from '$lib/Skeleton.svelte';
+	import InfoTip from '$lib/InfoTip.svelte';
 	import { swrResource } from '$lib/swrResource.svelte';
 	import type { PageData, ActionData } from './$types';
 
@@ -284,8 +285,8 @@
 	<title>Volition</title>
 </svelte:head>
 
-{#snippet rankBadge(rank: string | null, color: string, label: string)}
-	{@const img = rankImg(rank)}
+{#snippet rankBadge(rank: string | null, color: string, label: string, imgOverride?: string | null)}
+	{@const img = imgOverride ?? rankImg(rank)}
 	{#if img}
 		<img class="rank-img" src={img} alt={label} title={label} />
 	{:else}
@@ -511,7 +512,13 @@
 		<!-- Clan stats -->
 		<aside class="side">
 			<section class="panel">
-				<h2>Rank breakdown</h2>
+				<h2 class="panel-head">
+					Rank breakdown
+					<InfoTip
+						tip="Each member is counted by the rank they display — including the Savant/Curator/Paragon prestige ranks. A lighter shade is members with no linked TempleOSRS collection log: their gear and collection-log scores read 0, so they can't be fully ranked and pile up at the bottom. Shading them apart shows the real spread of scored members."
+						label="About the rank breakdown"
+					/>
+				</h2>
 				{#if !directory}
 					<div class="bars">
 						{#each { length: 5 }, i (i)}
@@ -523,10 +530,22 @@
 				{:else}
 					<div class="bars">
 						{#each directory.rankBreakdown as r (r.value)}
+							{@const solid = r.count - r.noTempleCount}
 							<div class="bar-row">
-								<span class="bar-label">{@render rankBadge(r.value, r.color, r.label)}{r.label}</span>
+								<span class="bar-label">{@render rankBadge(r.value, r.color, r.label, r.img)}{r.label}</span>
 								<div class="bar-track">
-									<div class="bar-fill" style="width:{(r.count / maxRankCount) * 100}%; background:{r.color}"></div>
+									<!-- Scored (Temple-linked) members in the solid rank colour; members with no
+									     linked Temple log in a lighter shade, so the true spread reads clearly. -->
+									{#if solid > 0}
+										<div class="bar-fill" style="width:{(solid / maxRankCount) * 100}%; background:{r.color}"></div>
+									{/if}
+									{#if r.noTempleCount > 0}
+										<div
+											class="bar-fill light"
+											title="{r.noTempleCount} with no linked TempleOSRS log"
+											style="width:{(r.noTempleCount / maxRankCount) * 100}%; background:{r.color}"
+										></div>
+									{/if}
 								</div>
 								<span class="bar-count">{r.count}</span>
 							</div>
@@ -1197,6 +1216,11 @@
 	}
 
 	/* ── Rank breakdown ── */
+	.panel-head {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
 	.bars {
 		display: flex;
 		flex-direction: column;
@@ -1247,11 +1271,16 @@
 		background: var(--surface-alt);
 		border-radius: 999px;
 		overflow: hidden;
+		display: flex;
 	}
 	.bar-fill {
 		height: 100%;
-		border-radius: 999px;
 		min-width: 2px;
+	}
+	/* Members with no linked TempleOSRS log — a lighter/faded shade of the same rank colour
+	   so the solid (scored) portion reads as the real spread. */
+	.bar-fill.light {
+		opacity: 0.32;
 	}
 	.bar-count {
 		text-align: right;
