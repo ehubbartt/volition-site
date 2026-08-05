@@ -248,6 +248,8 @@
 				showSetupTips
 				onClaim={startClaim}
 				adviceEndpoint="/api/rank-advice"
+				signaturePref={data.signaturePref}
+				signatureActionUrl="?/setSignaturePref"
 				emptyText={data.user.rsn
 					? 'Pull your live stats from WiseOldMan, TempleOSRS and WikiSync to compute your clan rank and see exactly how each section contributes.'
 					: ''}

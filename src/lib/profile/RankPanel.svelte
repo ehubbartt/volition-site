@@ -8,6 +8,8 @@
 	import { itemImageUrl, wikiPageUrl } from '$lib/wikiImage';
 	import { retryImage } from '$lib/imageRetry';
 	import { formatEhb } from '$lib/ehb';
+	import { SIGNATURE_TIERS, earnedSignatureTier, nextSignatureTier } from '$lib/rankSignature';
+	import { fly } from 'svelte/transition';
 
 	// Shared Rank tab body for /me and /u/[rsn]: rank badge + composite, progress to
 	// the next rank, the weighted component breakdown, gear pieces, and combat
@@ -58,7 +60,15 @@
 		caDetail: CADetailView | null;
 		templeAvailable: boolean;
 		wikisyncAvailable: boolean;
+		signature: SignatureView;
 		fetchedAt: string | null;
+	}
+	// Signature ranks: how many whole categories are maxed + which tier that earns.
+	interface SignatureView {
+		completed: number;
+		total: number;
+		earnedKey: string | null;
+		categories: { key: string; label: string; complete: boolean }[];
 	}
 
 	// The rank advisor payload (from /api/rank-advice). Kept in sync with rankAdvice.ts.
@@ -113,7 +123,9 @@
 		onClaim,
 		adviceEndpoint,
 		actions,
-		status
+		status,
+		signaturePref = undefined,
+		signatureActionUrl
 	}: {
 		rank: RankBreakdownView | null;
 		currentRank?: string | null;
@@ -128,6 +140,12 @@
 		adviceEndpoint?: string;
 		actions?: Snippet;
 		status?: Snippet;
+		/** Self-only (/me): the member's current "show my signature rank in Discord" choice.
+		 * Passing it (with signatureActionUrl) enables the header toggle — but only when a
+		 * signature rank is actually earned. Public /u profiles omit both. */
+		signaturePref?: boolean;
+		/** Form-action URL the header toggle POSTs to (e.g. "?/setSignaturePref"). */
+		signatureActionUrl?: string;
 	} = $props();
 
 	// --- Rank advisor + rank-ladder reference ---------------------------------
@@ -189,6 +207,45 @@
 	// max rank. Null before any breakdown is loaded.
 	const targetRank = $derived(rank ? (rank.nextRank ?? rank.rank) : null);
 	const targetImg = $derived(targetRank ? rankImg(targetRank) : null);
+
+	// Signature ranks: the tier the member currently holds + the next one to chase. Resolved
+	// from the shared tier list so the ladder, the earned badge, and the count all agree.
+	const sigEarned = $derived(rank ? earnedSignatureTier(rank.signature.completed) : null);
+	const sigNext = $derived(rank ? nextSignatureTier(rank.signature.completed) : null);
+	// Badge files are wired later; fall back to a coloured chip if one 404s so nothing breaks.
+	let sigImgFailed = $state<Record<string, boolean>>({});
+
+	// The header "which rank do I show in-game" toggle (self-only, and only once a signature
+	// rank is actually earned). `prefOn` drives the animated headline swap; it flips
+	// optimistically and persists via the form action, rolling back if the save fails.
+	let prefOn = $state(signaturePref === true);
+	let sigSaving = $state(false);
+	let sigError = $state(false);
+	const canToggleSignature = $derived(!!signatureActionUrl && sigEarned != null);
+	const showSig = $derived(prefOn && sigEarned != null);
+
+	async function toggleSignature() {
+		if (!signatureActionUrl || sigSaving) return;
+		const next = !prefOn;
+		prefOn = next; // optimistic — the badge swaps immediately
+		sigSaving = true;
+		sigError = false;
+		try {
+			const body = new FormData();
+			body.set('prefer', next ? '1' : '0');
+			const res = await fetch(signatureActionUrl, {
+				method: 'POST',
+				body,
+				headers: { 'x-sveltekit-action': 'true' }
+			});
+			if (!res.ok) throw new Error(`save failed (${res.status})`);
+		} catch {
+			prefOn = !next; // roll back on failure
+			sigError = true;
+		} finally {
+			sigSaving = false;
+		}
+	}
 
 	const pct = (n: number) => `${Math.round(n * 100)}%`;
 	// Near-threshold honesty: the composite gets one decimal so 34.9% can't display as
@@ -306,19 +363,67 @@
 <section class="rank-panel">
 	<div class="rank-head">
 		<div class="rank-id">
-			<RankBadge rank={rank?.rank ?? currentRank} size={40} />
-			<div>
-				<span class="rank-label">Clan rank</span>
-				<strong class="rank-name" style="color:{rankColor(rank?.rank ?? currentRank)}">
-					{rank ? rankLabel(rank.rank) : currentRank ? rankLabel(currentRank) : 'Not calculated yet'}
-				</strong>
-				{#if rank}
-					<span class="composite">Composite score {pct1(rank.composite)}</span>
-				{/if}
-			</div>
+			<!-- The headline rank swaps between the composite clan rank and the earned
+			     signature rank when the toggle flips — keyed so each swap animates in. -->
+			{#key showSig}
+				<div class="rank-headline" in:fly={{ y: -8, duration: 240 }}>
+					{#if showSig && sigEarned}
+						<span class="headline-badge">
+							{#if sigEarned.img && !sigImgFailed[sigEarned.key]}
+								<img src={sigEarned.img} alt={sigEarned.label} width="40" height="40" onerror={() => (sigImgFailed[sigEarned.key] = true)} />
+							{:else}
+								<span class="sig-badge-fallback" style="background:{sigEarned.color}">{sigEarned.required}</span>
+							{/if}
+						</span>
+					{:else}
+						<RankBadge rank={rank?.rank ?? currentRank} size={40} />
+					{/if}
+					<div>
+						<span class="rank-label">{showSig ? 'Signature rank' : 'Clan rank'}</span>
+						<strong
+							class="rank-name"
+							style="color:{showSig && sigEarned ? sigEarned.color : rankColor(rank?.rank ?? currentRank)}"
+						>
+							{#if showSig && sigEarned}
+								{sigEarned.label}
+							{:else}
+								{rank ? rankLabel(rank.rank) : currentRank ? rankLabel(currentRank) : 'Not calculated yet'}
+							{/if}
+						</strong>
+						{#if rank}
+							<span class="composite">Composite score {pct1(rank.composite)}</span>
+						{/if}
+					</div>
+				</div>
+			{/key}
 		</div>
 		{#if actions}{@render actions()}{/if}
 	</div>
+
+	<!-- In-game rank display toggle (self-only, shown only once a signature rank is earned):
+	     Clan ↔ Signature, with an animated slider. What an admin sets in-game via /sync. -->
+	{#if canToggleSignature && sigEarned}
+		<div class="rank-mode">
+			<span class="rank-mode-lbl" class:active={!prefOn}>Clan rank</span>
+			<button
+				type="button"
+				role="switch"
+				aria-checked={prefOn}
+				aria-label="Show my {sigEarned.label} signature rank in Discord instead of my clan rank"
+				class="rank-switch"
+				class:on={prefOn}
+				style="--sig:{sigEarned.color}"
+				disabled={sigSaving}
+				onclick={toggleSignature}
+			>
+				<span class="rank-switch-knob"></span>
+			</button>
+			<span class="rank-mode-lbl" class:active={prefOn} style={prefOn ? `color:${sigEarned.color}` : ''}>
+				{sigEarned.label}
+			</span>
+			{#if sigError}<span class="rank-mode-err">save failed</span>{/if}
+		</div>
+	{/if}
 
 	{#if status}{@render status()}{/if}
 
@@ -422,6 +527,62 @@
 					{/if}
 				</div>
 			{/each}
+		</div>
+
+		<!-- Signature ranks: prestige for fully completing whole categories -->
+		<div class="sig">
+			<div class="sig-head">
+				<h4>Signature ranks</h4>
+				<span class="sig-count">{rank.signature.completed} / {rank.signature.total} categories maxed</span>
+			</div>
+			<p class="muted small sig-intro">
+				Fully complete whole categories — maxing a bar above — to earn a <strong>signature rank</strong>: a
+				prestige badge that sits on top of your clan rank.
+				{#if sigEarned}
+					You hold <strong style="color:{sigEarned.color}">{sigEarned.label}</strong>.
+				{:else if sigNext}
+					Max {sigNext.required - rank.signature.completed} more to earn
+					<strong style="color:{sigNext.color}">{sigNext.label}</strong>.
+				{/if}
+			</p>
+
+			<div class="osrs-bar sig-bar">
+				<span class="osrs-bar-fill" style="width:{pct(rank.signature.completed / rank.signature.total)}"></span>
+			</div>
+
+			<div class="sig-tiers">
+				{#each SIGNATURE_TIERS as t (t.key)}
+					{@const earned = rank.signature.completed >= t.required}
+					{@const toGo = Math.max(0, t.required - rank.signature.completed)}
+					<div class="sig-tier" class:earned>
+						<div class="sig-badge">
+							{#if t.img && !sigImgFailed[t.key]}
+								<img src={t.img} alt={t.label} width="44" height="44" onerror={() => (sigImgFailed[t.key] = true)} />
+							{:else}
+								<span class="sig-badge-fallback" style="background:{t.color}">{t.required}</span>
+							{/if}
+						</div>
+						<div class="sig-tier-body">
+							<strong class="sig-name" style="color:{t.color}">{t.label}</strong>
+							<span class="sig-req muted">{t.required} of {rank.signature.total} categories maxed</span>
+							<span class="sig-blurb muted small">{t.blurb}</span>
+						</div>
+						<span class="sig-status" class:on={earned}>{earned ? '✓ earned' : `${toGo} to go`}</span>
+					</div>
+				{/each}
+			</div>
+
+			<details class="sig-cats">
+				<summary>Which categories count · {rank.signature.completed}/{rank.signature.total} done</summary>
+				<ul class="sig-cat-list">
+					{#each rank.signature.categories as c (c.key)}
+						<li class:done={c.complete}>
+							<span class="sig-mark">{c.complete ? '✓' : '○'}</span>
+							{c.label}
+						</li>
+					{/each}
+				</ul>
+			</details>
 		</div>
 
 		{#if adviceOn && advice}
@@ -675,6 +836,83 @@
 		color: var(--muted);
 		margin-top: 0.15rem;
 	}
+	/* Swapping headline rank (clan ↔ signature). */
+	.rank-headline {
+		display: flex;
+		align-items: center;
+		gap: 0.7rem;
+	}
+	.headline-badge {
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+	.headline-badge img {
+		object-fit: contain;
+		image-rendering: -webkit-optimize-contrast;
+	}
+
+	/* In-game rank display toggle. */
+	.rank-mode {
+		display: flex;
+		align-items: center;
+		gap: 0.55rem;
+		flex-wrap: wrap;
+		margin: 0.85rem 0 0.2rem;
+		font-size: 0.82rem;
+	}
+	.rank-mode-lbl {
+		color: var(--muted);
+		transition: color 0.2s ease;
+	}
+	.rank-mode-lbl.active {
+		color: var(--text);
+		font-family: var(--font-heading);
+	}
+	.rank-switch {
+		position: relative;
+		width: 46px;
+		height: 24px;
+		min-height: 0;
+		padding: 0;
+		border-radius: 999px;
+		border: 1px solid var(--border-strong);
+		border-image: none;
+		background: var(--surface);
+		cursor: pointer;
+		transition: background 0.25s ease, border-color 0.25s ease;
+	}
+	.rank-switch.on {
+		background: color-mix(in srgb, var(--sig) 35%, var(--surface));
+		border-color: var(--sig);
+	}
+	.rank-switch:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+	.rank-switch-knob {
+		position: absolute;
+		top: 2px;
+		left: 2px;
+		width: 18px;
+		height: 18px;
+		border-radius: 999px;
+		background: var(--muted);
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+		/* The slide IS the swap animation. */
+		transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.25s ease;
+	}
+	.rank-switch.on .rank-switch-knob {
+		transform: translateX(22px);
+		background: var(--sig);
+	}
+	.rank-mode-err {
+		font-size: 0.74rem;
+		color: var(--danger);
+	}
 	.rank-id {
 		display: flex;
 		align-items: center;
@@ -769,6 +1007,145 @@
 		font-size: 0.78rem;
 		font-family: var(--font-heading);
 		color: var(--accent);
+	}
+
+	/* --- Signature ranks panel --- */
+	.sig {
+		margin-top: 1.2rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border);
+	}
+	.sig-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+	.sig-head h4 {
+		margin: 0;
+		font-size: 0.98rem;
+		color: var(--text);
+	}
+	.sig-count {
+		font-family: var(--font-heading);
+		font-size: 0.8rem;
+		color: var(--accent);
+	}
+	.sig-intro {
+		margin: 0.35rem 0 0.6rem;
+		line-height: 1.5;
+	}
+	.sig-bar {
+		height: 0.7rem;
+		margin-bottom: 0.9rem;
+	}
+	.sig-tiers {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	.sig-tier {
+		display: flex;
+		align-items: center;
+		gap: 0.7rem;
+		padding: 0.5rem 0.65rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		opacity: 0.62;
+	}
+	/* An earned tier reads bright with its accent outline; unearned ones sit dimmed. */
+	.sig-tier.earned {
+		opacity: 1;
+		border-color: var(--border-strong);
+		background: var(--surface-alt);
+	}
+	.sig-badge {
+		flex-shrink: 0;
+		width: 44px;
+		height: 44px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.sig-badge img {
+		object-fit: contain;
+		image-rendering: -webkit-optimize-contrast;
+	}
+	.sig-badge-fallback {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 34px;
+		height: 34px;
+		border-radius: 999px;
+		font-family: var(--font-heading);
+		font-size: 1rem;
+		color: #1c1710;
+		box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+	}
+	.sig-tier-body {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.05rem;
+	}
+	.sig-name {
+		font-family: var(--font-heading);
+		font-size: 0.95rem;
+		text-shadow: var(--ts);
+	}
+	.sig-req {
+		font-size: 0.72rem;
+	}
+	.sig-blurb {
+		line-height: 1.35;
+	}
+	.sig-status {
+		flex-shrink: 0;
+		font-size: 0.72rem;
+		color: var(--muted);
+		text-align: right;
+	}
+	.sig-status.on {
+		color: var(--success, #6aa84f);
+		font-family: var(--font-heading);
+	}
+	.sig-cats {
+		margin-top: 0.7rem;
+	}
+	.sig-cats summary {
+		cursor: pointer;
+		font-size: 0.82rem;
+		color: var(--muted);
+	}
+	.sig-cat-list {
+		list-style: none;
+		margin: 0.5rem 0 0;
+		padding: 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+		gap: 0.25rem 0.75rem;
+		font-size: 0.85rem;
+	}
+	.sig-cat-list li {
+		display: flex;
+		align-items: baseline;
+		gap: 0.4rem;
+		color: var(--muted);
+	}
+	.sig-cat-list li.done {
+		color: var(--text);
+	}
+	.sig-cat-list .sig-mark {
+		width: 1em;
+		font-weight: 700;
+		color: var(--muted);
+	}
+	.sig-cat-list li.done .sig-mark {
+		color: var(--success, #6aa84f);
 	}
 
 	/* Gear pieces (collapsible) */

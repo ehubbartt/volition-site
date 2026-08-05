@@ -3,7 +3,7 @@ import type { SessionUser } from './auth';
 import { CLAN_OPTIONS } from '$lib/clans';
 import { ACCOUNT_TYPES } from '$lib/accountTypes';
 import { loadCardProfile } from './cardProfile';
-import { getPlayerRank } from './playerStats';
+import { getPlayerRank, getSignaturePref } from './playerStats';
 import { rsnExactPattern } from './users';
 import { getRankConfig, type RankScoringConfig } from './rankConfig';
 import { listGearClaims, claimableGearItems } from './rankClaims';
@@ -17,6 +17,7 @@ import {
 	CA_MAX_POINTS
 } from './rankScoring';
 import type { RankValue } from '$lib/ranks';
+import { isCategoryComplete, earnedSignatureTier } from '$lib/rankSignature';
 
 // Builds the /me page dataset for /api/me. The page has NO server load — its
 // universal load fires the fetch without awaiting, so navigating to /me completes
@@ -174,6 +175,24 @@ function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
 
 	const gear = buildGearGrid(row.gear_detail);
 
+	// Signature ranks: a prestige layer earned by FULLY completing whole categories (a
+	// category is complete when its bar is maxed — raw ≥ cap). Built from the same
+	// components the breakdown shows, so "maxed" and "counts toward a signature rank" agree.
+	const sigCategories = components.map((c) => ({
+		key: c.key,
+		label: c.label,
+		complete: isCategoryComplete({ raw: c.raw, cap: c.cap })
+	}));
+	const sigCompleted = sigCategories.filter((c) => c.complete).length;
+	const signature = {
+		completed: sigCompleted,
+		total: components.length,
+		// The tier the member currently holds (key only — the client resolves the badge/label
+		// from the shared SIGNATURE_TIERS list, which also drives the ladder display).
+		earnedKey: earnedSignatureTier(sigCompleted)?.key ?? null,
+		categories: sigCategories
+	};
+
 	// "How close am I to the next rank?" — thresholds map composite → rank; the
 	// next tier up (if any) gives the target, and progress is measured within the
 	// current tier's band so the bar restarts at each rank-up.
@@ -197,6 +216,7 @@ function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
 		caDetail: row.ca_detail,
 		templeAvailable: row.temple_available,
 		wikisyncAvailable: row.wikisync_available,
+		signature,
 		fetchedAt: row.fetched_at
 	};
 }
@@ -235,11 +255,12 @@ export async function loadRankBreakdown(rsn: string | null): Promise<{
 }
 
 export async function buildMeData(user: SessionUser) {
-	const [profile, currentRank, rank, gearClaims] = await Promise.all([
+	const [profile, currentRank, rank, gearClaims, signaturePref] = await Promise.all([
 		loadCardProfile(user),
 		getPlayerRank(user.discord_id, user.rsn),
 		loadRankBreakdown(user.rsn),
-		listGearClaims(user.id)
+		listGearClaims(user.id),
+		getSignaturePref(user.discord_id, user.rsn)
 	]);
 
 	return {
@@ -248,6 +269,8 @@ export async function buildMeData(user: SessionUser) {
 		currentRank,
 		rankBreakdown: rank.breakdown,
 		rankBreakdownError: rank.error,
+		// The member's "show my signature rank in Discord" toggle (players.prefer_signature_rank).
+		signaturePref,
 		// Manual gear claims (untrackable items): the member's own claims + the
 		// claimable gear-table item names for the submit form's picker.
 		gearClaims,

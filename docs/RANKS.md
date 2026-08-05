@@ -66,6 +66,38 @@ collection). This doc is the map; the code carries the detail.
   Regular iron/hcim/uim already get iron EHB from WOM, so they're excluded. On a WOM boss
   outage we fall back to WOM's EHB rather than zeroing the component.
 
+## Signature ranks (prestige completion layer)
+
+A separate prestige layer that sits ON TOP of the composite clan rank — not scored from the
+weighted composite, but earned by **fully completing whole categories**. A category counts
+as complete when its bar is maxed (`raw ≥ cap` — the same green "maxed" state the Rank tab
+shows). Three tiers, over the seven scored categories:
+
+- **Savant** — any 5 / 7 categories complete
+- **Curator** — any 6 / 7
+- **Paragon** — 7 / 7 (total completion)
+
+- **Metadata + math**: `src/lib/rankSignature.ts` (client-safe) — `SIGNATURE_TIERS`
+  (`required` counts, labels, badge paths, colours), `isCategoryComplete`,
+  `completedCategoryCount`, `earnedSignatureTier`, `nextSignatureTier`. Badge art lives in
+  `static/ranks/` like the other rank icons (`/ranks/Savant.webp` …); the UI falls back to a
+  coloured chip if a file is missing, so a not-yet-supplied icon never breaks the page.
+- **Where it's computed**: `buildRankBreakdown` (`meData.ts`) tags each component complete
+  (`raw ≥ cap`), counts them, and returns `signature { completed, total, earnedKey,
+  categories }`. `RankPanel.svelte` renders the "Signature ranks" panel (earned badge, an
+  X / 7 tracker, the three tiers with unlock rules, and a per-category checklist) plus an
+  earned chip beside the clan rank. Completion tracks the LIVE caps, so tuning a cap in the
+  rank-sim changes what counts as "complete" automatically.
+- **In-game display toggle** (`db/scripts/player_signature_rank.sql`): two columns on the
+  shared `players` row, WRITTEN BY THE SITE and READ BY THE BOT's future `/sync`:
+  `signature_rank` (the tier the member currently qualifies for, refreshed on each full
+  rank check in `checkAndSaveRank` → `setPlayerSignatureRank`) and `prefer_signature_rank`
+  (the member's toggle, set from the `/me` signature panel via the `setSignaturePref`
+  action → `playerStats.setSignaturePref`). `players.rank` is deliberately left as the
+  composite WOM role so the current rank displays + Discord role sync keep working; `/sync`
+  combines the three to tell admins which in-game rank to set. The toggle is scoped to `/me`
+  (passed to `RankPanel` as the `signatureControl` snippet); public `/u` profiles omit it.
+
 ## Where scoring runs
 
 - **`/me` "Check my rank"** (`routes/me/+page.server.ts` `checkRank`): fetches live
