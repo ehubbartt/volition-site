@@ -288,7 +288,7 @@
 			</RankPanel>
 			<!-- Manual gear claims: items the Temple collection log can't prove (GE-bought
 			     pieces, upgraded variants combined outside the log). Admin-reviewed on
-			     /admin/rank-claims; approved items count on the next rank check. Submitted
+			     /admin/ranks/claims; approved items count on the next rank check. Submitted
 			     through GearClaimModal, which reuses the event submissions' drag/drop/paste. -->
 			<div class="gear-claims">
 				<button type="button" class="claim-open-btn" onclick={() => startClaim('')}>

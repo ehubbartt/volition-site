@@ -3,6 +3,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import WikiImage from '$lib/WikiImage.svelte';
 	import { itemImageUrl } from '$lib/wikiImage';
+	import RanksTabs from '$lib/admin/RanksTabs.svelte';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -15,6 +16,7 @@
 <svelte:head><title>Rank Gear Claims · Admin · Volition</title></svelte:head>
 
 <section class="wrap">
+	<RanksTabs />
 	<h1>Rank Gear Claims</h1>
 	<p class="muted">
 		Manual claims for gear the Temple collection log can't prove — items whose obtain method
