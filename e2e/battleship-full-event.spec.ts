@@ -295,20 +295,32 @@ test.describe.serial(`Battleship — full ${PLAYERS}-player event (${LABEL})`, (
 	});
 
 	// ── 4. battle opens ─────────────────────────────────────────────────────
-	test('4 · the battle opens and both boards render', async () => {
+	test('4 · the battle opens and each board renders behind the switch', async () => {
 		const res = await bs.startBattle(eventId);
 		expect(res.ok, res.ok ? '' : res.error).toBe(true);
 
 		await red.goto(`/events/${SLUG}/battleship`);
 		const size = (await bs.loadBattleship(SLUG)).config.size;
-		await expect(red.locator('.board')).toHaveCount(2);
-		await expect(red.locator('.board').first().locator('.cell')).toHaveCount(size * size);
-		// Own hulls visible, enemy hulls never.
-		await expect(red.locator('.board').nth(0).locator('.cell.ship')).not.toHaveCount(0);
-		await expect(red.locator('.board').nth(1).locator('.cell.ship')).toHaveCount(0);
+
+		// ONE board at a time, and it opens on the enemy's — the board you fire at.
+		await expect(red.locator('.board')).toHaveCount(1);
+		await expect(red.locator('.board').locator('.cell')).toHaveCount(size * size);
+		await expect(red.getByRole('heading', { name: /their waters/i })).toBeVisible();
+		// Enemy hulls are never drawn.
+		await expect(red.locator('.board').locator('.cell.ship')).toHaveCount(0);
 		await expectNoSideScroll(red, 'battle');
 		await expectSquareCells(red, 'battle');
 		await shot(red, 'battle-open-red');
+
+		// Switching shows your own fleet, and says so.
+		await red.getByRole('button', { name: /your waters/i }).click();
+		await expect(red.getByRole('heading', { name: /your waters/i })).toBeVisible();
+		await expect(red.locator('.board').locator('.cell.ship')).not.toHaveCount(0);
+		await expectNoSideScroll(red, 'battle-own');
+		await shot(red, 'battle-own-board-red');
+
+		await red.getByRole('button', { name: /their waters/i }).click();
+		await expect(red.locator('.board').locator('.cell.ship')).toHaveCount(0);
 	});
 
 	// ── 5. real Dink drops ──────────────────────────────────────────────────
@@ -445,7 +457,7 @@ test.describe.serial(`Battleship — full ${PLAYERS}-player event (${LABEL})`, (
 	});
 
 	// ── 7. firing ───────────────────────────────────────────────────────────
-	test('7 · firing updates both boards and sinks ships', async () => {
+	test('7 · firing updates the board and sinks ships', async () => {
 		// Give red enough ammunition to actually finish the game, then fire everything
 		// through the store, checking footprint sizes as we go.
 		const snap0 = await bs.loadBattleship(SLUG);
@@ -460,9 +472,12 @@ test.describe.serial(`Battleship — full ${PLAYERS}-player event (${LABEL})`, (
 		await expect(red.locator('.bomb')).not.toHaveCount(0);
 
 		await red.locator('.bomb').first().click();
+		// Arming a bomb must put you on the board you have to aim it at — a player who
+		// was looking at their own water should not have to find the switch first.
+		await expect(red.getByRole('heading', { name: /their waters/i })).toBeVisible();
 		// Tapping a square must be retried until hydration, exactly like everywhere else.
 		for (let attempt = 0; attempt < 12; attempt++) {
-			await red.locator('.board').nth(1).locator('.cell').first().click();
+			await red.locator('.board').locator('.cell').first().click();
 			if (await red.locator('.cell.target').count()) break;
 			await red.waitForTimeout(400);
 		}
@@ -470,14 +485,14 @@ test.describe.serial(`Battleship — full ${PLAYERS}-player event (${LABEL})`, (
 		// on the board — on a phone especially, "which squares am I about to hit" cannot
 		// depend on hovering.
 		await expect(red.getByRole('button', { name: /^fire at /i })).toBeVisible();
-		await expect(red.locator('.board').nth(1).locator('.cell.target')).not.toHaveCount(0);
+		await expect(red.locator('.board').locator('.cell.target')).not.toHaveCount(0);
 		await shot(red, 'aiming-preview');
 		await red.getByRole('button', { name: /^fire at /i }).click();
 		await expect(red.locator('.ok')).toContainText(/hit|miss/i);
 		await shot(red, 'after-first-shot');
 
 		// Craters must now be on the enemy board.
-		await expect(red.locator('.board').nth(1).locator('.cell.hit, .cell.miss')).not.toHaveCount(0);
+		await expect(red.locator('.board').locator('.cell.hit, .cell.miss')).not.toHaveCount(0);
 
 		// Footprint check: a tier-3 bomb must claim 9 squares on fresh water.
 		await bs.grantBomb({ eventId, side: 1, tier: 3, note: 'footprint check' });

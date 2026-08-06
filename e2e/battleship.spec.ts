@@ -106,6 +106,16 @@ test.describe.serial('Battleship', () => {
 		await expect(page.locator('.roster.pool li')).not.toHaveCount(0);
 		// Read-only is the whole point: nothing in that list may be actionable.
 		await expect(page.locator('.roster.pool button, .roster.pool a')).toHaveCount(0);
+
+		// …but they need a way to pull the latest, because the page revalidates on
+		// navigation and nothing else. A browser reload would work too — this one keeps
+		// the page state (and, in the battle, the bomb you have armed).
+		const refresh = page.getByRole('button', { name: /refresh the pool/i });
+		await expect(refresh).toBeVisible();
+		await refresh.click();
+		await expect(page.getByText(/^updated /i)).toBeVisible();
+		await expect(page.locator('.roster.pool li')).not.toHaveCount(0);
+
 		await page.goto(`/admin/battleship/${SLUG}`);
 
 		await page.getByRole('button', { name: /auto-draft the rest/i }).click();
@@ -194,14 +204,20 @@ test.describe.serial('Battleship', () => {
 		// Wait for the payload (the page paints skeletons first — see docs/PAGES.md).
 		await expect(page.getByRole('heading', { name: 'E2E Battleship' })).toBeVisible();
 
-		// The seeding admin is put in the game, so they get a side and two boards.
-		const boards = page.locator('.board');
-		await expect(boards).toHaveCount(2);
+		// One board at a time, opening on the enemy's — and it must say whose it is, since
+		// "which of these is mine" is the question the switch exists to answer.
+		const board = page.locator('.board');
+		await expect(board).toHaveCount(1);
+		await expect(page.getByRole('heading', { name: /their waters/i })).toBeVisible();
 
-		// Own water shows hulls; the enemy board renders none, only craters. This is the
-		// page-level half of the contract, and the half a browser can check.
-		await expect(boards.nth(0).locator('.cell.ship')).not.toHaveCount(0);
-		await expect(boards.nth(1).locator('.cell.ship')).toHaveCount(0);
+		// The enemy board renders no hulls, only craters. This is the page-level half of
+		// the contract, and the half a browser can check.
+		await expect(board.locator('.cell.ship')).toHaveCount(0);
+
+		// Your own water does show hulls, behind the switch.
+		await page.getByRole('button', { name: /your waters/i }).click();
+		await expect(page.getByRole('heading', { name: /your waters/i })).toBeVisible();
+		await expect(board.locator('.cell.ship')).not.toHaveCount(0);
 
 		// The PAYLOAD-level contract, which is now assertable here: a playing admin is a
 		// PLAYER first, so the enemy fleet is withheld from them too. (It was not always —

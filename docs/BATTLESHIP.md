@@ -149,6 +149,14 @@ which of their ships are sunk. Never their ship positions. This is enforced serv
 > event the captains are usually admins — leaving admins unredacted would have let a
 > captain read their opponent's board.
 
+**One board at a time.** The battle page shows *either* the enemy's water or your own,
+never both, chosen with a labelled switch — two 25×25 grids side by side shrink each into
+something you squint at, and "which of these is mine?" should not be a question you answer
+from a small heading. It opens on the **enemy's** board, because firing is the page's job
+and a board you can't fire at is a worse landing place than one you can. Arming a bomb
+switches you there too, so a player reading their own damage doesn't have to find the
+switch before they can aim.
+
 **Aiming.** Hovering a square previews the footprint, and *clicking commits it*: the chosen
 squares stay lit until you fire or pick elsewhere, and the button reads "Fire at F7". The
 preview alone is not enough — it follows the pointer, so it vanishes exactly when you move
@@ -333,9 +341,12 @@ random-placement button rather than placing 31 ships by hand.
    teammate's bomb** in Team arsenal (the captain does).
 8. **Finish** by sinking the last ship, then delete the game from `/admin/battleship`.
 
-> **The page does not poll.** It revalidates on navigation, not on a timer, so your tester
-> will not see your shot until they reload. Decide whether that's acceptable before the
-> real event — it's the most likely "is it broken?" question on the day.
+> **The page does not poll — it has a Refresh button instead.** Nothing arrives on a
+> timer: a draft pick or an enemy shot lands without the open page knowing. **Refresh**
+> (on the draft panel and beside the board switch) re-fetches in place via
+> `invalidateAll()`, deliberately *not* a browser reload, which would throw away the bomb
+> you have armed and the square you have aimed at. Whether that's enough, or whether the
+> battle phase should poll on its own, is still worth deciding before the real event.
 
 ### Testing
 
