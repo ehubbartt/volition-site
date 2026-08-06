@@ -69,6 +69,45 @@ test.describe.serial('Battleship', () => {
 		await expect(page.locator('.pill', { hasText: /drafting/i })).toBeVisible();
 		await expectNoError(page);
 
+		// A pick is ANNOUNCED, not quietly applied. The draft is run from one screen with
+		// both captains watching a stream, so "who just went where" has to be legible from
+		// across a call rather than inferred from a roster that grew by one.
+		const poolButtons = page.locator('.draftgrid button');
+		const picked = ((await poolButtons.first().textContent()) ?? '').trim();
+		await poolButtons.first().click();
+
+		const modal = page.locator('.pickoverlay');
+		await expect(modal).toBeVisible();
+		await expect(modal).toContainText('Pick #1');
+		await expect(modal).toContainText(picked);
+		await expect(modal).toContainText(/drafted to/i);
+		// Dismissed by clicking it, and it stays dismissed.
+		await modal.click();
+		await expect(modal).toHaveCount(0);
+
+		// The filter has to reach a name, because every pick is called out loud by a
+		// captain reading from their own screen. (The board used to render only the first
+		// 40 of the pool, which at 80 signups left half of it unpickable.)
+		const remaining = (await poolButtons.allTextContents()).map((t) => t.trim()).filter(Boolean);
+		expect(remaining.length).toBeGreaterThan(1);
+		const wanted = remaining[remaining.length - 1];
+		await page.locator('.poolfilter input').fill(wanted);
+		await expect(poolButtons).toHaveCount(
+			remaining.filter((r) => r.toLowerCase().includes(wanted.toLowerCase())).length
+		);
+		await expect(poolButtons.first()).toContainText(wanted);
+		await page.locator('.poolfilter input').fill('');
+		await expect(poolButtons).toHaveCount(remaining.length);
+
+		// The captains get the pool on their OWN page — to read, not to click.
+		await page.goto(`/events/${SLUG}/battleship`);
+		await expect(page.getByRole('heading', { name: /draft in progress/i })).toBeVisible();
+		await expect(page.getByRole('heading', { name: /still in the pool/i })).toBeVisible();
+		await expect(page.locator('.roster.pool li')).not.toHaveCount(0);
+		// Read-only is the whole point: nothing in that list may be actionable.
+		await expect(page.locator('.roster.pool button, .roster.pool a')).toHaveCount(0);
+		await page.goto(`/admin/battleship/${SLUG}`);
+
 		await page.getByRole('button', { name: /auto-draft the rest/i }).click();
 		// Draining the pool moves the game straight into placement.
 		await expect(page.locator('.pill', { hasText: /placing fleets/i })).toBeVisible();

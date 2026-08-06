@@ -28,7 +28,24 @@ pipeline this hangs off.
 | `finished` | Standings are final. | — |
 
 The draft is plain alternating ("each captain picks from the pool until everyone is
-picked"). With an odd pool the side picking first ends up one player larger.
+picked"). Side 1 — Captain 1's side — always picks first; the engine takes a `firstSide`
+but the admin form doesn't offer it, so putting a captain in the **Captain 1** slot is how
+you give them first pick. With an odd pool the side picking first ends up one player larger.
+
+**One screen makes the picks.** The pick board lives on the admin page and is admin-only;
+in practice an admin drives it while both captains call their picks, usually over a shared
+stream. To make that work the board does three things: it renders the **whole** pool (it
+used to stop at 40 names, which at 80 signups left half the pool unpickable), it has a
+filter so a called-out name can be found without scanning, and every pick raises a **modal
+announcing who went where and at what pick number**, dismissed by clicking it. The
+announcement is the point — a name silently moving between two lists is invisible on a
+stream.
+
+Captains and members get the undrafted pool on **their own** page for the whole draft, to
+read rather than click. `draftPick` still enforces the turn rule and claims a member with a
+conditional write (`… where team_id is null`), so two simultaneous picks of the same person
+produce one pick — the guards for a captain-facing pick screen already exist if that's ever
+wanted; only the UI doesn't.
 
 **Leaving** (`leaveEvent`) is self-serve during `signup` only — including after
 `signup_closes_at` has passed, as long as the draft hasn't begun, since someone who knows
@@ -264,9 +281,10 @@ matched no tile is stamped `bomb`, so it doesn't show up in `/admin/dink-drops` 
    thresholds and a fixed board size.
 4. Members join at `/events/<slug>/battleship`.
 5. When signups close, pick the two captains and **start the draft**. Picks are made at
-   `/admin/battleship/<slug>`, which is **admin-only** — there is no captain-facing draft
-   screen, so either the captains are admins or an admin drives the board while they call
-   their picks. "Auto-draft the rest" drains whatever is left.
+   `/admin/battleship/<slug>`, which is **admin-only** — there is no captain-facing pick
+   screen, so an admin drives the board while the captains call their picks (they can
+   follow the pool on their own page). Each pick raises an announcement modal; the filter
+   finds a name; "Auto-draft the rest" drains whatever is left.
 6. The pool emptying opens the **1-hour placement window**; members hide their fleets.
 7. The battle opens on its own at the deadline. From there it runs itself: drops arm
    bombs, members fire them, and the event ends when a fleet is gone.
@@ -287,7 +305,7 @@ has ever loaded the page. This is how to check that with one other person.
 |---|---|---|
 | `STAGING_ADMIN_ONLY = 'true'` (`fly.staging.toml`) | Staging refuses non-admins, so your tester can't load the site at all. | Set it `'false'` and redeploy staging, **or** run the rehearsal on prod as an `unlisted` + `test` event. |
 | The proxy's value-tracking change is undeployed | No real drop arms a bomb. | Test the manual-claim and admin-grant paths instead, **or** `npx wrangler deploy` in `dink-proxy` first. |
-| The draft is admin-only | A non-admin captain can't make their own picks. | Grant the other captain an admin role, **or** drive the draft yourself while they call picks. |
+| The draft is admin-only | A non-admin captain can't make their own picks — though they *can* watch the pool from their own page. | Drive the draft yourself while they call picks (the intended flow), **or** grant the other captain an admin role. |
 
 **Two players gets an 8×8 board with three ships** — the minimum — which is exactly what
 you want for a mechanics run: a game ends in a few bombs. Do that pass first, then, if you

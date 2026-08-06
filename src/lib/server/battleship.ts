@@ -92,6 +92,18 @@ export interface DraftPick {
 	at: string;
 }
 
+/** What a single pick did — everything the announcement needs, in one object. */
+export interface DraftPickReport {
+	userId: string;
+	rsn: string | null;
+	side: number;
+	sideName: string;
+	sideColor: string;
+	/** 1-based position in the draft order. */
+	pickNumber: number;
+	poolLeft: number;
+}
+
 export interface BattleshipSnapshot {
 	event: {
 		id: string;
@@ -513,7 +525,7 @@ export async function draftPick(input: {
 	userId: string;
 	/** Skip the turn check (admin override in the tester). */
 	force?: boolean;
-}): Promise<Result> {
+}): Promise<Result<DraftPickReport>> {
 	const snap = await loadBattleshipById(input.eventId);
 	if (!snap) return errResult('Game not found');
 	if (snap.phase !== 'draft') return errResult('The draft is not open');
@@ -538,9 +550,26 @@ export async function draftPick(input: {
 	const res = await patchStructure(input.eventId, { draft: { picks } });
 	if (!res.ok) return res;
 
+	// Report the pick back so the caller can announce it. The draft is run from one
+	// screen with both captains watching a stream, so "who just went where" has to be
+	// something the page can say out loud rather than something you infer from a roster
+	// that quietly grew by one.
+	const report: DraftPickReport = {
+		userId: input.userId,
+		rsn: snap.pool.find((p) => p.userId === input.userId)?.rsn ?? null,
+		side: input.side,
+		sideName: side.name,
+		sideColor: side.color,
+		pickNumber: picks.length,
+		poolLeft: snap.pool.length - 1
+	};
+
 	// Last pick drains the pool — move straight into placement so nobody has to notice.
-	if (snap.pool.length === 1) return openPlacement(input.eventId);
-	return okResult();
+	if (snap.pool.length === 1) {
+		const opened = await openPlacement(input.eventId);
+		if (!opened.ok) return opened;
+	}
+	return okResult(report);
 }
 
 /**

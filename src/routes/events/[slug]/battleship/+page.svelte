@@ -207,6 +207,22 @@
 						</div>
 					{/each}
 				</div>
+
+				<!-- Who is still undrafted. Read-only on purpose: an admin makes the picks
+				     from the tester, and this is here so the captains can follow along on
+				     their own screen instead of squinting at a shared stream. -->
+				{#if game.pool.length}
+					<h3 class="poolhead">
+						Still in the pool <span class="muted">({game.pool.length})</span>
+					</h3>
+					<ul class="roster pool">
+						{#each game.pool as p (p.userId)}<li>{p.rsn ?? '—'}</li>{/each}
+					</ul>
+					<p class="hint">
+						Picks are made by an admin — this list is here to follow, not to click. Reload to see
+						the latest.
+					</p>
+				{/if}
 			</section>
 
 		<!-- ── Placement ──────────────────────────────────────────────── -->
@@ -555,6 +571,11 @@
 	.roster, .ships { list-style: none; padding: 0; margin: 0; font-size: 0.82rem; }
 	.roster { columns: 2; }
 	.roster li { padding: 0.1rem 0; }
+	.poolhead { margin: 1.25rem 0 0.4rem; font-family: var(--font-heading); color: var(--heading); font-size: 0.95rem; }
+	/* The undrafted pool runs long at 80 signups — more columns, so it stays one glance. */
+	.roster.pool { columns: 4; }
+	@media (max-width: 720px) { .roster.pool { columns: 2; } }
+	.hint { font-size: 0.75rem; color: var(--muted-soft); margin: 0.6rem 0 0; }
 	/* A big event has ~18 ships a side — one line each is a wall, so flow them into
 	   as many columns as fit and lead with a hull/wreck glyph you can scan. */
 	.ships { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 0.1rem 0.75rem; }

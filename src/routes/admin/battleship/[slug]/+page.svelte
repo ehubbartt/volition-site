@@ -41,6 +41,29 @@
 		targetAnchor = null;
 		selectedBomb = null;
 	});
+
+	// ── Draft ────────────────────────────────────────────────────────────
+	// Typing filters the pool. The board used to render the first 40 names and stop,
+	// which at 80 signups meant half the pool was unpickable until it shrank — a captain
+	// could call a name that simply wasn't on screen. Every name is rendered now, and
+	// this is how you find one without scanning a wall of buttons.
+	let poolFilter = $state('');
+	const shownPool = $derived(
+		poolFilter.trim()
+			? game.pool.filter((p) => (p.rsn ?? '').toLowerCase().includes(poolFilter.trim().toLowerCase()))
+			: game.pool
+	);
+
+	// The last pick, held open until dismissed. The draft is run from one screen with
+	// both captains watching a stream, so each pick gets announced rather than silently
+	// moving a name from one list to another.
+	let lastPick = $state<
+		{ rsn: string | null; sideName: string; sideColor: string; pickNumber: number; poolLeft: number } | null
+	>(null);
+	$effect(() => {
+		const p = form && 'pick' in form ? form.pick : null;
+		if (p) lastPick = p;
+	});
 </script>
 
 <svelte:head><title>{game.event.name} — Battleship tester</title></svelte:head>
@@ -98,8 +121,12 @@
 			<p class="muted">
 				<strong>Side {game.draft.turn}</strong> picks next · {game.pool.length} left in the pool
 			</p>
+			<label class="poolfilter">
+				Find a member
+				<input bind:value={poolFilter} placeholder="type part of an RSN" autocomplete="off" />
+			</label>
 			<div class="draftgrid">
-				{#each game.pool.slice(0, 40) as p (p.userId)}
+				{#each shownPool as p (p.userId)}
 					<form method="POST" action="?/pick" use:enhance>
 						<input type="hidden" name="side" value={game.draft.turn} />
 						<input type="hidden" name="user_id" value={p.userId} />
@@ -107,7 +134,9 @@
 					</form>
 				{/each}
 			</div>
-			{#if game.pool.length > 40}<p class="muted">…and {game.pool.length - 40} more.</p>{/if}
+			{#if poolFilter.trim() && shownPool.length === 0}
+				<p class="muted">Nobody in the pool matches "{poolFilter}".</p>
+			{/if}
 			<form method="POST" action="?/autoDraft" use:enhance>
 				<button class="btn" type="submit">Auto-draft the rest</button>
 			</form>
@@ -264,6 +293,23 @@
 	{/if}
 </div>
 
+<!-- The pick announcement. A button rather than a div so it's dismissable by keyboard
+     and needs no ARIA of its own — the whole overlay is the dismiss control. -->
+{#if lastPick}
+	<button type="button" class="pickoverlay" onclick={() => (lastPick = null)}>
+		<span class="pickcard">
+			<span class="picknum">Pick #{lastPick.pickNumber}</span>
+			<span class="pickwho">{lastPick.rsn ?? 'unknown'}</span>
+			<span class="pickto">drafted to <b style="color: {lastPick.sideColor}">{lastPick.sideName}</b></span>
+			<span class="pickleft">
+				{lastPick.poolLeft}
+				{lastPick.poolLeft === 1 ? 'member' : 'members'} left in the pool
+			</span>
+			<span class="pickdismiss">click anywhere to dismiss</span>
+		</span>
+	</button>
+{/if}
+
 <style>
 	.page { max-width: 72rem; margin: 0 auto; padding: 1rem; display: grid; gap: 1rem; }
 	header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
@@ -293,6 +339,37 @@
 	.btn.small { min-height: 30px; padding: 1px 10px; font-size: 0.8rem; }
 	.btn.primary, .btn.active { color: var(--yellow); }
 	.draftgrid { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.5rem 0; }
+	.poolfilter { display: grid; gap: 0.2rem; font-size: 0.8rem; color: var(--muted); max-width: 18rem; }
+	.poolfilter input {
+		background: var(--inset, #241f1a); color: var(--text); border: 1px solid var(--line, #4a4038);
+		border-radius: 3px; padding: 0.35rem 0.5rem; font-family: var(--font-body); font-size: 0.9rem;
+	}
+
+	/* The pick announcement. Sized for a stream: readable to someone watching a shared
+	   screen from across a Discord call, not just to the admin driving it. */
+	.pickoverlay {
+		position: fixed; inset: 0; z-index: 60;
+		display: grid; place-items: center;
+		background: rgb(0 0 0 / 0.72);
+		border: none; border-image: none; border-radius: 0; min-height: 0;
+		padding: 1rem; cursor: pointer;
+		animation: pickfade 120ms ease-out;
+	}
+	.pickcard {
+		display: grid; gap: 0.35rem; justify-items: center; text-align: center;
+		padding: 1.75rem 2.75rem;
+		background: var(--panel, #2b241d);
+		border: 2px solid var(--line, #4a4038);
+		border-radius: 6px;
+		box-shadow: 0 12px 40px rgb(0 0 0 / 0.6);
+	}
+	.picknum { font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+	.pickwho { font-family: var(--font-heading); font-size: 2.4rem; line-height: 1.1; color: var(--heading); }
+	.pickto { font-size: 1.15rem; color: var(--text); }
+	.pickleft { font-size: 0.9rem; color: var(--muted); }
+	.pickdismiss { font-size: 0.75rem; color: var(--muted-soft); margin-top: 0.4rem; }
+	@keyframes pickfade { from { opacity: 0; } to { opacity: 1; } }
+	@media (prefers-reduced-motion: reduce) { .pickoverlay { animation: none; } }
 	.actbar { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
 	.boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1.25rem; }
 	.stat { font-size: 0.8rem; color: var(--muted); margin: 0.5rem 0 0; }
