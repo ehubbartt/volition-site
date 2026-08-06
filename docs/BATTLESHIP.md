@@ -350,6 +350,27 @@ random-placement button rather than placing 31 ships by hand.
 
 ### Testing
 
+**A game to click through.** The simulation and the rehearsal both clean up after
+themselves, which is the opposite of what you want when you're testing by hand:
+
+```bash
+npm run demo:battleship                      # 80 in the pool, signups open
+npm run demo:battleship -- --phase battle    # skip straight to a live battle
+npm run demo:battleship -- --players 12 --slug tiny-test
+npm run demo:battleship -- --delete          # remove it again
+```
+
+It leaves a `test` + `unlisted` event at `test-battleship`, parked at `signup`, `draft`,
+`placement` or `battle`, with you first in the pool (and captain of Fleet Red past the
+draft) so the player view has a side of its own. Re-running replaces the game, so it
+doubles as a reset. It refuses to delete an event that isn't marked as a test.
+
+The pool is filled with **real roster members as stand-ins**, not invented accounts: fake
+`vs_users` rows would land in the member counts and rank tables the home page builds from
+that table. That's safe on staging, which takes no live Dink traffic (the proxy points at
+prod), so a real member sitting in a test battle there can't have a drop land in it. Don't
+point it at a database that *does* take live drops.
+
 ```bash
 npm run sim:battleship                       # full game, 32 players, against staging
 npm run sim:battleship -- --players 48 --seed 7 --keep

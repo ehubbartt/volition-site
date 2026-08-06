@@ -63,6 +63,7 @@ whose names are fixed by the tooling that loads them.
 - **Commands:** `npm run dev`, `npm run build`, `npm run check` (svelte-check — run before
   pushing), `npm run test:e2e` (Playwright end-to-end against staging, specs in `e2e/`),
   `npm run sim:battleship` (scripted full Battleship game against staging),
+  `npm run demo:battleship` (leaves a playable 80-player test game behind),
   `npm run preview:shots -- / /me` (screenshot pages locally). Testing setup:
   [`docs/DEV-PREVIEW.md`](docs/DEV-PREVIEW.md).
 - **Non-negotiables:** site tables are `vs_`-prefixed; DB access is server-only
