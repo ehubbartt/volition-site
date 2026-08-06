@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import { swrResource } from '$lib/swrResource.svelte';
 	import Skeleton from '$lib/Skeleton.svelte';
 	import TileSubmitModal from '$lib/TileSubmitModal.svelte';
@@ -38,6 +39,32 @@
 
 	let selectedBomb = $state<string | null>(null);
 	let anchor = $state<{ x: number; y: number } | null>(null);
+	// Which board is on screen. Defaults to the enemy's, because that's the one you ACT
+	// on — firing is the whole job of this page, and a board you can't fire at is a
+	// worse landing place than one you can.
+	let boardView = $state<'foe' | 'mine'>('foe');
+	/** Arming a bomb puts you on the board you have to aim it at. */
+	function chooseBomb(id: string) {
+		selectedBomb = id;
+		boardView = 'foe';
+	}
+
+	// The page revalidates on navigation, not on a timer, so a draft pick or an enemy
+	// shot lands without the open page knowing. Rather than have people guess at the
+	// browser reload (which drops the bomb you had armed), give them a control that
+	// re-fetches the payload in place.
+	let refreshing = $state(false);
+	let refreshedAt = $state<Date | null>(null);
+	async function refresh() {
+		if (refreshing) return;
+		refreshing = true;
+		try {
+			await invalidateAll();
+			refreshedAt = new Date();
+		} finally {
+			refreshing = false;
+		}
+	}
 	// Did the last action come from the manual-claim form? Decides where its message goes.
 	const isClaim = $derived(!!form && 'claim' in form && !!form.claim);
 	let claimOpen = $state(false);
@@ -120,6 +147,19 @@
 </script>
 
 <svelte:head><title>{game?.event.name ?? 'Battleship'}</title></svelte:head>
+
+<!-- Re-fetch in place. Deliberately not a browser reload: that would throw away the
+     bomb you have armed and the square you have aimed at. -->
+{#snippet refreshBtn(label: string)}
+	<span class="refreshwrap">
+		<button class="btn refresh" onclick={refresh} disabled={refreshing}>
+			{refreshing ? 'Refreshing…' : label}
+		</button>
+		{#if refreshedAt}
+			<span class="refreshed">updated {refreshedAt.toLocaleTimeString()}</span>
+		{/if}
+	</span>
+{/snippet}
 
 <div class="page">
 	{#if !res.ready}
@@ -218,10 +258,8 @@
 					<ul class="roster pool">
 						{#each game.pool as p (p.userId)}<li>{p.rsn ?? '—'}</li>{/each}
 					</ul>
-					<p class="hint">
-						Picks are made by an admin — this list is here to follow, not to click. Reload to see
-						the latest.
-					</p>
+					<p class="hint">Picks are made by an admin — this list is here to follow, not to click.</p>
+					<div class="refreshbar">{@render refreshBtn('Refresh the pool')}</div>
 				{/if}
 			</section>
 
@@ -287,23 +325,43 @@
 		{:else if game.phase === 'battle' || game.phase === 'finished'}
 			{#if game.viewerSide}
 				<section class="osrs-panel">
-					<div class="boards">
-						<div class="board">
-							<h3>Your water</h3>
-							<div class="osrs-inset boardwell"><BoardGrid
-								size={game.config.size}
-								fleet={me?.fleet ?? []}
-								shots={shotsAt(game.viewerSide)}
-								sunkShipIds={sunkIdsFor(game.viewerSide)}
-							/></div>
-							<p class="stat osrs-inset">
-								{standing(game.viewerSide)?.afloat ?? 0}/{standing(game.viewerSide)?.totalCells ?? 0} squares afloat
-								· {standing(game.viewerSide)?.lost ?? 0} ship{(standing(game.viewerSide)?.lost ?? 0) === 1 ? '' : 's'} lost
-							</p>
+					<!-- ONE board at a time. Two 25x25 grids side by side shrink each to
+					     something you squint at, and worse, "which of these is mine?" was a
+					     question you answered from a small heading. The switch makes the
+					     answer the loudest thing on screen. -->
+					<div class="switchrow">
+						<div class="boardswitch" role="group" aria-label="Choose a board">
+							<button
+								class="switchbtn"
+								class:active={boardView === 'foe'}
+								aria-pressed={boardView === 'foe'}
+								onclick={() => (boardView = 'foe')}
+							>
+								Their waters
+								<span class="sub" style="color: {foe?.color}">{foe?.name}</span>
+							</button>
+							<button
+								class="switchbtn"
+								class:active={boardView === 'mine'}
+								aria-pressed={boardView === 'mine'}
+								onclick={() => (boardView = 'mine')}
+							>
+								Your waters
+								<span class="sub" style="color: {me?.color}">{me?.name}</span>
+							</button>
 						</div>
+						{@render refreshBtn('Refresh')}
+					</div>
 
+					{#if boardView === 'foe'}
 						<div class="board">
-							<h3>{foe?.name}</h3>
+							<h3 class="boardhead">
+								<span class="who" style="color: {foe?.color}">{foe?.name}</span> — their waters
+							</h3>
+							<p class="boardnote">
+								You're firing at this board. Their ships are hidden — you only see where
+								shots have landed.
+							</p>
 							<div class="osrs-inset boardwell"><BoardGrid
 								size={game.config.size}
 								fleet={null}
@@ -319,7 +377,27 @@
 								{standing(game.viewerSide)?.sunk ?? 0}/{foe?.fleetSummary.length ?? 0} of their ships sunk
 							</p>
 						</div>
-					</div>
+					{:else}
+						<div class="board">
+							<h3 class="boardhead">
+								<span class="who" style="color: {me?.color}">{me?.name}</span> — your waters
+							</h3>
+							<p class="boardnote">
+								Your fleet, and every shot they've landed on it. You can't fire at this
+								board.
+							</p>
+							<div class="osrs-inset boardwell"><BoardGrid
+								size={game.config.size}
+								fleet={me?.fleet ?? []}
+								shots={shotsAt(game.viewerSide)}
+								sunkShipIds={sunkIdsFor(game.viewerSide)}
+							/></div>
+							<p class="stat osrs-inset">
+								{standing(game.viewerSide)?.afloat ?? 0}/{standing(game.viewerSide)?.totalCells ?? 0} squares afloat
+								· {standing(game.viewerSide)?.lost ?? 0} ship{(standing(game.viewerSide)?.lost ?? 0) === 1 ? '' : 's'} lost
+							</p>
+						</div>
+					{/if}
 
 					{#if game.phase === 'battle'}
 						<div class="fire">
@@ -337,7 +415,7 @@
 								<div class="bombs">
 									{#each firable as b (b.id)}
 										{@const t = game.config.tiers.find((x) => x.tier === b.tier)}
-										<button class="bomb" class:active={selected?.id === b.id} onclick={() => (selectedBomb = b.id)}>
+										<button class="bomb" class:active={selected?.id === b.id} onclick={() => chooseBomb(b.id)}>
 											<strong>{t?.name}</strong>
 											<span>{t?.span}×{t?.span}</span>
 											<span class="muted">{b.itemName ?? 'drop'}</span>
@@ -538,8 +616,32 @@
 	/* ── Boards ─────────────────────────────────────────────────────── */
 	.boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1.25rem; }
 	.boardwell { padding: 0.5rem; }
-	/* Boards stay square and never outgrow their column. */
-	.board { min-width: 0; max-width: 34rem; }
+	/* Boards stay square and never outgrow their column. One at a time now, so it gets
+	   the width two side-by-side grids used to share. */
+	.board { min-width: 0; max-width: 44rem; margin: 0 auto; }
+
+	.switchrow {
+		display: flex; align-items: center; justify-content: space-between;
+		gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.9rem;
+	}
+	.boardswitch { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+	.switchbtn {
+		display: grid; gap: 0.1rem; text-align: left;
+		padding: 0.4rem 0.9rem; min-height: 44px;
+		font-family: var(--font-heading); font-size: 0.95rem;
+		color: var(--muted); opacity: 0.75;
+	}
+	.switchbtn .sub { font-family: var(--font-body); font-size: 0.75rem; }
+	.switchbtn.active { color: var(--yellow); opacity: 1; }
+
+	.boardhead { margin: 0 0 0.15rem; font-family: var(--font-heading); font-size: 1.05rem; color: var(--heading); }
+	.boardhead .who { font-weight: inherit; }
+	.boardnote { margin: 0 0 0.5rem; font-size: 0.78rem; color: var(--muted); }
+
+	.refreshwrap { display: inline-flex; align-items: center; gap: 0.5rem; }
+	.refresh { font-size: 0.8rem; }
+	.refreshed { font-size: 0.72rem; color: var(--muted-soft); }
+	.refreshbar { margin-top: 0.6rem; }
 	/* The readout under each grid, styled like an in-game info strip. */
 	.stat {
 		margin: 0.5rem 0 0; padding: 0.35rem 0.6rem; font-size: 0.8rem;
