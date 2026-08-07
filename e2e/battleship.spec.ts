@@ -238,31 +238,47 @@ test.describe.serial('Battleship', () => {
 		// the contract, and the half a browser can check.
 		await expect(board.locator('.cell.ship')).toHaveCount(0);
 
-		// Your own water does show hulls, behind the switch.
-		await page.getByRole('button', { name: /your waters/i }).click();
-		await expect(page.getByRole('heading', { name: /your waters/i })).toBeVisible();
-		await expect(board.locator('.cell.ship')).not.toHaveCount(0);
-
-		// The PAYLOAD-level contract, which is now assertable here: a playing admin is a
-		// PLAYER first, so the enemy fleet is withheld from them too. (It was not always —
-		// admins used to receive both fleets, which at a clan event where the captains are
-		// admins meant a captain could read their opponent's board.)
+		// The PAYLOAD-level contract. Two rules stack here:
+		//  - a playing admin is a PLAYER first, so the enemy fleet is withheld from them
+		//    (admins used to receive both, which at a clan event where the captains are
+		//    admins meant a captain could read their opponent's board);
+		//  - and own-fleet positions go to the CAPTAIN only, not to teammates, because a
+		//    fleet known to 43 people is one screenshot away from not being a secret.
 		const payload = await page.evaluate(async (slug) => {
 			const res = await fetch(`/api/battleship/${slug}`);
 			return res.text();
 		}, SLUG);
 		const parsed = JSON.parse(payload);
 		const mySide = parsed.game.viewerSide;
+		const iAmCaptain = parsed.game.viewerIsCaptain;
 		expect(mySide).not.toBeNull();
 		for (const side of parsed.game.sides) {
 			if (side.side === mySide) {
-				expect(Array.isArray(side.fleet), 'own fleet should be visible').toBe(true);
+				if (iAmCaptain) {
+					expect(Array.isArray(side.fleet), "a captain sees their own side's fleet").toBe(true);
+				} else {
+					expect(side.fleet, 'a MEMBER must not receive their own fleet — captain only').toBeNull();
+				}
 			} else {
 				expect(side.fleet, 'enemy fleet must be withheld even from an admin who plays').toBeNull();
 			}
 			// Names, lengths and sunk flags stay public on both sides — positions do not.
 			expect(Array.isArray(side.fleetSummary)).toBe(true);
 			expect(side.fleetSummary.length).toBeGreaterThan(0);
+		}
+
+		// The switch offers "your waters" only when the payload actually carried a fleet,
+		// so nobody clicks through to an empty grid and reads it as a bug.
+		const ownTab = page.getByRole('button', { name: /your waters/i });
+		if (iAmCaptain) {
+			await expect(ownTab).toBeVisible();
+			await ownTab.click();
+			await expect(page.getByRole('heading', { name: /your waters/i })).toBeVisible();
+			await expect(board.locator('.cell.ship')).not.toHaveCount(0);
+		} else {
+			await expect(ownTab).toHaveCount(0);
+			// …but they still get told how their own fleet is doing, in counts.
+			await expect(page.getByText(/your fleet:.*squares afloat/i)).toBeVisible();
 		}
 	});
 

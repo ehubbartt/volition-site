@@ -354,27 +354,33 @@ export interface BattleshipView extends Omit<BattleshipSnapshot, 'sides'> {
 }
 
 /**
- * Strip the enemy fleet. A viewer sees full ship positions only for their OWN side (and
- * an admin sees both — the tester needs it). For every other side the caller gets the
- * craters (already public via `shots`) and a per-ship sunk flag, which is exactly what a
- * real game reveals with "you sank my Battleship".
+ * Strip ship positions. Only a side's CAPTAIN sees where their own fleet sits; every
+ * other viewer — including their own teammates — gets the craters (already public via
+ * `shots`) and a per-ship sunk flag, which is exactly what a real game reveals with "you
+ * sank my Battleship".
+ *
+ * Teammates are redacted because a fleet known to 43 people is not a secret: one
+ * screenshot in the wrong Discord channel and the game is over. The enemy grid stays
+ * visible to everyone on the side, so an ordinary member can still aim and fire the
+ * bombs they earn — the positions are the secret, not the board.
  */
 export function redactFor(
 	snap: BattleshipSnapshot,
 	viewer: { userId: string | null; isAdmin: boolean }
 ): BattleshipView {
-	const viewerSide =
-		snap.sides.find((s) => s.members.some((m) => m.userId === viewer.userId))?.side ?? null;
+	const viewerSideRow = snap.sides.find((s) => s.members.some((m) => m.userId === viewer.userId));
+	const viewerSide = viewerSideRow?.side ?? null;
+	const viewerIsCaptain = !!viewerSideRow && viewerSideRow.captainUserId === viewer.userId;
 
 	const sides: RedactedSide[] = snap.sides.map((s) => {
 		const hitCells = new Set(snap.shots.filter((sh) => sh.targetSide === s.side).map((sh) => sh.cell));
-		// An admin who is PLAYING is a player first. Handing them the enemy fleet would
-		// let a captain read their opponent's board — and at a clan event the captains
-		// are very likely to be admins. Only a NON-PARTICIPANT admin (running the tester
-		// or spectating) sees both fleets; the admin tester page reads the raw snapshot
+		// An admin who is PLAYING is a player first. Handing them a fleet would let a
+		// captain read their opponent's board — and at a clan event the captains are very
+		// likely to be admins. Only a NON-PARTICIPANT admin (running the tester or
+		// spectating) sees both fleets; the admin tester page reads the raw snapshot
 		// directly and is unaffected.
 		const adminSpectator = viewer.isAdmin && viewerSide === null;
-		const canSeeFleet = adminSpectator || (viewerSide !== null && s.side === viewerSide);
+		const canSeeFleet = adminSpectator || (viewerIsCaptain && s.side === viewerSide);
 		return {
 			side: s.side,
 			name: s.name,
@@ -394,13 +400,12 @@ export function redactFor(
 		};
 	});
 
-	const side = snap.sides.find((s) => s.side === viewerSide);
 	return {
 		...snap,
 		sides,
 		viewerSide,
 		viewerUserId: viewer.userId,
-		viewerIsCaptain: !!side && side.captainUserId === viewer.userId,
+		viewerIsCaptain,
 		viewerIsAdmin: viewer.isAdmin
 	};
 }

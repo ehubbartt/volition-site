@@ -323,6 +323,58 @@ test.describe.serial(`Battleship — full ${PLAYERS}-player event (${LABEL})`, (
 		await expect(red.locator('.board').locator('.cell.ship')).toHaveCount(0);
 	});
 
+	// ── 4b. an ordinary member ──────────────────────────────────────────────
+	test('4b · a member gets the enemy board but never their own fleet', async ({ browser }) => {
+		// Both captains are driven above, so without this the ONLY perspective the
+		// rehearsal covers is the one that can see everything. Sign in as a drafted
+		// member who is nobody's captain.
+		const snap = await bs.loadBattleship(SLUG);
+		const side1 = snap.sides.find((s: any) => s.side === 1);
+		const member = side1.members.find((m: any) => m.userId !== side1.captainUserId);
+		expect(member, 'side 1 should have a non-captain member').toBeTruthy();
+
+		const ctx = await browser.newContext({ viewport: VIEWPORT, hasTouch: MOBILE, isMobile: MOBILE });
+		await signInAs(ctx, member.userId);
+		const page = await ctx.newPage();
+		await page.goto(`/events/${SLUG}/battleship`);
+
+		// They are on a side…
+		await expect(page.getByRole('heading', { name: /their waters/i })).toBeVisible();
+		// …but the payload must not carry their own fleet, and the UI must not offer it.
+		const parsed = JSON.parse(
+			await page.evaluate(async (slug) => (await fetch(`/api/battleship/${slug}`)).text(), SLUG)
+		);
+		expect(parsed.game.viewerSide).toBe(1);
+		expect(parsed.game.viewerIsCaptain).toBe(false);
+		for (const s of parsed.game.sides) {
+			expect(s.fleet, `side ${s.side} positions leaked to a member`).toBeNull();
+		}
+		await expect(page.getByRole('button', { name: /your waters/i })).toHaveCount(0);
+		// No hull is drawn anywhere on their page.
+		await expect(page.locator('.cell.ship')).toHaveCount(0);
+		// They still get their side's health, as counts.
+		await expect(page.getByText(/your fleet:.*squares afloat/i)).toBeVisible();
+		await shot(page, 'member-view-no-own-fleet');
+
+		// And they can still fight: a member fires the bombs they earn.
+		const granted = await bs.grantBomb({
+			eventId, side: 1, tier: 1, userId: member.userId, note: 'member fire check'
+		});
+		expect(granted.ok, granted.ok ? '' : granted.error).toBe(true);
+		await page.reload();
+		await expect(page.locator('.bomb')).not.toHaveCount(0);
+		for (let attempt = 0; attempt < 12; attempt++) {
+			await page.locator('.board .cell').first().click();
+			if (await page.locator('.cell.target').count()) break;
+			await page.waitForTimeout(400);
+		}
+		await page.getByRole('button', { name: /^fire at /i }).click();
+		await expect(page.locator('.ok')).toContainText(/hit|miss|already cratered|sank/i);
+		await shot(page, 'member-fired');
+
+		await ctx.close();
+	});
+
 	// ── 5. real Dink drops ──────────────────────────────────────────────────
 	test('5 · Dink drops of each tier arm the right bombs', async () => {
 		const snap = await bs.loadBattleship(SLUG);
