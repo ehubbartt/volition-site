@@ -41,24 +41,50 @@
 
 begin;
 
+-- ╔══════════════════════════════════════════════════════════════════════════╗
+-- ║  SET THIS: when the battle should open, in UTC.                          ║
+-- ║                                                                          ║
+-- ║  Placement stays open until this moment. At it, the next page load opens ║
+-- ║  the battle and any side that has NOT placed gets a random legal fleet —  ║
+-- ║  a side with no ships can't be shot at and would stall the event, so the  ║
+-- ║  fallback is deliberate. Two captains hitting "Random" takes seconds, so  ║
+-- ║  a short window is fine; give them longer if you want hand-placed fleets. ║
+-- ║                                                                          ║
+-- ║  Must be in the FUTURE. A past timestamp re-opens the battle on the very  ║
+-- ║  first page load and auto-places both fleets — the guard below refuses.   ║
+-- ╚══════════════════════════════════════════════════════════════════════════╝
+create temporary table _when on commit drop as
+select timestamptz '2026-08-07T21:00:00Z' as battle_opens_at;
+
 -- The one event, by slug. Everything below hangs off this.
 create temporary table _target on commit drop as
 select id from vs_events where slug = 'battleship' and kind = 'battleship';
 
--- Abort the whole transaction unless that matched exactly one event.
+-- Abort the whole transaction unless exactly one event matched and the deadline is
+-- actually ahead of us.
 do $$
-declare n int;
+declare n int; opens timestamptz;
 begin
 	select count(*) into n from _target;
 	if n <> 1 then
 		raise exception 'expected exactly 1 event with slug "battleship", found %', n;
 	end if;
+
+	select battle_opens_at into opens from _when;
+	if opens <= now() then
+		raise exception
+			'battle_opens_at (%) is not in the future — that would auto-place both fleets at random on the next page load. Set it to when the battle should start.',
+			opens;
+	end if;
+	if opens > now() + interval '7 days' then
+		raise exception 'battle_opens_at (%) is more than a week out — check the date', opens;
+	end if;
+	raise notice 'placement will stay open for % (battle opens %)', opens - now(), opens;
 end $$;
 
 -- ── 1. Pin the board, reopen placement ──────────────────────────────────────
--- placement_ends_at MUST be in the future. `maybeAdvancePhase` runs on every page read:
--- a placement deadline already in the past would re-open the battle on the very next
--- load AND auto-place both fleets at random. 24 hours; change the interval to suit.
+-- The deadline comes from `_when` at the top of this file, already checked to be in the
+-- future. Written in the same ISO shape the app writes (`new Date().toISOString()`).
 update vs_events e
 set structure = e.structure || jsonb_build_object(
 		'battleship',
@@ -66,10 +92,10 @@ set structure = e.structure || jsonb_build_object(
 			'size', 25,
 			'phase', 'placement',
 			'placement_ends_at',
-			to_char((now() at time zone 'utc') + interval '24 hours', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+			to_char(w.battle_opens_at at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 		)
 	)
-from _target t
+from _target t, _when w
 where e.id = t.id;
 
 -- ── 2. Clear both fleets ────────────────────────────────────────────────────
