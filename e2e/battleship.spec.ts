@@ -69,6 +69,26 @@ test.describe.serial('Battleship', () => {
 		await expect(page.locator('.pill', { hasText: /drafting/i })).toBeVisible();
 		await expectNoError(page);
 
+		// The board has to say which fleet the click feeds, by NAME — "Side 1" is not what
+		// anyone calls their team over a stream, and a pick can't be undone from here.
+		const banner = page.locator('.turnbanner');
+		await expect(banner).toContainText(/now picking for/i);
+		await expect(banner).toContainText('Fleet Red');
+		await expect(banner).toContainText(/pick #1/i);
+
+		// And the name must agree with the COLOUR, since the colour is now half the
+		// signal. "Fleet Red" rendered blue for a while — invisible until it mattered.
+		const palette = await page.evaluate(async (slug) => {
+			const r = await fetch(`/api/battleship/${slug}`);
+			const j = await r.json();
+			return (j.game.sides as { name: string; color: string }[]).map((s) => ({
+				name: s.name,
+				color: s.color.toLowerCase()
+			}));
+		}, SLUG);
+		expect(palette.find((s) => s.name === 'Fleet Red')?.color).toBe('#ef4444');
+		expect(palette.find((s) => s.name === 'Fleet Blue')?.color).toBe('#3b82f6');
+
 		// A pick is ANNOUNCED, not quietly applied. The draft is run from one screen with
 		// both captains watching a stream, so "who just went where" has to be legible from
 		// across a call rather than inferred from a roster that grew by one.
@@ -84,6 +104,10 @@ test.describe.serial('Battleship', () => {
 		// Dismissed by clicking it, and it stays dismissed.
 		await modal.click();
 		await expect(modal).toHaveCount(0);
+
+		// The turn passed, so the banner now names the OTHER fleet.
+		await expect(banner).toContainText('Fleet Blue');
+		await expect(banner).toContainText(/pick #2/i);
 
 		// The filter has to reach a name, because every pick is called out loud by a
 		// captain reading from their own screen. (The board used to render only the first
