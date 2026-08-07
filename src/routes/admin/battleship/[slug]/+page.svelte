@@ -47,6 +47,13 @@
 	// which at 80 signups meant half the pool was unpickable until it shrank — a captain
 	// could call a name that simply wasn't on screen. Every name is rendered now, and
 	// this is how you find one without scanning a wall of buttons.
+	// The side whose pick it is, and that side's captain by name — the banner says both,
+	// because "Side 1" is not what anyone calls their team out loud.
+	const turnSide = $derived(sides.find((s) => s.side === game.draft.turn));
+	const turnCaptain = $derived(
+		turnSide?.members.find((m) => m.userId === turnSide.captainUserId)?.rsn ?? null
+	);
+
 	let poolFilter = $state('');
 	const shownPool = $derived(
 		poolFilter.trim()
@@ -118,19 +125,33 @@
 			{/if}
 
 		{:else if game.phase === 'draft'}
-			<p class="muted">
-				<strong>Side {game.draft.turn}</strong> picks next · {game.pool.length} left in the pool
-			</p>
+			<!-- Whose pick this is, in the fleet's own colour and its own name — not "Side 1".
+			     Everyone clicking these buttons is doing it on behalf of a captain who is
+			     watching over a stream, and picking for the wrong fleet cannot be undone
+			     from this page. -->
+			<div class="turnbanner" style="--side: {turnSide?.color ?? 'var(--accent)'}">
+				<span class="turnlabel">Now picking for</span>
+				<span class="turnname">{turnSide?.name ?? `Side ${game.draft.turn}`}</span>
+				<span class="turnmeta">
+					{#if turnCaptain}captain {turnCaptain} · {/if}pick #{game.draft.picks.length + 1} ·
+					{game.pool.length} left in the pool
+				</span>
+			</div>
+
 			<label class="poolfilter">
 				Find a member
 				<input bind:value={poolFilter} placeholder="type part of an RSN" autocomplete="off" />
 			</label>
-			<div class="draftgrid">
+			<!-- The buttons carry the same colour, so the thing you click looks like the
+			     fleet it feeds even if the banner has scrolled off. -->
+			<div class="draftgrid" style="--side: {turnSide?.color ?? 'var(--accent)'}">
 				{#each shownPool as p (p.userId)}
 					<form method="POST" action="?/pick" use:enhance>
 						<input type="hidden" name="side" value={game.draft.turn} />
 						<input type="hidden" name="user_id" value={p.userId} />
-						<button class="btn small" type="submit">{p.rsn ?? 'unknown'}</button>
+						<button class="btn small pickbtn" type="submit">
+							{p.rsn ?? 'unknown'}
+						</button>
 					</form>
 				{/each}
 			</div>
@@ -339,6 +360,21 @@
 	.btn.small { min-height: 30px; padding: 1px 10px; font-size: 0.8rem; }
 	.btn.primary, .btn.active { color: var(--yellow); }
 	.draftgrid { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.5rem 0; }
+	/* Whose pick it is. Loud on purpose — this is streamed, and there is no undo. */
+	.turnbanner {
+		display: grid; gap: 0.1rem; justify-items: start;
+		margin: 0.25rem 0 0.9rem; padding: 0.6rem 1rem;
+		border-left: 5px solid var(--side);
+		border-radius: 4px;
+		background: color-mix(in srgb, var(--side) 14%, transparent);
+	}
+	.turnlabel { font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+	.turnname { font-family: var(--font-heading); font-size: 1.6rem; line-height: 1.15; color: var(--side); }
+	.turnmeta { font-size: 0.8rem; color: var(--muted); }
+
+	/* The pick buttons wear the same colour as the banner. */
+	.pickbtn { border-color: var(--side); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--side) 45%, transparent); }
+
 	.poolfilter { display: grid; gap: 0.2rem; font-size: 0.8rem; color: var(--muted); max-width: 18rem; }
 	.poolfilter input {
 		background: var(--inset, #241f1a); color: var(--text); border: 1px solid var(--line, #4a4038);

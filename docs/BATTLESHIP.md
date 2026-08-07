@@ -34,12 +34,23 @@ you give them first pick. With an odd pool the side picking first ends up one pl
 
 **One screen makes the picks.** The pick board lives on the admin page and is admin-only;
 in practice an admin drives it while both captains call their picks, usually over a shared
-stream. To make that work the board does three things: it renders the **whole** pool (it
-used to stop at 40 names, which at 80 signups left half the pool unpickable), it has a
-filter so a called-out name can be found without scanning, and every pick raises a **modal
-announcing who went where and at what pick number**, dismissed by clicking it. The
-announcement is the point — a name silently moving between two lists is invisible on a
-stream.
+stream. To make that work the board does four things:
+
+- A banner names the fleet the next click will feed — **by name and in its colour**, with
+  its captain and the pick number. "Side 1" is not what anyone calls their team, and a pick
+  cannot be undone from this page. The pool buttons carry the same colour, so the thing you
+  click looks like the fleet it feeds even once the banner has scrolled away.
+- It renders the **whole** pool. It used to stop at 40 names, which at 80 signups left half
+  the pool unpickable — a captain could call a name that simply wasn't on screen.
+- A filter finds a called-out name without scanning a wall of buttons.
+- Every pick raises a **modal announcing who went where and at what pick number**,
+  dismissed by clicking it. A name silently moving between two lists is invisible on a
+  stream.
+
+> **Side colours follow the default names**: side 1 is `#ef4444` (Fleet **Red**), side 2 is
+> `#3b82f6` (Fleet **Blue**). They were the other way round until the draft banner put the
+> name and the colour side by side and made it obvious. Games drafted before that fix keep
+> the colours stored on their `vs_battleship_teams` rows.
 
 Captains and members get the undrafted pool on **their own** page for the whole draft, to
 read rather than click. `draftPick` still enforces the turn rule and claims a member with a

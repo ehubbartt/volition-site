@@ -41,7 +41,11 @@ import {
 
 export const BATTLESHIP_KIND = 'battleship';
 
-const SIDE_COLORS = ['#3b82f6', '#ef4444'];
+// Red first, blue second — the same order as the default names below. They used to be
+// the other way round, which painted "Fleet Red" blue everywhere the colour is shown.
+// Harmless while the colour was a thin accent; not harmless now that whose-pick-is-it
+// is signalled by colour on a streamed draft board.
+const SIDE_COLORS = ['#ef4444', '#3b82f6'];
 const DEFAULT_PLACEMENT_MINUTES = 60;
 
 // ── Row shapes ──────────────────────────────────────────────────────────────
