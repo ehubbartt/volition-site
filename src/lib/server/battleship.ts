@@ -739,8 +739,16 @@ export async function startBattle(eventId: string): Promise<Result> {
 	if (snap.phase !== 'placement') return errResult('The draft has to finish first');
 
 	const sb = db();
+	const expected = emptyFleet(snap.config.size).length;
 	for (const side of snap.sides) {
-		if (side.fleet.length && side.fleet.every((f) => f.cells.length > 0)) continue;
+		// Replace anything that is not a COMPLETE, correctly-sized fleet for this board.
+		// The old test — "has ships, and each has cells" — passed a fleet that was merely
+		// non-empty, so a side could enter the battle with 20 ships against 31, or with a
+		// fleet built for a smaller board. Both are unreachable through placeFleet, which
+		// rejects an incomplete fleet, but a repair or a size change can leave one behind,
+		// and this is the last gate before it becomes the game everyone plays.
+		const ready = side.fleet.length === expected && fleetComplete(side.fleet, snap.config.size);
+		if (ready) continue;
 		const { error } = await sb
 			.from('vs_battleship_teams')
 			.update({ fleet: autoPlace(snap.config.size), placed_at: new Date().toISOString() })

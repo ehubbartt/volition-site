@@ -70,6 +70,13 @@ Placement is on a **deadline**, not a gate: when the window closes the battle op
 or not both sides placed. A side that never placed gets a random legal fleet, because a
 side with no ships cannot be shot at and would stall the event for everyone else.
 
+`startBattle` replaces anything that is not a **complete, correctly-sized** fleet for the
+current board — not merely anything empty. The earlier test ("has ships, and each has
+cells") would pass a side into battle with 20 ships against 31, or with a fleet built for a
+smaller board. Neither is reachable through `placeFleet`, which rejects an incomplete
+fleet, but a repair or a board-size change can leave one behind, and this is the last gate
+before it becomes the game everyone plays.
+
 ### The board scales with the draft
 
 Water per player is fixed (**15 squares**), so the grid grows with the headcount — bombs
@@ -290,6 +297,18 @@ Battleship needed a second admission rule.
 3. `processDinkDrops` checks each drop for a bomb **before and independently of** tile
    matching, so one drop can credit a bingo tile, a personal-board tile *and* arm a bomb —
    the same "credit every matching candidate" rule the consumer already follows.
+
+**Only LOOT notifications arm bombs.** A new collection-log item makes Dink send *two*
+notifications for one drop, seconds apart: a LOOT one (source = the NPC) and a COLLECTION
+one (source = `Collection log`). They carry different sources — and often different
+quantities and values, since the loot notification reports the whole stack and the
+collection one a single item — so they hash to different `drop_key`s and `earnBomb`'s
+idempotency cannot tell they are the same drop. The consumer skips `notif_type =
+'collection'` for bombs only.
+
+Tiles still match either notification on purpose: crediting the same tile twice is a no-op,
+so "watch both ways" is right for them. A bomb is minted **per drop_key**, which is why the
+same rule doubled every big drop the first time an event ran.
 
 **A drop arms a bomb in exactly one event.** `activeBattleshipFor` picks it, and the pick
 is ordered: a **real** event beats a **test** one, and the newest wins the tie. Unordered
