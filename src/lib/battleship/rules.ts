@@ -186,8 +186,8 @@ export function emptyFleet(size: number): Ship[] {
  */
 export const DEFAULT_TIERS: Tier[] = [
 	{ tier: 1, name: 'Cannonball', min_value: 5_000_000, span: 1 },
-	{ tier: 2, name: 'Bombard', min_value: 25_000_000, span: 2 },
-	{ tier: 3, name: 'Broadside', min_value: 50_000_000, span: 3 }
+	{ tier: 2, name: 'Bombard', min_value: 20_000_000, span: 2 },
+	{ tier: 3, name: 'Broadside', min_value: 60_000_000, span: 3 }
 ];
 
 /** The best tier a drop of this value earns, or null if it's under the lowest floor. */

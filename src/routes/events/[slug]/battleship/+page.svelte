@@ -160,6 +160,26 @@
 
 <!-- Re-fetch in place. Deliberately not a browser reload: that would throw away the
      bomb you have armed and the square you have aimed at. -->
+<!-- What earns what. Rendered wherever a player might ask "how big is a bomb?", and
+     driven off the event's own tiers, so changing them mid-event updates this too —
+     which is the moment people most need to see it. -->
+{#snippet tierTable(lead: string)}
+	{#if game}
+		<div class="tiers">
+			<span class="tierlead">{lead}</span>
+			<ul>
+				{#each game.config.tiers as t (t.tier)}
+					<li>
+						<strong>{t.name}</strong>
+						<span class="tval">{gp(t.min_value)}+</span>
+						<span class="tspan">{t.span}×{t.span}</span>
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
+{/snippet}
+
 {#snippet refreshBtn(label: string)}
 	<span class="refreshwrap">
 		<button class="btn refresh" onclick={refresh} disabled={refreshing}>
@@ -238,6 +258,7 @@
 						<button class="btn primary" type="submit">Join the event</button>
 					</form>
 				{/if}
+				{@render tierTable('When the battle opens, a single drop this big arms a bomb:')}
 				<p class="muted small dinktip">
 					Your drops only become bombs if Dink is reporting them —
 					<a href="/dink-check">test your setup →</a> before the battle starts.
@@ -437,16 +458,13 @@
 
 					{#if game.phase === 'battle'}
 						<div class="fire">
+							{@render tierTable('Any single drop this big arms a bomb, automatically:')}
 							<h3>
 								Your bombs
 								{#if firable.length}<span class="muted">— {firable.length} ready to fire</span>{/if}
 							</h3>
 							{#if firable.length === 0}
-								<p class="muted">
-									No bombs banked. Any single drop worth
-									{gp(game.config.tiers[0].min_value)}+ arms one automatically —
-									{#each game.config.tiers as t, i (t.tier)}{i ? ', ' : ''}{gp(t.min_value)} = {t.span}×{t.span}{/each}.
-								</p>
+								<p class="muted">No bombs banked yet — go get a drop.</p>
 							{:else}
 								<div class="bombs">
 									{#each firable as b (b.id)}
@@ -693,6 +711,21 @@
 	.refresh { font-size: 0.8rem; }
 	.refreshed { font-size: 0.72rem; color: var(--muted-soft); }
 	.refreshbar { margin-top: 0.6rem; }
+
+	/* The earning rates. Deliberately hard to miss and always on screen — they are the
+	   rules of the whole event, and they can change mid-event. */
+	.tiers { margin: 0 0 0.9rem; }
+	.tierlead { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+	.tiers ul { list-style: none; padding: 0; margin: 0; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+	.tiers li {
+		display: grid; gap: 0.05rem; justify-items: start;
+		padding: 0.35rem 0.7rem; border-radius: 3px;
+		background: rgb(255 255 255 / 0.04);
+		border-left: 3px solid var(--accent);
+	}
+	.tiers strong { font-family: var(--font-heading); font-size: 0.9rem; color: var(--heading); }
+	.tiers .tval { font-size: 0.85rem; color: var(--yellow); }
+	.tiers .tspan { font-size: 0.72rem; color: var(--muted); }
 	/* The readout under each grid, styled like an in-game info strip. */
 	.stat {
 		margin: 0.5rem 0 0; padding: 0.35rem 0.6rem; font-size: 0.8rem;
