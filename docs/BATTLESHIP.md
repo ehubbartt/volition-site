@@ -181,6 +181,16 @@ afterwards, and could overwrite the captain's. All of this is enforced server-si
 > (running the tester, or spectating) receives both fleets. This matters because at a clan
 > event the captains are usually admins — leaving admins unredacted would have let a
 > captain read their opponent's board.
+>
+> **The admin tester goes through the same redaction.** It used to return the raw snapshot,
+> which was fine while it was only a tester and stopped being fine the moment admins were
+> playing: opening the page showed them their opponent's ships, and hiding the boards in the
+> UI would not have helped, because the positions would still have been in the page payload.
+> A playing admin now gets craters only, exactly as a player does.
+>
+> **And the boards start hidden**, even for a genuine spectator, behind a *Show the boards*
+> toggle that resets on every load. Someone opening the tester during a live event — or
+> sharing their screen — should not have both fleets on it before they have decided to look.
 
 **One board at a time.** The battle page shows *either* the enemy's water or your own,
 never both, chosen with a labelled switch — two 25×25 grids side by side shrink each into
