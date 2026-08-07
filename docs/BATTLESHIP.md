@@ -448,6 +448,30 @@ unless `--keep`.
   [`PENDING-OPS.md`](PENDING-OPS.md) §1). `enable_rls.sql` loops every public table, so
   re-applying it covers them with no edit.
 
+### Undoing a bomb
+
+`/admin/battleship/<slug>` lists **All bombs** — every bomb on both sides, spent and
+unspent, with who earned it and where it came from. The firing panel above it only ever
+shows the acting side's *unspent* ones, so before this the only way to reverse a bomb that
+should not exist was SQL.
+
+`removeBomb` does three things together, because doing fewer would leave a lie behind:
+
+1. **Its craters go too.** A fired bomb wrote one `vs_battleship_shots` row per cell, all
+   sharing its `bomb_id`. Leaving them would keep the damage while removing the
+   ammunition — the enemy fleet would stay hit by a shot that no longer exists.
+2. **It cannot come back.** Minting is idempotent on `unique (event_id, drop_key)`, so
+   deleting the row *removes* that protection and the next mint pass would recreate it. The
+   source is closed as well: a manual claim is set back to `rejected`, a Dink drop is
+   stamped `reverted` (an outcome the reconcile pass does not re-surface). Admin grants
+   have no upstream row and need nothing.
+3. **A decided game can become undecided.** If the craters that finished a fleet are among
+   those removed, the winner is no longer the winner, so the game reopens rather than
+   sitting on a result its own board contradicts.
+
+It's audit-logged — taking ammunition off a side mid-event should be answerable for
+afterwards — and there is no undo.
+
 ### Manual claims (members who can't run Dink)
 
 Not everyone runs Dink, and a drop nobody records is a bomb nobody gets. The battle page

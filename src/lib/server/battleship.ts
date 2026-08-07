@@ -1113,4 +1113,89 @@ export async function grantBomb(input: {
 	return error ? errResult(error.message) : okResult();
 }
 
+/**
+ * Remove a bomb from a side's arsenal — an admin undo for one that should never have
+ * existed (a mis-approved manual claim, a drop credited to the wrong person, a duplicate).
+ *
+ * Three things have to happen together or the undo is a lie:
+ *
+ *  1. **Its craters go too.** A fired bomb wrote one `vs_battleship_shots` row per cell,
+ *     all sharing its `bomb_id`. Leaving them would keep the damage while removing the
+ *     ammunition — the enemy fleet would stay hit by a shot that no longer exists.
+ *  2. **It cannot come back.** Minting is idempotent on `unique (event_id, drop_key)`,
+ *     which means deleting the row REMOVES that protection: the next mint pass over the
+ *     same source would happily create it again. So the source is closed as well — a
+ *     manual claim is rejected, a Dink drop is stamped `reverted` (an outcome the
+ *     reconcile pass does not re-surface).
+ *  3. **A decided game can become undecided.** If the craters that finished a fleet are
+ *     among the ones removed, the winner is no longer the winner, so the game reopens
+ *     rather than sitting on a result its own board contradicts.
+ */
+export async function removeBomb(input: {
+	arsenalId: string;
+}): Promise<Result<{ side: number; tier: number; itemName: string | null; cellsRemoved: number; reopened: boolean }>> {
+	const sb = db();
+	const { data: bombRow, error: readErr } = await sb
+		.from('vs_battleship_arsenal')
+		.select('id, event_id, side, tier, item_name, drop_key, bomb_id, spent_at')
+		.eq('id', input.arsenalId)
+		.maybeSingle();
+	if (readErr) return errResult(readErr.message);
+	const bomb = bombRow as {
+		id: string; event_id: string; side: number; tier: number;
+		item_name: string | null; drop_key: string; bomb_id: string | null; spent_at: string | null;
+	} | null;
+	if (!bomb) return errResult('That bomb no longer exists');
+
+	// 1. The craters it made.
+	let cellsRemoved = 0;
+	if (bomb.bomb_id) {
+		const { data: gone, error: shotErr } = await sb
+			.from('vs_battleship_shots')
+			.delete()
+			.eq('event_id', bomb.event_id)
+			.eq('bomb_id', bomb.bomb_id)
+			.select('id');
+		if (shotErr) return errResult(shotErr.message);
+		cellsRemoved = gone?.length ?? 0;
+	}
+
+	// 2. The bomb itself.
+	const { error: delErr } = await sb.from('vs_battleship_arsenal').delete().eq('id', bomb.id);
+	if (delErr) return errResult(delErr.message);
+
+	// 3. Close the source so the next mint pass cannot recreate it. `admin:` grants have
+	//    no upstream row and need nothing.
+	if (bomb.drop_key.startsWith('manual:')) {
+		const submissionId = bomb.drop_key.slice('manual:'.length);
+		await sb.from('vs_submissions').update({ status: 'rejected' }).eq('id', submissionId);
+	} else if (!bomb.drop_key.startsWith('admin:')) {
+		await sb.from('vs_dink_drops').update({ outcome: 'reverted' }).eq('drop_key', bomb.drop_key);
+	}
+
+	// 4. A finished game whose loser is no longer sunk has to reopen.
+	let reopened = false;
+	const snap = await loadBattleshipById(bomb.event_id);
+	if (snap?.winner && cellsRemoved > 0) {
+		const loser = snap.sides.find((s) => s.side !== snap.winner);
+		const hit = new Set(snap.shots.filter((sh) => sh.targetSide === loser?.side).map((sh) => sh.cell));
+		const stillSunk =
+			!!loser && loser.fleet.length > 0 && loser.fleet.every((f) => f.cells.every((c) => hit.has(c)));
+		if (!stillSunk) {
+			const res = await patchStructure(bomb.event_id, { phase: 'battle', winner: null });
+			if (!res.ok) return res;
+			await sb.from('vs_events').update({ ends_at: null }).eq('id', bomb.event_id);
+			reopened = true;
+		}
+	}
+
+	return okResult({
+		side: bomb.side,
+		tier: bomb.tier,
+		itemName: bomb.item_name,
+		cellsRemoved,
+		reopened
+	});
+}
+
 export { cellId, parseCell };
