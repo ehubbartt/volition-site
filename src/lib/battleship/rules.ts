@@ -337,6 +337,27 @@ export function maxAnchor(span: number, size: number): number {
 	return Math.max(0, size - span);
 }
 
+/**
+ * The top-left anchor for a bomb of `span` aimed AT `cell`, clamped so the whole
+ * footprint stays on the board.
+ *
+ * Aiming is centred, not corner-based: you point at the square you want to hit and the
+ * blast wraps around it. A 3x3 puts the clicked square in the middle; a 2x2 has no middle
+ * square, so the click becomes its top-left. Either way **the square you clicked is always
+ * inside the footprint**, which is the property that makes aiming predictable.
+ *
+ * Storage is unchanged — vs_battleship_shots still records the top-left anchor, and
+ * `bombCells` still expands from it. This is only the click-to-anchor translation, and it
+ * lives here so the hover preview, the committed highlight and the shot that is actually
+ * fired can never disagree about it.
+ */
+export function anchorFor(cell: Cell, span: number, size: number): Cell {
+	const off = Math.floor((span - 1) / 2);
+	const max = maxAnchor(span, size);
+	const clamp = (n: number) => Math.min(Math.max(n - off, 0), max);
+	return { x: clamp(cell.x), y: clamp(cell.y) };
+}
+
 export interface ShotResult {
 	cell: CellId;
 	hit: boolean;
