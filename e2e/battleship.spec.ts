@@ -223,6 +223,35 @@ test.describe.serial('Battleship', () => {
 		await expect(craters).not.toHaveCount(0);
 	});
 
+	test('an admin can remove a bomb, and its craters go with it', async ({ page }) => {
+		// The only way to undo a bomb used to be SQL. It has to take its damage with it —
+		// removing the ammunition while leaving the craters would be a lie about the board.
+		await page.goto(`/admin/battleship/${SLUG}`);
+		await expect(page.getByRole('heading', { name: /^all bombs/i })).toBeVisible();
+
+		const rows = page.locator('.arsenal li');
+		const before = await rows.count();
+		expect(before).toBeGreaterThan(0);
+
+		// The game fired a Broadside earlier, so there are craters on the board. Removing
+		// the bomb that made them must clear them.
+		const craters = page.locator('.board').nth(1).locator('.cell.hit, .cell.miss');
+		const cratersBefore = await craters.count();
+
+		const fired = rows.filter({ hasText: /fired/i });
+		const target = (await fired.count()) ? fired.first() : rows.first();
+		const wasFired = (await fired.count()) > 0;
+
+		await target.getByRole('button', { name: /remove/i }).click();
+		await expect(page.locator('.ok')).toContainText(/removed a tier/i);
+		await expect(rows).toHaveCount(before - 1);
+
+		if (wasFired) {
+			await expect(page.locator('.ok')).toContainText(/craters cleared/i);
+			expect(await craters.count()).toBeLessThan(cratersBefore);
+		}
+	});
+
 	test('the battle page points at the Dink checker', async ({ page }) => {
 		// Untracked drops arm nothing, so "is my Dink working?" has to be one click away
 		// from the board rather than something a member has to go hunting for.

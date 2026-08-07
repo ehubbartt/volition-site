@@ -301,6 +301,41 @@
 			{/if}
 		</section>
 
+		<!-- ── Arsenal ─────────────────────────────────────────────────── -->
+		<!-- EVERY bomb on both sides, spent and unspent. The firing panel above only ever
+		     shows the acting side's unspent ones, so until now a bomb that should not exist
+		     could only be removed with SQL. Removing one takes its craters with it. -->
+		{#if game.arsenal.length}
+			<section class="osrs-panel">
+				<h2>All bombs <span class="muted">({game.arsenal.length})</span></h2>
+				<p class="muted small">
+					Remove a bomb that shouldn't have been minted — a mis-approved claim, a drop
+					credited to the wrong person, a duplicate. If it was already fired its craters go
+					with it, and its source is closed so it can't be minted again. There is no undo.
+				</p>
+				<ul class="arsenal">
+					{#each game.arsenal as a (a.id)}
+						{@const side = sides.find((s) => s.side === a.side)}
+						<li class:spent={!!a.spentAt}>
+							<span class="afleet" style="color: {side?.color}">{side?.name ?? `Side ${a.side}`}</span>
+							<span class="atier">{game.config.tiers.find((t) => t.tier === a.tier)?.name ?? `Tier ${a.tier}`}</span>
+							<span class="aitem">{a.itemName ?? '—'}</span>
+							<span class="awho muted">
+								{side?.members.find((m) => m.userId === a.earnedBy)?.rsn ?? 'unattributed'}
+							</span>
+							<span class="aval muted">{a.value ? gp(a.value) : ''}</span>
+							<span class="asrc muted">{a.source ?? ''}</span>
+							<span class="astate">{a.spentAt ? 'fired' : 'banked'}</span>
+							<form method="POST" action="?/removeBomb" use:enhance>
+								<input type="hidden" name="arsenal_id" value={a.id} />
+								<button class="btn tiny danger" type="submit">remove</button>
+							</form>
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
+
 		<!-- ── Rosters ─────────────────────────────────────────────────── -->
 		<section class="osrs-panel">
 			<h2>Sides</h2>
@@ -381,6 +416,26 @@
 
 	/* The pick buttons wear the same colour as the banner. */
 	.pickbtn { border-color: var(--side); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--side) 45%, transparent); }
+
+	.arsenal { list-style: none; padding: 0; margin: 0.6rem 0 0; display: grid; gap: 0.25rem; }
+	.arsenal li {
+		display: grid;
+		grid-template-columns: 7rem 6.5rem minmax(6rem, 1fr) 8rem 5rem minmax(0, 8rem) 4rem auto;
+		gap: 0.5rem; align-items: center;
+		padding: 0.3rem 0.5rem; border-radius: 3px;
+		background: rgb(255 255 255 / 0.03);
+		font-size: 0.8rem;
+	}
+	.arsenal li.spent { opacity: 0.55; }
+	.arsenal .afleet, .arsenal .atier, .arsenal .astate { font-family: var(--font-heading); }
+	.arsenal .astate { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; }
+	.arsenal span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.btn.tiny { min-height: 26px; padding: 0 8px; font-size: 0.72rem; }
+	.btn.danger { color: #ef8a8a; }
+	@media (max-width: 900px) {
+		.arsenal li { grid-template-columns: 1fr auto; grid-auto-rows: min-content; }
+		.arsenal .aval, .arsenal .asrc, .arsenal .awho { display: none; }
+	}
 
 	.poolfilter { display: grid; gap: 0.2rem; font-size: 0.8rem; color: var(--muted); max-width: 18rem; }
 	.poolfilter input {

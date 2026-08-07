@@ -1,6 +1,7 @@
 import { redirect, fail, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
+import { logAudit } from '$lib/server/audit';
 import {
 	autoDraftRemaining,
 	draftPick,
@@ -10,6 +11,7 @@ import {
 	maybeAdvancePhase,
 	openPlacement,
 	placeFleet,
+	removeBomb,
 	startBattle,
 	startDraft
 } from '$lib/server/battleship';
@@ -167,6 +169,39 @@ export const actions: Actions = {
 			note: 'Tester grant'
 		});
 		return res.ok ? { ok: true } : fail(400, { error: res.error });
+	},
+
+	// Undo a bomb that should not exist — a mis-approved manual claim, a drop credited to
+	// the wrong person, a duplicate. Its craters go with it and its source is closed so it
+	// cannot be minted again; see removeBomb.
+	removeBomb: async (event) => {
+		const { locals, request } = event;
+		const denied = requireAdmin(locals);
+		if (denied) return denied;
+
+		const form = await request.formData();
+		const arsenalId = form.get('arsenal_id')?.toString() ?? '';
+		if (!arsenalId) return fail(400, { error: 'No bomb given' });
+
+		const res = await removeBomb({ arsenalId });
+		if (!res.ok) return fail(400, { error: res.error });
+
+		// Taking ammunition off a side mid-event is exactly the sort of admin action that
+		// should be answerable for afterwards.
+		await logAudit(event, 200, {
+			action: 'battleship.removeBomb',
+			arsenalId,
+			side: res.value?.side,
+			tier: res.value?.tier,
+			itemName: res.value?.itemName,
+			cellsRemoved: res.value?.cellsRemoved,
+			reopened: res.value?.reopened
+		});
+
+		const bits = [`Removed a tier ${res.value?.tier} bomb from side ${res.value?.side}`];
+		if (res.value?.cellsRemoved) bits.push(`${res.value.cellsRemoved} craters cleared`);
+		if (res.value?.reopened) bits.push('the game reopened — its fleet is no longer sunk');
+		return { ok: true, report: bits.join(' · ') };
 	},
 
 	fire: async ({ locals, params, request }) => {
