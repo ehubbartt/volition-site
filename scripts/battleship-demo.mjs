@@ -13,6 +13,7 @@
 //   --players N   how many to enrol (default 80 — the size the real event is planned at)
 //   --phase P     signup | draft | placement | battle (default signup)
 //   --slug S      event slug (default test-battleship)
+//   --member      put YOU in as an ordinary member, not a captain (to see a member's view)
 //   --delete      delete the event and stop
 //
 // Re-running REPLACES the game at that slug, so it doubles as a reset.
@@ -39,6 +40,10 @@ const PLAYERS = Number(flag('players', 80));
 const SLUG = flag('slug', 'test-battleship');
 const PHASE = flag('phase', 'signup');
 const DELETE_ONLY = has('delete');
+// Captaincy decides what the player page will show you: a captain sees their own fleet
+// and places it, a member sees craters only. Being an admin does not override that once
+// you are on a side, so signing in as yourself is enough to see either view.
+const AS_MEMBER = has('member');
 
 const PHASES = ['signup', 'draft', 'placement', 'battle'];
 if (!PHASES.includes(PHASE)) {
@@ -120,13 +125,24 @@ try {
 
 	// ── fast-forward ─────────────────────────────────────────────────────────
 	if (upTo('draft')) {
+		// With --member the captaincies go to the next two on the roster, so you stay an
+		// ordinary player. You are then drafted onto side 1 explicitly, so which fleet you
+		// land on is not left to the auto-draft.
+		const [c1, c2] = AS_MEMBER ? [roster[1], roster[2]] : [roster[0], roster[1]];
 		const draft = await bs.startDraft({
 			eventId,
-			captains: [roster[0].id, roster[1].id],
+			captains: [c1.id, c2.id],
 			names: ['Fleet Red', 'Fleet Blue']
 		});
 		if (!draft.ok) throw new Error(draft.error);
-		console.log(`Draft open — captains ${roster[0].rsn} (Red) and ${roster[1].rsn} (Blue).`);
+		console.log(`Draft open — captains ${c1.rsn} (Red) and ${c2.rsn} (Blue).`);
+
+		if (AS_MEMBER && me) {
+			// Side 1 picks first, so this is in turn.
+			const pick = await bs.draftPick({ eventId, side: 1, userId: me.id });
+			if (!pick.ok) throw new Error(`could not draft you onto Fleet Red: ${pick.error}`);
+			console.log('You are an ordinary member of Fleet Red — not a captain.');
+		}
 	}
 
 	if (upTo('placement')) {
@@ -146,13 +162,18 @@ try {
 
 		// Ammunition on both sides, so there is something to fire the moment you open it —
 		// one of each tier for you, and a spread for the enemy to shoot back with.
+		// Your own account gets one of each tier whichever role you hold, so there is
+		// always something to fire from the login you actually use.
+		const mineId = (me ?? roster[0]).id;
 		for (const tier of [1, 2, 3]) {
-			await bs.grantBomb({ eventId, side: 1, tier, userId: roster[0].id, note: 'Test drop' });
+			await bs.grantBomb({ eventId, side: 1, tier, userId: mineId, note: 'Test drop' });
 			await bs.grantBomb({ eventId, side: 2, tier, userId: roster[1].id, note: 'Test drop' });
 		}
-		// A couple in a teammate's name too, so "Team arsenal" isn't all yours.
+		// A couple in a teammate's name too, so "Team arsenal" isn't all yours — and a
+		// member must NOT get a fire button on those.
+		const mate = snap.sides.find((x) => x.side === 1).members.find((m) => m.userId !== mineId);
 		for (const tier of [2, 3]) {
-			await bs.grantBomb({ eventId, side: 1, tier, userId: roster[2].id, note: 'Test drop' });
+			await bs.grantBomb({ eventId, side: 1, tier, userId: mate?.userId ?? roster[2].id, note: 'Test drop' });
 		}
 		console.log('Battle open — both sides placed, six bombs banked.');
 	}

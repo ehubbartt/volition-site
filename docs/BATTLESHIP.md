@@ -382,9 +382,17 @@ themselves, which is the opposite of what you want when you're testing by hand:
 ```bash
 npm run demo:battleship                      # 80 in the pool, signups open
 npm run demo:battleship -- --phase battle    # skip straight to a live battle
+npm run demo:battleship -- --phase battle --member --slug member-view
 npm run demo:battleship -- --players 12 --slug tiny-test
 npm run demo:battleship -- --delete          # remove it again
 ```
+
+**`--member` is how you see a member's view.** Without it you are captain of Fleet Red and
+see your own fleet; with it the captaincies go to the next two on the roster and you are
+drafted onto Fleet Red as an ordinary player. Being an admin does not override the
+redaction once you are on a side, so signing in as yourself is enough to see either view —
+no second account and no session-minting required. You get bombs of your own either way,
+plus a teammate's, so "yours to fire" versus "theirs" is visible from both roles.
 
 It leaves a `test` + `unlisted` event at `test-battleship`, parked at `signup`, `draft`,
 `placement` or `battle`, with you first in the pool (and captain of Fleet Red past the
