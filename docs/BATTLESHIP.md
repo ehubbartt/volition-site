@@ -151,9 +151,16 @@ and a ship is announced as sunk once every one of its squares is hit. Squares th
 already cratered are skipped rather than counted twice — and if *every* square of a bomb
 was already hit, the shot is refused and the bomb stays banked instead of being wasted.
 
-**What each side can see:** your own grid in full, the craters on the enemy's grid, and
-which of their ships are sunk. Never their ship positions. This is enforced server-side
-(see `redactFor` below), not by the UI.
+**What each side can see:** the craters on the enemy's grid and which of their ships are
+sunk — never their ship positions. **Your own fleet is visible to your CAPTAIN only**, not
+to your teammates: a fleet known to 43 people is one screenshot in the wrong Discord
+channel away from not being a secret. Members still get the enemy grid, so they can aim
+and fire the bombs they earn; the positions are the secret, not the board. A member also
+sees their side's health as counts ("96/107 squares afloat"), which reveals nothing.
+
+Placement is captain-only for the same reason — anyone who can *write* the fleet knows it
+afterwards, and could overwrite the captain's. All of this is enforced server-side (see
+`redactFor` and the `place` action), not by the UI.
 
 > **An admin who is PLAYING is redacted like anyone else.** Only a non-participant admin
 > (running the tester, or spectating) receives both fleets. This matters because at a clan

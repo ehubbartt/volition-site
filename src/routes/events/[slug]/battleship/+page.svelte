@@ -43,6 +43,16 @@
 	// on — firing is the whole job of this page, and a board you can't fire at is a
 	// worse landing place than one you can.
 	let boardView = $state<'foe' | 'mine'>('foe');
+	// Only a captain is sent their own fleet. Read it off the payload rather than
+	// re-deriving "am I the captain", so the UI can never offer a board the server
+	// withheld — and so a spectating admin, who does get both, still sees both.
+	const canSeeOwnFleet = $derived(!!me?.fleet);
+	// If a captain's own board is on screen and the payload stops carrying the fleet
+	// (role change, or a refresh that lands differently), fall back rather than render
+	// an empty grid labelled "your waters".
+	$effect(() => {
+		if (boardView === 'mine' && !canSeeOwnFleet) boardView = 'foe';
+	});
 	/** Arming a bomb puts you on the board you have to aim it at. */
 	function chooseBomb(id: string) {
 		selectedBomb = id;
@@ -264,6 +274,26 @@
 			</section>
 
 		<!-- ── Placement ──────────────────────────────────────────────── -->
+		{:else if game.phase === 'placement' && game.viewerSide && !game.viewerIsCaptain}
+			<!-- A member never sees the placement editor: the fleet is the captain's secret,
+			     and the server refuses a placement from anyone else regardless. -->
+			<section class="osrs-panel">
+				<h2 class="osrs-titlebar">Your captain is hiding the fleet</h2>
+				<p class="muted">
+					{#if game.placementEndsAt}
+						The battle opens at {new Date(game.placementEndsAt).toLocaleTimeString()}.
+					{/if}
+					Only your captain places the ships and only they can see where they are — that's
+					what keeps the positions off a screenshot. You'll be firing at the enemy board as
+					soon as the battle opens.
+				</p>
+				<p class="muted small dinktip">
+					Last chance to <a href="/dink-check">check your Dink setup →</a> — once the battle
+					opens, untracked drops don't arm anything.
+				</p>
+				<div class="refreshbar">{@render refreshBtn('Refresh')}</div>
+			</section>
+
 		{:else if game.phase === 'placement' && game.viewerSide}
 			<section class="osrs-panel">
 				<h2 class="osrs-titlebar">Hide your fleet</h2>
@@ -340,15 +370,20 @@
 								Their waters
 								<span class="sub" style="color: {foe?.color}">{foe?.name}</span>
 							</button>
-							<button
-								class="switchbtn"
-								class:active={boardView === 'mine'}
-								aria-pressed={boardView === 'mine'}
-								onclick={() => (boardView = 'mine')}
-							>
-								Your waters
-								<span class="sub" style="color: {me?.color}">{me?.name}</span>
-							</button>
+							<!-- Only the captain gets this tab, because only the captain gets the
+							     fleet. The server withholds it either way; hiding the button stops
+							     a member clicking through to an empty grid and reading it as a bug. -->
+							{#if canSeeOwnFleet}
+								<button
+									class="switchbtn"
+									class:active={boardView === 'mine'}
+									aria-pressed={boardView === 'mine'}
+									onclick={() => (boardView = 'mine')}
+								>
+									Your waters
+									<span class="sub" style="color: {me?.color}">{me?.name}</span>
+								</button>
+							{/if}
 						</div>
 						{@render refreshBtn('Refresh')}
 					</div>
@@ -376,6 +411,15 @@
 								{standing(game.viewerSide)?.hits ?? 0} hits ·
 								{standing(game.viewerSide)?.sunk ?? 0}/{foe?.fleetSummary.length ?? 0} of their ships sunk
 							</p>
+							{#if !canSeeOwnFleet}
+								<!-- A member can't see their own water, but they should still know how
+								     their side is doing. Counts reveal no positions. -->
+								<p class="stat osrs-inset">
+									Your fleet: {standing(game.viewerSide)?.afloat ?? 0}/{standing(game.viewerSide)?.totalCells ?? 0}
+									squares afloat · {standing(game.viewerSide)?.lost ?? 0}
+									ship{(standing(game.viewerSide)?.lost ?? 0) === 1 ? '' : 's'} lost
+								</p>
+							{/if}
 						</div>
 					{:else}
 						<div class="board">

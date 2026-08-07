@@ -30,6 +30,11 @@ export const actions: Actions = {
 		const { snap, side } = await sideFor(params.slug, locals.user.id);
 		if (!snap) return fail(404, { error: 'Game not found' });
 		if (!side) return fail(403, { error: 'You are not on a side in this game' });
+		// Captain-only, for the same reason the fleet is captain-only to READ: anyone who
+		// can write the placement knows it afterwards, and could overwrite the captain's.
+		if (side.captainUserId !== locals.user.id) {
+			return fail(403, { error: 'Only your captain places the fleet' });
+		}
 
 		const form = await request.formData();
 		let fleet: unknown;
