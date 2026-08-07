@@ -121,8 +121,8 @@ where a.event_id = t.id and a.spent_at is not null;
 commit;
 
 -- ── Verify ──────────────────────────────────────────────────────────────────
--- Expect: phase=placement, pinned_size=25, placement_ends_at ~24h out, sides=2,
--- sides_with_ships=0, shots=0, signed_up=85. The draft is untouched.
+-- Expect: phase=placement, pinned_size=25, placement_ends_at = the time you set above,
+-- sides=2, sides_with_ships=0, shots=0, signed_up=85. The draft is untouched.
 select e.slug,
        e.structure -> 'battleship' ->> 'phase'             as phase,
        e.structure -> 'battleship' ->> 'size'              as pinned_size,
