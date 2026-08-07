@@ -7,6 +7,7 @@
 	import TileSubmitModal from '$lib/TileSubmitModal.svelte';
 	import BoardGrid from '$lib/battleship/BoardGrid.svelte';
 	import {
+		anchorFor,
 		autoPlace,
 		cellId,
 		cellLabel,
@@ -38,21 +39,16 @@
 	);
 
 	let selectedBomb = $state<string | null>(null);
-	let anchor = $state<{ x: number; y: number } | null>(null);
+	let aim = $state<{ x: number; y: number } | null>(null);
 	// Which board is on screen. Defaults to the enemy's, because that's the one you ACT
 	// on — firing is the whole job of this page, and a board you can't fire at is a
 	// worse landing place than one you can.
 	let boardView = $state<'foe' | 'mine'>('foe');
-	// Only a captain is sent their own fleet. Read it off the payload rather than
-	// re-deriving "am I the captain", so the UI can never offer a board the server
-	// withheld — and so a spectating admin, who does get both, still sees both.
+	// Whether the payload actually carried our ship positions — true for the captain (and
+	// a spectating admin), false for a member. Everyone on the side still gets their own
+	// board: the craters on it are their own damage, and the enemy already knows them.
+	// Only the un-hit hulls are secret, and those are simply not in the payload to draw.
 	const canSeeOwnFleet = $derived(!!me?.fleet);
-	// If a captain's own board is on screen and the payload stops carrying the fleet
-	// (role change, or a refresh that lands differently), fall back rather than render
-	// an empty grid labelled "your waters".
-	$effect(() => {
-		if (boardView === 'mine' && !canSeeOwnFleet) boardView = 'foe';
-	});
 	/** Arming a bomb puts you on the board you have to aim it at. */
 	function chooseBomb(id: string) {
 		selectedBomb = id;
@@ -82,11 +78,12 @@
 	const selectedTier = $derived(game?.config.tiers.find((t) => t.tier === selected?.tier));
 	// Clamped exactly as the board and the server clamp it, so the readout, the highlight
 	// and what actually gets hit can never disagree.
-	const target = $derived.by(() => {
-		if (!anchor || !game) return null;
-		const max = Math.max(0, game.config.size - (selectedTier?.span ?? 1));
-		return { x: Math.min(anchor.x, max), y: Math.min(anchor.y, max) };
-	});
+	// `aim` is the square the player CLICKED; `shotAnchor` is the top-left the server
+	// stores, derived through the same rule the board draws with. Keeping them separate is
+	// what lets a 3x3 wrap around the square you pointed at instead of hanging off it.
+	const shotAnchor = $derived(
+		aim && game ? anchorFor(aim, selectedTier?.span ?? 1, game.config.size) : null
+	);
 
 	const shotsAt = (side: number | null | undefined) =>
 		game && side != null ? game.shots.filter((s) => s.targetSide === side) : [];
@@ -149,10 +146,13 @@
 		finished: 'The battle is over.'
 	};
 
-	// Reset the aim whenever the payload refreshes, so a stale anchor can't be fired.
+	// Drop the aim whenever the SPAN changes under it. Firing spends the bomb, which drops
+	// it out of `firable`, so `selected` falls through to whatever is next — often a
+	// different tier. Leaving the old square committed painted a footprint of the NEW size
+	// on the board, as though the player had aimed something they never chose.
 	$effect(() => {
-		void game?.shots.length;
-		anchor = null;
+		void selectedTier?.span;
+		aim = null;
 	});
 </script>
 
@@ -370,20 +370,15 @@
 								Their waters
 								<span class="sub" style="color: {foe?.color}">{foe?.name}</span>
 							</button>
-							<!-- Only the captain gets this tab, because only the captain gets the
-							     fleet. The server withholds it either way; hiding the button stops
-							     a member clicking through to an empty grid and reading it as a bug. -->
-							{#if canSeeOwnFleet}
-								<button
-									class="switchbtn"
-									class:active={boardView === 'mine'}
-									aria-pressed={boardView === 'mine'}
-									onclick={() => (boardView = 'mine')}
-								>
-									Your waters
-									<span class="sub" style="color: {me?.color}">{me?.name}</span>
-								</button>
-							{/if}
+							<button
+								class="switchbtn"
+								class:active={boardView === 'mine'}
+								aria-pressed={boardView === 'mine'}
+								onclick={() => (boardView = 'mine')}
+							>
+								Your waters
+								<span class="sub" style="color: {me?.color}">{me?.name}</span>
+							</button>
 						</div>
 						{@render refreshBtn('Refresh')}
 					</div>
@@ -404,22 +399,13 @@
 								sunkShipIds={sunkIdsFor(foe?.side)}
 								mode={game.phase === 'battle' && selected ? 'target' : 'view'}
 								span={selectedTier?.span ?? 1}
-								{target}
-								onpick={(x, y) => (anchor = { x, y })}
+								target={aim}
+								onpick={(x, y) => (aim = { x, y })}
 							/></div>
 							<p class="stat osrs-inset">
 								{standing(game.viewerSide)?.hits ?? 0} hits ·
 								{standing(game.viewerSide)?.sunk ?? 0}/{foe?.fleetSummary.length ?? 0} of their ships sunk
 							</p>
-							{#if !canSeeOwnFleet}
-								<!-- A member can't see their own water, but they should still know how
-								     their side is doing. Counts reveal no positions. -->
-								<p class="stat osrs-inset">
-									Your fleet: {standing(game.viewerSide)?.afloat ?? 0}/{standing(game.viewerSide)?.totalCells ?? 0}
-									squares afloat · {standing(game.viewerSide)?.lost ?? 0}
-									ship{(standing(game.viewerSide)?.lost ?? 0) === 1 ? '' : 's'} lost
-								</p>
-							{/if}
 						</div>
 					{:else}
 						<div class="board">
@@ -427,12 +413,18 @@
 								<span class="who" style="color: {me?.color}">{me?.name}</span> — your waters
 							</h3>
 							<p class="boardnote">
-								Your fleet, and every shot they've landed on it. You can't fire at this
-								board.
+								{#if canSeeOwnFleet}
+									Your fleet, and every shot they've landed on it. You can't fire at this board.
+								{:else}
+									Every shot they've fired at you — hits and misses. Where your ships actually
+									sit is your captain's to see, so a screenshot can't give the fleet away.
+								{/if}
 							</p>
+							<!-- null, not [] — the fleet is WITHHELD for a member, not empty. Craters
+							     still draw: they come from `shots`, which is public. -->
 							<div class="osrs-inset boardwell"><BoardGrid
 								size={game.config.size}
-								fleet={me?.fleet ?? []}
+								fleet={me?.fleet ?? null}
 								shots={shotsAt(game.viewerSide)}
 								sunkShipIds={sunkIdsFor(game.viewerSide)}
 							/></div>
@@ -466,17 +458,32 @@
 										</button>
 									{/each}
 								</div>
-								<form method="POST" action="?/fire" use:enhance class="inline">
+								<form
+									method="POST"
+									action="?/fire"
+									class="inline"
+									use:enhance={() =>
+										async ({ result, update }) => {
+											// The shot is spent: clear the aim HERE rather than waiting for the
+											// payload to come back, so there is never a frame showing a live
+											// target square for a bomb that has already gone.
+											if (result.type === 'success') {
+												aim = null;
+												selectedBomb = null;
+											}
+											await update();
+										}}
+								>
 									<input type="hidden" name="arsenal_id" value={selected?.id ?? ''} />
-									<input type="hidden" name="x" value={target?.x ?? ''} />
-									<input type="hidden" name="y" value={target?.y ?? ''} />
+									<input type="hidden" name="x" value={shotAnchor?.x ?? ''} />
+									<input type="hidden" name="y" value={shotAnchor?.y ?? ''} />
 									<span class="muted">
-										{target
-											? `${selectedTier?.name} · ${selectedTier?.span}×${selectedTier?.span} · ${cellLabel(cellId(target.x, target.y))}`
+										{aim
+											? `${selectedTier?.name} · ${selectedTier?.span}×${selectedTier?.span} · ${cellLabel(cellId(aim.x, aim.y))}`
 											: 'Tap their board to choose a square.'}
 									</span>
-									<button class="btn primary" type="submit" disabled={!target || !selected}>
-										{target ? `Fire at ${cellLabel(cellId(target.x, target.y))}` : 'Fire'}
+									<button class="btn primary" type="submit" disabled={!aim || !selected}>
+										{aim ? `Fire at ${cellLabel(cellId(aim.x, aim.y))}` : 'Fire'}
 									</button>
 								</form>
 							{/if}

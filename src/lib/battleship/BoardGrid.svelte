@@ -7,7 +7,7 @@
 	// Layout note: the labels and the play area are SEPARATE grids sharing one gap, so
 	// the water is exactly the n×n play area (nothing bleeds under the labels) and the
 	// cells can be driven off `aspect-ratio` to stay square at any board size.
-	import { cellId, columnLabel, type CellId, type Ship } from './rules';
+	import { anchorFor, cellId, columnLabel, type CellId, type Ship } from './rules';
 
 	interface ShotLike {
 		cell: CellId;
@@ -26,7 +26,7 @@
 		span = 1,
 		/** Ship ids fully sunk — drawn even when the fleet itself is withheld. */
 		sunkShipIds = [],
-		/** The COMMITTED anchor — drawn persistently, unlike the transient hover preview. */
+		/** The COMMITTED square — drawn persistently, unlike the transient hover preview. */
 		target = null,
 		disabled = false,
 		onpick = undefined
@@ -48,35 +48,32 @@
 	);
 	const sunkSet = $derived(new Set(sunkShipIds));
 
-	// Where the preview footprint sits. Clamped so it always fits, matching the server's
-	// "the whole bomb has to land on the board" rule.
+	// The footprint for a square you are POINTING AT. `anchorFor` centres it on that square
+	// (a 3x3 wraps around it) and clamps it so the whole bomb lands on the board, matching
+	// the server's "the whole bomb has to land" rule. Both previews go through it, so the
+	// hover, the committed highlight and the shot fired can never disagree.
 	let hover = $state<{ x: number; y: number } | null>(null);
-	const maxAnchor = $derived(Math.max(0, size - span));
-	const previewCells = $derived.by(() => {
-		if (mode !== 'target' || !hover) return new Set<string>();
-		const ax = Math.min(hover.x, maxAnchor);
-		const ay = Math.min(hover.y, maxAnchor);
+	const footprint = (cell: { x: number; y: number } | null) => {
 		const out = new Set<string>();
-		for (let dy = 0; dy < span; dy++) for (let dx = 0; dx < span; dx++) out.add(cellId(ax + dx, ay + dy));
+		if (!cell) return out;
+		const a = anchorFor(cell, span, size);
+		for (let dy = 0; dy < span; dy++) for (let dx = 0; dx < span; dx++) out.add(cellId(a.x + dx, a.y + dy));
 		return out;
-	});
+	};
+	const previewCells = $derived(mode === 'target' ? footprint(hover) : new Set<string>());
 
 	// The squares the CHOSEN shot will cover. Separate from the hover preview on purpose:
 	// hover is exploratory and vanishes the moment the pointer leaves, but a player who has
 	// picked a square then moves to the Fire button — and losing the highlight at exactly
 	// that moment means firing off a line of text alone.
-	const targetCells = $derived.by(() => {
-		if (!target) return new Set<string>();
-		const ax = Math.min(target.x, maxAnchor);
-		const ay = Math.min(target.y, maxAnchor);
-		const out = new Set<string>();
-		for (let dy = 0; dy < span; dy++) for (let dx = 0; dx < span; dx++) out.add(cellId(ax + dx, ay + dy));
-		return out;
-	});
+	const targetCells = $derived(footprint(target));
 
+	// Reports the square that was CLICKED, not an anchor. Clamping the click would drag
+	// the aim sideways near an edge; `anchorFor` handles fitting the footprint instead, so
+	// what you point at is what the highlight wraps around.
 	function pick(x: number, y: number) {
 		if (disabled || mode !== 'target' || !onpick) return;
-		onpick(Math.min(x, maxAnchor), Math.min(y, maxAnchor));
+		onpick(x, y);
 	}
 
 	const axis = $derived(Array.from({ length: size }, (_, i) => i));

@@ -142,9 +142,17 @@ would have no idea whether the team was sitting on a Broadside or nothing at all
 
 ### Firing
 
-A bomb is aimed at a square on the enemy grid; its footprint is anchored at the
-**top-left** for every tier, so the aiming preview is one rule at every size. The whole
-footprint has to land on the board (every square, corners included, is still reachable).
+A bomb is aimed at a square on the enemy grid and the blast **wraps around the square you
+clicked**: a 3×3 puts it in the middle, a 1×1 is the square itself. A 2×2 has no middle
+square, so the click becomes its top-left — the invariant is that *the square you clicked
+is always inside the footprint*, which is what makes aiming predictable. The whole
+footprint has to land on the board, so near an edge it slides inward to fit (every square,
+corners included, is still reachable).
+
+`anchorFor(cell, span, size)` does that click→anchor translation and lives in the rules, so
+the hover preview, the committed highlight and the shot actually fired cannot disagree.
+Storage is unchanged: `vs_battleship_shots` still records the **top-left** anchor and
+`bombCells` still expands from it.
 
 Each covered square is a hit or a miss, exactly like the real game: hits show, misses show,
 and a ship is announced as sunk once every one of its squares is hit. Squares that were

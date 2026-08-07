@@ -2,7 +2,7 @@
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
 	import BoardGrid from '$lib/battleship/BoardGrid.svelte';
-	import { cellLabel } from '$lib/battleship/rules';
+	import { anchorFor, cellLabel } from '$lib/battleship/rules';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -10,6 +10,7 @@
 	const sides = $derived(game.sides);
 	// Which side the tester is currently acting as. One admin plays both.
 	let actingSide = $state(1);
+	// The square the tester CLICKED; the stored top-left is derived from it below.
 	let targetAnchor = $state<{ x: number; y: number } | null>(null);
 	let selectedBomb = $state<string | null>(null);
 
@@ -19,6 +20,12 @@
 	const myBombs = $derived(game.arsenal.filter((a) => a.side === actingSide && !a.spentAt));
 	const selected = $derived(myBombs.find((b) => b.id === selectedBomb) ?? myBombs[0]);
 	const selectedTier = $derived(game.config.tiers.find((t) => t.tier === selected?.tier));
+	// The top-left the server stores, derived from the clicked square through the same
+	// rule the board draws with, so a 3x3 wraps around the aim exactly as it does on the
+	// player page.
+	const shotAnchor = $derived(
+		targetAnchor ? anchorFor(targetAnchor, selectedTier?.span ?? 1, game.config.size) : null
+	);
 
 	const shotsAt = (side: number) => game.shots.filter((s) => s.targetSide === side);
 	const sunkIds = (side: number) => {
@@ -276,8 +283,8 @@
 
 						<form method="POST" action="?/fire" use:enhance class="inline">
 							<input type="hidden" name="arsenal_id" value={selected?.id ?? ''} />
-							<input type="hidden" name="x" value={targetAnchor?.x ?? ''} />
-							<input type="hidden" name="y" value={targetAnchor?.y ?? ''} />
+							<input type="hidden" name="x" value={shotAnchor?.x ?? ''} />
+							<input type="hidden" name="y" value={shotAnchor?.y ?? ''} />
 							<span class="muted">
 								{#if targetAnchor}
 									{selectedTier?.name} · {selectedTier?.span}×{selectedTier?.span} · {cellLabel(`${targetAnchor.x},${targetAnchor.y}`)}

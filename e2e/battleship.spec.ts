@@ -191,6 +191,28 @@ test.describe.serial('Battleship', () => {
 		await page.mouse.move(5, 5); // pointer well away from the board
 		await expect(page.locator('.cell.target')).toHaveCount(9);
 
+		// And the blast WRAPS the square you clicked rather than hanging off its corner.
+		// Aim at the middle of the board, where nothing is clamped by an edge.
+		const enemyCells = page.locator('.board').nth(1).locator('.cell');
+		const edge = Math.round(Math.sqrt(await enemyCells.count()));
+		const middle = Math.floor(edge / 2) * edge + Math.floor(edge / 2);
+		await enemyCells.nth(middle).click();
+		await expect(page.locator('.cell.target')).toHaveCount(9);
+		const litIdx: number[] = await enemyCells.evaluateAll((els) =>
+			els.map((e, i) => (e.classList.contains('target') ? i : -1)).filter((i) => i >= 0)
+		);
+		expect(litIdx[Math.floor(litIdx.length / 2)], 'the clicked square is the centre of a 3x3').toBe(
+			middle
+		);
+		// A corner aim still fits on the board — it slides inward rather than being refused.
+		await enemyCells.nth(0).click();
+		await expect(page.locator('.cell.target')).toHaveCount(9);
+		expect(
+			await enemyCells.nth(0).evaluate((e) => e.classList.contains('target')),
+			'the corner square you clicked is still covered'
+		).toBe(true);
+		await enemyCells.nth(middle).click();
+
 		await page.getByRole('button', { name: /^fire at /i }).click();
 
 		// The report is the proof the shot actually resolved server-side.
@@ -267,8 +289,7 @@ test.describe.serial('Battleship', () => {
 			expect(side.fleetSummary.length).toBeGreaterThan(0);
 		}
 
-		// The switch offers "your waters" only when the payload actually carried a fleet,
-		// so nobody clicks through to an empty grid and reads it as a bug.
+		// Everyone on a side gets both tabs; what differs is whether hulls are drawn.
 		const ownTab = page.getByRole('button', { name: /your waters/i });
 		if (iAmCaptain) {
 			await expect(ownTab).toBeVisible();
@@ -276,9 +297,12 @@ test.describe.serial('Battleship', () => {
 			await expect(page.getByRole('heading', { name: /your waters/i })).toBeVisible();
 			await expect(board.locator('.cell.ship')).not.toHaveCount(0);
 		} else {
-			await expect(ownTab).toHaveCount(0);
-			// …but they still get told how their own fleet is doing, in counts.
-			await expect(page.getByText(/your fleet:.*squares afloat/i)).toBeVisible();
+			// A member still gets their OWN board — the craters on it are their own damage
+			// and the enemy already knows them. What's withheld is the un-hit hulls.
+			await expect(ownTab).toBeVisible();
+			await ownTab.click();
+			await expect(page.getByRole('heading', { name: /your waters/i })).toBeVisible();
+			await expect(board.locator('.cell.ship')).toHaveCount(0);
 		}
 	});
 

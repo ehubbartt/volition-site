@@ -349,12 +349,34 @@ test.describe.serial(`Battleship — full ${PLAYERS}-player event (${LABEL})`, (
 		for (const s of parsed.game.sides) {
 			expect(s.fleet, `side ${s.side} positions leaked to a member`).toBeNull();
 		}
-		await expect(page.getByRole('button', { name: /your waters/i })).toHaveCount(0);
 		// No hull is drawn anywhere on their page.
 		await expect(page.locator('.cell.ship')).toHaveCount(0);
-		// They still get their side's health, as counts.
-		await expect(page.getByText(/your fleet:.*squares afloat/i)).toBeVisible();
-		await shot(page, 'member-view-no-own-fleet');
+		await shot(page, 'member-view-enemy-board');
+
+		// …but they DO get their own board, with the enemy's hits and misses on it. Their
+		// own damage is theirs to see and the enemy already knows it; only the un-hit hulls
+		// are secret. Fire a 3x3 at their side so there is something to look at.
+		const before = (await bs.loadBattleship(SLUG)).shots.filter((x: any) => x.targetSide === 1).length;
+		const g = await bs.grantBomb({ eventId, side: 2, tier: 3, note: 'incoming for the member view' });
+		expect(g.ok, g.ok ? '' : g.error).toBe(true);
+		const incoming = await bs.loadBattleship(SLUG);
+		const enemyBomb = incoming.arsenal.find((a: any) => a.side === 2 && !a.spentAt);
+		const shotRes = await bs.fireBomb({
+			eventId, arsenalId: enemyBomb.id, byUserId: null, anchor: { x: 4, y: 4 }, force: true
+		});
+		expect(shotRes.ok, shotRes.ok ? '' : shotRes.error).toBe(true);
+		expect((await bs.loadBattleship(SLUG)).shots.filter((x: any) => x.targetSide === 1).length)
+			.toBeGreaterThan(before);
+
+		await page.reload();
+		await page.getByRole('button', { name: /your waters/i }).click();
+		await expect(page.getByRole('heading', { name: /your waters/i })).toBeVisible();
+		// Craters on their own water: both the hits and the MISSES are visible…
+		await expect(page.locator('.board .cell.hit, .board .cell.miss')).not.toHaveCount(0);
+		// …and still not one hull.
+		await expect(page.locator('.board .cell.ship')).toHaveCount(0);
+		await shot(page, 'member-view-own-craters-no-hulls');
+		await page.getByRole('button', { name: /their waters/i }).click();
 
 		// And they can still fight: a member fires the bombs they earn.
 		const granted = await bs.grantBomb({
