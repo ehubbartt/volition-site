@@ -372,6 +372,75 @@ try {
 	// Bombs actually spent so far — the fight below adds to this, and step 9 reconciles.
 	const raceSpent = 1 + both.filter((r) => r.ok).length;
 
+	// ── 7c. adversarial ──────────────────────────────────────────────────────
+	// Every one of these is something a player could try by hand-posting a form. They
+	// must be refused by the SERVER, not by the UI not offering a button.
+	step('7c', 'Things a player must not be able to do');
+	snap = await bs.loadBattleship(SLUG);
+	const side1 = snap.sides[0];
+	const side2 = snap.sides[1];
+	const rando1 = side1.members.find((m) => m.userId !== side1.captainUserId);
+	const rando2 = side2.members.find((m) => m.userId !== side2.captainUserId);
+
+	// Fire a bomb that belongs to the OTHER side.
+	await bs.earnBomb({ eventId, side: 2, userId: side2.members[0].userId, value: tiers[0].min_value, dropKey: `adv-enemy-${SEED}` });
+	snap = await bs.loadBattleship(SLUG);
+	const enemyBomb = snap.arsenal.find((a) => a.side === 2 && !a.spentAt);
+	const stealEnemy = await bs.fireBomb({ eventId, arsenalId: enemyBomb.id, byUserId: rando1.userId, anchor: { x: 0, y: 0 } });
+	check("can't fire the other side's bomb", !stealEnemy.ok, stealEnemy.ok ? 'ALLOWED' : stealEnemy.error);
+
+	// Fire a TEAMMATE's bomb without being captain.
+	await bs.earnBomb({ eventId, side: 1, userId: side1.captainUserId, value: tiers[0].min_value, dropKey: `adv-mate-${SEED}` });
+	snap = await bs.loadBattleship(SLUG);
+	const mateBomb = snap.arsenal.find((a) => a.side === 1 && !a.spentAt && a.earnedBy === side1.captainUserId);
+	const stealMate = await bs.fireBomb({ eventId, arsenalId: mateBomb.id, byUserId: rando1.userId, anchor: { x: 1, y: 1 } });
+	check("a non-captain can't fire a teammate's bomb", !stealMate.ok, stealMate.ok ? 'ALLOWED' : stealMate.error);
+
+	// The captain CAN — the rule the UI advertises has to actually hold.
+	const captainFire = await bs.fireBomb({ eventId, arsenalId: mateBomb.id, byUserId: side1.captainUserId, anchor: { x: 1, y: 1 } });
+	check('the captain can fire a teammate\'s bomb', captainFire.ok, captainFire.ok ? '' : captainFire.error);
+	// Counted so the bomb-conservation check at the end still balances.
+	const advSpent = captainFire.ok ? 1 : 0;
+
+	// Someone not in the event at all.
+	const outsider = players.find((p) => !snap.sides.some((s) => s.members.some((m) => m.userId === p.id)));
+	if (outsider) {
+		const outsiderFire = await bs.fireBomb({ eventId, arsenalId: enemyBomb.id, byUserId: outsider.id, anchor: { x: 2, y: 2 } });
+		check("a non-participant can't fire", !outsiderFire.ok, outsiderFire.ok ? 'ALLOWED' : outsiderFire.error);
+	}
+
+	// Re-place a fleet after placement has closed (peeking at incoming fire then moving).
+	const rePlace = await bs.placeFleet({ eventId, side: 1, fleet: rules.autoPlace(snap.config.size) });
+	check("can't move ships once the battle is on", !rePlace.ok, rePlace.ok ? 'ALLOWED' : rePlace.error);
+
+	// Join after the draft has started.
+	const lateJoin = await sb.from('vs_event_signups').insert({ event_id: eventId, user_id: outsider?.id ?? players[0].id });
+	// (the DB allows the row; the ACTION is what gates it — assert the phase gate instead)
+	if (!lateJoin.error && outsider) await sb.from('vs_event_signups').delete().eq('event_id', eventId).eq('user_id', outsider.id);
+	const lateLeave2 = await bs.leaveEvent({ eventId, userId: rando2.userId });
+	check("can't leave once drafted", !lateLeave2.ok, lateLeave2.ok ? 'ALLOWED' : lateLeave2.error);
+
+	// A manual claim under the tier floor must arm nothing even if approved.
+	const tinyClaim = await bs.earnBomb({
+		eventId, side: 1, userId: rando1.userId,
+		value: tiers[0].min_value - 1, dropKey: `adv-tiny-${SEED}`
+	});
+	check('a sub-floor claim arms nothing', !tinyClaim.minted);
+
+	// Inflating a claimed value past the top tier buys nothing — tier 3 is the ceiling.
+	const huge = rules.tierForValue(999_000_000_000, tiers);
+	check('an absurd value still only reaches the top tier', huge.tier === 3, `tier=${huge?.tier}`);
+
+	// A PLAYING admin must not see the enemy fleet — captains at a clan event are
+	// usually admins, and this is the difference between a game and a look at the answers.
+	const playingAdmin = bs.redactFor(snap, { userId: rando1.userId, isAdmin: true });
+	const enemyToAdmin = playingAdmin.sides.find((s) => s.side === 2);
+	check('an admin who is PLAYING cannot see the enemy fleet', enemyToAdmin.fleet === null,
+		enemyToAdmin.fleet === null ? '' : 'the enemy fleet leaked to a playing admin');
+	const spectatorAdmin = bs.redactFor(snap, { userId: 'not-a-player', isAdmin: true });
+	check('a non-participant admin still sees both (for the tester)',
+		spectatorAdmin.sides.every((s) => Array.isArray(s.fleet)));
+
 	// ── 8. fight ─────────────────────────────────────────────────────────────
 	step(8, 'Fight until one fleet is gone');
 	let bombsFired = 0;
@@ -477,8 +546,8 @@ try {
 	const spent = snap.arsenal.filter((a) => a.spentAt);
 	check(
 		'bombs fired match bombs spent',
-		spent.length === bombsFired + raceSpent,
-		`spent=${spent.length} fired=${bombsFired}+${raceSpent}`
+		spent.length === bombsFired + raceSpent + advSpent,
+		`spent=${spent.length} fired=${bombsFired}+${raceSpent}+${advSpent}`
 	);
 	const spentWithoutShots = spent.filter((a) => !snap.shots.some((s) => s.bombId && a.spentAt && s.tier === a.tier));
 	check('no bomb was spent without leaving a crater', spentWithoutShots.length < spent.length);
@@ -512,8 +581,16 @@ try {
 		leaked.length ? `leaked ${leaked.join(' ')}` : ''
 	);
 
-	const adminView = bs.redactFor(snap, { userId: spy.userId, isAdmin: true });
-	check('an admin sees both fleets', adminView.sides.every((s) => Array.isArray(s.fleet)));
+	// An admin who is PLAYING is redacted exactly like anyone else — see step 7c for why.
+	// Only a non-participant admin (the tester) gets both fleets.
+	const playingAdminView = bs.redactFor(snap, { userId: spy.userId, isAdmin: true });
+	check(
+		'a PLAYING admin is redacted like any other player',
+		playingAdminView.sides.find((s) => s.side !== playingAdminView.viewerSide).fleet === null
+	);
+	const testerView = bs.redactFor(snap, { userId: 'not-in-this-game', isAdmin: true });
+	check('a non-participant admin still sees both (the tester needs it)',
+		testerView.sides.every((s) => Array.isArray(s.fleet)));
 
 	// ── summary ──────────────────────────────────────────────────────────────
 	console.log(

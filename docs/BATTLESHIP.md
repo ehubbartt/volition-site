@@ -6,7 +6,7 @@ way to attack is to play the game: **any drop you get becomes a bomb**, and the 
 drop the bigger the hole it makes in the other side's water. First side to sink the enemy
 fleet wins.
 
-Sized for **~32 players** (16 a side) but the board scales with whoever actually signs up.
+Sized for **80 players** (40 a side, a 25×25 board) but it scales to whoever actually signs up.
 
 This doc is both the ruleset (numbers are first-pass and meant to be tuned) and the map of
 the implementation. See also [`EVENTS.md`](EVENTS.md) for the shared events spine and
@@ -28,7 +28,35 @@ pipeline this hangs off.
 | `finished` | Standings are final. | — |
 
 The draft is plain alternating ("each captain picks from the pool until everyone is
-picked"). With an odd pool the side picking first ends up one player larger.
+picked"). Side 1 — Captain 1's side — always picks first; the engine takes a `firstSide`
+but the admin form doesn't offer it, so putting a captain in the **Captain 1** slot is how
+you give them first pick. With an odd pool the side picking first ends up one player larger.
+
+**One screen makes the picks.** The pick board lives on the admin page and is admin-only;
+in practice an admin drives it while both captains call their picks, usually over a shared
+stream. To make that work the board does four things:
+
+- A banner names the fleet the next click will feed — **by name and in its colour**, with
+  its captain and the pick number. "Side 1" is not what anyone calls their team, and a pick
+  cannot be undone from this page. The pool buttons carry the same colour, so the thing you
+  click looks like the fleet it feeds even once the banner has scrolled away.
+- It renders the **whole** pool. It used to stop at 40 names, which at 80 signups left half
+  the pool unpickable — a captain could call a name that simply wasn't on screen.
+- A filter finds a called-out name without scanning a wall of buttons.
+- Every pick raises a **modal announcing who went where and at what pick number**,
+  dismissed by clicking it. A name silently moving between two lists is invisible on a
+  stream.
+
+> **Side colours follow the default names**: side 1 is `#ef4444` (Fleet **Red**), side 2 is
+> `#3b82f6` (Fleet **Blue**). They were the other way round until the draft banner put the
+> name and the colour side by side and made it obvious. Games drafted before that fix keep
+> the colours stored on their `vs_battleship_teams` rows.
+
+Captains and members get the undrafted pool on **their own** page for the whole draft, to
+read rather than click. `draftPick` still enforces the turn rule and claims a member with a
+conditional write (`… where team_id is null`), so two simultaneous picks of the same person
+produce one pick — the guards for a captain-facing pick screen already exist if that's ever
+wanted; only the UI doesn't.
 
 **Leaving** (`leaveEvent`) is self-serve during `signup` only — including after
 `signup_closes_at` has passed, as long as the draft hasn't begun, since someone who knows
@@ -44,20 +72,34 @@ side with no ships cannot be shot at and would stall the event for everyone else
 
 ### The board scales with the draft
 
-Water per player is fixed (6 squares), so the grid grows with the headcount and the game
-doesn't turn into a needle hunt at 48 players or a bloodbath at 20:
+Water per player is fixed (**15 squares**), so the grid grows with the headcount — bombs
+arrive in proportion to headcount, so board area has to as well or a big event just
+saturates its board:
 
-| Per side | Board | Fleet | Ship squares |
-|---|---|---|---|
-| 10 | 8×8 | 5·4·3 | 12 |
-| 16 | **10×10** | **5·4·3·3·2** | **17** |
-| 24 | 12×12 | 5·5·4·4·3·3·2 | 26 |
-| 32 | 14×14 | 5·5·4·4·3·3·3·3·2·2 | 34 |
+| Players | Per side | Board | Squares | Ships | Ship squares |
+|---|---|---|---|---|---|
+| 12 | 6 | **10×10** | 100 | 5 | 17 |
+| 32 | 16 | 16×16 | 256 | 13 | 46 |
+| 48 | 24 | 19×19 | 361 | 18 | 63 |
+| 60 | 30 | 22×22 | 484 | 24 | 83 |
+| **80** | **40** | **25×25** | **625** | **31** | **107** |
+| 100 | 50 | 25×25 (capped) | 625 | 31 | 107 |
 
-**16 a side — a 32-player event — is exactly the classic 10×10 Battleship board with the
-classic fleet.** That's the anchor the scaling is built around. Bigger boards keep the same
-~17% ship density by adding more ships, not longer ones. Bounds are 8×8 and 20×20; an admin
-can also pin a size when creating the event.
+**A 12-player event is exactly the classic 10×10 board with the classic 5/4/3/3/2 fleet.**
+Bigger boards keep the same ~17% ship density by adding more ships, not longer ones.
+Bounds are 8×8 and 25×25; an admin can pin an exact size when creating the event.
+
+> **This dial has been raised twice.** At 6 squares per player, 60 players got a 14×14
+> board and the rehearsal took 185 shots on 196 squares to finish — i.e. it ran until the
+> board was nearly all craters, and that was with *random* targeting. Real players hunt
+> around their hits, so they'd have got there much sooner. 12 doubled the water; 15 is set
+> from the event actually being run — 80 players on 25×25. It's still a guess against
+> unmeasured drop rates: raise it further if events end too quickly.
+
+> **25×25 is the ceiling, and it's a display limit rather than a game one.** Past that a
+> grid stops reading as a board: cells fall under a comfortable size on a desktop viewport,
+> and a phone has to scroll through more of the board than it can show. A larger event gets
+> a longer event, not more water.
 
 Ships are placed horizontally or vertically, may **touch** but not overlap (standard rules).
 
@@ -81,24 +123,70 @@ All three thresholds are set per event when it's created.
 > other servers. Keeping the smallest bomb above that means they need no config change to
 > play. Dropping tier 1 below 3m would silently exclude them.
 
-A bomb goes into the side's **arsenal** and stays there until someone fires it. The member
-who earned it can fire it; **the captain can fire any of the side's bombs**, so nothing goes
-stale when someone logs off for the night.
+A bomb goes into the side's **arsenal** and stays there until someone fires it.
+
+**Who can fire what:**
+
+| | Bombs they earned | Teammates' bombs |
+|---|---|---|
+| A member | ✅ fires them | 👀 sees them, can't fire |
+| The captain | ✅ | ✅ |
+
+The captain's blanket permission exists so nothing goes stale when someone logs off for the
+night with a Broadside banked. Enforced server-side in `fireBomb`, not by the UI.
+
+The battle page shows this as two sections: **Your bombs** (clickable, the ones you may
+fire) and **Team arsenal** (everything the side has banked, with who earned each and a
+"yours to fire" tag). Everyone can see the whole side's ammunition — a member who couldn't
+would have no idea whether the team was sitting on a Broadside or nothing at all.
 
 ### Firing
 
-A bomb is aimed at a square on the enemy grid; its footprint is anchored at the
-**top-left** for every tier, so the aiming preview is one rule at every size. The whole
-footprint has to land on the board (every square, corners included, is still reachable).
+A bomb is aimed at a square on the enemy grid and the blast **wraps around the square you
+clicked**: a 3×3 puts it in the middle, a 1×1 is the square itself. A 2×2 has no middle
+square, so the click becomes its top-left — the invariant is that *the square you clicked
+is always inside the footprint*, which is what makes aiming predictable. The whole
+footprint has to land on the board, so near an edge it slides inward to fit (every square,
+corners included, is still reachable).
+
+`anchorFor(cell, span, size)` does that click→anchor translation and lives in the rules, so
+the hover preview, the committed highlight and the shot actually fired cannot disagree.
+Storage is unchanged: `vs_battleship_shots` still records the **top-left** anchor and
+`bombCells` still expands from it.
 
 Each covered square is a hit or a miss, exactly like the real game: hits show, misses show,
 and a ship is announced as sunk once every one of its squares is hit. Squares that were
 already cratered are skipped rather than counted twice — and if *every* square of a bomb
 was already hit, the shot is refused and the bomb stays banked instead of being wasted.
 
-**What each side can see:** your own grid in full, the craters on the enemy's grid, and
-which of their ships are sunk. Never their ship positions. This is enforced server-side
-(see `redactFor` below), not by the UI.
+**What each side can see:** the craters on the enemy's grid and which of their ships are
+sunk — never their ship positions. **Your own fleet is visible to your CAPTAIN only**, not
+to your teammates: a fleet known to 43 people is one screenshot in the wrong Discord
+channel away from not being a secret. Members still get the enemy grid, so they can aim
+and fire the bombs they earn; the positions are the secret, not the board. A member also
+sees their side's health as counts ("96/107 squares afloat"), which reveals nothing.
+
+Placement is captain-only for the same reason — anyone who can *write* the fleet knows it
+afterwards, and could overwrite the captain's. All of this is enforced server-side (see
+`redactFor` and the `place` action), not by the UI.
+
+> **An admin who is PLAYING is redacted like anyone else.** Only a non-participant admin
+> (running the tester, or spectating) receives both fleets. This matters because at a clan
+> event the captains are usually admins — leaving admins unredacted would have let a
+> captain read their opponent's board.
+
+**One board at a time.** The battle page shows *either* the enemy's water or your own,
+never both, chosen with a labelled switch — two 25×25 grids side by side shrink each into
+something you squint at, and "which of these is mine?" should not be a question you answer
+from a small heading. It opens on the **enemy's** board, because firing is the page's job
+and a board you can't fire at is a worse landing place than one you can. Arming a bomb
+switches you there too, so a player reading their own damage doesn't have to find the
+switch before they can aim.
+
+**Aiming.** Hovering a square previews the footprint, and *clicking commits it*: the chosen
+squares stay lit until you fire or pick elsewhere, and the button reads "Fire at F7". The
+preview alone is not enough — it follows the pointer, so it vanishes exactly when you move
+to the Fire button, and on a phone there is no hover at all.
 
 ---
 
@@ -112,7 +200,12 @@ which of their ships are sunk. Never their ship positions. This is enforced serv
   identically. Cells are `"x,y"` strings — the same identity the database's unique index
   uses. Never build one by hand; go through `cellId`/`parseCell`.
 - `src/lib/battleship/BoardGrid.svelte` — one grid, used for both boards everywhere, so
-  hit/miss rendering can't drift between your water and theirs.
+  hit/miss rendering can't drift between your water and theirs. Two points worth keeping:
+  the labels and the play area are **separate grids sharing one gap**, so the sea is
+  exactly the n×n play area and `aspect-ratio: 1` on it keeps cells square at any board
+  size (verified square with no horizontal overflow at 1440 / 1024 / 390px); and the cells
+  must reset `min-height` and `border-image`, because they are `<button>`s and app.css's
+  global bronze frame would otherwise force them 38px tall and rectangular.
 - `src/lib/server/battleship.ts` — the store: load a snapshot, and the actions
   (`startDraft`, `draftPick`, `placeFleet`, `startBattle`, `earnBomb`, `fireBomb`).
 - `src/lib/server/battleshipPage.ts` — the member payload. Its only job is that everything
@@ -198,8 +291,14 @@ Battleship needed a second admission rule.
    matching, so one drop can credit a bingo tile, a personal-board tile *and* arm a bomb —
    the same "credit every matching candidate" rule the consumer already follows.
 
-Two rules it inherits from the rest of the pipeline: a drop received **before** the battle
-opened arms nothing, and re-running a drop mints nothing further (the reconcile pass
+**A drop arms a bomb in exactly one event.** `activeBattleshipFor` picks it, and the pick
+is ordered: a **real** event beats a **test** one, and the newest wins the tie. Unordered
+it was whichever row PostgREST returned first — which meant a test game left running in the
+`battle` phase silently swallowed drops meant for the live event. (The 80-player simulation
+found this the hard way, against a preview game that was still open.)
+
+Two more rules it inherits from the rest of the pipeline: a drop received **before** the
+battle opened arms nothing, and re-running a drop mints nothing further (the reconcile pass
 deliberately re-runs recent drops, so this happens routinely). A drop that armed a bomb but
 matched no tile is stamped `bomb`, so it doesn't show up in `/admin/dink-drops` under
 "Didn't credit".
@@ -215,8 +314,11 @@ matched no tile is stamped `bomb`, so it doesn't show up in `/admin/dink-drops` 
 3. `/admin/battleship` → **New game**. Set the signup window and, if you want, the tier
    thresholds and a fixed board size.
 4. Members join at `/events/<slug>/battleship`.
-5. When signups close, pick the two captains and **start the draft**. Captains pick from
-   the pool (the tester can also auto-draft the rest).
+5. When signups close, pick the two captains and **start the draft**. Picks are made at
+   `/admin/battleship/<slug>`, which is **admin-only** — there is no captain-facing pick
+   screen, so an admin drives the board while the captains call their picks (they can
+   follow the pool on their own page). Each pick raises an announcement modal; the filter
+   finds a name; "Auto-draft the rest" drains whatever is left.
 6. The pool emptying opens the **1-hour placement window**; members hide their fleets.
 7. The battle opens on its own at the deadline. From there it runs itself: drops arm
    bombs, members fire them, and the event ends when a fleet is gone.
@@ -225,7 +327,83 @@ The tester at `/admin/battleship/<slug>` can drive every one of those steps by h
 either side — including granting bombs — so a whole game can be rehearsed without waiting
 on real drops.
 
+### The two-person dress rehearsal
+
+The simulation and the Playwright rehearsal both drive the app as one process. Neither
+answers "does this work for a second human on their own phone" — nobody but the maintainer
+has ever loaded the page. This is how to check that with one other person.
+
+**Three things to settle before you start.**
+
+| | Why it blocks a two-person test | Options |
+|---|---|---|
+| `STAGING_ADMIN_ONLY = 'true'` (`fly.staging.toml`) | Staging refuses non-admins, so your tester can't load the site at all. | Set it `'false'` and redeploy staging, **or** run the rehearsal on prod as an `unlisted` + `test` event. |
+| The proxy's value-tracking change is undeployed | No real drop arms a bomb. | Test the manual-claim and admin-grant paths instead, **or** `npx wrangler deploy` in `dink-proxy` first. |
+| The draft is admin-only | A non-admin captain can't make their own picks — though they *can* watch the pool from their own page. | Drive the draft yourself while they call picks (the intended flow), **or** grant the other captain an admin role. |
+
+**Two players gets an 8×8 board with three ships** — the minimum — which is exactly what
+you want for a mechanics run: a game ends in a few bombs. Do that pass first, then, if you
+want to see the real thing, create a second game with the size pinned to **25** and use the
+random-placement button rather than placing 31 ships by hand.
+
+1. **Create.** `/admin/battleship` → New game. Tick **test** (so it's deletable afterwards)
+   and **unlisted** (so it stays off the events list). Leave the size blank.
+2. **Join.** Both of you open `/events/<slug>/battleship` and join. Have them **leave and
+   rejoin** — that path is self-serve only until the draft starts.
+3. **Draft.** `/admin/battleship/<slug>` → choose both captains → start the draft → pick,
+   or auto-draft the rest. Check their screen reads "Draft in progress".
+4. **Place.** Both place fleets on the player page (or hit random), then lock in. **Check
+   they cannot see your board** — their second grid should be empty water.
+5. **Open the battle** from the tester, or wait out the placement window.
+6. **Arm a bomb.** Two paths worth exercising:
+   - *Manual claim* — the one most members without Dink will use. Player page → "Not using
+     Dink? Claim a drop" → item, value, screenshot. Approve it at `/admin/submissions` and
+     the bomb lands in their arsenal. Only one claim can be pending per member at a time.
+   - *Admin grant* — the tester's "+Cannonball / Bombard / Broadside" buttons, for ammo on
+     demand.
+7. **Fire.** Pick a bomb under **Your bombs**, click a square on the enemy grid — the
+   footprint stays lit and the button reads "Fire at F7" — then fire. Worth checking: hits
+   and misses both render, a sink is announced, and a **non-captain has no fire button on a
+   teammate's bomb** in Team arsenal (the captain does).
+8. **Finish** by sinking the last ship, then delete the game from `/admin/battleship`.
+
+> **The page does not poll — it has a Refresh button instead.** Nothing arrives on a
+> timer: a draft pick or an enemy shot lands without the open page knowing. **Refresh**
+> (on the draft panel and beside the board switch) re-fetches in place via
+> `invalidateAll()`, deliberately *not* a browser reload, which would throw away the bomb
+> you have armed and the square you have aimed at. Whether that's enough, or whether the
+> battle phase should poll on its own, is still worth deciding before the real event.
+
 ### Testing
+
+**A game to click through.** The simulation and the rehearsal both clean up after
+themselves, which is the opposite of what you want when you're testing by hand:
+
+```bash
+npm run demo:battleship                      # 80 in the pool, signups open
+npm run demo:battleship -- --phase battle    # skip straight to a live battle
+npm run demo:battleship -- --phase battle --member --slug member-view
+npm run demo:battleship -- --players 12 --slug tiny-test
+npm run demo:battleship -- --delete          # remove it again
+```
+
+**`--member` is how you see a member's view.** Without it you are captain of Fleet Red and
+see your own fleet; with it the captaincies go to the next two on the roster and you are
+drafted onto Fleet Red as an ordinary player. Being an admin does not override the
+redaction once you are on a side, so signing in as yourself is enough to see either view —
+no second account and no session-minting required. You get bombs of your own either way,
+plus a teammate's, so "yours to fire" versus "theirs" is visible from both roles.
+
+It leaves a `test` + `unlisted` event at `test-battleship`, parked at `signup`, `draft`,
+`placement` or `battle`, with you first in the pool (and captain of Fleet Red past the
+draft) so the player view has a side of its own. Re-running replaces the game, so it
+doubles as a reset. It refuses to delete an event that isn't marked as a test.
+
+The pool is filled with **real roster members as stand-ins**, not invented accounts: fake
+`vs_users` rows would land in the member counts and rank tables the home page builds from
+that table. That's safe on staging, which takes no live Dink traffic (the proxy points at
+prod), so a real member sitting in a test battle there can't have a drop land in it. Don't
+point it at a database that *does* take live drops.
 
 ```bash
 npm run sim:battleship                       # full game, 32 players, against staging
@@ -250,3 +428,61 @@ unless `--keep`.
 - **RLS.** The three new tables inherit the repo's current posture (see
   [`PENDING-OPS.md`](PENDING-OPS.md) §1). `enable_rls.sql` loops every public table, so
   re-applying it covers them with no edit.
+
+### Manual claims (members who can't run Dink)
+
+Not everyone runs Dink, and a drop nobody records is a bomb nobody gets. The battle page
+carries a **"Not using Dink? Claim a drop manually"** form: the member enters the drop's
+value (accepts `5m`, `5,000,000` or `5000000`), optionally names the item, attaches a
+screenshot, and submits.
+
+That does **not** arm anything. It files a normal `vs_submissions` row
+(`target_id = 'bomb:<value>'`, status `pending`) which shows up in `/admin/submissions`
+alongside every other proof, because the value is self-reported and needs a human behind
+it. Approving the row calls `mintBombsForApprovedClaims`, which arms a bomb of the tier
+matching the claimed value on the claimant's side.
+
+Idempotency is the arsenal's `unique (event_id, drop_key)` again, keyed on the SUBMISSION
+id (`manual:<submission id>`) — so revoking and re-approving mints nothing further, and a
+concurrent double-approve mints once (the hook only receives the ids the approval actually
+flipped).
+
+> The claim's result renders **next to the form**, not at the top of the page. The form
+> sits at the bottom of a long page and top-of-page feedback read as "nothing happened".
+
+**One pending claim per member at a time.** The value is self-reported, so the only real
+check is a human looking at the screenshot — and someone firing off ten claims for the same
+drop makes it far likelier one slips through on a busy queue. Note that *inflating* a value
+buys nothing beyond the top tier: 999b and 50m both arm a 3×3.
+
+> **Staging needs the `vs-bingo-proofs` storage bucket.** Prod has it; staging did not,
+> which silently broke every proof upload (not just Battleship's) with "Bucket not found".
+> Created to match prod: public, no size limit, no MIME restriction.
+
+### The full-event rehearsal
+
+`e2e/battleship-full-event.spec.ts` is the dress rehearsal — a whole 80-player event
+driven through the real UI:
+
+```bash
+BATTLESHIP_FULL=1 npx playwright test e2e/battleship-full-event.spec.ts
+```
+
+It runs at **two viewports** — set `BATTLESHIP_MOBILE=1` for a 390×844 touch phone —
+because the board is the risk and a desktop run can't answer "can a person actually place
+a ship and aim a bomb at this size". Both runs assert the page never scrolls sideways, the
+cells stay square, and (on mobile) that cells clear a 24px tap floor. Screenshots land in
+`e2e-shots/desktop/` and `e2e-shots/mobile/`.
+
+> **Phones get a cell-size floor, not smaller cells.** A 25×25 board on a 390px screen
+> would give ~10px cells — far under what a thumb can hit, and a mis-tap here *fires a
+> bomb at the wrong square with no undo*. Below `--min-cell` (26px) the board scrolls
+> **inside its own box** rather than shrinking, with the row numbers pinned so you can
+> still say where you hit. The page itself never scrolls sideways.
+
+Skipped unless `BATTLESHIP_FULL=1` so the normal suite stays fast. It seeds 80 players,
+signs **two browser contexts in as two different captains** (minting session rows directly
+rather than adding an auth surface, since dev-login only signs in the owner), drafts from
+both, places both fleets through the placement editor, feeds the battle with Dink payloads
+shaped exactly like the proxy writes them plus a manual claim through the review queue,
+and fires until a fleet is gone. Screenshots of every stage land in `e2e-shots/`.

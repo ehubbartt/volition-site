@@ -41,7 +41,11 @@ import {
 
 export const BATTLESHIP_KIND = 'battleship';
 
-const SIDE_COLORS = ['#3b82f6', '#ef4444'];
+// Red first, blue second — the same order as the default names below. They used to be
+// the other way round, which painted "Fleet Red" blue everywhere the colour is shown.
+// Harmless while the colour was a thin accent; not harmless now that whose-pick-is-it
+// is signalled by colour on a streamed draft board.
+const SIDE_COLORS = ['#ef4444', '#3b82f6'];
 const DEFAULT_PLACEMENT_MINUTES = 60;
 
 // ── Row shapes ──────────────────────────────────────────────────────────────
@@ -90,6 +94,18 @@ export interface DraftPick {
 	side: number;
 	user_id: string;
 	at: string;
+}
+
+/** What a single pick did — everything the announcement needs, in one object. */
+export interface DraftPickReport {
+	userId: string;
+	rsn: string | null;
+	side: number;
+	sideName: string;
+	sideColor: string;
+	/** 1-based position in the draft order. */
+	pickNumber: number;
+	poolLeft: number;
 }
 
 export interface BattleshipSnapshot {
@@ -338,21 +354,33 @@ export interface BattleshipView extends Omit<BattleshipSnapshot, 'sides'> {
 }
 
 /**
- * Strip the enemy fleet. A viewer sees full ship positions only for their OWN side (and
- * an admin sees both — the tester needs it). For every other side the caller gets the
- * craters (already public via `shots`) and a per-ship sunk flag, which is exactly what a
- * real game reveals with "you sank my Battleship".
+ * Strip ship positions. Only a side's CAPTAIN sees where their own fleet sits; every
+ * other viewer — including their own teammates — gets the craters (already public via
+ * `shots`) and a per-ship sunk flag, which is exactly what a real game reveals with "you
+ * sank my Battleship".
+ *
+ * Teammates are redacted because a fleet known to 43 people is not a secret: one
+ * screenshot in the wrong Discord channel and the game is over. The enemy grid stays
+ * visible to everyone on the side, so an ordinary member can still aim and fire the
+ * bombs they earn — the positions are the secret, not the board.
  */
 export function redactFor(
 	snap: BattleshipSnapshot,
 	viewer: { userId: string | null; isAdmin: boolean }
 ): BattleshipView {
-	const viewerSide =
-		snap.sides.find((s) => s.members.some((m) => m.userId === viewer.userId))?.side ?? null;
+	const viewerSideRow = snap.sides.find((s) => s.members.some((m) => m.userId === viewer.userId));
+	const viewerSide = viewerSideRow?.side ?? null;
+	const viewerIsCaptain = !!viewerSideRow && viewerSideRow.captainUserId === viewer.userId;
 
 	const sides: RedactedSide[] = snap.sides.map((s) => {
 		const hitCells = new Set(snap.shots.filter((sh) => sh.targetSide === s.side).map((sh) => sh.cell));
-		const canSeeFleet = viewer.isAdmin || (viewerSide !== null && s.side === viewerSide);
+		// An admin who is PLAYING is a player first. Handing them a fleet would let a
+		// captain read their opponent's board — and at a clan event the captains are very
+		// likely to be admins. Only a NON-PARTICIPANT admin (running the tester or
+		// spectating) sees both fleets; the admin tester page reads the raw snapshot
+		// directly and is unaffected.
+		const adminSpectator = viewer.isAdmin && viewerSide === null;
+		const canSeeFleet = adminSpectator || (viewerIsCaptain && s.side === viewerSide);
 		return {
 			side: s.side,
 			name: s.name,
@@ -372,13 +400,12 @@ export function redactFor(
 		};
 	});
 
-	const side = snap.sides.find((s) => s.side === viewerSide);
 	return {
 		...snap,
 		sides,
 		viewerSide,
 		viewerUserId: viewer.userId,
-		viewerIsCaptain: !!side && side.captainUserId === viewer.userId,
+		viewerIsCaptain,
 		viewerIsAdmin: viewer.isAdmin
 	};
 }
@@ -507,7 +534,7 @@ export async function draftPick(input: {
 	userId: string;
 	/** Skip the turn check (admin override in the tester). */
 	force?: boolean;
-}): Promise<Result> {
+}): Promise<Result<DraftPickReport>> {
 	const snap = await loadBattleshipById(input.eventId);
 	if (!snap) return errResult('Game not found');
 	if (snap.phase !== 'draft') return errResult('The draft is not open');
@@ -532,9 +559,26 @@ export async function draftPick(input: {
 	const res = await patchStructure(input.eventId, { draft: { picks } });
 	if (!res.ok) return res;
 
+	// Report the pick back so the caller can announce it. The draft is run from one
+	// screen with both captains watching a stream, so "who just went where" has to be
+	// something the page can say out loud rather than something you infer from a roster
+	// that quietly grew by one.
+	const report: DraftPickReport = {
+		userId: input.userId,
+		rsn: snap.pool.find((p) => p.userId === input.userId)?.rsn ?? null,
+		side: input.side,
+		sideName: side.name,
+		sideColor: side.color,
+		pickNumber: picks.length,
+		poolLeft: snap.pool.length - 1
+	};
+
 	// Last pick drains the pool — move straight into placement so nobody has to notice.
-	if (snap.pool.length === 1) return openPlacement(input.eventId);
-	return okResult();
+	if (snap.pool.length === 1) {
+		const opened = await openPlacement(input.eventId);
+		if (!opened.ok) return opened;
+	}
+	return okResult(report);
 }
 
 /**
@@ -638,7 +682,16 @@ export async function openPlacement(eventId: string): Promise<Result> {
 	if (!snap) return errResult('Game not found');
 	const minutes = snap.config.placement_minutes;
 	const endsAt = new Date(Date.now() + minutes * 60_000).toISOString();
-	return patchStructure(eventId, { phase: 'placement', placement_ends_at: endsAt });
+	// PIN the board size here. Until now it floats with the headcount (`bs.size ??
+	// boardSizeFor`), which is what makes it scale with the draft — but from the moment
+	// ships go on it, a size that can still move is a live hazard: removing a drafted
+	// member, or changing the scaling dial in code, would shrink the board out from under
+	// fleets whose cells are already stored, putting hulls off the edge.
+	return patchStructure(eventId, {
+		phase: 'placement',
+		placement_ends_at: endsAt,
+		size: snap.config.size
+	});
 }
 
 /** Store a side's fleet. Validated ship-by-ship; rejects a partial fleet. */
@@ -772,13 +825,28 @@ export async function activeBattleshipFor(
 
 	const { data: events } = await sb
 		.from('vs_events')
-		.select('id, slug, name, structure, starts_at')
+		.select('id, slug, name, structure, starts_at, created_at')
 		.eq('kind', BATTLESHIP_KIND)
 		.eq('status', 'open')
 		.in('id', rows.map((r) => r.event_id));
 
-	for (const ev of (events ?? []) as { id: string; slug: string; name: string; structure: unknown; starts_at: string | null }[]) {
-		const bs = readStructure(ev.structure);
+	// A drop arms a bomb in ONE event, so when a member is somehow in two live battles at
+	// once the choice has to be deterministic and defensible. Unordered, it was whichever
+	// row PostgREST happened to return first — and a test game left running would silently
+	// swallow drops meant for the real event. Real events beat test ones; newest wins the
+	// tie.
+	const candidates = ((events ?? []) as {
+		id: string; slug: string; name: string; structure: unknown;
+		starts_at: string | null; created_at: string;
+	}[])
+		.map((ev) => ({ ev, bs: readStructure(ev.structure) }))
+		.sort((a, b) => {
+			const test = Number(a.bs.test ?? false) - Number(b.bs.test ?? false);
+			if (test !== 0) return test;
+			return b.ev.created_at.localeCompare(a.ev.created_at);
+		});
+
+	for (const { ev, bs } of candidates) {
 		if (bs.phase !== 'battle') continue;
 		const teamId = rows.find((r) => r.event_id === ev.id)?.team_id;
 		if (!teamId) continue;
@@ -949,6 +1017,71 @@ async function loadBattleshipById(eventId: string): Promise<BattleshipSnapshot |
 	const { data } = await db().from('vs_events').select('slug').eq('id', eventId).maybeSingle();
 	if (!data) return null;
 	return loadBattleship((data as { slug: string }).slug);
+}
+
+/** Prefix for a manual bomb claim's `vs_submissions.target_id` — `bomb:<gp value>`. */
+export const BOMB_CLAIM_PREFIX = 'bomb:';
+
+export function bombClaimTarget(value: number): string {
+	return `${BOMB_CLAIM_PREFIX}${Math.max(0, Math.round(value))}`;
+}
+
+export function parseBombClaim(targetId: string | null): number | null {
+	if (!targetId?.startsWith(BOMB_CLAIM_PREFIX)) return null;
+	const v = Number(targetId.slice(BOMB_CLAIM_PREFIX.length));
+	return Number.isFinite(v) && v >= 0 ? v : null;
+}
+
+/**
+ * Mint bombs for manual claims that an admin has just APPROVED.
+ *
+ * Members who don't run Dink submit the drop's value plus a screenshot; the row goes
+ * through the normal /admin/submissions queue, and approving it lands here. Called with
+ * the ids the approval actually flipped, so a concurrent double-approve mints once.
+ *
+ * Idempotent twice over: the arsenal's unique (event_id, drop_key) keyed on the
+ * SUBMISSION id means re-approving after a revoke can never mint a second bomb.
+ */
+export async function mintBombsForApprovedClaims(
+	submissionIds: string[]
+): Promise<{ minted: number }> {
+	if (submissionIds.length === 0) return { minted: 0 };
+	const sb = db();
+
+	const { data: rows, error } = await sb
+		.from('vs_submissions')
+		.select('id, event_id, user_id, target_id, target_label, status')
+		.in('id', submissionIds)
+		.eq('status', 'approved');
+	if (error || !rows?.length) return { minted: 0 };
+
+	let minted = 0;
+	for (const r of rows as {
+		id: string; event_id: string | null; user_id: string | null;
+		target_id: string; target_label: string | null;
+	}[]) {
+		const value = parseBombClaim(r.target_id);
+		if (value == null || !r.event_id || !r.user_id) continue;
+
+		// Which side is the claimant on? A claim from someone not drafted arms nothing.
+		const game = await activeBattleshipFor(r.user_id);
+		if (!game || game.eventId !== r.event_id) continue;
+
+		const res = await earnBomb({
+			eventId: r.event_id,
+			side: game.side,
+			userId: r.user_id,
+			value,
+			// Keyed on the submission, NOT on a synthetic id — that's what makes a
+			// revoke-then-re-approve mint nothing further.
+			dropKey: `manual:${r.id}`,
+			itemName: r.target_label ?? 'Manual claim',
+			source: 'Manual claim',
+			tiers: game.tiers
+		});
+		if (res.minted) minted++;
+	}
+	return { minted };
 }
 
 /** Admin escape hatch: hand a side a bomb without a drop (testing, make-goods). */

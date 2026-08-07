@@ -2,7 +2,7 @@
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
 	import BoardGrid from '$lib/battleship/BoardGrid.svelte';
-	import { cellLabel } from '$lib/battleship/rules';
+	import { anchorFor, cellLabel } from '$lib/battleship/rules';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -10,6 +10,7 @@
 	const sides = $derived(game.sides);
 	// Which side the tester is currently acting as. One admin plays both.
 	let actingSide = $state(1);
+	// The square the tester CLICKED; the stored top-left is derived from it below.
 	let targetAnchor = $state<{ x: number; y: number } | null>(null);
 	let selectedBomb = $state<string | null>(null);
 
@@ -19,6 +20,12 @@
 	const myBombs = $derived(game.arsenal.filter((a) => a.side === actingSide && !a.spentAt));
 	const selected = $derived(myBombs.find((b) => b.id === selectedBomb) ?? myBombs[0]);
 	const selectedTier = $derived(game.config.tiers.find((t) => t.tier === selected?.tier));
+	// The top-left the server stores, derived from the clicked square through the same
+	// rule the board draws with, so a 3x3 wraps around the aim exactly as it does on the
+	// player page.
+	const shotAnchor = $derived(
+		targetAnchor ? anchorFor(targetAnchor, selectedTier?.span ?? 1, game.config.size) : null
+	);
 
 	const shotsAt = (side: number) => game.shots.filter((s) => s.targetSide === side);
 	const sunkIds = (side: number) => {
@@ -40,6 +47,36 @@
 		void actingSide;
 		targetAnchor = null;
 		selectedBomb = null;
+	});
+
+	// ── Draft ────────────────────────────────────────────────────────────
+	// Typing filters the pool. The board used to render the first 40 names and stop,
+	// which at 80 signups meant half the pool was unpickable until it shrank — a captain
+	// could call a name that simply wasn't on screen. Every name is rendered now, and
+	// this is how you find one without scanning a wall of buttons.
+	// The side whose pick it is, and that side's captain by name — the banner says both,
+	// because "Side 1" is not what anyone calls their team out loud.
+	const turnSide = $derived(sides.find((s) => s.side === game.draft.turn));
+	const turnCaptain = $derived(
+		turnSide?.members.find((m) => m.userId === turnSide.captainUserId)?.rsn ?? null
+	);
+
+	let poolFilter = $state('');
+	const shownPool = $derived(
+		poolFilter.trim()
+			? game.pool.filter((p) => (p.rsn ?? '').toLowerCase().includes(poolFilter.trim().toLowerCase()))
+			: game.pool
+	);
+
+	// The last pick, held open until dismissed. The draft is run from one screen with
+	// both captains watching a stream, so each pick gets announced rather than silently
+	// moving a name from one list to another.
+	let lastPick = $state<
+		{ rsn: string | null; sideName: string; sideColor: string; pickNumber: number; poolLeft: number } | null
+	>(null);
+	$effect(() => {
+		const p = form && 'pick' in form ? form.pick : null;
+		if (p) lastPick = p;
 	});
 </script>
 
@@ -64,7 +101,7 @@
 	{#if form && 'report' in form && form.report}<p class="ok">{form.report}</p>{/if}
 
 	<!-- ── Phase driver ────────────────────────────────────────────────── -->
-	<section class="card">
+	<section class="osrs-panel">
 		<h2>Run the game</h2>
 
 		{#if game.phase === 'signup'}
@@ -95,19 +132,39 @@
 			{/if}
 
 		{:else if game.phase === 'draft'}
-			<p class="muted">
-				<strong>Side {game.draft.turn}</strong> picks next · {game.pool.length} left in the pool
-			</p>
-			<div class="draftgrid">
-				{#each game.pool.slice(0, 40) as p (p.userId)}
+			<!-- Whose pick this is, in the fleet's own colour and its own name — not "Side 1".
+			     Everyone clicking these buttons is doing it on behalf of a captain who is
+			     watching over a stream, and picking for the wrong fleet cannot be undone
+			     from this page. -->
+			<div class="turnbanner" style="--side: {turnSide?.color ?? 'var(--accent)'}">
+				<span class="turnlabel">Now picking for</span>
+				<span class="turnname">{turnSide?.name ?? `Side ${game.draft.turn}`}</span>
+				<span class="turnmeta">
+					{#if turnCaptain}captain {turnCaptain} · {/if}pick #{game.draft.picks.length + 1} ·
+					{game.pool.length} left in the pool
+				</span>
+			</div>
+
+			<label class="poolfilter">
+				Find a member
+				<input bind:value={poolFilter} placeholder="type part of an RSN" autocomplete="off" />
+			</label>
+			<!-- The buttons carry the same colour, so the thing you click looks like the
+			     fleet it feeds even if the banner has scrolled off. -->
+			<div class="draftgrid" style="--side: {turnSide?.color ?? 'var(--accent)'}">
+				{#each shownPool as p (p.userId)}
 					<form method="POST" action="?/pick" use:enhance>
 						<input type="hidden" name="side" value={game.draft.turn} />
 						<input type="hidden" name="user_id" value={p.userId} />
-						<button class="btn small" type="submit">{p.rsn ?? 'unknown'}</button>
+						<button class="btn small pickbtn" type="submit">
+							{p.rsn ?? 'unknown'}
+						</button>
 					</form>
 				{/each}
 			</div>
-			{#if game.pool.length > 40}<p class="muted">…and {game.pool.length - 40} more.</p>{/if}
+			{#if poolFilter.trim() && shownPool.length === 0}
+				<p class="muted">Nobody in the pool matches "{poolFilter}".</p>
+			{/if}
 			<form method="POST" action="?/autoDraft" use:enhance>
 				<button class="btn" type="submit">Auto-draft the rest</button>
 			</form>
@@ -156,7 +213,7 @@
 
 	<!-- ── Boards ──────────────────────────────────────────────────────── -->
 	{#if sides.length === 2}
-		<section class="card">
+		<section class="osrs-panel">
 			<div class="actbar">
 				<span class="muted">Acting as</span>
 				{#each sides as s (s.side)}
@@ -179,7 +236,7 @@
 					/>
 					<p class="stat">
 						{standing(actingSide)?.afloat ?? 0}/{standing(actingSide)?.totalCells ?? 0} afloat ·
-						{standing(actingSide)?.lost ?? 0} ships lost
+						{standing(actingSide)?.lost ?? 0} ship{(standing(actingSide)?.lost ?? 0) === 1 ? '' : 's'} lost
 					</p>
 				</div>
 
@@ -192,6 +249,7 @@
 						sunkShipIds={sunkIds(enemy?.side ?? 0)}
 						mode={game.phase === 'battle' && selected ? 'target' : 'view'}
 						span={selectedTier?.span ?? 1}
+						target={targetAnchor}
 						onpick={(x, y) => (targetAnchor = { x, y })}
 					/>
 					<p class="stat">
@@ -225,16 +283,18 @@
 
 						<form method="POST" action="?/fire" use:enhance class="inline">
 							<input type="hidden" name="arsenal_id" value={selected?.id ?? ''} />
-							<input type="hidden" name="x" value={targetAnchor?.x ?? ''} />
-							<input type="hidden" name="y" value={targetAnchor?.y ?? ''} />
+							<input type="hidden" name="x" value={shotAnchor?.x ?? ''} />
+							<input type="hidden" name="y" value={shotAnchor?.y ?? ''} />
 							<span class="muted">
 								{#if targetAnchor}
-									Aiming {selectedTier?.name} at {cellLabel(`${targetAnchor.x},${targetAnchor.y}`)}
+									{selectedTier?.name} · {selectedTier?.span}×{selectedTier?.span} · {cellLabel(`${targetAnchor.x},${targetAnchor.y}`)}
 								{:else}
 									Click the target board to aim.
 								{/if}
 							</span>
-							<button class="btn primary" type="submit" disabled={!targetAnchor || !selected}>Fire</button>
+							<button class="btn primary" type="submit" disabled={!targetAnchor || !selected}>
+								{targetAnchor ? `Fire at ${cellLabel(`${targetAnchor.x},${targetAnchor.y}`)}` : 'Fire'}
+							</button>
 						</form>
 					{/if}
 				</div>
@@ -242,7 +302,7 @@
 		</section>
 
 		<!-- ── Rosters ─────────────────────────────────────────────────── -->
-		<section class="card">
+		<section class="osrs-panel">
 			<h2>Sides</h2>
 			<div class="rosters">
 				{#each sides as s (s.side)}
@@ -261,6 +321,23 @@
 	{/if}
 </div>
 
+<!-- The pick announcement. A button rather than a div so it's dismissable by keyboard
+     and needs no ARIA of its own — the whole overlay is the dismiss control. -->
+{#if lastPick}
+	<button type="button" class="pickoverlay" onclick={() => (lastPick = null)}>
+		<span class="pickcard">
+			<span class="picknum">Pick #{lastPick.pickNumber}</span>
+			<span class="pickwho">{lastPick.rsn ?? 'unknown'}</span>
+			<span class="pickto">drafted to <b style="color: {lastPick.sideColor}">{lastPick.sideName}</b></span>
+			<span class="pickleft">
+				{lastPick.poolLeft}
+				{lastPick.poolLeft === 1 ? 'member' : 'members'} left in the pool
+			</span>
+			<span class="pickdismiss">click anywhere to dismiss</span>
+		</span>
+	</button>
+{/if}
+
 <style>
 	.page { max-width: 72rem; margin: 0 auto; padding: 1rem; display: grid; gap: 1rem; }
 	header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
@@ -269,7 +346,6 @@
 	h3 { font-family: var(--font-heading); font-size: 0.95rem; margin: 0 0 0.4rem; }
 	.back { color: var(--muted); text-decoration: none; font-size: 0.85rem; }
 	.back:hover { color: var(--accent); }
-	.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0.85rem; box-shadow: var(--shadow-card); }
 	.tags { display: flex; gap: 0.35rem; flex-wrap: wrap; }
 	.pill { font-size: 0.72rem; padding: 0.1rem 0.4rem; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface-alt); }
 	.pill.accent { border-color: var(--accent); color: var(--accent); }
@@ -284,16 +360,59 @@
 		background: var(--surface-alt); color: var(--text); border: 1px solid var(--border);
 		border-radius: var(--radius); padding: 0.35rem 0.45rem; font-family: var(--font-body); font-size: 0.85rem;
 	}
-	.btn {
-		background: var(--surface-alt); color: var(--text); border: 1px solid var(--border-strong);
-		border-radius: var(--radius); padding: 0.35rem 0.7rem; cursor: pointer;
-		font-family: var(--font-body); font-size: 0.85rem; text-decoration: none; display: inline-block;
-	}
-	.btn:hover { border-color: var(--accent); }
+	/* Modifier only — app.css already gives every <button> the bronze OSRS frame,
+	   and overriding it here is what made these read as unstyled. */
+	.btn { text-decoration: none; display: inline-flex; align-items: center; }
 	.btn:disabled { opacity: 0.45; cursor: not-allowed; }
-	.btn.small { font-size: 0.78rem; padding: 0.25rem 0.5rem; }
-	.btn.primary, .btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+	.btn.small { min-height: 30px; padding: 1px 10px; font-size: 0.8rem; }
+	.btn.primary, .btn.active { color: var(--yellow); }
 	.draftgrid { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.5rem 0; }
+	/* Whose pick it is. Loud on purpose — this is streamed, and there is no undo. */
+	.turnbanner {
+		display: grid; gap: 0.1rem; justify-items: start;
+		margin: 0.25rem 0 0.9rem; padding: 0.6rem 1rem;
+		border-left: 5px solid var(--side);
+		border-radius: 4px;
+		background: color-mix(in srgb, var(--side) 14%, transparent);
+	}
+	.turnlabel { font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+	.turnname { font-family: var(--font-heading); font-size: 1.6rem; line-height: 1.15; color: var(--side); }
+	.turnmeta { font-size: 0.8rem; color: var(--muted); }
+
+	/* The pick buttons wear the same colour as the banner. */
+	.pickbtn { border-color: var(--side); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--side) 45%, transparent); }
+
+	.poolfilter { display: grid; gap: 0.2rem; font-size: 0.8rem; color: var(--muted); max-width: 18rem; }
+	.poolfilter input {
+		background: var(--inset, #241f1a); color: var(--text); border: 1px solid var(--line, #4a4038);
+		border-radius: 3px; padding: 0.35rem 0.5rem; font-family: var(--font-body); font-size: 0.9rem;
+	}
+
+	/* The pick announcement. Sized for a stream: readable to someone watching a shared
+	   screen from across a Discord call, not just to the admin driving it. */
+	.pickoverlay {
+		position: fixed; inset: 0; z-index: 60;
+		display: grid; place-items: center;
+		background: rgb(0 0 0 / 0.72);
+		border: none; border-image: none; border-radius: 0; min-height: 0;
+		padding: 1rem; cursor: pointer;
+		animation: pickfade 120ms ease-out;
+	}
+	.pickcard {
+		display: grid; gap: 0.35rem; justify-items: center; text-align: center;
+		padding: 1.75rem 2.75rem;
+		background: var(--panel, #2b241d);
+		border: 2px solid var(--line, #4a4038);
+		border-radius: 6px;
+		box-shadow: 0 12px 40px rgb(0 0 0 / 0.6);
+	}
+	.picknum { font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+	.pickwho { font-family: var(--font-heading); font-size: 2.4rem; line-height: 1.1; color: var(--heading); }
+	.pickto { font-size: 1.15rem; color: var(--text); }
+	.pickleft { font-size: 0.9rem; color: var(--muted); }
+	.pickdismiss { font-size: 0.75rem; color: var(--muted-soft); margin-top: 0.4rem; }
+	@keyframes pickfade { from { opacity: 0; } to { opacity: 1; } }
+	@media (prefers-reduced-motion: reduce) { .pickoverlay { animation: none; } }
 	.actbar { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
 	.boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1.25rem; }
 	.stat { font-size: 0.8rem; color: var(--muted); margin: 0.5rem 0 0; }

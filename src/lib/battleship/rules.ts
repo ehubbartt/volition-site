@@ -72,9 +72,30 @@ export function columnLabel(x: number): string {
 // ── Board sizing ────────────────────────────────────────────────────────────
 
 export const MIN_SIZE = 8;
-export const MAX_SIZE = 20;
-/** Water per player on a side. 6 puts 16-a-side (a 32-player event) on the classic 10x10. */
-const CELLS_PER_PLAYER = 6;
+/**
+ * The widest board we serve. 25 is the largest grid that still reads as a board rather
+ * than a spreadsheet: it fits a desktop viewport at a comfortable cell size, and on a
+ * phone it scrolls inside its own box against the tap-target floor (see BoardGrid).
+ * Beyond this the fix is a longer event, not more water.
+ */
+export const MAX_SIZE = 25;
+/**
+ * Water per player on a side — the dial that sets how long an event lasts.
+ *
+ * Bombs arrive in proportion to headcount, so board area has to scale with headcount too
+ * or a big event just saturates its board. The first pass used 6, which put 16-a-side on
+ * the classic 10x10 — but the 60-player rehearsal needed 185 shots on a 196-square board
+ * to finish, i.e. it ran until the board was nearly all craters. Real players hunt around
+ * their hits rather than firing at random, so they would have got there far sooner.
+ *
+ * 15 is set from the event we are actually running: 80 players, 40 a side, on a 25x25
+ * board (625 squares). It keeps the classic 10x10 for a 12-player game and lands 60
+ * players on 22x22. At a rough 1 qualifying drop per player per day that is a week-ish of
+ * play rather than a day or two. It is a guess against unmeasured drop rates — raise it if
+ * events end too quickly, and note an admin can always pin an exact size when creating
+ * the event.
+ */
+const CELLS_PER_PLAYER = 15;
 
 /**
  * Board edge for a given per-side headcount. Deliberately a function of TEAM size, not
@@ -100,7 +121,24 @@ const CLASS_BY_LEN: Record<number, string> = {
 	2: 'Destroyer'
 };
 
-const ROMAN = ['', ' II', ' III', ' IV', ' V', ' VI', ' VII', ' VIII', ' IX', ' X'];
+/**
+ * Roman numeral for a ship's ordinal. A 25x25 board carries twelve Cruisers, so a
+ * fixed list ran out and left "Cruiser X" sitting next to "Cruiser 11".
+ */
+function roman(n: number): string {
+	const table: [number, string][] = [
+		[40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']
+	];
+	let out = '';
+	let left = n;
+	for (const [value, sym] of table) {
+		while (left >= value) {
+			out += sym;
+			left -= value;
+		}
+	}
+	return out;
+}
 
 /**
  * The fleet a board of this size gets: ship LENGTHS, descending. Cycles the classic
@@ -132,7 +170,7 @@ export function emptyFleet(size: number): Ship[] {
 		const cls = CLASS_BY_LEN[len] ?? `Ship-${len}`;
 		return {
 			id: `s${i + 1}`,
-			name: cls + (nth > 1 ? (ROMAN[nth - 1] ?? ` ${nth}`) : ''),
+			name: cls + (nth > 1 ? ` ${roman(nth)}` : ''),
 			len,
 			cells: []
 		};
@@ -297,6 +335,27 @@ export function bombCells(anchor: Cell, span: number, size: number): CellId[] | 
 /** Largest legal anchor for a span — what the UI clamps a drag to. */
 export function maxAnchor(span: number, size: number): number {
 	return Math.max(0, size - span);
+}
+
+/**
+ * The top-left anchor for a bomb of `span` aimed AT `cell`, clamped so the whole
+ * footprint stays on the board.
+ *
+ * Aiming is centred, not corner-based: you point at the square you want to hit and the
+ * blast wraps around it. A 3x3 puts the clicked square in the middle; a 2x2 has no middle
+ * square, so the click becomes its top-left. Either way **the square you clicked is always
+ * inside the footprint**, which is the property that makes aiming predictable.
+ *
+ * Storage is unchanged — vs_battleship_shots still records the top-left anchor, and
+ * `bombCells` still expands from it. This is only the click-to-anchor translation, and it
+ * lives here so the hover preview, the committed highlight and the shot that is actually
+ * fired can never disagree about it.
+ */
+export function anchorFor(cell: Cell, span: number, size: number): Cell {
+	const off = Math.floor((span - 1) / 2);
+	const max = maxAnchor(span, size);
+	const clamp = (n: number) => Math.min(Math.max(n - off, 0), max);
+	return { x: clamp(cell.x), y: clamp(cell.y) };
 }
 
 export interface ShotResult {

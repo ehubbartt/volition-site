@@ -37,7 +37,7 @@
 	{#if form?.error}<p class="err">{form.error}</p>{/if}
 
 	{#if showCreate}
-		<form method="POST" action="?/create" use:enhance class="card create">
+		<form method="POST" action="?/create" use:enhance class="osrs-panel create">
 			<h2>New game</h2>
 			<label>Name<input name="name" required placeholder="Summer Battleship" /></label>
 			<label>Slug <span class="hint">(optional — derived from the name)</span><input name="slug" placeholder="summer-battleship" /></label>
@@ -155,14 +155,11 @@
 	.pill.test { border-color: var(--accent); color: var(--accent); }
 	.pill.win { border-color: var(--success); color: var(--success); }
 	.actions { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
-	.btn {
-		background: var(--surface-alt); color: var(--text); border: 1px solid var(--border-strong);
-		border-radius: var(--radius); padding: 0.35rem 0.7rem; cursor: pointer;
-		font-family: var(--font-body); font-size: 0.85rem; text-decoration: none; display: inline-block;
-	}
-	.btn:hover { border-color: var(--accent); }
-	.btn.primary { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
-	.btn.danger { color: var(--danger); border-color: var(--danger); }
+	/* Modifier only — app.css already gives every <button> the bronze OSRS frame,
+	   and overriding it here is what made these read as unstyled. */
+	.btn { text-decoration: none; display: inline-flex; align-items: center; }
+	.btn.primary { color: var(--yellow); }
+	.btn.danger { color: var(--danger); }
 	.err { color: var(--danger); background: var(--danger-bg); border: 1px solid var(--danger); padding: 0.5rem; border-radius: var(--radius); }
 	.empty { color: var(--muted); }
 	code { background: var(--surface-alt); padding: 0.05rem 0.3rem; border-radius: 3px; }

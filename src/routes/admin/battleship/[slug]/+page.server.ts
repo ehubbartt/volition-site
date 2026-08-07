@@ -104,7 +104,8 @@ export const actions: Actions = {
 			userId: form.get('user_id')?.toString() ?? '',
 			force: form.get('force') === 'on'
 		});
-		return res.ok ? { ok: true } : fail(400, { error: res.error });
+		// The pick report rides back so the page can announce it (see the draft modal).
+		return res.ok ? { ok: true, pick: res.value } : fail(400, { error: res.error });
 	},
 
 	// Fill the rest of the draft in one go — the tester's time-saver, alternating
