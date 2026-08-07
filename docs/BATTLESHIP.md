@@ -70,6 +70,13 @@ Placement is on a **deadline**, not a gate: when the window closes the battle op
 or not both sides placed. A side that never placed gets a random legal fleet, because a
 side with no ships cannot be shot at and would stall the event for everyone else.
 
+`startBattle` replaces anything that is not a **complete, correctly-sized** fleet for the
+current board — not merely anything empty. The earlier test ("has ships, and each has
+cells") would pass a side into battle with 20 ships against 31, or with a fleet built for a
+smaller board. Neither is reachable through `placeFleet`, which rejects an incomplete
+fleet, but a repair or a board-size change can leave one behind, and this is the last gate
+before it becomes the game everyone plays.
+
 ### The board scales with the draft
 
 Water per player is fixed (**15 squares**), so the grid grows with the headcount — bombs
