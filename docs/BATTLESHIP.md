@@ -120,10 +120,23 @@ up to a bomb.
 | Tier | Drop value | Bomb | Squares |
 |---|---|---|---|
 | Cannonball | 5m+ | 1×1 | 1 |
-| Bombard | 25m+ | 2×2 | 4 |
-| Broadside | 50m+ | 3×3 | 9 |
+| Bombard | 20m+ | 2×2 | 4 |
+| Broadside | 60m+ | 3×3 | 9 |
 
-All three thresholds are set per event when it's created.
+All three thresholds are set per event when it's created, and are shown to players on the
+event page — read straight off `config.tiers`, so retuning them mid-event updates what
+everyone sees without a deploy.
+
+> **Keep the array sorted by `min_value`, cheapest first.** `vs_value_tracked_rsns` reads
+> `structure #>> '{battleship,tiers,0,min_value}'` to tell the dink-proxy what gp floor to
+> record at. Put the biggest tier first and the proxy stops recording everything below it
+> — the bombs simply never arrive. `tierForValue` itself doesn't care about order; the
+> view does.
+
+**Retuning tiers mid-event** is supported and is the intended lever when the pace is
+wrong. Two things move: the event's own `config.tiers`, and the bombs already banked
+against the old numbers. `db/scripts/battleship-retier.sql` does both in one transaction
+and never demotes a banked bomb — see the header of that file.
 
 > **Why the floor is 5m and not lower.** Members who run Dink against several Discord
 > servers are pinned to a `minLootValue` of 3m so the site's tracking doesn't spam their
