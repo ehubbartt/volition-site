@@ -56,6 +56,23 @@
 --     gp numbers, the preflight prints it — fix it by hand.
 --
 --
+-- ── RUN THIS BEFORE THE DEPLOY, NOT AFTER ───────────────────────────────────
+--
+-- `configFrom` falls back to `DEFAULT_TIERS` when the event has no explicit
+-- `structure.battleship.tiers`. So for an event created without them, shipping a change
+-- to that constant IS a rules change — applied instantly, to a live game, with no
+-- re-score behind it. Every banked bomb would keep the tier the old constant gave it
+-- while the page displayed the new numbers.
+--
+-- Running this script first closes that door: it writes the tiers EXPLICITLY, so the
+-- constant stops mattering for this event, and re-scores in the same transaction. The
+-- deployed code already reads `structure.battleship.tiers` — it has since the event
+-- shipped — so the new numbers take effect the moment this commits, deploy or no deploy.
+-- The only thing the deploy adds is showing the rates to players who are holding a bomb.
+--
+-- If the preflight shows the event already has explicit tiers, the order does not matter.
+-- Running this first is correct either way, so just do that.
+--
 -- ── PREFLIGHT: run this first, on its own. It changes nothing. ───────────────
 --
 --   select e.slug,
