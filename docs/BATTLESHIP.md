@@ -298,6 +298,18 @@ Battleship needed a second admission rule.
    matching, so one drop can credit a bingo tile, a personal-board tile *and* arm a bomb —
    the same "credit every matching candidate" rule the consumer already follows.
 
+**Only LOOT notifications arm bombs.** A new collection-log item makes Dink send *two*
+notifications for one drop, seconds apart: a LOOT one (source = the NPC) and a COLLECTION
+one (source = `Collection log`). They carry different sources — and often different
+quantities and values, since the loot notification reports the whole stack and the
+collection one a single item — so they hash to different `drop_key`s and `earnBomb`'s
+idempotency cannot tell they are the same drop. The consumer skips `notif_type =
+'collection'` for bombs only.
+
+Tiles still match either notification on purpose: crediting the same tile twice is a no-op,
+so "watch both ways" is right for them. A bomb is minted **per drop_key**, which is why the
+same rule doubled every big drop the first time an event ran.
+
 **A drop arms a bomb in exactly one event.** `activeBattleshipFor` picks it, and the pick
 is ordered: a **real** event beats a **test** one, and the newest wins the tie. Unordered
 it was whichever row PostgREST returned first — which meant a test game left running in the

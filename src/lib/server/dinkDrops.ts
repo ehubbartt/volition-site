@@ -541,9 +541,21 @@ export async function processDinkDrops(
 		// complete a bingo tile and arm a bomb, exactly as it can credit an event tile and
 		// a personal-board tile. earnBomb is idempotent on drop_key, so the reconcile pass
 		// re-running this drop can never mint a second bomb.
+		//
+		// COLLECTION rows are excluded. A new collection-log item makes Dink send TWO
+		// notifications for one drop: a LOOT one (source = the NPC) and a COLLECTION one
+		// (source = "Collection log"), seconds apart. They carry different sources — and
+		// sometimes different quantities and values, since the loot row reports the stack
+		// and the collection row a single item — so they hash to different drop_keys and
+		// earnBomb's idempotency cannot see they are the same drop.
+		//
+		// Tiles are unaffected and deliberately match either notification, because
+		// crediting the same tile twice is a no-op. A bomb is minted PER drop_key, so
+		// counting both handed every player two bombs for any drop that also unlocked a
+		// collection-log slot — which is most big drops.
 		let bombed: { tier: number; eventId: string } | null = null;
 		const game = await battleshipFor(userId);
-		if (game && drop.drop_key) {
+		if (game && drop.drop_key && drop.notif_type !== 'collection') {
 			// The activation rule the rest of the pipeline uses: a drop from before the
 			// battle opened never arms anything.
 			const inWindow =
