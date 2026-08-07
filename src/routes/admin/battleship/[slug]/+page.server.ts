@@ -11,6 +11,7 @@ import {
 	maybeAdvancePhase,
 	openPlacement,
 	placeFleet,
+	redactFor,
 	removeBomb,
 	startBattle,
 	startDraft
@@ -33,8 +34,16 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	// Poll-on-read: the placement deadline opens the battle without a scheduler.
 	if (await maybeAdvancePhase(snap)) snap = (await loadBattleship(params.slug)) ?? snap;
 
-	// The tester is the one view that legitimately sees both fleets.
-	return { game: snap };
+	// The tester used to hand back the RAW snapshot — both fleets, unredacted — because it
+	// is the one view that legitimately needs them. That stopped being safe the moment
+	// admins started PLAYING: opening this page showed them their opponent's ships, and
+	// hiding the boards in the UI would not have helped, since the positions would still be
+	// sitting in the page payload.
+	//
+	// `redactFor` already encodes the right rule and is tested against it: a non-participant
+	// admin (running the tester, spectating) gets both fleets, and an admin who is on a side
+	// is a PLAYER first — their own fleet only if they captain it, never the enemy's.
+	return { game: redactFor(snap, { userId: locals.user.id, isAdmin: true }) };
 };
 
 function requireAdmin(locals: App.Locals) {

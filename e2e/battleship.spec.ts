@@ -161,6 +161,10 @@ test.describe.serial('Battleship', () => {
 
 		// Both boards render every square once the battle is on. Derived from the rules
 		// rather than hardcoded, so a change to the scaling dial doesn't silently pass.
+		// The tester hides the boards by default (admins play in these events), so this
+		// test has to ask for them before it can drive them.
+		await clickUntil(page, /show the boards/i, '.board');
+
 		const size = boardSizeFor(6); // 12 players → 6 a side
 		await expect(page.locator('.wrap').first().locator('.cell')).toHaveCount(size * size);
 
@@ -223,11 +227,30 @@ test.describe.serial('Battleship', () => {
 		await expect(craters).not.toHaveCount(0);
 	});
 
+	test('the tester hides the boards until asked', async ({ page }) => {
+		// Admins play in these events, so opening the tester must not put the opponent's
+		// ships on screen — nor on a shared or streamed one.
+		await page.goto(`/admin/battleship/${SLUG}`);
+		await expect(page.getByRole('heading', { name: 'E2E Battleship' })).toBeVisible();
+		await expect(page.locator('.board')).toHaveCount(0);
+		await expect(page.locator('.cell')).toHaveCount(0);
+
+		// Revealing is a client-side toggle, so retry until hydration catches (see clickUntil).
+		await clickUntil(page, /show the boards/i, '.board');
+		await expect(page.locator('.board')).toHaveCount(2);
+
+		// And it hides again.
+		await page.getByRole('button', { name: /hide the boards/i }).click();
+		await expect(page.locator('.board')).toHaveCount(0);
+	});
+
 	test('an admin can remove a bomb, and its craters go with it', async ({ page }) => {
 		// The only way to undo a bomb used to be SQL. It has to take its damage with it —
 		// removing the ammunition while leaving the craters would be a lie about the board.
 		await page.goto(`/admin/battleship/${SLUG}`);
 		await expect(page.getByRole('heading', { name: /^all bombs/i })).toBeVisible();
+		// The boards are hidden by default now; this test counts craters, so reveal them.
+		await clickUntil(page, /show the boards/i, '.board');
 
 		const rows = page.locator('.arsenal li');
 		const before = await rows.count();

@@ -28,11 +28,11 @@
 	);
 
 	const shotsAt = (side: number) => game.shots.filter((s) => s.targetSide === side);
-	const sunkIds = (side: number) => {
-		const hit = new Set(shotsAt(side).map((s) => s.cell));
-		const f = sides.find((s) => s.side === side)?.fleet ?? [];
-		return f.filter((sh) => sh.cells.length > 0 && sh.cells.every((c) => hit.has(c))).map((sh) => sh.id);
-	};
+	// Read sunk state off fleetSummary, not the fleet: a redacted side has no `fleet` at
+	// all, and the summary carries the sunk flags precisely so sinkings stay visible
+	// without the positions.
+	const sunkIds = (side: number) =>
+		(sides.find((s) => s.side === side)?.fleetSummary ?? []).filter((f) => f.sunk).map((f) => f.id);
 
 	const gp = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}m` : n.toLocaleString());
 	const standing = (side: number) => game.standings.find((s) => s.side === side);
@@ -41,6 +41,14 @@
 		setup: 'Setup', signup: 'Signups open', draft: 'Drafting',
 		placement: 'Placing fleets', battle: 'Battle', finished: 'Finished'
 	};
+
+	// Do the fleets reach this page at all? False once the viewer is playing — the server
+	// withholds them (see the load), so there is nothing to reveal.
+	const hasFleets = $derived(sides.some((s) => !!s.fleet));
+	// Boards start HIDDEN. An admin opening this page during a live event should not have
+	// their opponent's ships on screen before they have decided to look, and a shared or
+	// streamed screen should not leak them either. Not persisted: it re-hides every load.
+	let boardsShown = $state(false);
 
 	// Reset the aim when the acting side flips, so a stale anchor can't be fired.
 	$effect(() => {
@@ -214,6 +222,28 @@
 	<!-- ── Boards ──────────────────────────────────────────────────────── -->
 	{#if sides.length === 2}
 		<section class="osrs-panel">
+			<div class="revealbar">
+				<button class="btn" onclick={() => (boardsShown = !boardsShown)}>
+					{boardsShown ? 'Hide the boards' : 'Show the boards'}
+				</button>
+				{#if !boardsShown}
+					<span class="muted small">
+						{#if hasFleets}
+							Hidden by default — this page shows BOTH fleets, so don't open it on a shared
+							screen, and don't look if you're playing.
+						{:else}
+							Hidden by default. You're playing in this game, so the fleets have been
+							withheld from this page too — you'll see craters, not ships.
+						{/if}
+					</span>
+				{:else if !hasFleets}
+					<span class="muted small">
+						You're playing in this game, so the fleets are withheld here as well.
+					</span>
+				{/if}
+			</div>
+
+			{#if boardsShown}
 			<div class="actbar">
 				<span class="muted">Acting as</span>
 				{#each sides as s (s.side)}
@@ -256,9 +286,17 @@
 						{standing(actingSide)?.hits ?? 0} hits / {standing(actingSide)?.shotsFired ?? 0} shots ·
 						{standing(actingSide)?.sunk ?? 0} sunk
 					</p>
-					<p class="note">The tester sees both fleets — a player never does.</p>
+					<p class="note">
+						{#if hasFleets}
+							You are not playing in this game, so the tester is showing you both fleets — a
+							player never sees this.
+						{:else}
+							You are playing, so this board shows craters only, exactly as a player sees it.
+						{/if}
+					</p>
 				</div>
 			</div>
+			{/if}
 
 			{#if game.phase === 'battle'}
 				<div class="fire">
@@ -468,6 +506,8 @@
 	.pickdismiss { font-size: 0.75rem; color: var(--muted-soft); margin-top: 0.4rem; }
 	@keyframes pickfade { from { opacity: 0; } to { opacity: 1; } }
 	@media (prefers-reduced-motion: reduce) { .pickoverlay { animation: none; } }
+	.revealbar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+	.revealbar .small { font-size: 0.78rem; max-width: 46rem; }
 	.actbar { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
 	.boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1.25rem; }
 	.stat { font-size: 0.8rem; color: var(--muted); margin: 0.5rem 0 0; }
