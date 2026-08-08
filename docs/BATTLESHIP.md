@@ -218,6 +218,20 @@ squares stay lit until you fire or pick elsewhere, and the button reads "Fire at
 preview alone is not enough — it follows the pointer, so it vanishes exactly when you move
 to the Fire button, and on a phone there is no hover at all.
 
+**The fleet key** (`FleetKey.svelte`, the *Ship types* panel) is what turns "somewhere in
+625 squares" into a plan. It groups both fleets by hull length, draws each class at its
+real size, and shows how many of each are still afloat — collapsed by default, and opening
+on the enemy's since that's the one you aim at.
+
+The line that earns the panel is the **shortest hull still afloat**. That number is the
+search spacing: if nothing under 3 squares is left, a shot every third square cannot miss
+all of them, and two thirds of the board stops being worth a bomb. It only renders for the
+enemy fleet — on your own it would be advice about shooting yourself.
+
+It reads `fleetSummary`, which `redactFor` already puts on every snapshot for **both**
+sides, so the panel widens nobody's view: ship sizes and sunk flags are exactly what a real
+game reveals when something goes down.
+
 ---
 
 ## Part 2 — Implementation
@@ -236,6 +250,10 @@ to the Fire button, and on a phone there is no hover at all.
   size (verified square with no horizontal overflow at 1440 / 1024 / 390px); and the cells
   must reset `min-height` and `border-image`, because they are `<button>`s and app.css's
   global bronze frame would otherwise force them 38px tall and rectangular.
+- `src/lib/battleship/FleetKey.svelte` — the *Ship types* panel described above. Pure
+  presentation over `fleetSummary`; a native `<details>`, so it collapses without JS. Class
+  names are derived from the ship names rather than a second copy of `CLASS_BY_LEN`, so a
+  rename in `rules.ts` can't leave the key disagreeing with the board.
 - `src/lib/server/battleship.ts` — the store: load a snapshot, and the actions
   (`startDraft`, `draftPick`, `placeFleet`, `startBattle`, `earnBomb`, `fireBomb`).
 - `src/lib/server/battleshipPage.ts` — the member payload. Its only job is that everything

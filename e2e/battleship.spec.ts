@@ -358,6 +358,50 @@ test.describe.serial('Battleship', () => {
 		}
 	});
 
+	test('the fleet key groups both fleets by hull, and tells you the search spacing', async ({
+		page
+	}) => {
+		// The panel this replaced listed all N ships by name, which said nothing about what
+		// to aim at. What a player needs is the SHAPES still out there and, above all, the
+		// shortest one — that number is the spacing a search pattern can't miss through.
+		await page.goto(`/events/${SLUG}/battleship`);
+		await expect(page.getByRole('heading', { name: 'E2E Battleship' })).toBeVisible();
+
+		const keys = page.locator('.fleetkey');
+		await expect(keys).toHaveCount(2);
+
+		// Collapsed by default for your own fleet, open for the one you're shooting at —
+		// a <details>, so this holds with JS off too.
+		const enemy = keys.filter({ hasNot: page.getByText('— yours') });
+		await expect(enemy).toHaveCount(1);
+		await expect(enemy).toHaveAttribute('open', '');
+
+		// One row per hull LENGTH, not per ship, drawn at its real size.
+		const rows = enemy.locator('.classes li');
+		const rowCount = await rows.count();
+		expect(rowCount).toBeGreaterThan(0);
+		const lengths: number[] = [];
+		for (let i = 0; i < rowCount; i++) {
+			lengths.push(await rows.nth(i).locator('.seg').count());
+		}
+		// Longest first, every length distinct, and the drawn segments match the stated
+		// length — the shape is the whole point, so a silent off-by-one would gut it.
+		expect(lengths).toEqual([...lengths].sort((a, b) => b - a));
+		expect(new Set(lengths).size).toBe(lengths.length);
+		for (let i = 0; i < rowCount; i++) {
+			await expect(rows.nth(i).locator('.len')).toHaveText(`${lengths[i]} long`);
+		}
+
+		// The aiming hint names the shortest hull still afloat. With no ships sunk yet
+		// that's the smallest class on the board.
+		await expect(enemy.locator('.hint')).toContainText(`${Math.min(...lengths)} squares long`);
+
+		// And it is advice about shooting, so it must NOT appear on your own fleet.
+		const mine = keys.filter({ hasText: '— yours' });
+		await expect(mine).toHaveCount(1);
+		await expect(mine.locator('.hint')).toHaveCount(0);
+	});
+
 	test.afterAll(async ({ browser }) => {
 		// Clean up the test game so staging isn't littered with e2e runs.
 		const page = await browser.newPage({ storageState: 'e2e/.auth/user.json' });
