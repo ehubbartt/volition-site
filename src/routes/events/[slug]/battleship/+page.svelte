@@ -181,6 +181,17 @@
 	{/if}
 {/snippet}
 
+<!-- What the craters mean. Two shades of dark red is not a distinction anyone should
+     have to work out from context, and "is that hull dead or just wounded?" is the
+     question that decides where the next bomb goes. -->
+{#snippet boardLegend()}
+	<ul class="legend">
+		<li><span class="swatch miss"></span>miss</li>
+		<li><span class="swatch hit">✳</span>hit — still afloat</li>
+		<li><span class="swatch wreck">✖</span>sunk — the outline is the whole hull</li>
+	</ul>
+{/snippet}
+
 {#snippet refreshBtn(label: string)}
 	<span class="refreshwrap">
 		<button class="btn refresh" onclick={refresh} disabled={refreshing}>
@@ -428,6 +439,7 @@
 								{standing(game.viewerSide)?.hits ?? 0} hits ·
 								{standing(game.viewerSide)?.sunk ?? 0}/{foe?.fleetSummary.length ?? 0} of their ships sunk
 							</p>
+							{@render boardLegend()}
 						</div>
 					{:else}
 						<div class="board">
@@ -454,6 +466,7 @@
 								{standing(game.viewerSide)?.afloat ?? 0}/{standing(game.viewerSide)?.totalCells ?? 0} squares afloat
 								· {standing(game.viewerSide)?.lost ?? 0} ship{(standing(game.viewerSide)?.lost ?? 0) === 1 ? '' : 's'} lost
 							</p>
+							{@render boardLegend()}
 						</div>
 					{/if}
 
@@ -762,6 +775,22 @@
 	   told you nothing about what to aim at. FleetKey groups them by shape instead. */
 	.keylead { font-size: 0.8rem; margin: 0 0 0.6rem; }
 	.keys { display: grid; gap: 0.5rem; }
+
+	/* ── Board legend ───────────────────────────────────────────────── */
+	.legend { list-style: none; margin: 0.4rem 0 0; padding: 0; display: flex; flex-wrap: wrap;
+	          gap: 0.25rem 1rem; font-size: 0.75rem; color: var(--muted); }
+	.legend li { display: flex; align-items: center; gap: 0.35rem; }
+	/* Same fills as the cells themselves, so the key can't drift from the board. */
+	.swatch { width: 14px; height: 14px; flex: none; display: flex; align-items: center;
+	          justify-content: center; font-size: 0.6rem; line-height: 1; border-radius: 1px; }
+	.swatch.miss { background:
+		radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.5) 0 12%, transparent 14%),
+		radial-gradient(circle at 50% 50%, transparent 26%, rgba(255, 255, 255, 0.28) 28% 34%, transparent 36%),
+		rgba(255, 255, 255, 0.06); }
+	.swatch.hit { background: radial-gradient(circle at 50% 45%, #ff6a3d 0%, #a11b0b 60%, #5c0f06 100%);
+	              color: #ffe6b0; }
+	.swatch.wreck { background: radial-gradient(circle at 50% 45%, #3a2a26 0%, #1b1310 70%, #0d0908 100%);
+	                color: rgba(255, 220, 190, 0.55); box-shadow: inset 0 0 0 2px rgba(255, 208, 150, 0.75); }
 
 	/* ── Arsenal ────────────────────────────────────────────────────── */
 	.fire { margin-top: 1rem; }

@@ -218,6 +218,27 @@ squares stay lit until you fire or pick elsewhere, and the button reads "Fire at
 preview alone is not enough — it follows the pointer, so it vanishes exactly when you move
 to the Fire button, and on a phone there is no hover at all.
 
+**Three crater states, not two.** A square you have hit reads differently depending on
+whether the hull under it is still alive:
+
+| | Looks like | Means |
+|---|---|---|
+| Miss | splash ring on open water | nothing there |
+| Hit | burning orange, `✳` | you hit a hull that is **still afloat** — shoot next to it |
+| Sunk | burnt out and dark, `✖`, **outlined** | that whole hull is down — dead water |
+
+The outline is the part that does the work: it traces the *outside* edge of a sunk hull,
+so a wreck reads as one object of a known length and orientation rather than n unrelated
+craters. Two wrecks lying alongside each other each keep their own outline, so you can
+still tell them apart. A legend under the board spells the three states out.
+
+> **`sunkShipIds` has to work on a board whose fleet is withheld** — that is the *only*
+> board where it matters, since knowing what is already dead is what stops you wasting a
+> bomb. It originally resolved sunk-ness through the fleet, which is `null` on an enemy
+> board, so every wreck silently rendered as ordinary damage. `BoardGrid` now falls back to
+> the ship id carried on each hit shot. Covered by a regression test in
+> `e2e/battleship.spec.ts`.
+
 **The fleet key** (`FleetKey.svelte`, the *Ship types* panel) is what turns "somewhere in
 625 squares" into a plan. It groups both fleets by hull length, draws each class at its
 real size, and shows how many of each are still afloat — collapsed by default, and opening

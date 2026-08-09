@@ -402,15 +402,110 @@ test.describe.serial('Battleship', () => {
 		await expect(mine.locator('.hint')).toHaveCount(0);
 	});
 
+	test('the map tells a sunk hull apart from a wounded one', async ({ page }) => {
+		test.slow(); // bombing until something actually goes down
+
+		// This is a REGRESSION test. `sunkShipIds` is documented as working even when the
+		// fleet is withheld, and it did not: sunk-ness was resolved through the fleet, which
+		// is null on an enemy board, so every wreck rendered as ordinary damage — on the one
+		// board where knowing what is already dead changes where your next bomb goes.
+
+		// Bomb the enemy board on a 3x3 grid of anchors until something sinks. A Broadside
+		// clamps to fit, so every anchor is legal, and a full sweep would sink the lot —
+		// stopping at the first casualty keeps the game playable for whatever runs next.
+		const sunkCount = async () => {
+			const body = await page.evaluate(
+				async (slug) => (await fetch(`/api/battleship/${slug}`)).text(),
+				SLUG
+			);
+			const game = JSON.parse(body).game;
+			return game.sides.reduce(
+				(n: number, s: { fleetSummary: { sunk: boolean }[] }) =>
+					n + s.fleetSummary.filter((f) => f.sunk).length,
+				0
+			);
+		};
+
+		await page.goto(`/admin/battleship/${SLUG}`);
+		await clickUntil(page, /show the boards/i, '.board');
+		const enemyCells = page.locator('.board').nth(1).locator('.cell');
+		const edge = Math.round(Math.sqrt(await enemyCells.count()));
+
+		let sank = await sunkCount();
+		for (let y = 1; y < edge && !sank; y += 3) {
+			for (let x = 1; x < edge && !sank; x += 3) {
+				await page.getByRole('button', { name: /\+broadside → fleet red/i }).click();
+				await enemyCells.nth(y * edge + x).click();
+				const fire = page.getByRole('button', { name: /^fire at /i });
+				if (!(await fire.count())) continue; // not hydrated — the next anchor retries
+				await fire.click();
+				await expect(page.locator('.ok, .err')).not.toHaveCount(0);
+				sank = await sunkCount();
+			}
+		}
+		expect(sank, 'the sweep should have sunk at least one hull').toBeGreaterThan(0);
+
+		// Now the PLAYER page, where the enemy fleet is withheld — the case that broke.
+		await page.goto(`/events/${SLUG}/battleship`);
+		await expect(page.getByRole('heading', { name: 'E2E Battleship' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: /their waters/i })).toBeVisible();
+
+		const payload = await page.evaluate(
+			async (slug) => (await fetch(`/api/battleship/${slug}`)).text(),
+			SLUG
+		);
+		const parsed = JSON.parse(payload).game;
+		const mySide = parsed.game?.viewerSide ?? parsed.viewerSide;
+		const foe = parsed.sides.find((s: { side: number }) => s.side !== mySide);
+		expect(foe.fleet, 'the enemy fleet is still withheld — that is the whole point').toBeNull();
+
+		const sunkIds = new Set(
+			foe.fleetSummary.filter((f: { sunk: boolean }) => f.sunk).map((f: { id: string }) => f.id)
+		);
+		expect(sunkIds.size).toBeGreaterThan(0);
+
+		// Every crater the payload says belongs to a dead hull must be drawn as a wreck,
+		// and every hit on a hull still afloat must NOT be.
+		const board = page.locator('.board');
+		const expectedSunk = parsed.shots.filter(
+			(s: { targetSide: number; hit: boolean; shipId: string | null }) =>
+				s.targetSide === foe.side && s.hit && s.shipId && sunkIds.has(s.shipId)
+		).length;
+		const expectedWounded = parsed.shots.filter(
+			(s: { targetSide: number; hit: boolean; shipId: string | null }) =>
+				s.targetSide === foe.side && s.hit && (!s.shipId || !sunkIds.has(s.shipId))
+		).length;
+
+		await expect(board.locator('.cell.sunk')).toHaveCount(expectedSunk);
+		await expect(board.locator('.cell.hit:not(.sunk)')).toHaveCount(expectedWounded);
+
+		// The outline is what makes a wreck read as one hull rather than n craters, so at
+		// least one edge must actually be drawn on every sunk cell — a cell with no edge
+		// class would be a wreck with no outline at all.
+		await expect(board.locator('.cell.sunk:not(.et):not(.er):not(.eb):not(.el)')).toHaveCount(0);
+	});
+
 	test.afterAll(async ({ browser }) => {
 		// Clean up the test game so staging isn't littered with e2e runs.
+		//
+		// EVERY match, not just the first. A run that dies before this hook leaves its game
+		// behind, and the next run adds another with the same NAME — at which point deleting
+		// one row and asserting none remain can never pass, and the leftovers keep failing
+		// every future run. Worse, a stale game stuck in `battle` competes to be the event
+		// `activeBattleshipFor` picks for an incoming drop.
 		const page = await browser.newPage({ storageState: 'e2e/.auth/user.json' });
-		await page.goto('/admin/battleship');
-		const row = page.locator('.games li', { hasText: 'E2E Battleship' });
-		if (await row.count()) {
-			await row.first().getByRole('button', { name: /delete/i }).click();
-			await expect(page.locator('.games li', { hasText: 'E2E Battleship' })).toHaveCount(0);
+		const rows = () => page.locator('.games li', { hasText: 'E2E Battleship' });
+		for (let left = Infinity, guard = 0; left > 0 && guard < 20; guard++) {
+			await page.goto('/admin/battleship');
+			const before = await rows().count();
+			if (before === 0) break;
+			// Hydration: the delete is a use:enhance form, so a click can land on inert
+			// markup. Reloading and re-counting each pass makes that self-correcting.
+			await rows().first().getByRole('button', { name: /delete/i }).click();
+			await expect(rows()).toHaveCount(before - 1);
+			left = before - 1;
 		}
+		await expect(rows(), 'every E2E Battleship game should be gone').toHaveCount(0);
 		await page.close();
 	});
 });
