@@ -6,6 +6,7 @@
 	import Skeleton from '$lib/Skeleton.svelte';
 	import TileSubmitModal from '$lib/TileSubmitModal.svelte';
 	import BoardGrid from '$lib/battleship/BoardGrid.svelte';
+	import FleetKey from '$lib/battleship/FleetKey.svelte';
 	import {
 		anchorFor,
 		autoPlace,
@@ -581,24 +582,19 @@
 			{/if}
 
 			<section class="osrs-panel">
-				<h2 class="osrs-titlebar">Fleets</h2>
-				<div class="rosters">
+				<h2 class="osrs-titlebar">Ship types</h2>
+				<p class="muted keylead">
+					What you're hunting, and what's left of it. Both fleets carry the same ships.
+				</p>
+				<div class="keys">
 					{#each game.sides as s (s.side)}
-						{@const sunkCount = s.fleetSummary.filter((f) => f.sunk).length}
-						<div>
-							<h3 style="color: {s.color}">
-								{s.name}
-								<span class="muted">— {sunkCount}/{s.fleetSummary.length} sunk</span>
-							</h3>
-							<ul class="ships">
-								{#each s.fleetSummary as f (f.id)}
-									<li class:sunk={f.sunk} title={f.sunk ? `${f.name} — sunk` : f.name}>
-										<span class="hull">{f.sunk ? '✗' : '▬'}</span>
-										{f.name}<span class="muted">({f.len})</span>
-									</li>
-								{/each}
-							</ul>
-						</div>
+						<FleetKey
+							fleetSummary={s.fleetSummary}
+							color={s.color}
+							label="{s.name}{s.side === game.viewerSide ? ' — yours' : ''}"
+							enemy={s.side !== game.viewerSide}
+							open={s.side !== game.viewerSide}
+						/>
 					{/each}
 				</div>
 			</section>
@@ -754,7 +750,7 @@
 
 	/* ── Rosters & fleets ───────────────────────────────────────────── */
 	.rosters { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1rem; }
-	.roster, .ships { list-style: none; padding: 0; margin: 0; font-size: 0.82rem; }
+	.roster { list-style: none; padding: 0; margin: 0; font-size: 0.82rem; }
 	.roster { columns: 2; }
 	.roster li { padding: 0.1rem 0; }
 	.poolhead { margin: 1.25rem 0 0.4rem; font-family: var(--font-heading); color: var(--heading); font-size: 0.95rem; }
@@ -762,14 +758,10 @@
 	.roster.pool { columns: 4; }
 	@media (max-width: 720px) { .roster.pool { columns: 2; } }
 	.hint { font-size: 0.75rem; color: var(--muted-soft); margin: 0.6rem 0 0; }
-	/* A big event has ~18 ships a side — one line each is a wall, so flow them into
-	   as many columns as fit and lead with a hull/wreck glyph you can scan. */
-	.ships { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 0.1rem 0.75rem; }
-	.ships li { display: flex; align-items: baseline; gap: 0.35rem; padding: 0.1rem 0; white-space: nowrap; }
-	.ships li .muted { font-size: 0.75rem; }
-	.ships li.sunk { color: var(--muted); }
-	.ships li.sunk .hull { color: var(--danger); }
-	.hull { color: var(--gold-mid); font-size: 0.7rem; }
+	/* The ship-by-ship roster that used to live here listed all 31 hulls by name, which
+	   told you nothing about what to aim at. FleetKey groups them by shape instead. */
+	.keylead { font-size: 0.8rem; margin: 0 0 0.6rem; }
+	.keys { display: grid; gap: 0.5rem; }
 
 	/* ── Arsenal ────────────────────────────────────────────────────── */
 	.fire { margin-top: 1rem; }
