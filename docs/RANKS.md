@@ -119,13 +119,18 @@ shows). Three tiers, over the seven scored categories:
 - **Save-gate: missing ≠ errored** (the key rule). `fetchPlayerRankInputs` now reports a
   `templeStatus`/`wikisyncStatus` of `'ok'` | `'missing'` | `'error'` (via `getJsonOutcome`,
   which reads the HTTP status: a 404 / empty body is `'missing'`, a network/timeout/429/5xx is
-  `'error'`). `checkAndSaveRank` skips the `players.rank` write **only** when a source is
-  `'error'` (transient outage — its 0 would wrongly demote). A player Temple/WikiSync has
-  simply never tracked comes back `'missing'`: their gear/clog/CA genuinely score 0, so the
-  composite IS their correct rank on available data, and it's saved. During a real outage every
-  source errors → nothing saves → no mass demotion. `templeAvailable`/`wikisyncAvailable` stay
-  `status === 'ok'` (they drive the breakdown display + the home non-Temple shading), so those
-  are unaffected.
+  `'error'`). On a source `'error'` `checkAndSaveRank` **bails before writing anything** —
+  neither `players.rank` NOR the `vs_rank_sim` cache row is touched, so the member keeps their
+  last-good rank *and* Temple flag. (The bail is above the cache upsert on purpose: a degraded
+  pass zeros gear/clog/CA, and writing `gear_points=0` / `temple_available=false` next to a
+  retained high rank is exactly what makes the home page shade a real Myth/TzTok member as
+  "ranked without Temple" — an impossible combination, since gear is Temple-only. Skipping the
+  cache too keeps the shading honest and the `/me` breakdown on last-good data.) A player
+  Temple/WikiSync has simply never tracked comes back `'missing'`: their gear/clog/CA genuinely
+  score 0, so the composite IS their correct rank on available data, and it's cached + saved.
+  During a real outage every source errors → nothing saves → no mass demotion.
+  `templeAvailable`/`wikisyncAvailable` stay `status === 'ok'` (they drive the breakdown display
+  + the home non-Temple shading, which reads `vs_rank_sim.temple_available`).
 - **Admin "Re-check rank" on `/u/[rsn]`** (`recheck` action): an admin viewing any member's
   profile gets a button (shown when `data.canRecheck`, i.e. `isAdmin`) that runs the same
   single-player live check for that member — resolved from `vs_users`, so it folds in their
@@ -139,11 +144,17 @@ shows). Three tiers, over the seven scored categories:
   default, `onlyMissing`) drops members whose cached row is already Temple-complete so a
   top-up only fetches new members / prior Temple outages — uncheck for a full re-fetch.
 - **`/admin/ranks/mass-update`**: runs the full `checkAndSaveRank` (fetch → score → cache →
-  write `players.rank` + `signature_rank`) over EVERY site member, one small batch at a time,
+  write `players.rank` + `signature_rank`) over the WHOLE clan, one small batch at a time,
   auto-chaining until done. Unlike the simulator refresh (which only caches inputs), this also
-  applies the result, so it's the one-click "bring everyone's live rank up to date." Passes a
-  cached WOM roster into each check so it isn't re-fetched per member. Reports `saved` vs
-  `skipped` (members whose Temple/WikiSync **errored transiently** — re-run to catch them);
+  applies the result, so it's the one-click "bring everyone's live rank up to date." The
+  population is every site member (`vs_users`) **unioned with every `players` roster member who
+  never linked a site account** — matched by discord id then normalized RSN. The home rank
+  breakdown counts the full `players` roster, so scoring only site users left roster-only
+  members stranded on their old bot rank (and always shaded "no Temple", having no `vs_rank_sim`
+  row); those members are now scored by RSN with a null user id (their claim + TCG reads no-op)
+  and a null account type (WOM carries none, so main-rate EHB — a GIM's may read a touch high).
+  Passes a cached WOM roster into each check so it isn't re-fetched per member. Reports `saved`
+  vs `skipped` (members whose Temple/WikiSync **errored transiently** — re-run to catch them);
   members those sources have simply never tracked are saved on available data, not skipped.
 - The three admin rank tools live under one hub, **`/admin/ranks`** (a `RanksTabs` bar):
   Gear Claims (the default tab) · Simulator · Mass Update. Each is its own route with its own

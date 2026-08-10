@@ -18,8 +18,10 @@ import { completedFromNormalized, earnedSignatureTier } from '$lib/rankSignature
 import { rankIndex } from '$lib/ranks';
 
 export interface RankCheckTarget {
-	/** vs_users.id — used to fold in the member's approved manual gear claims. */
-	userId: string;
+	/** vs_users.id — folds in the member's approved manual gear claims + TCG progress.
+	 * null for a roster member with no site account (mass-update scores them by RSN):
+	 * both reads then no-op, so they're scored on WOM/Temple/WikiSync alone. */
+	userId: string | null;
 	/** The player's RSN (their profile spelling; matched case-insensitively for caching). */
 	rsn: string;
 	/** Discord id for the players.rank write + previous-rank lookup (null falls back to RSN). */
@@ -80,6 +82,31 @@ export async function checkAndSaveRank(
 		const signatureKey =
 			earnedSignatureTier(completedFromNormalized(scores as unknown as Record<string, number>))?.key ?? null;
 
+		// Bail on a transient source ERROR (429/timeout/5xx) BEFORE persisting anything — a
+		// degraded pass zeros out gear/clog/CA, so writing it would both wrongly demote the
+		// member (players.rank mirrors to a Discord role) AND poison the cached breakdown: the
+		// vs_rank_sim row would read gear_points=0 / temple_available=false next to a retained
+		// high rank, which the home page then shades as "ranked without Temple". Preserve the
+		// member's last-good vs_rank_sim row and rank instead. A source that definitively has NO
+		// record ('missing') is NOT an error: that 0 is real, so we fall through and persist the
+		// correct rank on available data. During a true outage every source errors, so nothing
+		// saves and no one is mass-demoted.
+		if (inputs.templeStatus === 'error' || inputs.wikisyncStatus === 'error') {
+			return {
+				ok: true,
+				outcome: {
+					rank,
+					saved: false,
+					skippedSave: true,
+					prevRank: null,
+					rankedUp: false,
+					templeAvailable: inputs.templeAvailable,
+					wikisyncAvailable: inputs.wikisyncAvailable,
+					saveReason: null
+				}
+			};
+		}
+
 		// Cache the freshly-fetched inputs + piece-level detail in vs_rank_sim. The
 		// upsert's onConflict key (rsn) is CASE-SENSITIVE, but the admin rank-sim keys rows
 		// by the WOM canonical rsn while member checks use the profile rsn. Reuse the exact
@@ -120,28 +147,6 @@ export async function checkAndSaveRank(
 			return {
 				ok: false,
 				error: `Could not save the rank breakdown — ${cacheErr.message}${cacheErr.code ? ` (${cacheErr.code})` : ''}.`
-			};
-		}
-
-		// Skip the SAVE only when a stats source genuinely ERRORED (transient outage) — a
-		// 429/timeout would zero out gear/clog/CA and, since players.rank mirrors to a Discord
-		// role, wrongly demote the member. A source that definitively has NO record for the
-		// player ('missing') is different: their 0 on that component is real, so the composite
-		// IS their correct rank on available data — persist it. During a true outage every
-		// source errors, so nothing saves and no one is mass-demoted.
-		if (inputs.templeStatus === 'error' || inputs.wikisyncStatus === 'error') {
-			return {
-				ok: true,
-				outcome: {
-					rank,
-					saved: false,
-					skippedSave: true,
-					prevRank: null,
-					rankedUp: false,
-					templeAvailable: inputs.templeAvailable,
-					wikisyncAvailable: inputs.wikisyncAvailable,
-					saveReason: null
-				}
 			};
 		}
 
