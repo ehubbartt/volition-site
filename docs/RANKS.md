@@ -107,15 +107,25 @@ shows). Three tiers, over the seven scored categories:
 ## Where scoring runs
 
 - **`/me` "Check my rank"** (`routes/me/+page.server.ts` `checkRank`): fetches live
-  inputs (+ the member's approved gear claims), caches them in `vs_rank_sim`, and — only
-  when BOTH Temple and WikiSync responded — writes the rank to `players.rank` (the bot
-  mirrors it to Discord). A saved climb returns `form.rankUp` → the confetti overlay.
+  inputs (+ the member's approved gear claims), caches them in `vs_rank_sim`, and writes the
+  rank to `players.rank` (the bot mirrors it to Discord) unless a stats source errored
+  transiently (see the save-gate below). A saved climb returns `form.rankUp` → the confetti
+  overlay.
 - **Single-player core** (`src/lib/server/rankCheck.ts` `checkAndSaveRank`): the shared body
   of the above — fetch live inputs, cache the breakdown (reusing any case/underscore-variant
-  `vs_rank_sim` row so a spelling mismatch never duplicates), and persist `players.rank` only
-  when both stats sources responded. `/me`'s `checkRank` (with its per-user cooldown + rank-up
-  celebration) and the admin **"Re-check one player"** both call it, so the two paths score,
-  cache, and save identically.
+  `vs_rank_sim` row so a spelling mismatch never duplicates), and persist `players.rank`.
+  `/me`'s `checkRank` (with its per-user cooldown + rank-up celebration) and the admin
+  **"Re-check one player"** both call it, so the two paths score, cache, and save identically.
+- **Save-gate: missing ≠ errored** (the key rule). `fetchPlayerRankInputs` now reports a
+  `templeStatus`/`wikisyncStatus` of `'ok'` | `'missing'` | `'error'` (via `getJsonOutcome`,
+  which reads the HTTP status: a 404 / empty body is `'missing'`, a network/timeout/429/5xx is
+  `'error'`). `checkAndSaveRank` skips the `players.rank` write **only** when a source is
+  `'error'` (transient outage — its 0 would wrongly demote). A player Temple/WikiSync has
+  simply never tracked comes back `'missing'`: their gear/clog/CA genuinely score 0, so the
+  composite IS their correct rank on available data, and it's saved. During a real outage every
+  source errors → nothing saves → no mass demotion. `templeAvailable`/`wikisyncAvailable` stay
+  `status === 'ok'` (they drive the breakdown display + the home non-Temple shading), so those
+  are unaffected.
 - **Admin "Re-check rank" on `/u/[rsn]`** (`recheck` action): an admin viewing any member's
   profile gets a button (shown when `data.canRecheck`, i.e. `isAdmin`) that runs the same
   single-player live check for that member — resolved from `vs_users`, so it folds in their
@@ -132,7 +142,9 @@ shows). Three tiers, over the seven scored categories:
   write `players.rank` + `signature_rank`) over EVERY site member, one small batch at a time,
   auto-chaining until done. Unlike the simulator refresh (which only caches inputs), this also
   applies the result, so it's the one-click "bring everyone's live rank up to date." Passes a
-  cached WOM roster into each check so it isn't re-fetched per member.
+  cached WOM roster into each check so it isn't re-fetched per member. Reports `saved` vs
+  `skipped` (members whose Temple/WikiSync **errored transiently** — re-run to catch them);
+  members those sources have simply never tracked are saved on available data, not skipped.
 - The three admin rank tools live under one hub, **`/admin/ranks`** (a `RanksTabs` bar):
   Gear Claims (the default tab) · Simulator · Mass Update. Each is its own route with its own
   load/actions; the bar just makes them read as one panel.

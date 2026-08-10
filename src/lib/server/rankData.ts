@@ -6,7 +6,7 @@
 
 import { calculateGearPoints, calculateCAPoints, type RankInputs, type GearPartial } from './rankScoring';
 import { usesIronmanEhb, computeIronmanEhb } from './rankScoring/ehb';
-import { getJson } from './http';
+import { getJson, getJsonOutcome } from './http';
 import { SKILLS, SKILL_WOM_KEY, type Skill } from '$lib/ehp';
 
 // Same WOM group as the bot (voli-disc-bot/config.json clanId).
@@ -103,22 +103,50 @@ export async function fetchPlayerBossKills(rsn: string): Promise<Record<string, 
 	return out;
 }
 
-export async function fetchTempleCollectionLog(
-	rsn: string
-): Promise<{ items: Record<string, unknown>; finished: number; available: number } | null> {
+// Whether an external source (Temple / WikiSync) answered for a player, could NOT answer,
+// or errored transiently. 'missing' vs 'error' is the distinction the rank save-gate needs:
+// a genuinely-untracked player ('missing') is still scored + saved on available data, while
+// a transient outage ('error') skips the save so nobody is wrongly demoted (see rankCheck).
+export type SourceStatus = 'ok' | 'missing' | 'error';
+
+export interface TempleClog {
+	items: Record<string, unknown>;
+	finished: number;
+	available: number;
+}
+
+export type SourceResult<T> = { status: 'ok'; data: T } | { status: 'missing' } | { status: 'error' };
+
+// Status-aware Temple fetch. 'ok' + the clog, 'missing' when Temple has no record for the RSN
+// (a 404, or a 200 whose body has no `data` block — how Temple answers for an untracked
+// player), or 'error' on a transient outage.
+export async function fetchTempleCollectionLogResult(rsn: string): Promise<SourceResult<TempleClog>> {
 	const url = `${TEMPLE_BASE}/collection-log/player_collection_log.php?player=${encodeURIComponent(
 		rsn
 	)}&categories=all&includenames=1`;
-	const data = (await getJson(url, 20000)) as
-		| { data?: { items?: Record<string, unknown>; total_collections_finished?: number; total_collections_available?: number } }
-		| null;
-	const d = data?.data;
-	if (!d) return null;
+	const res = await getJsonOutcome<{
+		data?: { items?: Record<string, unknown>; total_collections_finished?: number; total_collections_available?: number };
+	}>(url, 20000);
+	if (res.status === 'error') return { status: 'error' };
+	if (res.status === 'missing') return { status: 'missing' };
+	const d = res.data?.data;
+	// Temple answered, but has no collection log for this RSN → definitively untracked.
+	if (!d) return { status: 'missing' };
 	return {
-		items: d.items || {},
-		finished: d.total_collections_finished || 0,
-		available: d.total_collections_available || 0
+		status: 'ok',
+		data: {
+			items: d.items || {},
+			finished: d.total_collections_finished || 0,
+			available: d.total_collections_available || 0
+		}
 	};
+}
+
+// Back-compat wrapper: the clog, or null on missing/error. Board/task callers that only care
+// "did we get data" keep using this; the rank path uses the status-aware variant above.
+export async function fetchTempleCollectionLog(rsn: string): Promise<TempleClog | null> {
+	const res = await fetchTempleCollectionLogResult(rsn);
+	return res.status === 'ok' ? res.data : null;
 }
 
 // One WikiSync request serving both CA and achievement-diary state. `diaries` maps
@@ -130,11 +158,16 @@ export interface WikiSyncPlayer {
 	diaries: Record<string, Record<string, boolean>> | null;
 }
 
-export async function fetchWikiSyncPlayer(rsn: string): Promise<WikiSyncPlayer | null> {
-	const data = (await getJson(`${WIKISYNC_BASE}/${encodeURIComponent(rsn)}/STANDARD`)) as
-		| { combat_achievements?: number[]; achievement_diaries?: Record<string, unknown> }
-		| null;
-	if (!data) return null;
+// Status-aware WikiSync fetch. WikiSync 404s for a player who has never run the RuneLite
+// plugin ('missing'); other non-OK / network / timeout is 'error' (transient).
+export async function fetchWikiSyncPlayerResult(rsn: string): Promise<SourceResult<WikiSyncPlayer>> {
+	const res = await getJsonOutcome<{ combat_achievements?: number[]; achievement_diaries?: Record<string, unknown> }>(
+		`${WIKISYNC_BASE}/${encodeURIComponent(rsn)}/STANDARD`
+	);
+	if (res.status === 'error') return { status: 'error' };
+	if (res.status === 'missing') return { status: 'missing' };
+	const data = res.data;
+	if (!data) return { status: 'missing' };
 
 	// Parse the diaries block defensively: WikiSync reports region → tier →
 	// { complete, tasks } (accept a bare boolean too, in case the shape ever slims).
@@ -153,7 +186,12 @@ export async function fetchWikiSyncPlayer(rsn: string): Promise<WikiSyncPlayer |
 		}
 	}
 
-	return { caIds: data.combat_achievements || [], diaries };
+	return { status: 'ok', data: { caIds: data.combat_achievements || [], diaries } };
+}
+
+export async function fetchWikiSyncPlayer(rsn: string): Promise<WikiSyncPlayer | null> {
+	const res = await fetchWikiSyncPlayerResult(rsn);
+	return res.status === 'ok' ? res.data : null;
 }
 
 export async function fetchWikiSyncCA(rsn: string): Promise<number[] | null> {
@@ -181,8 +219,14 @@ export interface PlayerRankData extends RankInputs {
 	rsn: string;
 	womId: number | null;
 	clanJoinedAt: string | null;
+	// `*Available` = the source returned real DATA (status 'ok') — drives the breakdown display
+	// and the home non-Temple shading. `*Status` additionally distinguishes 'missing' (the
+	// player is genuinely untracked → their 0 is real) from 'error' (transient outage → don't
+	// trust the 0), which is what the save-gate in rankCheck keys off.
 	templeAvailable: boolean;
 	wikisyncAvailable: boolean;
+	templeStatus: SourceStatus;
+	wikisyncStatus: SourceStatus;
 	caTier: string;
 	gearDetail: GearDetail;
 	caDetail: CADetail;
@@ -212,13 +256,15 @@ export async function fetchPlayerRankInputs(
 
 	// GIM accounts: re-derive EHB from boss KCs on iron rates (fetched in parallel).
 	const iron = usesIronmanEhb(accountType);
-	const [totalLevel, temple, ca, bossKills] = await Promise.all([
+	const [totalLevel, templeRes, wikiRes, bossKills] = await Promise.all([
 		fetchPlayerTotalLevel(rsn),
-		fetchTempleCollectionLog(rsn),
-		fetchWikiSyncCA(rsn),
+		fetchTempleCollectionLogResult(rsn),
+		fetchWikiSyncPlayerResult(rsn),
 		iron ? fetchPlayerBossKills(rsn) : Promise.resolve(null)
 	]);
 
+	const temple = templeRes.status === 'ok' ? templeRes.data : null;
+	const ca = wikiRes.status === 'ok' ? wikiRes.data.caIds : null;
 	const gear = calculateGearPoints(temple?.items, manualGearNames);
 	const caResult = calculateCAPoints(ca);
 	// Iron EHB only overrides when the boss snapshot actually came back; on a WOM outage
@@ -240,8 +286,10 @@ export async function fetchPlayerRankInputs(
 		// has the member's site user id (rankCheck) fills these in before scoring.
 		tcgOwned: 0,
 		tcgTotal: 0,
-		templeAvailable: temple != null,
-		wikisyncAvailable: ca != null,
+		templeAvailable: templeRes.status === 'ok',
+		wikisyncAvailable: wikiRes.status === 'ok',
+		templeStatus: templeRes.status,
+		wikisyncStatus: wikiRes.status,
 		caTier: caResult.highestTier,
 		gearDetail: { matchedItems: gear.matchedItems, missedItems: gear.missedItems, partials: gear.partials },
 		caDetail: {

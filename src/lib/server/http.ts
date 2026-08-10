@@ -35,6 +35,31 @@ export async function getJson<T = unknown>(url: string, timeoutMs = DEFAULT_TIME
 	}
 }
 
+// Like getJson, but distinguishes a definitive "no record for this key" (HTTP 404) from a
+// transient failure (network / timeout / 429 / 5xx / parse). Callers that must NOT treat
+// "the source is down" the same as "this player isn't tracked" use this — e.g. rank scoring,
+// where a real outage has to skip the save, but a genuinely-unsynced player should still be
+// scored (and saved) on the data that does exist. A 200 that simply lacks the player's data
+// is still `ok` here; the caller decides whether an empty body means "missing".
+export type JsonOutcome<T> =
+	| { status: 'ok'; data: T }
+	| { status: 'missing' } // upstream answered but has no record for this key (404)
+	| { status: 'error' }; // transient: network / timeout / non-404 non-OK / parse
+
+export async function getJsonOutcome<T = unknown>(
+	url: string,
+	timeoutMs = DEFAULT_TIMEOUT_MS
+): Promise<JsonOutcome<T>> {
+	try {
+		const res = await serverFetch(url, { headers: UA }, timeoutMs);
+		if (res.status === 404) return { status: 'missing' };
+		if (!res.ok) return { status: 'error' };
+		return { status: 'ok', data: (await res.json()) as T };
+	} catch {
+		return { status: 'error' };
+	}
+}
+
 // POST a JSON body, best-effort. Returns true if the upstream answered 2xx. Used for
 // fire-and-forget Discord webhooks so a slow egress can't hang the request.
 export async function postJson(

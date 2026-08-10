@@ -33,7 +33,8 @@ export interface RankCheckOutcome {
 	rank: string;
 	/** Whether the rank was persisted to players.rank (the bot mirrors it to Discord). */
 	saved: boolean;
-	/** True when a stats source was down, so the rank was deliberately NOT saved. */
+	/** True when a stats source ERRORED transiently (not merely "no record"), so the rank was
+	 * deliberately NOT saved to avoid a wrong demotion. A genuinely-untracked player saves. */
 	skippedSave: boolean;
 	/** Rank held before this write (null when not looked up / no player record). */
 	prevRank: string | null;
@@ -50,8 +51,10 @@ export type RankCheckResult =
 	| { ok: false; error: string };
 
 // Fetch live inputs (WOM + Temple + WikiSync) for one player, score them with the current
-// config, cache the breakdown in vs_rank_sim, and — only when both Temple and WikiSync
-// responded — write players.rank. Never throws: transient failures come back as ok:false.
+// config, cache the breakdown in vs_rank_sim, and write players.rank — UNLESS a stats source
+// errored transiently (then the degraded score is not persisted). A player Temple/WikiSync
+// has simply never tracked IS scored + saved on available data. Never throws: transient
+// failures come back as ok:false.
 // Pass a pre-fetched `roster` (the bulk WOM group call) when checking MANY players in a row
 // — e.g. the mass rank update — so we don't re-fetch the whole clan once per player.
 export async function checkAndSaveRank(
@@ -120,11 +123,13 @@ export async function checkAndSaveRank(
 			};
 		}
 
-		// If a stats source was down (Temple/WikiSync), its component degrades to 0 and the
-		// composite is artificially low. Show the breakdown, but DON'T persist the rank —
-		// players.rank mirrors to a Discord role, so saving a degraded score off a transient
-		// 429/outage could wrongly demote the member.
-		if (!inputs.templeAvailable || !inputs.wikisyncAvailable) {
+		// Skip the SAVE only when a stats source genuinely ERRORED (transient outage) — a
+		// 429/timeout would zero out gear/clog/CA and, since players.rank mirrors to a Discord
+		// role, wrongly demote the member. A source that definitively has NO record for the
+		// player ('missing') is different: their 0 on that component is real, so the composite
+		// IS their correct rank on available data — persist it. During a true outage every
+		// source errors, so nothing saves and no one is mass-demoted.
+		if (inputs.templeStatus === 'error' || inputs.wikisyncStatus === 'error') {
 			return {
 				ok: true,
 				outcome: {
@@ -144,8 +149,10 @@ export async function checkAndSaveRank(
 		// A missing player record isn't fatal — the breakdown still cached above.
 		const prevRank = await getPlayerRank(discordId, rsn);
 		const write = await setPlayerRank(discordId, rsn, rank);
-		// Refresh the earned signature tier on the player row (bot `/sync` reads it). Only on
-		// full data — a degraded check exits above, so completions here aren't understated.
+		// Refresh the earned signature tier on the player row (bot `/sync` reads it). A source
+		// that's merely 'missing' can't inflate this — its whole categories stay incomplete, so
+		// a member short on data simply won't earn a signature; only a transient 'error' (which
+		// exits above) could understate it.
 		await setPlayerSignatureRank(discordId, rsn, signatureKey);
 		const rankedUp = write.ok && prevRank != null && rankIndex(rank) > rankIndex(prevRank);
 		return {
@@ -156,8 +163,8 @@ export async function checkAndSaveRank(
 				skippedSave: false,
 				prevRank,
 				rankedUp,
-				templeAvailable: true,
-				wikisyncAvailable: true,
+				templeAvailable: inputs.templeAvailable,
+				wikisyncAvailable: inputs.wikisyncAvailable,
 				saveReason: write.ok ? null : write.reason === 'no_player' ? 'no_player' : 'error'
 			}
 		};

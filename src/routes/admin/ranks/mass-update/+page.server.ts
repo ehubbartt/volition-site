@@ -97,6 +97,7 @@ export const actions: Actions = {
 
 		let processed = 0;
 		let saved = 0;
+		let skipped = 0; // scored but not persisted — a stats source errored transiently
 		let failed = 0;
 		const errors: string[] = [];
 		for (const m of worklist) {
@@ -107,6 +108,7 @@ export const actions: Actions = {
 			processed++;
 			if (res.ok) {
 				if (res.outcome.saved) saved++;
+				else if (res.outcome.skippedSave) skipped++;
 			} else {
 				failed++;
 				if (errors.length < 5) errors.push(`${m.rsn}: ${res.error}`);
@@ -118,6 +120,7 @@ export const actions: Actions = {
 			runOk: true,
 			processed,
 			saved,
+			skipped,
 			failed,
 			errors,
 			total: members.length,
