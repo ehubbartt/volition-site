@@ -15,6 +15,7 @@
 	let total = $state(data.total);
 	let doneCount = $state(0); // members re-checked this run
 	let savedCount = $state(0); // ranks written to players.rank
+	let skippedCount = $state(0); // scored but not saved (a stats source errored)
 	let failedCount = $state(0);
 	let remaining = $state<number | null>(null);
 	let errors = $state<string[]>([]);
@@ -56,6 +57,7 @@
 						runSince = new Date().toISOString();
 						doneCount = 0;
 						savedCount = 0;
+						skippedCount = 0;
 						failedCount = 0;
 						errors = [];
 						finished = false;
@@ -76,6 +78,7 @@
 							const d = result.data as {
 								processed: number;
 								saved: number;
+								skipped: number;
 								failed: number;
 								errors?: string[];
 								total: number;
@@ -83,6 +86,7 @@
 							};
 							doneCount += d.processed;
 							savedCount += d.saved;
+							skippedCount += d.skipped ?? 0;
 							failedCount += d.failed;
 							total = d.total;
 							remaining = d.remaining;
@@ -121,13 +125,13 @@
 				<div class="row between small muted">
 					<span>{doneCount} / {total} re-checked ({pct}%)</span>
 					<span>
-						{savedCount} rank{savedCount === 1 ? '' : 's'} saved{#if failedCount > 0} · {failedCount} failed{/if}
+						{savedCount} rank{savedCount === 1 ? '' : 's'} saved{#if skippedCount > 0} · {skippedCount} skipped{/if}{#if failedCount > 0} · {failedCount} failed{/if}
 						{#if running && remaining !== null} · ~{remaining} to go{/if}
 					</span>
 				</div>
 			</div>
 			{#if finished && !running}
-				<p class="done">✅ Done — re-checked {doneCount} member{doneCount === 1 ? '' : 's'}, {savedCount} rank{savedCount === 1 ? '' : 's'} saved{#if failedCount > 0}, {failedCount} failed{/if}.</p>
+				<p class="done">✅ Done — re-checked {doneCount} member{doneCount === 1 ? '' : 's'}, {savedCount} rank{savedCount === 1 ? '' : 's'} saved{#if skippedCount > 0}, {skippedCount} skipped (a stats source was down — re-run to pick them up){/if}{#if failedCount > 0}, {failedCount} failed{/if}.</p>
 			{:else if running && retries > 0}
 				<p class="muted small">WoM rate-limited — retrying ({retries}/{MAX_RETRIES})…</p>
 			{/if}
@@ -142,9 +146,11 @@
 	</div>
 
 	<p class="muted small note">
-		A member whose TempleOSRS or WikiSync is unavailable is scored from partial data and their
-		clan rank is <em>not</em> overwritten (avoids a wrong demotion) — they just aren't counted as
-		“saved”. Re-run later to pick them up.
+		A member Temple/WikiSync has <em>never tracked</em> is scored on available data (gear, clog
+		and CAs count as 0) and their rank <em>is</em> saved — that's their correct rank until they
+		sync. Only a <em>transient</em> Temple/WikiSync error skips the save (avoids a wrong
+		demotion); those show as “skipped” — re-run later to pick them up. If a source is fully down
+		everyone skips, so no one is mass-demoted.
 	</p>
 </section>
 

@@ -70,12 +70,14 @@ export const actions: Actions = {
 			recheckRankedUp: o.rankedUp,
 			recheckPrevRank: o.prevRank,
 			recheckNote: o.skippedSave
-				? 'Computed from partial data — Temple or WikiSync was unavailable, so the clan rank was NOT changed (avoids a wrong demotion). Try again shortly.'
-				: o.saved
-					? null
-					: o.saveReason === 'no_player'
-						? 'Breakdown updated, but no clan player record was found to save the rank to.'
-						: 'Breakdown updated, but saving the clan rank failed — try again.'
+				? 'Computed from partial data — Temple or WikiSync errored transiently, so the clan rank was NOT changed (avoids a wrong demotion). Try again shortly.'
+				: o.saved && (!o.templeAvailable || !o.wikisyncAvailable)
+					? `Ranked on available data — ${[!o.templeAvailable ? 'TempleOSRS' : null, !o.wikisyncAvailable ? 'WikiSync' : null].filter(Boolean).join(' and ')} has no record for this member, so gear/clog/CA scored 0. They'll rank higher once they sync.`
+					: o.saved
+						? null
+						: o.saveReason === 'no_player'
+							? 'Breakdown updated, but no clan player record was found to save the rank to.'
+							: 'Breakdown updated, but saving the clan rank failed — try again.'
 		};
 	}
 };

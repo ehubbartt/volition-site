@@ -111,19 +111,24 @@ export const actions: Actions = {
 				rankOk: true,
 				rankSaved: false,
 				rankNote:
-					'Computed from partial data — a stats source (Temple/WikiSync) was unavailable, so your clan rank was not updated to avoid an inaccurate change. Try again shortly.'
+					'Computed from partial data — a stats source (Temple/WikiSync) was temporarily unavailable, so your clan rank was not updated to avoid an inaccurate change. Try again shortly.'
 			};
 		}
+		// Saved, but a source has no record for you (never synced) → your gear/clog/CA count as
+		// 0. Nudge the fix so it isn't mistaken for a bug.
+		const partial = o.saved && (!o.templeAvailable || !o.wikisyncAvailable);
 		return {
 			rankOk: true,
 			rankSaved: o.saved,
 			// Only a genuine, SAVED climb celebrates (rankedUp compares RANK_ORDER positions).
 			rankUp: o.rankedUp && o.prevRank ? { from: o.prevRank, to: o.rank } : null,
-			rankNote: o.saved
-				? null
-				: o.saveReason === 'no_player'
-					? 'Computed from your latest data, but no clan player record was found to save your rank to yet.'
-					: 'Your breakdown was updated, but saving your clan rank failed — try again later.'
+			rankNote: partial
+				? `Ranked on the data we have — ${[!o.templeAvailable ? 'TempleOSRS' : null, !o.wikisyncAvailable ? 'WikiSync' : null].filter(Boolean).join(' and ')} has no record for you, so your gear, collection log and combat achievements count as 0. Sync it and re-check to rank higher.`
+				: o.saved
+					? null
+					: o.saveReason === 'no_player'
+						? 'Computed from your latest data, but no clan player record was found to save your rank to yet.'
+						: 'Your breakdown was updated, but saving your clan rank failed — try again later.'
 		};
 	},
 
