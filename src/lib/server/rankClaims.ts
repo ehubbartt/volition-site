@@ -101,7 +101,9 @@ export async function listGearClaims(userId: string): Promise<GearClaim[]> {
 }
 
 // APPROVED claim item names for one member — merged into calculateGearPoints.
-export async function getApprovedGearNames(userId: string): Promise<string[]> {
+export async function getApprovedGearNames(userId: string | null): Promise<string[]> {
+	// A roster member with no site account (mass-update scores them by RSN) has no claims.
+	if (!userId) return [];
 	const { data } = await db()
 		.from('vs_rank_item_claims')
 		.select('item_name')

@@ -18,8 +18,10 @@ import { completedFromNormalized, earnedSignatureTier } from '$lib/rankSignature
 import { rankIndex } from '$lib/ranks';
 
 export interface RankCheckTarget {
-	/** vs_users.id — used to fold in the member's approved manual gear claims. */
-	userId: string;
+	/** vs_users.id — folds in the member's approved manual gear claims + TCG progress.
+	 * null for a roster member with no site account (mass-update scores them by RSN):
+	 * both reads then no-op, so they're scored on WOM/Temple/WikiSync alone. */
+	userId: string | null;
 	/** The player's RSN (their profile spelling; matched case-insensitively for caching). */
 	rsn: string;
 	/** Discord id for the players.rank write + previous-rank lookup (null falls back to RSN). */

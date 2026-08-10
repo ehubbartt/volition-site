@@ -18,16 +18,52 @@ const ROSTER_TTL_MS = 10 * 60_000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface Member {
-	id: string;
+	// vs_users.id, or null for a clan-roster member with no linked site account (scored by
+	// RSN — checkAndSaveRank's claim + TCG reads no-op on a null id).
+	id: string | null;
 	rsn: string;
 	discord_id: string | null;
 	account_type: string | null;
 }
 
-// Every site member with an RSN — the population we re-check.
+// OSRS treats space/underscore as equal — normalize before matching a roster rsn to a
+// site rsn (mirrors homeData.normRsn / users.rsnExactPattern).
+const normRsn = (rsn: string | null | undefined) => (rsn ?? '').trim().replace(/_/g, ' ').toLowerCase();
+
+// The whole clan we re-check: every site member (vs_users) UNION every clan-roster member
+// (players) who never linked a site account. The home rank breakdown counts the full
+// `players` roster, so scoring only site users left roster-only members stranded on their
+// old bot rank (and always shaded "no Temple", since they had no vs_rank_sim row). Roster-only
+// members are scored by RSN with a null id + null account_type — WOM carries no account type,
+// so they get main-rate EHB (a GIM's EHB may read a touch high; acceptable for a backfill).
 async function readMembers(): Promise<Member[]> {
-	const rows = await selectAll<Member>('vs_users', 'id, rsn, discord_id, account_type');
-	return rows.filter((r) => r.rsn && r.rsn.trim().length > 0);
+	const [siteRows, rosterRows] = await Promise.all([
+		selectAll<{ id: string; rsn: string; discord_id: string | null; account_type: string | null }>(
+			'vs_users',
+			'id, rsn, discord_id, account_type'
+		),
+		selectAll<{ rsn: string; discord_id: string | null }>('players', 'rsn, discord_id')
+	]);
+
+	const site: Member[] = siteRows.filter((r) => r.rsn && r.rsn.trim().length > 0);
+
+	// Identities already covered by a site account — match on discord_id first, then rsn.
+	const coveredDiscord = new Set(site.map((m) => m.discord_id).filter(Boolean) as string[]);
+	const coveredRsn = new Set(site.map((m) => normRsn(m.rsn)));
+
+	const rosterOnly: Member[] = [];
+	const seen = new Set<string>(); // de-dupe roster rows among themselves (by normalized rsn)
+	for (const p of rosterRows) {
+		if (!p.rsn || !p.rsn.trim()) continue;
+		const key = normRsn(p.rsn);
+		if (coveredRsn.has(key)) continue;
+		if (p.discord_id && coveredDiscord.has(p.discord_id)) continue;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		rosterOnly.push({ id: null, rsn: p.rsn, discord_id: p.discord_id, account_type: null });
+	}
+
+	return [...site, ...rosterOnly];
 }
 
 // One WOM group call per ROSTER_TTL_MS, shared across batches (and with the rank-sim). Throw

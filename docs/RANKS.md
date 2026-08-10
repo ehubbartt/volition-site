@@ -144,11 +144,17 @@ shows). Three tiers, over the seven scored categories:
   default, `onlyMissing`) drops members whose cached row is already Temple-complete so a
   top-up only fetches new members / prior Temple outages — uncheck for a full re-fetch.
 - **`/admin/ranks/mass-update`**: runs the full `checkAndSaveRank` (fetch → score → cache →
-  write `players.rank` + `signature_rank`) over EVERY site member, one small batch at a time,
+  write `players.rank` + `signature_rank`) over the WHOLE clan, one small batch at a time,
   auto-chaining until done. Unlike the simulator refresh (which only caches inputs), this also
-  applies the result, so it's the one-click "bring everyone's live rank up to date." Passes a
-  cached WOM roster into each check so it isn't re-fetched per member. Reports `saved` vs
-  `skipped` (members whose Temple/WikiSync **errored transiently** — re-run to catch them);
+  applies the result, so it's the one-click "bring everyone's live rank up to date." The
+  population is every site member (`vs_users`) **unioned with every `players` roster member who
+  never linked a site account** — matched by discord id then normalized RSN. The home rank
+  breakdown counts the full `players` roster, so scoring only site users left roster-only
+  members stranded on their old bot rank (and always shaded "no Temple", having no `vs_rank_sim`
+  row); those members are now scored by RSN with a null user id (their claim + TCG reads no-op)
+  and a null account type (WOM carries none, so main-rate EHB — a GIM's may read a touch high).
+  Passes a cached WOM roster into each check so it isn't re-fetched per member. Reports `saved`
+  vs `skipped` (members whose Temple/WikiSync **errored transiently** — re-run to catch them);
   members those sources have simply never tracked are saved on available data, not skipped.
 - The three admin rank tools live under one hub, **`/admin/ranks`** (a `RanksTabs` bar):
   Gear Claims (the default tab) · Simulator · Mass Update. Each is its own route with its own
