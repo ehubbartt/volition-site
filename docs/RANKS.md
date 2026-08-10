@@ -119,13 +119,18 @@ shows). Three tiers, over the seven scored categories:
 - **Save-gate: missing ≠ errored** (the key rule). `fetchPlayerRankInputs` now reports a
   `templeStatus`/`wikisyncStatus` of `'ok'` | `'missing'` | `'error'` (via `getJsonOutcome`,
   which reads the HTTP status: a 404 / empty body is `'missing'`, a network/timeout/429/5xx is
-  `'error'`). `checkAndSaveRank` skips the `players.rank` write **only** when a source is
-  `'error'` (transient outage — its 0 would wrongly demote). A player Temple/WikiSync has
-  simply never tracked comes back `'missing'`: their gear/clog/CA genuinely score 0, so the
-  composite IS their correct rank on available data, and it's saved. During a real outage every
-  source errors → nothing saves → no mass demotion. `templeAvailable`/`wikisyncAvailable` stay
-  `status === 'ok'` (they drive the breakdown display + the home non-Temple shading), so those
-  are unaffected.
+  `'error'`). On a source `'error'` `checkAndSaveRank` **bails before writing anything** —
+  neither `players.rank` NOR the `vs_rank_sim` cache row is touched, so the member keeps their
+  last-good rank *and* Temple flag. (The bail is above the cache upsert on purpose: a degraded
+  pass zeros gear/clog/CA, and writing `gear_points=0` / `temple_available=false` next to a
+  retained high rank is exactly what makes the home page shade a real Myth/TzTok member as
+  "ranked without Temple" — an impossible combination, since gear is Temple-only. Skipping the
+  cache too keeps the shading honest and the `/me` breakdown on last-good data.) A player
+  Temple/WikiSync has simply never tracked comes back `'missing'`: their gear/clog/CA genuinely
+  score 0, so the composite IS their correct rank on available data, and it's cached + saved.
+  During a real outage every source errors → nothing saves → no mass demotion.
+  `templeAvailable`/`wikisyncAvailable` stay `status === 'ok'` (they drive the breakdown display
+  + the home non-Temple shading, which reads `vs_rank_sim.temple_available`).
 - **Admin "Re-check rank" on `/u/[rsn]`** (`recheck` action): an admin viewing any member's
   profile gets a button (shown when `data.canRecheck`, i.e. `isAdmin`) that runs the same
   single-player live check for that member — resolved from `vs_users`, so it folds in their
