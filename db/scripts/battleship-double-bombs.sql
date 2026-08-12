@@ -6,17 +6,25 @@
 -- nobody loses anything.
 --
 --
--- ── THIS IS TWO SEPARATE THINGS. READ BOTH. ─────────────────────────────────
+-- ── TWO INDEPENDENT PARTS. RUN EITHER, OR BOTH. ─────────────────────────────
 --
---   PART 1 catches up the bombs already earned. Pure SQL, runs once, done.
+--   PART 1 catches up the drops already banked — a one-off retroactive twin for every
+--   bomb earned before now. Pure SQL, runs once, done. NOT a rate change: on its own the
+--   event goes back to its old pace tomorrow.
 --
---   PART 2 makes FUTURE drops arm twice. That is not something a one-off statement can
---   do — minting happens in `earnBomb`, which writes exactly one row per drop and leans
---   on `unique (event_id, drop_key)` to stay idempotent. So Part 2 is a TRIGGER: the
---   database mints the twin itself, at insert time, with no deploy.
+--   PART 2 makes FUTURE drops arm twice, and is the part that actually changes the pace.
+--   It cannot be a one-off statement: minting happens in `earnBomb`, which writes exactly
+--   one row per drop and leans on `unique (event_id, drop_key)` to stay idempotent. So
+--   Part 2 is a TRIGGER — the database mints the twin itself, at insert time, no deploy.
 --
--- Part 1 without Part 2 is a one-time gift, not a rate change, and the event goes back to
--- its old pace tomorrow. If that is what you want, run Part 1 alone — it is self-contained.
+-- Each part is its own transaction and neither depends on the other. **Part 2 alone is
+-- the "new rule from here on" option**: nobody's existing bombs change, and every drop
+-- from the moment it commits arms two.
+--
+-- One wrinkle worth knowing if you run Part 2 alone: the Dink consumer runs on a timer, so
+-- a drop that LANDED before you ran this but gets processed after will still arm two. That
+-- is the trigger firing on the insert, not on the kill — it is a few minutes of overlap,
+-- not a bug, and it explains any "why did they get two for an old drop".
 --
 --
 -- ── WHAT A TRIGGER COSTS YOU ────────────────────────────────────────────────
@@ -55,6 +63,11 @@
 -- `total_that_would_double` is exactly how many new bombs Part 1 creates.
 -- ────────────────────────────────────────────────────────────────────────────
 
+-- ════════════════════════════════════════════════════════════════════════════
+--  PART 1 — the drops already earned.  OPTIONAL. Skip this whole block for
+--  "new rule from here on"; Part 2 below does not need it.
+-- ════════════════════════════════════════════════════════════════════════════
+
 begin;
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
@@ -92,6 +105,28 @@ where a.event_id in (select id from _target)
   and coalesce(a.source, '') <> 'admin'
   and a.drop_key not like '%:x2'
 on conflict (event_id, drop_key) do nothing;
+
+commit;
+
+-- ════════════════════════════════════════════════════════════════════════════
+--  PART 2 — every drop from here on.  This is the pace change. Self-contained:
+--  it scopes itself by slug and needs nothing from Part 1.
+-- ════════════════════════════════════════════════════════════════════════════
+
+begin;
+
+-- The slug is written into the trigger body below, so a typo there would arm a trigger
+-- that silently never fires. Fail loudly instead.
+do $$
+declare n int;
+begin
+	select count(*) into n from vs_events
+	where slug = 'battleship' and kind = 'battleship';
+	if n <> 1 then
+		raise exception
+			'expected exactly 1 battleship event with that slug, found % — the trigger below would never fire', n;
+	end if;
+end $$;
 
 -- ── PART 2: every drop from here on ─────────────────────────────────────────
 --
