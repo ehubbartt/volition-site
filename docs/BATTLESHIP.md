@@ -138,6 +138,18 @@ wrong. Two things move: the event's own `config.tiers`, and the bombs already ba
 against the old numbers. `db/scripts/battleship-retier.sql` does both in one transaction
 and never demotes a banked bomb — see the header of that file.
 
+> **A live event may be running on a doubling trigger, which `earnBomb` does not know
+> about.** `db/scripts/battleship-double-bombs.sql` is the other pace lever: two bombs per
+> drop instead of one, at roughly double the rate, with no rule anyone was told changing.
+> Because minting is idempotent on `unique (event_id, drop_key)`, one statement cannot do
+> it — so that script installs a database trigger that mints a twin keyed `<drop_key>:x2`.
+>
+> Read `earnBomb` and you will count one bomb per drop and be wrong. Two consequences
+> worth holding on to: `removeBomb` deletes a single row, so pulling a bad drop means
+> pulling its `:x2` twin as well; and removing the twin does not close the upstream
+> `vs_dink_drops` row, because the suffixed key matches nothing there. Drop the trigger
+> when the event ends — the statements are in that file's header.
+
 > **Why the floor is 5m and not lower.** Members who run Dink against several Discord
 > servers are pinned to a `minLootValue` of 3m so the site's tracking doesn't spam their
 > other servers. Keeping the smallest bomb above that means they need no config change to
