@@ -139,12 +139,19 @@ test.describe.serial('Signup forms', () => {
 	test('a member answers the questions, and the answers reach the roster', async ({ page }) => {
 		await page.goto(`/events/${SLUG}/signup`);
 
-		// Required fields are required server-side, not just in the browser: strip the
-		// attribute and post anyway, and the server must still refuse.
-		await page.evaluate(() =>
-			document.querySelectorAll('[required]').forEach((el) => el.removeAttribute('required'))
-		);
-		await page.getByRole('button', { name: /sign me up/i }).click();
+		// Required fields are required SERVER-side, not just in the browser: strip the
+		// attributes and post anyway, and the server must still refuse.
+		//
+		// Stripping and then clicking separately is a race — the page hydrates in between,
+		// Svelte re-renders the inputs with `required` restored, and the browser blocks the
+		// submit so the server never sees it. Doing both in one evaluate leaves no window.
+		// This works whether or not `use:enhance` has attached: either it intercepts the
+		// submit event, or the form posts natively. Both land on the same action.
+		await page.evaluate(() => {
+			const f = document.querySelector<HTMLFormElement>('form[action="?/submit"]');
+			f?.querySelectorAll('[required]').forEach((el) => el.removeAttribute('required'));
+			f?.requestSubmit();
+		});
 		await expect(page.locator('.fielderr').first()).toContainText(/required/i);
 
 		// Now answer properly.
