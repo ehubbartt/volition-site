@@ -1,14 +1,30 @@
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
 	import { enhance } from '$app/forms';
+	import { swrResource } from '$lib/swrResource.svelte';
+	import Skeleton from '$lib/Skeleton.svelte';
 	import type { SignupQuestion } from '$lib/events/signupForm';
+	import type { SignupPageResult } from '$lib/server/signupPage';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	const ev = $derived(data.event);
-	const questions = $derived(ev.form.questions);
-	const signedUp = $derived(!!data.mine);
-	const canEdit = $derived(data.window.open && (!signedUp || ev.form.allowEdits));
+	// No server load — the page paints before the payload lands (see docs/PAGES.md).
+	const EMPTY = { kind: 'ok', event: null } as unknown as SignupPageResult;
+	const res = swrResource(() => data.signup, EMPTY);
+	const payload = $derived(res.value as SignupPageResult);
+	const ev = $derived(payload?.kind === 'ok' ? payload.event : null);
+	const notFound = $derived(payload?.kind === 'not_found');
+
+	const questions = $derived(ev?.form.questions ?? []);
+	const mine = $derived(payload?.kind === 'ok' ? payload.mine : null);
+	const win = $derived(
+		payload?.kind === 'ok' ? payload.window : { open: false, reason: null as string | null }
+	);
+	const signedUp = $derived(!!mine);
+	const canEdit = $derived(win.open && (!signedUp || !!ev?.form.allowEdits));
+	const count = $derived(payload?.kind === 'ok' ? payload.signedUpCount : 0);
+	const names = $derived(payload?.kind === 'ok' ? payload.names : []);
+	const viewerIsAdmin = $derived(payload?.kind === 'ok' && payload.isAdmin);
 
 	const fieldErrors = $derived<Record<string, string>>(
 		form && 'fieldErrors' in form && form.fieldErrors
@@ -21,7 +37,7 @@
 	// half of the trade — but the alternative is echoing unvalidated input back into the
 	// DOM, and a form of at most twelve fields is cheap to re-check.
 	const answerFor = (q: SignupQuestion): string => {
-		const v = data.mine?.answers?.[q.id];
+		const v = mine?.answers?.[q.id];
 		return v === undefined ? '' : String(v);
 	};
 
@@ -29,15 +45,27 @@
 		s ? new Date(s).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : null;
 </script>
 
-<svelte:head><title>{ev.name}</title></svelte:head>
+<svelte:head><title>{ev?.name ?? 'Sign up'}</title></svelte:head>
 
+{#if notFound}
+	<div class="wrap"><section class="osrs-panel">
+		<h2 class="osrs-titlebar">Not found</h2>
+		<p class="muted">There's no signup here. It may have been closed or removed.</p>
+	</section></div>
+{:else if !ev}
+	<div class="wrap">
+		<Skeleton height="2rem" width="18rem" />
+		<div class="skelgap"></div>
+		<Skeleton height="12rem" />
+	</div>
+{:else}
 <div class="wrap">
 	<header class="head">
 		<h1>{ev.name}</h1>
 		{#if ev.description}<p class="lede">{ev.description}</p>{/if}
 	</header>
 
-	{#if data.isAdmin}
+	{#if viewerIsAdmin}
 		<p class="adminbar osrs-inset">
 			<span class="tag">admin</span>
 			<a href="/admin/events/{ev.slug}/signup">Questions &amp; roster →</a>
@@ -50,15 +78,15 @@
 		</h2>
 
 		<p class="status">
-			<strong>{data.signedUpCount}</strong>
-			{data.signedUpCount === 1 ? 'person has' : 'people have'} signed up.
-			{#if ev.signupClosesAt && data.window.open}
+			<strong>{count}</strong>
+			{count === 1 ? 'person has' : 'people have'} signed up.
+			{#if ev.signupClosesAt && win.open}
 				<span class="muted">Signups close {dt(ev.signupClosesAt)}.</span>
 			{/if}
 		</p>
 
-		{#if !data.window.open}
-			<p class="err">{data.window.reason}</p>
+		{#if !win.open}
+			<p class="err">{win.reason}</p>
 		{/if}
 
 		{#if form && 'error' in form && form.error}<p class="err">{form.error}</p>{/if}
@@ -136,22 +164,25 @@
 			</ul>
 		{/if}
 
-		{#if signedUp && data.window.open}
+		<!-- A locked form locks this too: withdrawing and signing up again would otherwise
+		     be a way straight round "your answers are final". The server enforces it. -->
+		{#if signedUp && win.open && ev.form.allowEdits}
 			<form method="POST" action="?/withdraw" use:enhance class="withdraw">
 				<button class="btn subtle small" type="submit">Take me off the list</button>
 			</form>
 		{/if}
 	</section>
 
-	{#if data.names.length}
+	{#if names.length}
 		<section class="osrs-panel">
-			<h2 class="osrs-titlebar">Who's in ({data.names.length})</h2>
+			<h2 class="osrs-titlebar">Who's in ({names.length})</h2>
 			<ul class="names">
-				{#each data.names as n (n)}<li>{n}</li>{/each}
+				{#each names as n, i (`${n}-${i}`)}<li>{n}</li>{/each}
 			</ul>
 		</section>
 	{/if}
 </div>
+{/if}
 
 <style>
 	.wrap { max-width: 46rem; margin: 0 auto; padding: 0 0 3rem; }

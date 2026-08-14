@@ -17,24 +17,35 @@
 	// Local state, posted as one JSON blob on save. Add/remove/reorder are pure client
 	// operations; nothing hits the server until Save, so an admin can rearrange a form
 	// without writing six intermediate versions into a live event.
-	let questions = $state<SignupQuestion[]>([]);
-	let intro = $state('');
-	let allowEdits = $state(true);
+	// Seeded AT DECLARATION, not in an effect. Effects do not run during SSR, so seeding
+	// only there shipped a server-rendered page carrying `value="[]"` in the hidden
+	// questions field, an empty intro and an unchecked allow-edits. A click on Save that
+	// landed before hydration — a refresh or a pasted URL, i.e. the normal way an admin
+	// arrives — would post that empty array and wipe a live form's questions outright.
+	const clone = (f: typeof data.event.form) => ({
+		questions: f.questions.map((q) => ({ ...q, choices: q.choices ? [...q.choices] : undefined })),
+		intro: f.intro ?? '',
+		allowEdits: f.allowEdits
+	});
+	const initial = clone(data.event.form);
+	let questions = $state<SignupQuestion[]>(initial.questions);
+	let intro = $state(initial.intro);
+	let allowEdits = $state(initial.allowEdits);
 
-	// Re-seed from the server whenever the SAVED form changes — which, because `use:enhance`
-	// invalidates on success, means exactly "after a save". Without this the editor keeps
-	// showing what was typed rather than what was stored, so a question the server dropped
-	// for having no text stays on screen looking saved, and the ids minted for new
-	// questions never make it back into local state.
-	let seeded = $state('');
+	// Re-seed whenever the SAVED form changes — which, because `use:enhance` invalidates on
+	// success, means exactly "after a save". Without it the editor keeps showing what was
+	// typed rather than what was stored, so a question the server dropped for having no
+	// text stays on screen looking saved, and the ids minted for new questions never make
+	// it back into local state.
+	let seeded = $state(JSON.stringify(data.event.form));
 	$effect(() => {
-		const saved = data.event.form;
-		const sig = JSON.stringify(saved);
+		const sig = JSON.stringify(data.event.form);
 		if (sig === seeded) return;
 		seeded = sig;
-		questions = saved.questions.map((q) => ({ ...q, choices: q.choices ? [...q.choices] : undefined }));
-		intro = saved.intro ?? '';
-		allowEdits = saved.allowEdits;
+		const next = clone(data.event.form);
+		questions = next.questions;
+		intro = next.intro;
+		allowEdits = next.allowEdits;
 	});
 
 	// A blank id means "new" — the server mints a stable one on save, and every answer
@@ -80,8 +91,8 @@
 	// ── The roster ───────────────────────────────────────────────────────
 	// Everyone is selected by default: "send them all over" is the common case, and
 	// unticking a few is less work than ticking eighty.
-	let selected = $state<Set<string>>(new Set());
-	let rosterSeeded = $state('');
+	let selected = $state<Set<string>>(new Set(data.roster.map((r) => r.userId)));
+	let rosterSeeded = $state(data.roster.map((r) => r.userId).join(','));
 	$effect(() => {
 		const ids = data.roster.map((r) => r.userId);
 		const sig = ids.join(',');

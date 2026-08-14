@@ -91,10 +91,14 @@ export function normalizeForm(raw: unknown): SignupForm {
 		const type: QuestionType =
 			r.type === 'long' || r.type === 'number' || r.type === 'choice' ? r.type : 'short';
 
-		// A duplicate id would make two questions share one answer. Rather than drop the
-		// question (losing an admin's work), give it a fresh id.
+		// A duplicate id would make two questions share one answer. Repair it DETERMINISTICALLY
+		// — never with `newQuestionId()`, which is random: this runs on every read, so a
+		// random repair would give the field a different name on every page load and orphan
+		// each answer as soon as it was given. `saveForm` mints the real ids; read time only
+		// ever has to make a broken row renderable, and stably so.
 		let id = str(r.id, 64);
-		if (!id || seen.has(id)) id = newQuestionId();
+		if (!id) id = `q_i${questions.length}`;
+		while (seen.has(id)) id = `${id}_d`;
 		seen.add(id);
 
 		const out: SignupQuestion = { id, label, type, required: r.required === true };

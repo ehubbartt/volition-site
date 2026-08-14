@@ -76,10 +76,30 @@ function rowToEvent(ev: {
 
 const SELECT = 'id, slug, name, description, status, signup_opens_at, signup_closes_at, structure';
 
+/**
+ * The event, ONLY if it is a signup event.
+ *
+ * The kind check is load-bearing and belongs here rather than in each route. A `load`
+ * guard buys nothing, because a POST never runs `load` — and every action in both routes
+ * starts by calling this and bailing on null, so this one line is what stops the member
+ * actions from operating on somebody else's event. Without it:
+ *
+ *   * `?/submit` against any OPEN event inserts a `vs_event_signups` row (no questions →
+ *     `checkAnswers` returns ok with `{}`), which walks straight past Battleship's
+ *     `phase === 'signup'` gate and past the RSN requirement the generic join enforces;
+ *   * `?/withdraw` against a duo or drafted Battleship event deletes a TEAMED signup,
+ *     orphaning a team row or pulling a player whose fleet is already on the board.
+ *
+ * `loadBattleship` guards the same way for the same reason (`ev.kind !== BATTLESHIP_KIND`).
+ */
 export async function loadSignupEvent(slug: string): Promise<SignupEventRow | null> {
-	const { data } = await db().from('vs_events').select(SELECT).eq('slug', slug).maybeSingle();
-	const ev = data as (Parameters<typeof rowToEvent>[0] & { kind?: string }) | null;
-	if (!ev) return null;
+	const { data } = await db()
+		.from('vs_events')
+		.select(`${SELECT}, kind`)
+		.eq('slug', slug)
+		.maybeSingle();
+	const ev = data as (Parameters<typeof rowToEvent>[0] & { kind: string }) | null;
+	if (!ev || ev.kind !== SIGNUP_EVENT_KIND) return null;
 	return rowToEvent(ev);
 }
 
@@ -135,6 +155,9 @@ export function signupWindow(ev: SignupEventRow, now = Date.now()): {
 	open: boolean;
 	reason: string | null;
 } {
+	if (ev.status === 'locked' || ev.status === 'closed') {
+		return { open: false, reason: 'Signups have closed' };
+	}
 	if (ev.status !== 'open') return { open: false, reason: 'Signups are not open yet' };
 	if (ev.signupOpensAt && new Date(ev.signupOpensAt).getTime() > now) {
 		return { open: false, reason: 'Signups have not opened yet' };
@@ -170,9 +193,20 @@ export async function submitSignup(input: {
 
 	const sb = db();
 	if (existing) {
+		// MERGE, don't replace. `checkAnswers` only ever returns keys for the CURRENT
+		// questions, so a plain replace would delete the answers to any question an admin
+		// has since removed — for whoever happens to edit afterwards, and only for them.
+		// That would make "deleting a question hides its answers rather than destroying
+		// them" true for most people and quietly false for the rest, which is worse than
+		// either rule on its own.
+		//
+		// The cost is that an optional answer cannot be blanked back out once given: a
+		// cleared field writes nothing, so the old value survives. Losing an answer nobody
+		// can recover is the worse failure of the two.
+		const merged = { ...existing.answers, ...checked.answers };
 		const { error } = await sb
 			.from('vs_event_signups')
-			.update({ answers: checked.answers })
+			.update({ answers: merged })
 			.eq('id', existing.id);
 		if (error) return err(error.message);
 		bustEventCaches();
@@ -196,6 +230,11 @@ export async function withdrawSignup(input: {
 }): Promise<Result> {
 	const window = signupWindow(input.event);
 	if (!window.open) return err('Signups are closed — ask an admin to remove you');
+	// A locked form has to lock this too. Otherwise "your answers are final" is defeated by
+	// withdrawing and signing up again with different ones.
+	if (!input.event.form.allowEdits) {
+		return err('Your answers are locked in — ask an admin if you need to drop out');
+	}
 	const { error } = await db()
 		.from('vs_event_signups')
 		.delete()
@@ -261,7 +300,11 @@ export async function removeSignup(input: {
 		.delete()
 		.eq('event_id', input.eventId)
 		.eq('user_id', input.userId);
-	return error ? err(error.message) : ok();
+	if (error) return err(error.message);
+	// The events list caches counts for 15s; without this the removed person keeps being
+	// counted. Every other write here busts it — this one was the odd one out.
+	bustEventCaches();
+	return ok();
 }
 
 // ── The handoff ─────────────────────────────────────────────────────────────
@@ -311,6 +354,12 @@ export async function convertRoster(input: {
 	if (ev.kind === SIGNUP_EVENT_KIND) {
 		return err(`"${ev.name}" is another signup form, not an event to seed`);
 	}
+	// Re-checked here and not only in `convertTargets`, because the slug arrives in a POST
+	// and a dropdown is a suggestion once it leaves the browser. A personal board is one
+	// member's private bingo; eighty signups landing on it is not recoverable from the UI.
+	if (ev.kind === 'personal') {
+		return err(`"${ev.name}" is somebody's personal board, not a clan event`);
+	}
 
 	const userIds = [...new Set(input.userIds.filter(Boolean))];
 	if (userIds.length === 0) return err('Nobody selected');
@@ -328,7 +377,10 @@ export async function convertRoster(input: {
 		// signup's questions, and the target event has its own (or none) — copying them
 		// would key answers to question ids that mean nothing there.
 		const { error } = await sb.from('vs_event_signups').insert(rows);
-		if (error) return err(error.message);
+		// One batch, so one racing duplicate would fail the WHOLE insert and add nobody.
+		// The unique (event_id, user_id) index is exactly what makes this safe to re-run,
+		// so treat its complaint as "somebody got there first", not as a failure.
+		if (error && !error.message.includes('duplicate')) return err(error.message);
 		bustEventCaches();
 	}
 
@@ -341,7 +393,15 @@ export async function convertRoster(input: {
 	});
 }
 
-/** Events a roster can be pushed into — anything that isn't another signup form. */
+/**
+ * Events a roster can be pushed into.
+ *
+ * The exclusions matter more than the inclusion. `personal` is one `vs_events` row PER
+ * MEMBER — leaving it in meant the fifty newest rows were almost all private bingo boards,
+ * crowding real events out of the dropdown entirely and offering an admin the chance to
+ * drop eighty people into someone's personal board. `eventsList` excludes `personal` and
+ * `unlisted` for exactly this reason; so does this.
+ */
 export async function convertTargets(
 	excludeEventId: string
 ): Promise<{ slug: string; name: string; kind: string; status: string }[]> {
@@ -349,6 +409,8 @@ export async function convertTargets(
 		.from('vs_events')
 		.select('id, slug, name, kind, status')
 		.neq('kind', SIGNUP_EVENT_KIND)
+		.neq('kind', 'personal')
+		.eq('unlisted', false)
 		.order('created_at', { ascending: false })
 		.limit(50);
 	return ((data ?? []) as { id: string; slug: string; name: string; kind: string; status: string }[])

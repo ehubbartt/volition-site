@@ -138,6 +138,10 @@ test.describe.serial('Signup forms', () => {
 
 	test('a member answers the questions, and the answers reach the roster', async ({ page }) => {
 		await page.goto(`/events/${SLUG}/signup`);
+		// The page has no server load — it paints a skeleton and fills in when
+		// /api/signup/[slug] lands, so the form is not in the DOM at `goto`. Locators wait on
+		// their own; the raw `page.evaluate` below does not.
+		await page.locator('form[action="?/submit"]').waitFor();
 
 		// Required fields are required SERVER-side, not just in the browser: strip the
 		// attributes and post anyway, and the server must still refuse.
@@ -156,6 +160,7 @@ test.describe.serial('Signup forms', () => {
 
 		// Now answer properly.
 		await page.reload();
+		await page.locator('form[action="?/submit"]').waitFor();
 		const hours = page.locator('input[type="number"]');
 		await hours.fill('14');
 		await page.locator('select').first().selectOption('Weekends');
@@ -202,6 +207,36 @@ test.describe.serial('Signup forms', () => {
 		// is re-runnable rather than fatal.
 		await page.reload();
 		await expect(page.locator('tbody tr')).toHaveCount(1);
+	});
+
+	test('the member actions refuse an event that is not a signup', async ({ page }) => {
+		// REGRESSION. These actions live at /events/[slug]/signup, but a POST never runs a
+		// `load` — so guarding the kind only in `load` left them able to operate on ANY
+		// event. `?/submit` would have inserted a signup row into any open event (no
+		// questions → nothing required), walking past Battleship's phase gate and the RSN
+		// requirement; `?/withdraw` would have deleted a TEAMED signup, orphaning a team row
+		// or pulling a drafted player. The guard is in `loadSignupEvent`, so both 404.
+		for (const action of ['submit', 'withdraw']) {
+			const status = await page.evaluate(
+				async ([slug, act]) => {
+					const res = await fetch(`/events/${slug}/signup?/${act}`, {
+						method: 'POST',
+						headers: { 'x-sveltekit-action': 'true' },
+						body: new FormData()
+					});
+					return res.status;
+				},
+				[TARGET_SLUG, action]
+			);
+			expect(status, `?/${action} against a non-signup event`).toBe(404);
+		}
+
+		// And the target event's roster is unchanged — the refusal is real, not cosmetic.
+		const detail = await page.evaluate(
+			async (slug) => (await fetch(`/api/events/${slug}`)).text(),
+			TARGET_SLUG
+		);
+		expect(JSON.parse(detail).stats.totalSignups).toBe(1);
 	});
 
 	test('the form builder refuses an event that is not a signup', async ({ page }) => {

@@ -41,8 +41,18 @@ names into whatever gets built.
 | Answers | `vs_event_signups.answers` — jsonb, added by `db/scripts/signup_forms.sql` |
 | Types, validation, CSV | `src/lib/events/signupForm.ts` (client-safe, no DB) |
 | Reads/writes, the handoff | `src/lib/server/signupForm.ts` |
-| Member page | `src/routes/events/[slug]/signup/` |
+| Member payload | `src/lib/server/signupPage.ts` → `/api/signup/[slug]` |
+| Member page | `src/routes/events/[slug]/signup/` (instant-nav: no server load) |
 | Admin builder + roster | `src/routes/admin/events/[slug]/signup/` |
+
+The member page follows the instant-nav pattern in [`PAGES.md`](PAGES.md) rather than a
+server load, and it matters more here than usual: the only way to reach it is a redirect
+out of `/events/[slug]`, so a blocking load would have meant nav → fetch → redirect → nav →
+*wait again*. The admin page keeps a classic load, which `PAGES.md` explicitly allows for
+per-event pages.
+
+The member payload carries the **count and the names only** — it never fetches anyone's
+answers, so the private half cannot leak through a page that has no business holding it.
 
 **Answers are keyed by question id, never by label.** An admin renaming "hours" to "hours
 per week" would otherwise orphan every answer already given. Ids are minted once by
@@ -74,6 +84,24 @@ and reappear if the id ever returns. An admin who deletes a question by accident
 live signup would otherwise destroy eighty people's answers with one click, and there is
 no undo for that.
 
+> This is why `submitSignup` **merges** rather than replaces. `checkAnswers` only returns
+> keys for the questions that currently exist, so a plain column replace would have kept
+> the hidden answers for everyone who never touched the form again and destroyed them for
+> anyone who edited afterwards — the promise above true for most people and quietly false
+> for the rest. The cost of merging is that an optional answer cannot be blanked back out
+> once given; losing an answer nobody can recover is the worse of the two.
+
+**`loadSignupEvent` refuses any event that is not a signup**, and that one line is what
+makes the member actions safe. A `load` guard buys nothing, because a POST never runs a
+`load` — without the check, `?/submit` against any *open* event would insert a signup row
+(no questions → no required answers), walking past Battleship's `phase === 'signup'` gate
+and past the RSN requirement the generic join enforces; and `?/withdraw` would delete a
+**teamed** signup, orphaning a team row or pulling a drafted player whose fleet is already
+on the board. `loadBattleship` guards on `kind` for the same reason.
+
+**A locked form (`allowEdits: false`) locks withdrawal too.** Otherwise "your answers are
+final" is one withdraw-and-rejoin away from meaningless.
+
 **The builder refuses a non-signup event.** Pointed at a bingo it would happily render the
 roster and then write a `signupForm` key into that bingo's structure, where nothing reads
 it and the bingo normalizer strips it on the next builder save — the admin's work quietly
@@ -99,6 +127,11 @@ picked last in front of everyone.
   nothing on the target event.
 - The target may not be another signup form — that would be a copy with the answers left
   behind, almost certainly a mistake.
+- **Nor a personal bingo board.** `personal` is one `vs_events` row *per member*; leaving
+  it in the target list meant the fifty newest rows were nearly all private boards, real
+  events were crowded out of the dropdown entirely, and an admin could drop eighty people
+  into someone's personal board. Excluded from the list and refused again in
+  `convertRoster`, because a dropdown is only a suggestion once it leaves the browser.
 
 For anything the handoff can't express — seeding two sides from one list, arguing about
 who gets whom — use **Copy as CSV**. One row per person, one column per question.
