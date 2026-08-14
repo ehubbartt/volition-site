@@ -11,6 +11,7 @@ import { buildBingoDetail, type BingoDetail } from './bingoPage';
 import type { Steering } from '$lib/swrResource.svelte';
 import { DUO_WOLF_EVENT_SLUG } from './duoWolfTiles';
 import { BATTLESHIP_KIND } from './battleship';
+import { SIGNUP_EVENT_KIND } from '$lib/events/signupForm';
 import { loadDuoStandings, type DuoStandings } from './duoStandings';
 
 // Builds the /events/[slug] detail payload for /api/events/[slug]. The page has NO
@@ -160,6 +161,13 @@ export async function buildEventDetail(
 	// "invite them to duo" — teams come from the captains' draft, not from pairing up.
 	if (event.kind === BATTLESHIP_KIND) {
 		return { kind: 'redirect', to: `/events/${slug}/battleship` };
+	}
+
+	// Signup events go the same way, for the same reason. A signup has no teams and no
+	// board, so the pairing flow below would offer to duo people up for an event that does
+	// not exist yet, next to a "View board →" link pointing at nothing.
+	if (event.kind === SIGNUP_EVENT_KIND) {
+		return { kind: 'redirect', to: `/events/${slug}/signup` };
 	}
 
 	// Once the DuoWolf climb is LIVE (event open + its start time has arrived), the board IS

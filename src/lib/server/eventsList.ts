@@ -1,6 +1,7 @@
 import { db } from './db';
 import { microCached } from './microCache';
 import { BATTLESHIP_KIND } from './battleship';
+import { SIGNUP_EVENT_KIND } from '$lib/events/signupForm';
 import { markdownPreview } from '$lib/markdown';
 import {
 	BINGO_EVENT_SLUG,
@@ -55,6 +56,9 @@ function hasSignupFlow(ev: EventRow): boolean {
 	return (
 		ev.kind === 'duo' ||
 		ev.kind === BATTLESHIP_KIND ||
+		// A signup event is nothing BUT a signup flow, so it qualifies unconditionally —
+		// unlike 'custom', which only counts once someone sets a signup window on it.
+		ev.kind === SIGNUP_EVENT_KIND ||
 		(ev.kind === 'custom' && (ev.signup_opens_at != null || ev.signup_closes_at != null))
 	);
 }

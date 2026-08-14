@@ -14,6 +14,7 @@ system works.
 | Frontend & shared UI | [`FRONTEND.md`](FRONTEND.md) | you build UI, use wiki images / bingo tiles, or touch styling |
 | Events / boards / bingo | [`EVENTS.md`](EVENTS.md) | you build any new event, board, or bingo (the shared spine) |
 | Battleship event | [`BATTLESHIP.md`](BATTLESHIP.md) | you touch the draft/placement/battle event where drops become bombs |
+| Signup forms | [`SIGNUPS.md`](SIGNUPS.md) | you need a list of people (and answers) before the real event exists |
 | Ranks (scoring, checks, gear claims) | [`RANKS.md`](RANKS.md) | you touch the composite rank formula, /me rank check, rank-sim, or manual gear claims |
 | Dink auto-tracking | [`event-builder-and-dink-tracking.md`](event-builder-and-dink-tracking.md) | you work on the drop-tracking pipeline |
 | Staging deploy | [`DEPLOY-STAGING.md`](DEPLOY-STAGING.md) | you deploy or configure the staging app |

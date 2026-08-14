@@ -48,6 +48,7 @@ whose names are fixed by the tooling that loads them.
 | Login, sessions, roles, ban gate, audit | [`docs/AUTH.md`](docs/AUTH.md) |
 | UI, wiki images, bingo tiles, styling | [`docs/FRONTEND.md`](docs/FRONTEND.md) |
 | Building any event / board / bingo | [`docs/EVENTS.md`](docs/EVENTS.md) |
+| Collecting a list + answers before an event exists | [`docs/SIGNUPS.md`](docs/SIGNUPS.md) |
 | The Battleship event (draft → placement → drops-as-bombs) | [`docs/BATTLESHIP.md`](docs/BATTLESHIP.md) |
 | Rank scoring, /me rank check, gear claims | [`docs/RANKS.md`](docs/RANKS.md) |
 | Site onboarding flow (the `/welcome/[token]` join) | [`docs/ONBOARDING.md`](docs/ONBOARDING.md) |
