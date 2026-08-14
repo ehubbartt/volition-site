@@ -37,9 +37,10 @@ async function clickUntil(page: Page, button: string | RegExp, expected: string)
  * nothing else — the fields it should reveal never appear and the next `fill` hangs.
  */
 async function selectUntil(page: Page, value: string, expected: string) {
-	const target = page.locator(expected);
+	const form = createForm(page);
+	const target = form.locator(expected);
 	for (let attempt = 0; attempt < 12; attempt++) {
-		await page.selectOption('select[name="kind"]', value);
+		await form.locator('select[name="kind"]').selectOption(value);
 		try {
 			await target.first().waitFor({ state: 'visible', timeout: 2_000 });
 			return;
@@ -48,6 +49,33 @@ async function selectUntil(page: Page, value: string, expected: string) {
 		}
 	}
 	throw new Error(`selecting "${value}" never revealed ${expected}`);
+}
+
+/**
+ * The create form, specifically. /admin/events carries one edit form per event inside a
+ * collapsed <details>, so a bare `input[name="name"]` matches ~22 elements and Playwright
+ * picks the first — which is hidden, and never becomes fillable.
+ */
+const createForm = (page: Page) => page.locator('form[action="?/createEvent"]');
+
+/**
+ * Pick the conversion target and wait for the submit to become clickable. The button is
+ * `disabled` until the bound state sees a target, so before hydration `selectOption`
+ * changes the DOM and the button stays disabled — and Playwright waits on a disabled
+ * button until the test times out rather than failing with anything useful.
+ */
+async function chooseTarget(page: Page, slug: string) {
+	const button = page.getByRole('button', { name: /^add \d+ (person|people)$/i });
+	for (let attempt = 0; attempt < 12; attempt++) {
+		await page.selectOption('select[name="target_slug"]', slug);
+		try {
+			await expect(button).toBeEnabled({ timeout: 2_000 });
+			return button;
+		} catch {
+			// not hydrated yet — go round again
+		}
+	}
+	throw new Error(`the convert button never enabled for "${slug}"`);
 }
 
 test.describe.serial('Signup forms', () => {
@@ -61,10 +89,11 @@ test.describe.serial('Signup forms', () => {
 			['signup', SLUG, 'E2E Signup', /^create signup form$/i],
 			['custom', TARGET_SLUG, 'E2E Target', /^create event$/i]
 		] as const) {
+			const form = createForm(page);
 			await selectUntil(page, kind, 'input[name="slug"]');
-			await page.fill('input[name="slug"]', slug);
-			await page.fill('input[name="name"]', name);
-			await page.getByRole('button', { name: button }).click();
+			await form.locator('input[name="slug"]').fill(slug);
+			await form.locator('input[name="name"]').fill(name);
+			await form.getByRole('button', { name: button }).click();
 			await expect(page.locator('.err')).toHaveCount(0);
 			// The list is fetched separately, so wait for the row rather than assuming the
 			// insert landed before the next iteration rewrites the form.
@@ -144,17 +173,23 @@ test.describe.serial('Signup forms', () => {
 		await expect(page.locator('tbody tr')).toHaveCount(1);
 
 		// Everyone is selected by default, so the common case is one click.
-		await page.selectOption('select[name="target_slug"]', TARGET_SLUG);
-		await clickUntil(page, /add 1 person/i, '.ok');
+		await (await chooseTarget(page, TARGET_SLUG)).click();
 		await expect(page.locator('.ok').first()).toContainText(/added 1 to e2e target/i);
 
 		// Idempotent: doing it again adds nobody and says so, rather than erroring on the
 		// unique index. This is the realistic second use — convert, spot a straggler,
 		// convert again.
 		await page.reload();
-		await page.selectOption('select[name="target_slug"]', TARGET_SLUG);
-		await page.getByRole('button', { name: /add 1 person/i }).click();
+		await (await chooseTarget(page, TARGET_SLUG)).click();
 		await expect(page.locator('.ok').first()).toContainText(/added 0.*already in it/i);
+
+		// The people really landed on the TARGET — the report is a claim, this is the proof,
+		// read from the target event's own payload rather than from the page that made it.
+		const detail = await page.evaluate(
+			async (slug) => (await fetch(`/api/events/${slug}`)).text(),
+			TARGET_SLUG
+		);
+		expect(JSON.parse(detail).stats.totalSignups).toBe(1);
 
 		// And the source list is untouched — converting is a copy, not a move, so a mistake
 		// is re-runnable rather than fatal.
