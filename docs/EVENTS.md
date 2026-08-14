@@ -87,6 +87,12 @@ Shared server primitives feed it (build alongside the first v2 event): `getTiles
 and one `vs_active_tiles` accessor + a single "participant key" helper (`coalesce(team_id, user_id)`).
 
 ## Recipe — adding a new event
+
+> **Need the people before you need the event?** `kind='signup'` is a list-and-questions
+> event with no objectives at all, and its roster can be pushed into whatever you build
+> afterwards. See [`SIGNUPS.md`](SIGNUPS.md) — it saves inventing a half-event to hold
+> names in.
+
 1. Insert a `vs_events` row (`kind`, dates, `structure` if it has topology).
 2. Insert its objectives: `vs_tiles` rows (board) **or** `vs_tasks` rows (flat task event). Put
    auto-track rules in each tile's `triggers`; leave empty for manual/proof tiles.

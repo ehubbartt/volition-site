@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { isTaskEvent, EVENT_TASK_KIND, slugify } from '$lib/events/simple';
+import { SIGNUP_EVENT_KIND } from '$lib/events/signupForm';
 import { cloneTemplateToEvent, listTemplates } from '$lib/server/eventStructure';
 import { bustEventCaches } from '$lib/server/microCache';
 import type { Actions } from './$types';
@@ -78,6 +79,48 @@ export const actions: Actions = {
 
 		const form = await request.formData();
 		const kind = form.get('kind')?.toString() ?? '';
+
+		// ── Signup form ─────────────────────────────────────────────────────
+		// A list-and-questions event that exists BEFORE the real one does. No teams, no
+		// board, no tasks — see docs/SIGNUPS.md. Questions are added afterwards, on
+		// /admin/events/[slug]/signup, because you almost never know them at create time.
+		if (kind === SIGNUP_EVENT_KIND) {
+			const parsed = eventSchema.safeParse({
+				slug: form.get('slug'),
+				name: form.get('name'),
+				description: form.get('description') || null,
+				// Signups have no teams. `team_size` is required by the shared schema, so pin
+				// it at 1 rather than leaving a number that means nothing on the row.
+				team_size: '1',
+				status: form.get('status') ?? 'open',
+				signup_opens_at: form.get('signup_opens_at') || null,
+				signup_closes_at: form.get('signup_closes_at') || null,
+				starts_at: null,
+				ends_at: null
+			});
+			if (!parsed.success) {
+				return fail(400, { error: parsed.error.issues[0]?.message ?? 'Invalid input' });
+			}
+			const { error: insertError } = await db().from('vs_events').insert({
+				slug: parsed.data.slug,
+				name: parsed.data.name,
+				description: parsed.data.description,
+				kind: SIGNUP_EVENT_KIND,
+				owner_user_id: locals.user.id,
+				team_size: 1,
+				status: parsed.data.status,
+				signup_opens_at: normalizeDate(form.get('signup_opens_at')),
+				signup_closes_at: normalizeDate(form.get('signup_closes_at'))
+			});
+			if (insertError) {
+				if (insertError.message.includes('duplicate')) {
+					return fail(409, { error: 'An event with that slug already exists' });
+				}
+				return fail(500, { error: insertError.message });
+			}
+			bustEventCaches();
+			return { ok: true, createdSlug: parsed.data.slug };
+		}
 
 		// ── Advanced / custom (signup-based) ────────────────────────────────
 		if (kind === 'custom') {

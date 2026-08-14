@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import EventsTasksTabs from '$lib/admin/EventsTasksTabs.svelte';
 	import { isTaskEvent, isEventEnded } from '$lib/events/simple';
+	import { SIGNUP_EVENT_KIND } from '$lib/events/signupForm';
 	import { dateFormEnhance } from '$lib/datetime';
 	import { BINGO_EVENT_SLUG } from '$lib/bingo/config';
 	import { swrResource } from '$lib/swrResource.svelte';
@@ -36,7 +37,7 @@
 	// ── Event creator ─────────────────────────────────────────────────────────
 	// The type dropdown drives which fields show: 'simple'/'sequential' are
 	// task-based (a list of objectives); 'custom' is the advanced signup-based form.
-	let eventType = $state<'simple' | 'sequential' | 'custom'>('simple');
+	let eventType = $state<'simple' | 'sequential' | 'signup' | 'custom'>('simple');
 	type TaskRow = { name: string; description: string; vp: number; pack: string };
 	const blankTask = (): TaskRow => ({ name: '', description: '', vp: 0, pack: '' });
 	let taskRows = $state<TaskRow[]>([blankTask(), blankTask(), blankTask()]);
@@ -121,11 +122,50 @@
 				<select name="kind" bind:value={eventType}>
 					<option value="simple">Open — complete any task, any time</option>
 					<option value="sequential">Sequential — complete tasks in order</option>
+					<option value="signup">Signup form — collect names and answers</option>
 					<option value="custom">Advanced — signup-based / custom</option>
 				</select>
 			</label>
 
-			{#if eventType === 'custom'}
+			{#if eventType === 'signup'}
+				<p class="muted small">
+					A list, not a game: people sign up and answer whatever you ask them. Build the real
+					event later, then push these people straight into it. You add the questions after
+					creating it.
+				</p>
+				<label>
+					<span>Slug (URL)</span>
+					<input name="slug" type="text" pattern="[a-z0-9-]+" required placeholder="summer-event-interest" />
+				</label>
+				<label>
+					<span>Name</span>
+					<input name="name" type="text" required placeholder="Summer event — who's in?" />
+				</label>
+				<label>
+					<span>Description (markdown ok)</span>
+					<textarea name="description" rows="3"></textarea>
+				</label>
+				<div class="row">
+					<label>
+						<span>Status</span>
+						<select name="status">
+							<option value="draft">draft</option>
+							<option value="preview">preview (admin-only)</option>
+							<option value="open" selected>open</option>
+							<option value="closed">closed</option>
+						</select>
+					</label>
+					<label>
+						<span>Signups close at</span>
+						<input name="signup_closes_at" type="datetime-local" />
+					</label>
+				</div>
+				<label>
+					<span>Signups open at (optional)</span>
+					<input name="signup_opens_at" type="datetime-local" />
+				</label>
+				<button class="btn primary" type="submit">Create signup form</button>
+			{:else if eventType === 'custom'}
 				<p class="muted small">Advanced: a bespoke / signup-based event (e.g. a future bingo or duo). You wire up its page separately.</p>
 				<label>
 					<span>Slug (URL)</span>
@@ -256,6 +296,9 @@
 							{/if}
 							{#if ev.kind === 'bingo'}
 								<a class="review-link" href="/admin/events/{ev.slug}/builder">Builder →</a>
+							{/if}
+							{#if ev.kind === SIGNUP_EVENT_KIND}
+								<a class="review-link" href="/admin/events/{ev.slug}/signup">Questions &amp; roster →</a>
 							{/if}
 							{#if ev.slug === BINGO_EVENT_SLUG}
 								<a class="review-link" href="/admin/bingo/{ev.slug}/review">
