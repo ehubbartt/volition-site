@@ -220,18 +220,23 @@ test.describe.serial('Signup forms', () => {
 		// Navigate first: a relative fetch needs an origin, and a fresh page is about:blank.
 		await page.goto('/events');
 		for (const action of ['submit', 'withdraw']) {
-			const status = await page.evaluate(
+			const body = await page.evaluate(
 				async ([slug, act]) => {
 					const res = await fetch(`/events/${slug}/signup?/${act}`, {
 						method: 'POST',
 						headers: { 'x-sveltekit-action': 'true' },
 						body: new FormData()
 					});
-					return res.status;
+					return res.text();
 				},
 				[TARGET_SLUG, action]
 			);
-			expect(status, `?/${action} against a non-signup event`).toBe(404);
+			// The refusal is in the ENVELOPE, not the HTTP status: SvelteKit answers an
+			// action request with 200 and `{type:'failure', status, data}`. Asserting on
+			// res.status would read 200 and call a working guard broken.
+			const parsed = JSON.parse(body) as { type: string; status: number };
+			expect(parsed.type, `?/${action} → ${body}`).toBe('failure');
+			expect(parsed.status, `?/${action} → ${body}`).toBe(404);
 		}
 
 		// And the target event's roster is unchanged — the refusal is real, not cosmetic.
