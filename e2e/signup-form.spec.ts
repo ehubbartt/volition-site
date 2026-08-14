@@ -216,6 +216,9 @@ test.describe.serial('Signup forms', () => {
 		// questions → nothing required), walking past Battleship's phase gate and the RSN
 		// requirement; `?/withdraw` would have deleted a TEAMED signup, orphaning a team row
 		// or pulling a drafted player. The guard is in `loadSignupEvent`, so both 404.
+		//
+		// Navigate first: a relative fetch needs an origin, and a fresh page is about:blank.
+		await page.goto('/events');
 		for (const action of ['submit', 'withdraw']) {
 			const status = await page.evaluate(
 				async ([slug, act]) => {
