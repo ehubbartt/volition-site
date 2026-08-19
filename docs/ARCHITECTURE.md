@@ -53,6 +53,17 @@ Every request passes through the handle hook, in order:
   work.
 - **Bot bridge:** the site posts to a Discord webhook the bot listens on for actions like
   granting a Discord role after a reward (see `src/lib/server/botBridge.ts`).
+- **Voice tracking is bot-owned, and keyed by Discord identity.** The bot's 5-minute poll
+  writes `voice_activity_log` (one row per tick) and `voice_user_stats` (the running total,
+  via an `increment_voice_user_stats` RPC); `/admin/voice` only reads them
+  (`src/lib/server/admin/voice.ts`). Both tables key on the **Discord snowflake** and carry
+  the **Discord username** — nothing in the pipeline knows an RSN. The panel resolves a
+  display name through `players.discord_id → rsn`, which for most members is nothing like
+  their Discord name, so every surface carries BOTH names and the search matches RSN,
+  Discord name and snowflake alike. Anything that renders only one of them makes members
+  unfindable. The "Recent activity" tab is a **global tail of the newest ticks**, so a
+  member with time banked but no recent session is legitimately absent from it — their own
+  history comes from the per-member drill-down (`buildVoiceUser`, `/api/admin/voice/[userId]`).
 
 ## Environment variables
 

@@ -2,13 +2,15 @@
 	import type { PageData } from './$types';
 	import StatsTabs from '$lib/admin/StatsTabs.svelte';
 	import { swrResource } from '$lib/swrResource.svelte';
+	import { swr, emptySwr, type Swr } from '$lib/swr';
+	import type { VoiceUserDetail } from '$lib/server/admin/voice';
 
 	let { data: pageData }: { data: PageData } = $props();
 
 	// Streamed payload (see +page.ts): revisits render the last-seen panel
 	// instantly; first visits fill in as the fetch lands.
 	const EMPTY_VOICE: NonNullable<PageData['voice']['cached']> = {
-		stats: { totalMinutes: 0, totalUsers: 0, activeToday: 0, peakConcurrentToday: 0 },
+		stats: { totalMinutes: 0, totalUsers: 0, activeToday: 0, peakConcurrentToday: 0, recentLimit: 0 },
 		days: [],
 		users: [],
 		recentActivity: []
@@ -18,6 +20,17 @@
 
 	let search = $state('');
 	let tab = $state<'leaderboard' | 'activity'>('leaderboard');
+
+	// Drill-down: one member's own tick history. The activity feed is a global tail, so a
+	// member with time banked but no recent session is absent from it — that is what sent
+	// someone hunting for a bug in the tracker. $derived.by memoizes, so swr() fires once
+	// per selected member rather than on every read of the resource.
+	let selected = $state<string | null>(null);
+	const detailSrc = $derived.by<Swr<VoiceUserDetail>>(() =>
+		selected ? swr<VoiceUserDetail>(fetch, `/api/admin/voice/${selected}`) : emptySwr<VoiceUserDetail>(null)
+	);
+	const detailRes = swrResource<VoiceUserDetail | null>(() => detailSrc, null);
+	const detail = $derived(selected ? detailRes.value : null);
 
 	const fmt = (n: number) => n.toLocaleString();
 
@@ -53,11 +66,28 @@
 
 	let maxMinutes = $derived(Math.max(1, ...data.days.map((d) => d.total_minutes)));
 
+	// Search every identity the row carries, not just the one on screen. The panel shows
+	// the RSN when we have one, but most members are known to admins by their Discord
+	// name — searching only the displayed name makes 4 in 5 of them unfindable.
+	const matches = (q: string, r: { name: string; discord_name: string | null; user_id: string }) =>
+		r.name.toLowerCase().includes(q) ||
+		(r.discord_name?.toLowerCase().includes(q) ?? false) ||
+		r.user_id.includes(q);
+
 	let filteredUsers = $derived.by(() => {
 		const q = search.trim().toLowerCase();
 		if (!q) return data.users;
-		return data.users.filter((u) => u.name.toLowerCase().includes(q));
+		return data.users.filter((u) => matches(q, u));
 	});
+
+	let filteredActivity = $derived.by(() => {
+		const q = search.trim().toLowerCase();
+		if (!q) return data.recentActivity;
+		return data.recentActivity.filter((a) => matches(q, a));
+	});
+
+	// Rank is the position in the full list, so it stays honest while a search is active.
+	let rankById = $derived(new Map(data.users.map((u, i) => [u.user_id, i + 1])));
 </script>
 
 <svelte:head>
@@ -113,10 +143,73 @@
 		<button class:active={tab === 'activity'} onclick={() => (tab = 'activity')}>Recent activity</button>
 	</div>
 
-	{#if tab === 'leaderboard'}
+	{#if selected}
+		<div class="card">
+			<div class="detail-head">
+				<button class="back" onclick={() => (selected = null)}>← Back</button>
+				{#if detail}
+					<div>
+						<h2>{detail.user.name}</h2>
+						{#if detail.user.discord_name && detail.user.discord_name !== detail.user.name}
+							<span class="muted small">Discord: {detail.user.discord_name}</span>
+						{/if}
+					</div>
+				{/if}
+			</div>
+
+			{#if !detail}
+				<p class="muted empty">
+					{detailRes.error ? 'No voice activity tracked for that member.' : 'Loading…'}
+				</p>
+			{:else}
+				<div class="summary detail-stats">
+					<div class="stat">
+						<span class="num">#{fmt(detail.rank)}</span>
+						<span class="lbl">Rank of {fmt(detail.tracked)}</span>
+					</div>
+					<div class="stat">
+						<span class="num">{formatTime(detail.user.total_minutes)}</span>
+						<span class="lbl">All-time ({fmt(detail.user.total_ticks)} ticks)</span>
+					</div>
+					<div class="stat">
+						<span class="num">{formatTime(detail.minutes30)}</span>
+						<span class="lbl">Last 30 days</span>
+					</div>
+					<div class="stat">
+						<span class="num">{detail.user.last_active_at ? relTime(detail.user.last_active_at) : '—'}</span>
+						<span class="lbl">Last active</span>
+					</div>
+				</div>
+
+				<h2>Activity log</h2>
+				{#if detail.ticks.length === 0}
+					<p class="muted empty">No individual ticks recorded.</p>
+				{:else}
+					{#if detail.truncated}
+						<p class="muted small">Showing the {fmt(detail.ticks.length)} most recent ticks.</p>
+					{/if}
+					<ul class="activity">
+						{#each detail.ticks as t (t.id)}
+							<li>
+								<span class="dot"></span>
+								<span class="a-name">{t.channel ?? 'voice'}</span>
+								<span class="muted small">· +{t.minutes}m</span>
+								<span class="a-time muted small">{relTime(t.created_at)}</span>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			{/if}
+		</div>
+	{:else if tab === 'leaderboard'}
 		<div class="card">
 			<div class="toolbar">
-				<input class="search" type="search" placeholder="Search name…" bind:value={search} />
+				<input
+					class="search"
+					type="search"
+					placeholder="Search RSN, Discord name or ID…"
+					bind:value={search}
+				/>
 				<span class="muted small">{filteredUsers.length} users</span>
 			</div>
 			<div class="table-scroll">
@@ -127,18 +220,25 @@
 							<th>Member</th>
 							<th class="r">Voice time</th>
 							<th class="r">Minutes</th>
+							<th class="r">Last active</th>
 						</tr>
 					</thead>
 					<tbody>
-						{#each filteredUsers as u, i (u.user_id)}
+						{#each filteredUsers as u (u.user_id)}
 							<tr>
-								<td class="r muted">{i + 1}</td>
-								<td>{u.name}</td>
+								<td class="r muted">{rankById.get(u.user_id)}</td>
+								<td>
+									<button class="name-btn" onclick={() => (selected = u.user_id)}>{u.name}</button>
+									{#if u.discord_name && u.discord_name !== u.name}
+										<span class="muted small handle">{u.discord_name}</span>
+									{/if}
+								</td>
 								<td class="r">{formatTime(u.total_minutes)}</td>
 								<td class="r muted">{fmt(u.total_minutes)}</td>
+								<td class="r muted">{u.last_active_at ? relTime(u.last_active_at) : '—'}</td>
 							</tr>
 						{:else}
-							<tr><td colspan="4" class="empty muted">No users found.</td></tr>
+							<tr><td colspan="5" class="empty muted">No users found.</td></tr>
 						{/each}
 					</tbody>
 				</table>
@@ -146,15 +246,32 @@
 		</div>
 	{:else}
 		<div class="card">
-			{#if data.recentActivity.length === 0}
-				<p class="muted empty">No recent voice activity.</p>
+			<div class="toolbar">
+				<input
+					class="search"
+					type="search"
+					placeholder="Search RSN, Discord name or ID…"
+					bind:value={search}
+				/>
+				<span class="muted small">newest {fmt(data.stats.recentLimit)} ticks</span>
+			</div>
+			{#if filteredActivity.length === 0}
+				{#if search.trim()}
+					<p class="muted empty">No ticks for that member in the newest {fmt(data.stats.recentLimit)}.</p>
+					<p class="muted small empty">Open them from the leaderboard for their full history.</p>
+				{:else}
+					<p class="muted empty">No recent voice activity.</p>
+				{/if}
 			{:else}
 				<ul class="activity">
-					{#each data.recentActivity as a (a.id)}
+					{#each filteredActivity as a (a.id)}
 						<li>
 							<span class="dot"></span>
-							<span class="a-name">{a.name}</span>
-							{#if a.type}<span class="muted small">· {a.type}</span>{/if}
+							<button class="name-btn" onclick={() => (selected = a.user_id)}>{a.name}</button>
+							{#if a.discord_name && a.discord_name !== a.name}
+								<span class="muted small">({a.discord_name})</span>
+							{/if}
+							{#if a.channel}<span class="muted small">· {a.channel}</span>{/if}
 							<span class="a-time muted small">{relTime(a.created_at)}</span>
 						</li>
 					{/each}
@@ -348,5 +465,52 @@
 	}
 	.a-time {
 		margin-left: auto;
+	}
+
+	/* A real button, so the drill-down is keyboard-reachable without giving a <tr> or
+	   an <li> a click handler it has no semantics for. */
+	.name-btn {
+		padding: 0;
+		background: none;
+		border: none;
+		color: var(--text);
+		font-family: var(--font-body);
+		font-size: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.name-btn:hover,
+	.name-btn:focus-visible {
+		color: var(--accent);
+		text-decoration: underline;
+	}
+	.handle {
+		margin-left: 0.4rem;
+	}
+
+	.detail-head {
+		display: flex;
+		align-items: center;
+		gap: 0.9rem;
+		margin-bottom: 0.5rem;
+	}
+	.detail-head h2 {
+		margin: 0;
+	}
+	.back {
+		padding: 0.35rem 0.7rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		color: var(--muted);
+		font-family: var(--font-body);
+		cursor: pointer;
+	}
+	.back:hover {
+		color: var(--accent);
+		border-color: var(--accent);
+	}
+	.detail-stats {
+		margin-top: 1rem;
 	}
 </style>
