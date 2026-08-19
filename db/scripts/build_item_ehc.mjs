@@ -24,11 +24,19 @@
 //
 //   node db/scripts/build_item_ehc.mjs --player=bajj,marni,Bazilijus [--min=400] [--dump]
 //
+// PASS A THIN ACCOUNT. The value of an item comes from a player who LACKS it; a player who
+// owns it reports `hours: 0`. The values endpoint returns the WHOLE catalogue (~1712 ids)
+// for any player, so one low-log account supplies real hours for nearly everything, while
+// the deep logs supply the names and categories (the catalogue endpoint lists only slots
+// the player owns). Deep logs alone is how this file was last built, and it cost every
+// item those accounts all owned — see the valuing section below.
+//
 // Semantics caveat: Temple's per-item hours are the item's marginal contribution toward
 // completing its category, not a standalone grind estimate (each Barrows piece ≈ 0.66h;
 // common clue uniques ≈ 0.003h). Within-category ranking is sound; /admin/ehb
-// pin/exclude is the correction lever for anything that bands oddly. Items whose value
-// is absent or <= 0 are skipped (real data contains zero AND negative missing_hours).
+// pin/exclude is the correction lever for anything that bands oddly. An item with no
+// positive value anywhere in the union is KEPT at a nominal floor rather than dropped, and
+// the count is reported.
 //
 // Run from repo root. If the script aborts, it prints a bounded diagnostic of the
 // actual response shape (top-level keys + two raw entries) — paste that back so the
@@ -50,6 +58,7 @@ const arg = (name) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slic
 const players = (arg('player') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const MIN_UNION = Number(arg('min')) || 400; // union sanity floor (full clog is ~1500+ slots)
 const DUMP = process.argv.includes('--dump');
+const DELAY_MS = Number(arg('delay')) || 2500;
 
 if (!players.length) {
 	console.error('Usage: node db/scripts/build_item_ehc.mjs --player=<rsn1>,<rsn2>,... [--min=400] [--dump]');
@@ -67,7 +76,9 @@ let requestCount = 0;
 const MAX_RETRIES = 3; // 429/5xx only — waits 15s/30s/60s (or Retry-After when sane)
 async function fetchJson(rsn, url) {
 	for (let attempt = 0; ; attempt++) {
-		if (requestCount++ > 0) await sleep(1000); // politeness between ALL Temple requests
+		// Politeness between ALL Temple requests. 1s draws Cloudflare challenges (an HTML body
+		// where JSON is expected, which aborts the run); 2.5s does not. --delay overrides.
+		if (requestCount++ > 0) await sleep(DELAY_MS);
 		const res = await fetch(url, { headers: { 'User-Agent': 'Volition-Site build script' } });
 		if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
 			const retryAfter = Number(res.headers.get('retry-after'));
@@ -214,11 +225,44 @@ if (unionParsed < MIN_UNION) {
 	process.exit(1);
 }
 
+// ── Valuing the catalogue ────────────────────────────────────────────────────
+//
+// An item is worth `missing_hours` from a player who LACKS it. A player who OWNS it
+// reports `hours: 0` — Temple has nothing to estimate. So an item every sampled player
+// owns has no positive value anywhere in the union.
+//
+// This used to be a `continue`, and it silently gutted the file. Deep-log accounts own
+// nearly every hard/elite/master clue unique, so those tiers were cut to the handful of
+// leftovers one account still lacked: `hard_treasure_trails` kept 11 items that overlap by
+// ZERO with what players actually pull from hard clues, and every grouped clue tile on
+// those tiers became impossible to complete. (See docs/EVENTS.md; the tiles themselves no
+// longer depend on this file, but individual item tiles still do.)
+//
+// So: never drop a catalogued item for want of a value — keep it at a nominal floor.
+//
+// The floor is deliberately NEAR ZERO rather than "the cheapest known value in the
+// category". Temple really does answer `missing_hours: 0` for these, even to a player who
+// lacks them: they are marginal-zero toward completing their category. Inventing a
+// mid-range value instead would misprice 124 hard-clue items at 2.78h each, and
+// `minTileEhb` would then wave them onto mid and high difficulty boards — measured, that
+// took clue items from 21% to 51% of the eligible pool at difficulty 5. Pricing them at
+// what Temple actually said keeps them where they belong: eligible on the easiest boards,
+// last in every gradient, and correctable per item via /admin/ehb.
+//
+// The count is reported per category, because a large fallback count can ALSO mean the
+// player mix is wrong — a thin account's missing_hours covers nearly the whole catalogue,
+// so anything still unvalued after including one is genuinely valueless to Temple.
+const FALLBACK_FLOOR = 0.01;
+
 const out = [];
+const fallbackByCategory = new Map();
 for (const it of catalogue.values()) {
 	if (bossIds.has(it.id) || bossNames.has(it.name.toLowerCase())) continue;
-	const v = values.get(it.id);
-	if (v == null || !(v > 0)) continue; // strictly positive — real data has 0 AND negative missing_hours
+	let v = values.get(it.id);
+	if (v == null || !(v > 0)) {
+		v = FALLBACK_FLOOR;
+		fallbackByCategory.set(it.category, (fallbackByCategory.get(it.category) ?? 0) + 1);
+	}
 	out.push({
 		id: it.id,
 		name: it.name,
@@ -228,6 +272,27 @@ for (const it of catalogue.values()) {
 	});
 }
 out.sort((a, b) => a.name.localeCompare(b.name));
+
+// Per-category census, so a tier collapsing to a handful of items is impossible to miss.
+const perCategory = new Map();
+for (const i of out) perCategory.set(i.category, (perCategory.get(i.category) ?? 0) + 1);
+const totalFallback = [...fallbackByCategory.values()].reduce((s, n) => s + n, 0);
+console.log(`\n${out.length} non-boss items across ${perCategory.size} categories`);
+if (totalFallback) {
+	console.log(
+		`${totalFallback} of them are valued at 0 by Temple itself (no positive missing_hours ` +
+			`anywhere in the union) and were kept at the ${FALLBACK_FLOOR}h floor:`
+	);
+	for (const [cat, n] of [...fallbackByCategory].sort((a, b) => b[1] - a[1]).slice(0, 12)) {
+		console.log(`   ${String(n).padStart(4)}  ${cat}`);
+	}
+	if (totalFallback > out.length / 3) {
+		console.log(
+			'\nNOTE: a third or more of the pool is estimated. Add a THIN account to --player ' +
+				'(its missing_hours covers nearly the whole catalogue) and re-run for real values.'
+		);
+	}
+}
 
 if (out.length < 200) {
 	console.error(
