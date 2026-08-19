@@ -1,122 +1,129 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// /admin/ranks/adjustments against the real staging database. The feature these cover:
-// staff need a way to fix members the automated scoring can't score correctly — a group
-// ironman who holds the Grandmaster combat-achievement tier without every task done, and
-// a member with four Zenyte shards that predate the in-game collection log.
+// Staff rank adjustments, edited in place on a member's profile, against the real staging
+// database. The feature these cover: staff need a way to fix members the automated scoring
+// can't score correctly — a group ironman who holds the Grandmaster combat-achievement tier
+// without every task done, and a member with four Zenyte shards that predate the in-game
+// collection log — and they do it where they read the numbers, not in a separate form.
 //
-// The saves here run a LIVE rank re-check (WOM + TempleOSRS + WikiSync) for the member,
-// which is slow and can degrade to a warning toast when a source is rate-limited. That's
-// a legitimate outcome, not a failure — the assertions are about the adjustment landing
-// and being visible, which is what the page is for.
+// Saves run a LIVE rank re-check (WOM + TempleOSRS + WikiSync), which is slow and can
+// degrade to a warning when a source is rate-limited. That's a legitimate outcome, not a
+// failure: the assertions are about the adjustment landing and being visible.
 
+const WHO = 'bajj'; // the dev-login member, so the profile always exists
 const SAVE_TIMEOUT = 45_000;
 
-async function openPanel(page: Page) {
-	await page.goto('/admin/ranks/adjustments');
-	await expect(page).toHaveURL('/admin/ranks/adjustments');
-	await expect(page.getByRole('heading', { name: 'Ranks' })).toBeVisible();
+async function openProfile(page: Page) {
+	await page.goto(`/u/${WHO}`);
+	await expect(page.locator('.rank-panel')).toBeVisible({ timeout: 30_000 });
+	await expect(page.locator('.comps .comp').first()).toBeVisible();
 }
 
 /**
- * Select the first member in the picker who has a site account (grants need one).
- *
- * The click is retried: the picker renders server-side with the whole roster in it, so it
- * is visible and clickable well before the page hydrates and the button's handler exists.
- * A single click lands on a dead button and silently does nothing.
+ * Open one editor. The click is retried: the panel renders server-side and is clickable
+ * well before the page hydrates, so a single early click lands on a dead button.
  */
-async function pickFirstMember(page: Page): Promise<string> {
-	const row = page
-		.locator('.players .player')
-		.filter({ hasNot: page.locator('.no-acct') })
-		.first();
-	await expect(row).toBeVisible({ timeout: 20_000 });
-	const rsn = (await row.locator('.p-name').innerText()).trim();
-
+async function openEditor(page: Page, opener: ReturnType<Page['locator']>, form: string) {
 	await expect(async () => {
-		await row.click();
-		await expect(page).toHaveURL(/[?&]rsn=/, { timeout: 2_000 });
+		await opener.click();
+		await expect(page.locator(form)).toBeVisible({ timeout: 2_000 });
 	}).toPass({ timeout: 20_000 });
-
-	await expect(page.locator('.who h2')).toHaveText(rsn, { timeout: 20_000 });
-	return rsn;
 }
 
 /** Remove any adjustment left on the member, so the spec is re-runnable. */
-async function cleanUp(page: Page, rsn: string) {
-	await page.goto(`/admin/ranks/adjustments?rsn=${encodeURIComponent(rsn)}`);
-	const remove = page.getByRole('button', { name: /remove adjustment/i });
-	if (!(await remove.isVisible().catch(() => false))) return;
-
-	// Same hydration race as the picker: the confirm dialog only exists once the handler is
-	// attached, so a click that lands early does nothing and no toast ever arrives. Only
-	// re-click while the button is still ENABLED — the handler disables it for the duration
-	// of the request, and clearing runs a live rank re-check that can take a while, so a
-	// blind retry would keep firing at a submit that is simply still in flight.
+async function cleanUp(page: Page) {
+	await page.goto(`/u/${WHO}`);
+	const removeAll = page.locator('.adjusted-note button');
+	if ((await removeAll.count()) === 0) return;
 	await expect(async () => {
-		if ((await remove.count()) === 0) return; // already cleared
-		if (await remove.isEnabled()) {
+		if ((await removeAll.count()) === 0) return;
+		if (await removeAll.isEnabled()) {
 			page.once('dialog', (d) => d.accept());
-			await remove.click();
+			await removeAll.click();
 		}
-		await expect(page.locator('.toast')).toBeVisible({ timeout: 10_000 });
+		await expect(removeAll).toHaveCount(0, { timeout: 10_000 });
 	}).toPass({ timeout: SAVE_TIMEOUT, intervals: [1_000] });
 }
 
-test('a combat-achievement tier can be set by hand and shows up in the record', async ({ page }) => {
-	await openPanel(page);
-	const rsn = await pickFirstMember(page);
+test('a combat-achievement tier is set from the bar that shows it', async ({ page }) => {
+	await openProfile(page);
+	const caRow = page.locator('.comp').filter({ hasText: 'Combat achievements' }).first();
 
 	try {
 		// The group-ironman case: hold them at Grandmaster regardless of the task list.
-		await page.getByLabel(/combat achievement tier/i).selectOption('grandmaster');
-		await page.getByLabel(/reason/i).first().fill('E2E — GIM holds Grandmaster CA in game');
-		await page.getByRole('button', { name: /save & re-score/i }).click();
+		await openEditor(page, caRow.locator('.edit-btn'), 'form[action="?/adjust"]');
+		await page.locator('form[action="?/adjust"] select').selectOption('grandmaster');
+		await page
+			.locator('form[action="?/adjust"] input[name="reason"]')
+			.fill('E2E — GIM holds Grandmaster CA in game');
+		await page.locator('form[action="?/adjust"] button[type="submit"]').click();
 
-		// Either outcome is a successful save; only the re-check can degrade.
-		await expect(page.locator('.toast.good, .toast.warn')).toBeVisible({ timeout: SAVE_TIMEOUT });
+		// Either outcome is a successful save; only the live re-check can degrade.
+		await expect(page.locator('.edit-msg.ok, .edit-msg.warn')).toBeVisible({ timeout: SAVE_TIMEOUT });
 
-		// The whole point of storing it: the adjustment is now on the record, in plain words.
-		const record = page.locator('table').first();
-		const row = record.locator('tr', { hasText: rsn }).first();
-		await expect(row).toContainText(/CA tier Grandmaster/i);
-		await expect(row).toContainText('E2E — GIM holds Grandmaster CA in game');
+		// The adjustment is now on the panel itself, in plain words, and the bar it belongs
+		// to is flagged — an admin re-reading this profile can see what was done and why.
+		await expect(page.locator('.adjusted-note')).toContainText('E2E — GIM holds Grandmaster CA in game');
+		await expect(caRow.locator('.edit-btn')).toHaveText(/adjusted/i);
 	} finally {
-		await cleanUp(page, rsn);
+		await cleanUp(page);
 	}
 });
 
-test('a reason is required before anything can be adjusted', async ({ page }) => {
-	await openPanel(page);
-	const rsn = await pickFirstMember(page);
+test('one component editor does not wipe another component adjustment', async ({ page }) => {
+	await openProfile(page);
+	const caRow = page.locator('.comp').filter({ hasText: 'Combat achievements' }).first();
+	const ehbRow = page.locator('.comp').filter({ hasText: 'Efficient hours bossed' }).first();
 
-	// An unexplained override is exactly what the record exists to prevent, so the reason
-	// field is required and the browser blocks the submit before it ever reaches the server.
-	const reason = page.getByLabel(/reason/i).first();
-	await expect(reason).toHaveJSProperty('required', true);
-	await page.getByLabel(/combat achievement tier/i).selectOption('master');
-	await page.getByRole('button', { name: /save & re-score/i }).click();
+	try {
+		await openEditor(page, caRow.locator('.edit-btn'), 'form[action="?/adjust"]');
+		await page.locator('form[action="?/adjust"] select').selectOption('master');
+		await page.locator('form[action="?/adjust"] input[name="reason"]').fill('E2E — first adjustment');
+		await page.locator('form[action="?/adjust"] button[type="submit"]').click();
+		await expect(page.locator('.edit-msg.ok, .edit-msg.warn')).toBeVisible({ timeout: SAVE_TIMEOUT });
 
-	await expect(page.locator('.toast')).toHaveCount(0);
-	// Still on the same member, nothing saved.
-	await expect(page.locator('.who h2')).toHaveText(rsn);
+		// THE REGRESSION each editor owns one field to avoid: a full upsert from the EHB
+		// editor would blank the CA tier the admin set a moment ago, silently.
+		await openEditor(page, ehbRow.locator('.edit-btn'), 'form[action="?/adjust"]');
+		await page.locator('form[action="?/adjust"] input[name="value"]').fill('25');
+		await page.locator('form[action="?/adjust"] button[type="submit"]').click();
+		await expect(page.locator('.edit-msg.ok, .edit-msg.warn')).toBeVisible({ timeout: SAVE_TIMEOUT });
+
+		await expect(caRow.locator('.edit-btn')).toHaveText(/adjusted/i);
+		await expect(ehbRow.locator('.edit-btn')).toHaveText(/adjusted/i);
+	} finally {
+		await cleanUp(page);
+	}
 });
 
-test('an item grant asks for a count, because four shards is not one shard', async ({ page }) => {
-	await openPanel(page);
-	await pickFirstMember(page);
+test('a gear tile grants the item it shows, with a count', async ({ page }) => {
+	await openProfile(page);
 
-	// The Zenyte-shard entries are quantity checks (1st…4th shard), so a grant that could
-	// only ever say "owned" would credit one of the four. The count input is the fix.
-	// By role + exact string, NOT an anchored regex: the label wraps its input across source
-	// lines, and Playwright normalizes whitespace for string matches but not regex ones, so
-	// /^count$/ never matches the real "\n\t\t\tCount\n\t\t\t" text node.
-	const qty = page.getByRole('spinbutton', { name: 'Count', exact: true });
+	// Open any gear tile; the grant control lives in its modal, so the item an admin is
+	// looking at is the item they credit — no separate picker to get wrong.
+	await openEditor(page, page.locator('.gear-grid .gtile').first(), '.modal-admin');
+
+	// The count is the point: the Zenyte shard entries are quantity checks (1st…4th), so a
+	// control that could only say "owned" would credit one of the four.
+	const qty = page.locator('.modal-grant input[name="quantity"]');
 	await expect(qty).toBeVisible();
 	await expect(qty).toHaveValue('1');
+	// A grant without a stated reason is exactly what the record exists to prevent.
+	await expect(page.locator('.modal-grant input[name="reason"]')).toHaveJSProperty('required', true);
+});
 
-	// The picker offers the WHOLE gear table, not just the items members may claim —
-	// Zenyte shard is clog-trackable and so is NOT member-claimable.
-	const options = page.locator('#gear-items option');
-	await expect(options.filter({ hasText: /zenyte shard/i }).first()).toHaveCount(1);
+test('members never see the editing controls', async ({ page }) => {
+	// The affordances are driven by `adminEdit`, which the load only fills for admins. The
+	// dev-login user IS an admin, so assert the wiring from the other end: a member's own
+	// /me panel gets no adminEdit and so no edit buttons, on the same component markup.
+	await page.goto('/me');
+	// /me opens on the Profile tab; the rank panel lives behind the Rank one. Retried
+	// because the tabs are inert until the page hydrates.
+	await expect(async () => {
+		await page.getByRole('button', { name: 'Rank', exact: true }).click();
+		await expect(page.locator('.rank-panel')).toBeVisible({ timeout: 2_000 });
+	}).toPass({ timeout: 30_000 });
+	await expect(page.locator('.comps .comp').first()).toBeVisible();
+	await expect(page.locator('.rank-panel .edit-btn')).toHaveCount(0);
+	await expect(page.locator('.adjusted-note')).toHaveCount(0);
 });

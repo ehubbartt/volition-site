@@ -286,10 +286,27 @@ entries are added or repointed.
 ## Manual adjustments (the staff escape hatch)
 
 Some members can't be scored correctly from tracked data, and no amount of code can tell
-their case apart from someone who simply hasn't done the work. **`/admin/ranks/adjustments`**
-is the one place a rank or an item is set by hand. Two mechanisms, both admin-only, both
-requiring a reason, both automatically recorded in `vs_audit_log` (every POST under
-`/admin/**` is — see `audit.ts`, which also humanizes these four actions).
+their case apart from someone who simply hasn't done the work.
+
+**Editing happens IN PLACE on the member's profile** (`/u/[rsn]`), not in a separate form:
+an admin opens the member and clicks the thing that's wrong — a score bar, the rank badge,
+or a gear tile. The value being edited sits right next to the number it changes, which is
+the whole point (there's no picker to select the wrong member with, and no item field to
+mistype). `RankPanel` takes an `adminEdit` prop; it's null for everyone else, and that null
+is what keeps the panel read-only for members. The actions live on `/u/[rsn]/+page.server.ts`
+(`adjust` · `pinRank` · `clearAdjustments` · `grantItem` · `revokeGrant`) and each one
+**re-scores the member immediately**, so the panel behind the editor shows the result.
+
+**`/admin/ranks/adjustments` is the RECORD** — the clan-wide view of everything set by hand,
+with a link through to each member's profile to change it. Its one remaining form covers the
+only members a profile can't: clan-roster members with no site account (about half the
+roster), who have no `/u` page to open. Overrides are keyed by RSN precisely so they're
+reachable; items can't be granted to them at all (grants hang off `vs_users.id`), so a
+gear-points adjustment is the substitute.
+
+Both surfaces are admin-only, both require a reason, and both are automatically recorded in
+`vs_audit_log` (every POST under `/admin/**` is — see `audit.ts`, which also humanizes these
+actions; the profile actions are recorded because an admin form action anywhere is audited).
 
 ### 1. Scoring adjustments (`vs_rank_overrides`)
 
@@ -314,7 +331,16 @@ Ordered weakest-first, and that order is the guidance:
   - `total_level_override` — replaces the fetched total level outright.
 - **`rank_override` is a HARD PIN**: the composite is still computed and cached (so the /me
   breakdown stays honest about the underlying numbers) but the rank the member is *given* is
-  the pinned one. Blunt — reach for the input adjustments first.
+  the pinned one. Blunt — reach for the input adjustments first. Edited from the pencil on the
+  rank badge itself.
+
+**Each editor owns exactly one field.** They post to `patchRankOverride`, which merges into
+the existing row rather than upserting the whole thing — a full write from the EHB editor
+would otherwise blank the CA tier an admin set a minute earlier, silently. When the merge
+leaves nothing adjusted (every nudge back to zero, no tier, no pin) the row is **deleted**
+rather than kept as a no-op, so the record lists live adjustments only. There's no editor for
+the **Volition TCG** bar: that count comes from the site's own card tables, so it's always
+exactly knowable and there is nothing an adjustment could legitimately correct.
 
 **Where it applies.** The input adjustments land at FETCH time, exactly like approved gear
 claims, so the ADJUSTED numbers are what gets cached in `vs_rank_sim` and every reader
@@ -341,9 +367,14 @@ same scoring path as a reviewed claim, tagged `source='admin'` so the two never 
 (the member review queue filters to `source='member'`; grants are listed on the adjustments
 page instead).
 
+- **Granted from the tile itself.** An admin clicks the gear piece in the member's gear grid;
+  the item modal that already shows its points and tracking source carries the grant control.
+  So the item credited is by construction the item being looked at, and the modal shows what's
+  already credited (staff grant vs approved claim) with a revoke.
 - **The whole gear table, not the claimable subset.** `allGearItems()` vs
   `claimableGearItems()`. Members may still only submit `claimable: true` entries — this is
-  for items that are trackable in principle but unprovable in this member's case.
+  for items that are trackable in principle but unprovable in this member's case. A claim the
+  member submitted is NOT editable from the tile; it goes back through the review queue.
 - **A count, because several entries are quantity checks.** The motivating case: a member who
   got four Zenyte shards before the in-game collection log existed. Zenyte Shard is four
   independent entries needing 1/2/3/4 shards, so a grant that could only say "owned" would

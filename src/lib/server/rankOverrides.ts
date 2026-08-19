@@ -206,6 +206,69 @@ export async function saveRankOverride(input: RankOverrideInput, actorId: string
 	return error ? { ok: false, error: error.message } : { ok: true, rsn };
 }
 
+/** The adjustable fields, as a patch — anything omitted keeps its current value. */
+export type RankOverridePatch = Partial<
+	Pick<
+		RankOverrideInput,
+		| 'rankOverride'
+		| 'caTierOverride'
+		| 'gearPointsBonus'
+		| 'ehbBonus'
+		| 'clogBonus'
+		| 'monthsBonus'
+		| 'totalLevelOverride'
+	>
+>;
+
+// Change ONE thing about a member's adjustments, leaving the rest alone. This is what the
+// per-component editors on a member's profile post to: they each own a single field, and a
+// full upsert from one of them would silently wipe every other adjustment on the row.
+//
+// When the merged result adjusts nothing at all (every nudge back to zero, no tier, no pin)
+// the row is DELETED rather than kept as a no-op — the record should list live adjustments
+// only, and the audit log already holds the history of how it got there.
+export async function patchRankOverride(
+	target: { rsn: string; userId?: string | null; discordId?: string | null },
+	patch: RankOverridePatch,
+	reason: string,
+	actorId: string
+): Promise<SaveOverrideResult> {
+	const existing = await getRankOverride(target.rsn);
+	const merged: RankOverrideInput = {
+		rsn: target.rsn,
+		userId: target.userId ?? existing?.user_id ?? null,
+		discordId: target.discordId ?? existing?.discord_id ?? null,
+		rankOverride: 'rankOverride' in patch ? patch.rankOverride : existing?.rank_override ?? null,
+		caTierOverride: 'caTierOverride' in patch ? patch.caTierOverride : existing?.ca_tier_override ?? null,
+		gearPointsBonus: patch.gearPointsBonus ?? existing?.gear_points_bonus ?? 0,
+		ehbBonus: patch.ehbBonus ?? Number(existing?.ehb_bonus ?? 0),
+		clogBonus: patch.clogBonus ?? existing?.clog_bonus ?? 0,
+		monthsBonus: patch.monthsBonus ?? Number(existing?.months_bonus ?? 0),
+		totalLevelOverride:
+			'totalLevelOverride' in patch ? patch.totalLevelOverride : existing?.total_level_override ?? null,
+		// A fresh reason wins; otherwise the row keeps the one it already carried, so clearing
+		// one field doesn't force the admin to re-justify the others.
+		reason: reason.trim() || existing?.reason || ''
+	};
+
+	const wouldAdjust =
+		merged.rankOverride != null ||
+		merged.caTierOverride != null ||
+		merged.totalLevelOverride != null ||
+		(merged.gearPointsBonus ?? 0) !== 0 ||
+		(merged.ehbBonus ?? 0) !== 0 ||
+		(merged.clogBonus ?? 0) !== 0 ||
+		(merged.monthsBonus ?? 0) !== 0;
+
+	if (!wouldAdjust) {
+		if (!existing) return { ok: true, rsn: normRsn(target.rsn) };
+		const res = await clearRankOverride(target.rsn);
+		return res.ok ? { ok: true, rsn: normRsn(target.rsn) } : { ok: false, error: res.error ?? 'Could not clear.' };
+	}
+
+	return saveRankOverride(merged, actorId);
+}
+
 export async function clearRankOverride(rsn: string): Promise<{ ok: boolean; error?: string }> {
 	const { error } = await db().from('vs_rank_overrides').delete().eq('rsn', normRsn(rsn));
 	return error ? { ok: false, error: error.message } : { ok: true };

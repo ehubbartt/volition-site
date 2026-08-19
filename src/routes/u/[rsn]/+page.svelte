@@ -91,10 +91,24 @@
 					{/if}
 				</div>
 			{/if}
+			{#if form && 'adjustError' in form && form.adjustError}
+				<p class="edit-msg err">{form.adjustError}</p>
+			{:else if form && 'grantError' in form && form.grantError}
+				<p class="edit-msg err">{form.grantError}</p>
+			{:else if form && 'adjustWarning' in form && form.adjustWarning}
+				<p class="edit-msg warn">{form.adjustWarning}</p>
+			{:else if form && (('adjustOk' in form && form.adjustOk) || ('grantOk' in form && form.grantOk))}
+				<p class="edit-msg ok">Saved, and {displayName} was re-scored.</p>
+			{/if}
+			<!-- Admins edit a member's scoring here, on the profile, where they read it:
+			     a pencil on the rank badge and on each score bar, and a grant control
+			     inside every gear tile's modal. adminEdit is null for everyone else, which
+			     is what keeps the panel read-only for members. -->
 			<RankPanel
 				rank={data.rankBreakdown}
 				currentRank={data.currentRank}
 				emptyText="{displayName} hasn't checked their rank yet."
+				adminEdit={data.adminEdit}
 			/>
 		</ProfilePanel>
 	{:else if tab === 'collection'}
@@ -164,6 +178,27 @@
 		color: var(--success, #6aa84f);
 	}
 	.recheck-msg.err {
+		color: var(--danger);
+	}
+
+	/* Result of an in-place staff adjustment (admin-only; see RankPanel's adminEdit). */
+	.edit-msg {
+		margin: 0 0 0.75rem;
+		padding: 0.5rem 0.7rem;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		font-size: 0.85rem;
+	}
+	.edit-msg.ok {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+	.edit-msg.warn {
+		border-color: #d9a441;
+		color: #d9a441;
+	}
+	.edit-msg.err {
+		border-color: var(--danger);
 		color: var(--danger);
 	}
 </style>

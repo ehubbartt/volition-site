@@ -9,6 +9,8 @@
 
 	const TABS: TabDef[] = [
 		{ label: 'Gear Claims', href: '/admin/ranks/claims' },
+		// The record of manual adjustments — they're MADE on the member's own profile
+		// (/u/[rsn]), and this is the clan-wide view over the result.
 		{ label: 'Adjustments', href: '/admin/ranks/adjustments' },
 		{ label: 'Simulator', href: '/admin/ranks/simulator' },
 		{ label: 'Mass Update', href: '/admin/ranks/mass-update' }
