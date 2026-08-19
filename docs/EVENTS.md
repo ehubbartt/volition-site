@@ -156,6 +156,16 @@ and one `vs_active_tiles` accessor + a single "participant key" helper (`coalesc
   > log, so that stamp always predates the lock. `scripts/clue-progress-check.mjs` pins that
   > case down — if it ever regresses, every long-standing player's clue tiles would complete
   > the moment they refreshed.
+  > **Rebuilding `itemEhc.json` needs a THIN account in `--player`.** An item's value comes
+  > from a player who LACKS it (`missing_hours`); a player who owns it reports `hours: 0`.
+  > The values endpoint returns the whole ~1712-id catalogue for anyone, so one low-log
+  > account values nearly everything, while deep logs supply the names and categories (the
+  > catalogue endpoint lists only owned slots). Built from deep logs alone, every item those
+  > accounts all owned valued 0 and was dropped — which is how `hard_treasure_trails` ended
+  > up with 11 items. Items Temple genuinely values at 0 are now kept at a 0.01h floor
+  > rather than dropped, so they rank last and stay off high-difficulty boards instead of
+  > vanishing. Always `--player` the union of everyone used before plus the new ones: the
+  > catalogue is a union and values are a max, so adding players can only improve both.
   - Item pool: boss drops from `itemEhb.json` (curated EHB math, `build_item_ehb.mjs`) always;
     plus non-boss clog items from `itemEhc.json` (Temple per-item EHC, `build_item_ehc.mjs` —
     maintainer-run) behind the "Include non-PVM collection log items" toggle. Both pools share
