@@ -261,6 +261,18 @@ export async function enrichAuditRows(
 	return { byRow, userNames: Object.fromEntries(userMap) };
 }
 
+// Component keys as the rank panel spells them, for the manual-adjustment log lines.
+// Mirrors rankScoring's COMPONENT_LABELS (that one is client-facing display metadata; this
+// is a log-line vocabulary, so it stays a local copy rather than a shared import).
+const COMPONENT_LABELS: Record<string, string> = {
+	gear: 'gear score',
+	ehb: 'EHB',
+	ca: 'combat-achievement tier',
+	time: 'time in clan',
+	clog: 'collection log',
+	level: 'total level'
+};
+
 function buildSummary(
 	r: EnrichInputRow,
 	p: Record<string, unknown>,
@@ -293,21 +305,44 @@ function buildSummary(
 		return `Updated bot config “${p.config_name}”`;
 	}
 
-	// Manual rank adjustments — the one channel where a rank or a gear item is set by
-	// hand, so the log entry should read as plainly as possible (rankOverrides.ts).
-	if (r.route_id === '/admin/ranks/adjustments') {
-		const who = typeof p.rsn === 'string' && p.rsn ? p.rsn : 'a member';
+	// Manual rank adjustments — the one channel where a rank or a gear item is set by hand,
+	// so the log entry should read as plainly as possible (rankOverrides.ts). They're made
+	// IN PLACE on a member's profile, and the record page keeps a fallback form for roster
+	// members who have no profile; both routes land here.
+	const onProfile = r.route_id === '/u/[rsn]';
+	if (onProfile || r.route_id === '/admin/ranks/adjustments') {
+		// On a profile the member is the page, not a form field — take them from the path.
+		const who = onProfile
+			? decodeURIComponent((r.path ?? '').split('/').filter(Boolean)[1] ?? '') || 'a member'
+			: typeof p.rsn === 'string' && p.rsn
+				? p.rsn
+				: 'a member';
+		const item = typeof p.item_name === 'string' ? p.item_name : 'a gear item';
+		const qty = String(p.quantity ?? '1');
+
+		// One component, edited from its own score bar. `field` is the internal component
+		// key, so spell it the way the score bar does rather than leaking "ca" into a line
+		// a person reads.
+		if (action === 'adjust') {
+			const key = typeof p.field === 'string' ? p.field : '';
+			const label = COMPONENT_LABELS[key] ?? key ?? 'a component';
+			const value = typeof p.value === 'string' && p.value ? p.value : null;
+			return value ? `Adjusted ${who}'s ${label} to ${value}` : `Cleared the ${label} adjustment on ${who}`;
+		}
+		if (action === 'pinRank') {
+			const pin = typeof p.value === 'string' && p.value ? p.value : null;
+			return pin ? `Pinned ${who}'s rank to ${pin}` : `Removed the rank pin on ${who}`;
+		}
+		if (action === 'clearAdjustments') return `Removed every rank adjustment on ${who}`;
+		if (action === 'grantItem') return `Granted ${who} ${qty === '1' ? '' : `${qty}× `}${item}`;
+		if (action === 'revokeGrant') return `Revoked a granted gear item from ${who}`;
+
+		// The record page's fallback form for members with no profile (whole-row write).
 		if (action === 'saveOverride') {
 			const pin = typeof p.rank_override === 'string' && p.rank_override ? `, rank pinned to ${p.rank_override}` : '';
 			return `Adjusted rank scoring for ${who}${pin}`;
 		}
 		if (action === 'clearOverride') return `Removed the rank adjustment for ${who}`;
-		if (action === 'grantItem') {
-			const item = typeof p.item_name === 'string' ? p.item_name : 'a gear item';
-			const qty = String(p.quantity ?? '1');
-			return `Granted ${who} ${qty === '1' ? '' : `${qty}× `}${item}`;
-		}
-		if (action === 'revokeGrant') return `Revoked a granted gear item from ${who}`;
 	}
 
 	return null;

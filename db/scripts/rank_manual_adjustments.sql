@@ -53,10 +53,18 @@ create table if not exists vs_rank_overrides (
 	-- Why this exists. Required: an unexplained override is the thing this table is
 	-- meant to prevent.
 	reason text not null,
+	-- Who set it. `created_by` is the admin who first adjusted this member and is never
+	-- rewritten; `updated_by` is whoever last touched it — that's the one the record shows,
+	-- because "who did this" almost always means "who did it last".
 	created_by uuid references vs_users(id),
 	created_at timestamptz not null default now(),
 	updated_at timestamptz not null default now()
 );
+
+-- Added after the table shipped to staging; keep it as its own idempotent statement so
+-- re-applying the script is safe on a database that already has the table.
+alter table vs_rank_overrides
+	add column if not exists updated_by uuid references vs_users(id);
 
 create index if not exists vs_rank_overrides_user on vs_rank_overrides (user_id);
 

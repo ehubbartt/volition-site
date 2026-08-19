@@ -40,13 +40,16 @@ export interface RankOverride {
 	months_bonus: number;
 	total_level_override: number | null;
 	reason: string;
+	/** The admin who FIRST adjusted this member; never rewritten by a later edit. */
 	created_by: string | null;
+	/** The admin who last touched it — what "adjusted by" means on the record. */
+	updated_by: string | null;
 	created_at: string;
 	updated_at: string;
 }
 
 const COLS =
-	'id, rsn, display_rsn, user_id, discord_id, rank_override, ca_tier_override, gear_points_bonus, ehb_bonus, clog_bonus, months_bonus, total_level_override, reason, created_by, created_at, updated_at';
+	'id, rsn, display_rsn, user_id, discord_id, rank_override, ca_tier_override, gear_points_bonus, ehb_bonus, clog_bonus, months_bonus, total_level_override, reason, created_by, updated_by, created_at, updated_at';
 
 /** The values an admin can set. Everything but `reason` is optional/clearable. */
 export interface RankOverrideInput {
@@ -67,20 +70,51 @@ export const CA_TIERS = CA_TIER_ORDER;
 
 const normRsn = (rsn: string) => rsn.trim().toLowerCase();
 
-// Does this row actually change anything? A row edited back down to "no pin, no tier,
-// all zeroes" still exists (its reason is history) but must not be advertised as an
-// active adjustment — on the member's profile or in the admin list.
-export function hasEffect(ov: RankOverride | null | undefined): boolean {
-	if (!ov) return false;
+// "Does this actually change anything?" — asked of a stored ROW (does the record list it?)
+// and of a pending EDIT (is there still anything to store?). One predicate over the values,
+// so the two answers can't drift apart when a field is added: a new adjustment only has to
+// be added to `adjustmentValues` below, and both callers pick it up.
+interface AdjustmentValues {
+	rank: string | null;
+	caTier: string | null;
+	totalLevel: number | null;
+	gear: number;
+	ehb: number;
+	clog: number;
+	months: number;
+}
+
+function anyAdjustment(v: AdjustmentValues): boolean {
 	return (
-		ov.rank_override != null ||
-		ov.ca_tier_override != null ||
-		ov.total_level_override != null ||
-		ov.gear_points_bonus !== 0 ||
-		Number(ov.ehb_bonus) !== 0 ||
-		ov.clog_bonus !== 0 ||
-		Number(ov.months_bonus) !== 0
+		v.rank != null ||
+		v.caTier != null ||
+		v.totalLevel != null ||
+		v.gear !== 0 ||
+		v.ehb !== 0 ||
+		v.clog !== 0 ||
+		v.months !== 0
 	);
+}
+
+// Postgres returns `numeric` columns as strings through PostgREST, so the two decimal
+// fields are coerced rather than compared as-is — '0' !== 0 would report every untouched
+// row as adjusted.
+const adjustmentValues = (ov: RankOverride): AdjustmentValues => ({
+	rank: ov.rank_override,
+	caTier: ov.ca_tier_override,
+	totalLevel: ov.total_level_override,
+	gear: ov.gear_points_bonus,
+	ehb: Number(ov.ehb_bonus),
+	clog: ov.clog_bonus,
+	months: Number(ov.months_bonus)
+});
+
+// Does this row actually change anything? A row edited back down to "no pin, no tier, all
+// zeroes" must not be advertised as an active adjustment — on the member's profile or in
+// the admin record. (patchRankOverride deletes such rows, so this mainly guards rows
+// written by the older full-form path.)
+export function hasEffect(ov: RankOverride | null | undefined): boolean {
+	return ov ? anyAdjustment(adjustmentValues(ov)) : false;
 }
 
 // --- Reads ------------------------------------------------------------------
@@ -112,6 +146,9 @@ export interface RankOverrideRow extends RankOverride {
 	discord_username: string | null;
 	/** The rank they currently hold on the shared players row (display only). */
 	current_rank: string | null;
+	/** The admin who last changed it, and who first set it — resolved to a display name. */
+	updated_by_name: string | null;
+	created_by_name: string | null;
 }
 
 // The admin list: every override, newest edit first, joined to whatever identity we can
@@ -126,7 +163,10 @@ export async function listRankOverrides(): Promise<RankOverrideRow[]> {
 	const rows = (data ?? []) as RankOverride[];
 	if (rows.length === 0) return [];
 
-	const userIds = [...new Set(rows.map((r) => r.user_id).filter(Boolean))] as string[];
+	// One lookup covers both roles: the member the row is about, and the admins who set it.
+	const userIds = [
+		...new Set(rows.flatMap((r) => [r.user_id, r.updated_by, r.created_by]).filter(Boolean))
+	] as string[];
 	const rsns = rows.map((r) => r.rsn);
 
 	const [users, players] = await Promise.all([
@@ -145,13 +185,23 @@ export async function listRankOverrides(): Promise<RankOverrideRow[]> {
 			.map((p) => [p.rsn!.toLowerCase(), p.rank])
 	);
 
+	// An admin's RSN is what other staff know them by; the Discord name is the fallback for
+	// an account that never set one.
+	const nameOf = (id: string | null) => {
+		if (!id) return null;
+		const u = byUser.get(id);
+		return u ? u.rsn || u.discord_username : null;
+	};
+
 	return rows.map((r) => {
 		const u = r.user_id ? byUser.get(r.user_id) : null;
 		return {
 			...r,
 			profile_rsn: u?.rsn ?? null,
 			discord_username: u?.discord_username ?? null,
-			current_rank: rankByRsn.get(r.rsn) ?? null
+			current_rank: rankByRsn.get(r.rsn) ?? null,
+			updated_by_name: nameOf(r.updated_by),
+			created_by_name: nameOf(r.created_by)
 		};
 	});
 }
@@ -178,6 +228,11 @@ export async function saveRankOverride(input: RankOverrideInput, actorId: string
 		return { ok: false, error: `“${input.caTierOverride}” is not a combat-achievement tier.` };
 	}
 
+	// Preserve the original author across edits: the upsert writes every column, so
+	// created_by would otherwise be rewritten to whoever touched it last and the record
+	// would lose who started it.
+	const { data: prior } = await db().from('vs_rank_overrides').select('created_by').eq('rsn', rsn).maybeSingle();
+
 	const num = (v: number | undefined) => (Number.isFinite(v) ? Number(v) : 0);
 	const { error } = await db()
 		.from('vs_rank_overrides')
@@ -198,7 +253,8 @@ export async function saveRankOverride(input: RankOverrideInput, actorId: string
 						? null
 						: Math.round(input.totalLevelOverride),
 				reason,
-				created_by: actorId,
+				created_by: (prior as { created_by: string | null } | null)?.created_by ?? actorId,
+				updated_by: actorId,
 				updated_at: new Date().toISOString()
 			},
 			{ onConflict: 'rsn' }
@@ -251,19 +307,29 @@ export async function patchRankOverride(
 		reason: reason.trim() || existing?.reason || ''
 	};
 
-	const wouldAdjust =
-		merged.rankOverride != null ||
-		merged.caTierOverride != null ||
-		merged.totalLevelOverride != null ||
-		(merged.gearPointsBonus ?? 0) !== 0 ||
-		(merged.ehbBonus ?? 0) !== 0 ||
-		(merged.clogBonus ?? 0) !== 0 ||
-		(merged.monthsBonus ?? 0) !== 0;
+	const wouldAdjust = anyAdjustment({
+		rank: merged.rankOverride ?? null,
+		caTier: merged.caTierOverride ?? null,
+		totalLevel: merged.totalLevelOverride ?? null,
+		gear: merged.gearPointsBonus ?? 0,
+		ehb: merged.ehbBonus ?? 0,
+		clog: merged.clogBonus ?? 0,
+		months: merged.monthsBonus ?? 0
+	});
 
 	if (!wouldAdjust) {
+		// Clearing needs no justification — there's nothing left to justify.
 		if (!existing) return { ok: true, rsn: normRsn(target.rsn) };
 		const res = await clearRankOverride(target.rsn);
 		return res.ok ? { ok: true, rsn: normRsn(target.rsn) } : { ok: false, error: res.error ?? 'Could not clear.' };
+	}
+
+	// A reason is required to START adjusting someone, but not to amend a row that already
+	// carries one. Enforced HERE rather than at each call site, so the rule can't be stated
+	// three different ways by three different editors (and it's checked against the merged
+	// row, which is the thing actually being stored).
+	if (!merged.reason.trim()) {
+		return { ok: false, error: 'A reason is required — this is the record of why the score was changed.' };
 	}
 
 	return saveRankOverride(merged, actorId);

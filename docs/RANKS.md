@@ -305,8 +305,19 @@ reachable; items can't be granted to them at all (grants hang off `vs_users.id`)
 gear-points adjustment is the substitute.
 
 Both surfaces are admin-only, both require a reason, and both are automatically recorded in
-`vs_audit_log` (every POST under `/admin/**` is — see `audit.ts`, which also humanizes these
-actions; the profile actions are recorded because an admin form action anywhere is audited).
+`vs_audit_log` — `shouldAudit` catches every POST under `/admin/**` **and every form action
+by a privileged actor anywhere**, which is what covers the profile ones. `audit.ts`
+humanizes them ("Adjusted bajj's ca score to grandmaster", "Granted bajj 4× Zenyte shard").
+
+**Who did it.** `vs_rank_overrides` carries `created_by` (first adjusted, never rewritten —
+`saveRankOverride` reads the prior row to preserve it) and `updated_by` (last touched). The
+record's "Adjusted by" column shows the latter, and adds "first set by X" only when that was
+someone else. Grants reuse `vs_rank_item_claims.reviewed_by` for their "Granted by". The
+member's profile says "Staff-adjusted by X" in its standing note, so an admin doesn't have
+to leave for the record to find out who. Names resolve to RSN, falling back to the Discord
+name. **One reason is stored per member, not per field** — every editor pre-fills and
+rewrites the same row-level reason, and the labels say so; the per-change history lives in
+the audit log.
 
 ### 1. Scoring adjustments (`vs_rank_overrides`)
 

@@ -137,13 +137,16 @@
 		item_name: string;
 		quantity: number;
 		source: string;
-		maxQuantity: number;
 	}
 	interface AdminEditView {
 		override: OverrideView | null;
+		/** The admin who last adjusted them, for the standing note. */
+		setBy: string | null;
 		caTiers: string[];
 		rankOptions: { value: string; label: string }[];
 		granted: GrantedItem[];
+		/** Lowercased item name → how many the gear table can use (only items above 1). */
+		quantityCaps: Record<string, number>;
 	}
 
 	let {
@@ -550,7 +553,7 @@
 					</select>
 				</label>
 				<label class="grow">
-					Reason
+					Reason <span class="lbl-note">— covers every adjustment on this member</span>
 					<input type="text" name="reason" maxlength="300" value={adminEdit.override?.reason ?? ''} placeholder="Why is this being set by hand?" />
 				</label>
 				<button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
@@ -639,7 +642,7 @@
 		{#if adminEdit?.override}
 			<form method="POST" action="?/clearAdjustments" class="adjusted-note" use:enhance={editSubmit}>
 				<span>
-					<strong>Staff-adjusted.</strong>
+					<strong>Staff-adjusted{adminEdit.setBy ? ` by ${adminEdit.setBy}` : ''}.</strong>
 					{adminEdit.override.reason}
 				</span>
 				<button
@@ -725,7 +728,7 @@
 										</select>
 									</label>
 									<label class="grow">
-										Reason
+										Reason <span class="lbl-note">— covers every adjustment on this member</span>
 										<input type="text" name="reason" maxlength="300" value={adminEdit.override?.reason ?? ''} placeholder="Why is this being set by hand?" />
 									</label>
 									<button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
@@ -745,7 +748,7 @@
 										/>
 									</label>
 									<label class="grow">
-										Reason
+										Reason <span class="lbl-note">— covers every adjustment on this member</span>
 										<input type="text" name="reason" maxlength="300" value={adminEdit.override?.reason ?? ''} placeholder="Why is this being set by hand?" />
 									</label>
 									<button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
@@ -1054,11 +1057,15 @@
 					</p>
 				{/if}
 				{#if !granted || granted.source === 'admin'}
+					{@const cap = adminEdit.quantityCaps[item.toLowerCase()] ?? 1}
 					<form method="POST" action="?/grantItem" class="modal-grant" use:enhance={editSubmit}>
 						<input type="hidden" name="item_name" value={item} />
 						<label>
 							Count
-							<input type="number" name="quantity" min="1" step="1" value={granted?.quantity ?? 1} />
+							<input type="number" name="quantity" min="1" max={cap} step="1" value={granted?.quantity ?? 1} />
+							<!-- Only worth saying for the entries that actually count more than one
+							     (Zenyte shard 4, Tormented synapse 3); everywhere else it's noise. -->
+							{#if cap > 1}<small class="cap-hint">up to {cap} count toward the gear table</small>{/if}
 						</label>
 						<label class="grow">
 							Reason
@@ -1679,6 +1686,16 @@
 	}
 	.modal-grant input[type='number'] {
 		width: 4.5rem;
+	}
+	/* The scope note beside "Reason" — one reason is stored per member, not per field. */
+	.lbl-note {
+		font-weight: normal;
+		opacity: 0.75;
+	}
+	.cap-hint {
+		font-size: 0.7rem;
+		color: var(--muted);
+		white-space: nowrap;
 	}
 	.modal-revoke {
 		margin-top: 0.5rem;

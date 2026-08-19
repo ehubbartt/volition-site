@@ -90,7 +90,7 @@
 		<div class="table-wrap">
 			<table>
 				<thead>
-					<tr><th>Player</th><th>Adjustment</th><th>Current rank</th><th>Reason</th><th>Updated</th><th></th></tr>
+					<tr><th>Player</th><th>Adjustment</th><th>Current rank</th><th>Reason</th><th>Adjusted by</th><th>Updated</th><th></th></tr>
 				</thead>
 				<tbody>
 					{#each data.overrides as o (o.id)}
@@ -109,6 +109,13 @@
 							<td>{describe(o)}</td>
 							<td>{rankLabel(o.current_rank)}</td>
 							<td class="reason-cell">{o.reason}</td>
+							<td class="nowrap">
+								{o.updated_by_name ?? '—'}
+								<!-- Only worth saying when a DIFFERENT admin started it; otherwise it's noise. -->
+								{#if o.created_by_name && o.created_by_name !== o.updated_by_name}
+									<span class="muted sub">first set by {o.created_by_name}</span>
+								{/if}
+							</td>
 							<td class="nowrap">{fmtDate(o.updated_at)}</td>
 							<td>
 								{#if href}
@@ -141,7 +148,7 @@
 		<div class="table-wrap">
 			<table>
 				<thead>
-					<tr><th>Player</th><th>Item</th><th>Counts toward</th><th>Reason</th><th>Granted</th><th></th></tr>
+					<tr><th>Player</th><th>Item</th><th>Counts toward</th><th>Reason</th><th>Granted by</th><th>Granted</th><th></th></tr>
 				</thead>
 				<tbody>
 					{#each data.grants as g (g.id)}
@@ -152,6 +159,7 @@
 							<td>{g.item_name}{#if g.quantity > 1}<span class="qty-badge">×{g.quantity}</span>{/if}</td>
 							<td>{g.entry} <span class="muted">({g.points} pts)</span></td>
 							<td class="reason-cell">{g.note ?? '—'}</td>
+							<td class="nowrap">{g.granted_by_name ?? '—'}</td>
 							<td class="nowrap">{fmtDate(g.reviewed_at)}</td>
 							<td>
 								<form method="POST" action="?/revokeGrant" use:enhance={act}>
@@ -506,5 +514,10 @@
 	}
 	.small {
 		font-size: 0.82rem;
+	}
+	/* "first set by X" under the last editor, when they're different people. */
+	.sub {
+		display: block;
+		font-size: 0.72rem;
 	}
 </style>

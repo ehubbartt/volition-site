@@ -1,4 +1,5 @@
 import { redirect, error, fail } from '@sveltejs/kit';
+import { db } from '$lib/server/db';
 import { findUserBySlug } from '$lib/server/users';
 import { isAdmin } from '$lib/server/auth';
 import { loadCardProfile } from '$lib/server/cardProfile';
@@ -12,7 +13,7 @@ import {
 	CA_TIERS,
 	type RankOverridePatch
 } from '$lib/server/rankOverrides';
-import { listGearClaims, grantGearItem, revokeGearGrant, maxUsefulQuantity } from '$lib/server/rankClaims';
+import { listGearClaims, grantGearItem, revokeGearGrant, itemQuantityCaps } from '$lib/server/rankClaims';
 import { RANK_ORDER, RANK_LABEL } from '$lib/ranks';
 import type { ProfileUser } from '$lib/server/users';
 import type { Actions, PageServerLoad } from './$types';
@@ -37,6 +38,10 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		admin ? listGearClaims(target.id) : Promise.resolve([])
 	]);
 
+	// Who last adjusted them, for the standing note on the panel — an admin looking at an
+	// adjusted member shouldn't have to leave for the record to find out who did it.
+	const setBy = override?.updated_by ? await resolveAdminName(override.updated_by) : null;
+
 	return {
 		profileUser: target,
 		isSelf: target.id === locals.user.id,
@@ -47,6 +52,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		adminEdit: admin
 			? {
 					override,
+					setBy,
 					caTiers: CA_TIERS,
 					rankOptions: RANK_ORDER.map((r) => ({ value: r as string, label: RANK_LABEL[r] })),
 					// Manual gear already credited to them, so a gear tile can show what's
@@ -57,9 +63,11 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 							id: c.id,
 							item_name: c.item_name,
 							quantity: c.quantity,
-							source: c.source,
-							maxQuantity: maxUsefulQuantity(c.item_name)
-						}))
+							source: c.source
+						})),
+					// Items the gear table wants more than one of, so the count field can cap
+					// itself and say so — the four-Zenyte-shards case.
+					quantityCaps: itemQuantityCaps()
 				}
 			: null,
 		currentRank,
@@ -134,44 +142,37 @@ export const actions: Actions = {
 		const raw = (form.get('value') ?? '').toString().trim();
 		const reason = (form.get('reason') ?? '').toString();
 
+		// An empty box means "no adjustment": 0 for the additive nudges, null for the two
+		// that replace a value outright.
 		const num = () => {
-			if (!raw) return 0;
 			const n = Number(raw);
-			return Number.isFinite(n) ? n : 0;
+			return raw && Number.isFinite(n) ? n : 0;
 		};
 		const optInt = () => {
-			if (!raw) return null;
 			const n = Number(raw);
-			return Number.isFinite(n) ? Math.round(n) : null;
+			return raw && Number.isFinite(n) ? Math.round(n) : null;
 		};
 
-		const patch: RankOverridePatch =
-			field === 'ca'
-				? { caTierOverride: raw || null }
-				: field === 'gear'
-					? { gearPointsBonus: num() }
-					: field === 'ehb'
-						? { ehbBonus: num() }
-						: field === 'clog'
-							? { clogBonus: num() }
-							: field === 'time'
-								? { monthsBonus: num() }
-								: field === 'level'
-									? { totalLevelOverride: optInt() }
-									: {};
-		if (Object.keys(patch).length === 0) {
-			return fail(400, { adjustError: `“${field}” isn't an adjustable component.` });
-		}
-		// A reason is required to START adjusting, but not to clear or amend one that already
-		// carries an explanation — patchRankOverride keeps the existing reason when none is given.
-		const existing = await getRankOverride(target.rsn);
-		if (!reason.trim() && !existing?.reason) {
-			return fail(400, { adjustError: 'A reason is required — this is the record of why the score was changed.' });
-		}
+		// The component key each score bar posts → the one field it owns. This is also the
+		// whitelist: anything not named here is rejected rather than silently ignored, so a
+		// bar with no legitimate adjustment (Volition TCG, read from our own card tables)
+		// can't be adjusted by hand-crafting a request.
+		const PATCH_BY_FIELD: Record<string, () => RankOverridePatch> = {
+			ca: () => ({ caTierOverride: raw || null }),
+			gear: () => ({ gearPointsBonus: num() }),
+			ehb: () => ({ ehbBonus: num() }),
+			clog: () => ({ clogBonus: num() }),
+			time: () => ({ monthsBonus: num() }),
+			level: () => ({ totalLevelOverride: optInt() })
+		};
+		const build = PATCH_BY_FIELD[field];
+		if (!build) return fail(400, { adjustError: `“${field}” isn't an adjustable component.` });
 
+		// The "a reason is required unless the row already has one" rule lives in
+		// patchRankOverride, which is the thing that knows the merged row.
 		const res = await patchRankOverride(
 			{ rsn: target.rsn, userId: target.id, discordId: target.discord_id },
-			patch,
+			build(),
 			reason,
 			locals.user.id
 		);
@@ -188,11 +189,6 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const value = (form.get('value') ?? '').toString().trim() || null;
 		const reason = (form.get('reason') ?? '').toString();
-
-		const existing = await getRankOverride(target.rsn);
-		if (value && !reason.trim() && !existing?.reason) {
-			return fail(400, { adjustError: 'A reason is required to pin a rank by hand.' });
-		}
 
 		const res = await patchRankOverride(
 			{ rsn: target.rsn, userId: target.id, discordId: target.discord_id },
@@ -247,6 +243,13 @@ export const actions: Actions = {
 		return { grantOk: true, ...(await rescore(target)) };
 	}
 };
+
+/** An admin's display name for "adjusted by": their RSN, or their Discord name if unset. */
+async function resolveAdminName(userId: string): Promise<string | null> {
+	const { data } = await db().from('vs_users').select('rsn, discord_username').eq('id', userId).maybeSingle();
+	const u = data as { rsn: string | null; discord_username: string | null } | null;
+	return u ? u.rsn || u.discord_username : null;
+}
 
 /** The profile's member, or null — every admin action needs an id AND an RSN to score by. */
 async function requireTarget(slug: string): Promise<(ProfileUser & { rsn: string }) | null> {

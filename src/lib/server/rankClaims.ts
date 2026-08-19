@@ -86,8 +86,30 @@ function gearItemMeta(name: string): ClaimableGearItem | undefined {
 	return allGearByItem.get(name.toLowerCase());
 }
 
+// Every item the gear table asks for MORE THAN ONE of, with that ceiling — Zenyte shard 4,
+// Tormented synapse 3, and so on. Sent to the grant control so the count field can cap
+// itself and say what the ceiling is; a grant of "4 shards" is the case the count exists
+// for, and an admin shouldn't have to know the gear table by heart to get it right.
+// Items absent from the map are plain has-it/hasn't checks (max 1).
+let quantityCaps: Record<string, number> | null = null;
+export function itemQuantityCaps(): Record<string, number> {
+	if (quantityCaps) return quantityCaps;
+	const caps: Record<string, number> = {};
+	for (const entry of (gearScoring as { gear: GearEntry[] }).gear) {
+		for (const check of entry.items) {
+			const qty = check.quantity || 1;
+			if (qty <= 1) continue;
+			for (const n of Array.isArray(check.name) ? check.name : [check.name]) {
+				const key = n.toLowerCase();
+				caps[key] = Math.max(caps[key] ?? 1, qty);
+			}
+		}
+	}
+	return (quantityCaps = caps);
+}
+
 // The highest quantity any gear entry asks for of this item — the Zenyte shard entries top
-// out at 4, so granting more than that buys nothing and the admin form says so.
+// out at 4, so granting more than that buys nothing and grantGearItem clamps to it.
 export function maxUsefulQuantity(itemName: string): number {
 	const key = itemName.toLowerCase();
 	let max = 1;
@@ -302,6 +324,8 @@ export interface GearGrant extends GearClaim {
 	discord_username: string | null;
 	entry: string;
 	points: number;
+	/** The admin who granted it (vs_rank_item_claims.reviewed_by), as a display name. */
+	granted_by_name: string | null;
 }
 
 // What a grant of `qty` of one item actually buys, in gear-table terms. Scored rather than
@@ -325,18 +349,24 @@ function grantEffect(itemName: string, qty: number): { entry: string; points: nu
 export async function listGearGrants(): Promise<GearGrant[]> {
 	const { data, error } = await db()
 		.from('vs_rank_item_claims')
-		.select(`${CLAIM_COLS}, vs_users!user_id(rsn, discord_username)`)
+		// Both vs_users embeds must be pinned to their FK: this table has two (the member the
+		// grant is for, and the admin who made it), so an unqualified embed is ambiguous and
+		// PostgREST errors out — which is how the review queue silently emptied once before.
+		.select(
+			`${CLAIM_COLS}, vs_users!user_id(rsn, discord_username), granted_by:vs_users!reviewed_by(rsn, discord_username)`
+		)
 		.eq('source', 'admin')
 		.eq('status', 'approved')
 		.order('reviewed_at', { ascending: false })
 		.limit(300);
 	if (error) console.error('[rank-claims] grant list query failed:', error.message);
-	return ((data ?? []) as unknown as (GearClaim & {
-		vs_users: { rsn: string | null; discord_username: string | null } | null;
-	})[]).map((r) => ({
+	type Named = { rsn: string | null; discord_username: string | null } | null;
+	return ((data ?? []) as unknown as (GearClaim & { vs_users: Named; granted_by: Named })[]).map((r) => ({
 		...r,
 		rsn: r.vs_users?.rsn ?? null,
 		discord_username: r.vs_users?.discord_username ?? null,
+		// An admin's RSN is what other staff know them by; Discord name is the fallback.
+		granted_by_name: r.granted_by ? r.granted_by.rsn || r.granted_by.discord_username : null,
 		...grantEffect(r.item_name, r.quantity)
 	}));
 }
