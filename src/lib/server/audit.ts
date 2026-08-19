@@ -293,6 +293,23 @@ function buildSummary(
 		return `Updated bot config “${p.config_name}”`;
 	}
 
+	// Manual rank adjustments — the one channel where a rank or a gear item is set by
+	// hand, so the log entry should read as plainly as possible (rankOverrides.ts).
+	if (r.route_id === '/admin/ranks/adjustments') {
+		const who = typeof p.rsn === 'string' && p.rsn ? p.rsn : 'a member';
+		if (action === 'saveOverride') {
+			const pin = typeof p.rank_override === 'string' && p.rank_override ? `, rank pinned to ${p.rank_override}` : '';
+			return `Adjusted rank scoring for ${who}${pin}`;
+		}
+		if (action === 'clearOverride') return `Removed the rank adjustment for ${who}`;
+		if (action === 'grantItem') {
+			const item = typeof p.item_name === 'string' ? p.item_name : 'a gear item';
+			const qty = String(p.quantity ?? '1');
+			return `Granted ${who} ${qty === '1' ? '' : `${qty}× `}${item}`;
+		}
+		if (action === 'revokeGrant') return `Revoked a granted gear item from ${who}`;
+	}
+
 	return null;
 }
 

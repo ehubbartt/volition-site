@@ -283,6 +283,83 @@ modal carries a "Claim this item" shortcut that opens the claim form prefilled.
 `GEAR_SCORE_CAP` must stay equal to the sum of all entry points — update it whenever
 entries are added or repointed.
 
+## Manual adjustments (the staff escape hatch)
+
+Some members can't be scored correctly from tracked data, and no amount of code can tell
+their case apart from someone who simply hasn't done the work. **`/admin/ranks/adjustments`**
+is the one place a rank or an item is set by hand. Two mechanisms, both admin-only, both
+requiring a reason, both automatically recorded in `vs_audit_log` (every POST under
+`/admin/**` is — see `audit.ts`, which also humanizes these four actions).
+
+### 1. Scoring adjustments (`vs_rank_overrides`)
+
+`src/lib/server/rankOverrides.ts`, schema in `db/scripts/rank_manual_adjustments.sql`. One
+row per member, **keyed by lowercased RSN** — not by `vs_users.id` — because scoring runs by
+RSN and the roster includes members with no site account at all (the mass update scores them
+from WOM alone). `user_id` / `discord_id` are carried for display and linking only.
+
+Ordered weakest-first, and that order is the guidance:
+
+- **Input adjustments** feed the normal formula, so the caps, curves and thresholds still
+  apply and the member keeps climbing on their own from the adjusted baseline:
+  - `ca_tier_override` — treat the member as having banked every tier-completion reward up
+    to that tier (`caPointsForTier` in `rankScoring.ts`, the same arithmetic
+    `calculateCAPoints` does from a task list). **This is the group-ironman case**: GIMs hold
+    the Grandmaster combat-achievement tier without completing every task, so the WikiSync
+    task list understates their CA component. It only ever RAISES the component — a member
+    whose task list already proves more keeps the more.
+  - `gear_points_bonus` · `ehb_bonus` · `clog_bonus` · `months_bonus` — additive nudges to the
+    raw inputs (may be negative, never take an input below 0). A `clog_bonus` on a member with
+    no Temple log also seeds `clogAvailable`, which the component needs to score at all.
+  - `total_level_override` — replaces the fetched total level outright.
+- **`rank_override` is a HARD PIN**: the composite is still computed and cached (so the /me
+  breakdown stays honest about the underlying numbers) but the rank the member is *given* is
+  the pinned one. Blunt — reach for the input adjustments first.
+
+**Where it applies.** The input adjustments land at FETCH time, exactly like approved gear
+claims, so the ADJUSTED numbers are what gets cached in `vs_rank_sim` and every reader
+downstream (the /me breakdown, the home rank spread, the simulator's recalc) reflects them
+with no extra plumbing — `applyRankOverride(inputs, override)` in `checkAndSaveRank` and in
+the rank-sim refresh. The pin is applied wherever a rank is WRITTEN or DISPLAYED, via
+`resolveRank(computed, override)`: `checkAndSaveRank` (so /me, the admin re-check and the
+mass update all honour it), the simulator's **bulk apply** (a bulk apply must never quietly
+undo a staff decision) and its **comparison** (a pinned member's rank IS the pin, so they
+don't read as a permanent mismatch), and `buildRankBreakdown` in `meData.ts`. The simulator's
+distribution/threshold-suggestion views deliberately do NOT apply pins — those measure the
+*formula's* spread. `RankPanel` says "this rank was set by staff" / "staff have adjusted this
+player's scoring" so a rank the visible numbers don't produce never looks like a bug.
+
+Nothing is rewritten retroactively — an adjustment reaches the member's rank on their next
+check, so **the admin page runs one for them on save** (and on clear, and on grant/revoke).
+A degraded re-check is reported as a warning; the adjustment itself is already stored.
+
+### 2. Item grants (`vs_rank_item_claims`, `source = 'admin'`)
+
+The same table as member gear claims, with two added columns (`source`, `quantity`). An admin
+grants an item outright — written as an already-APPROVED row so it flows through the exact
+same scoring path as a reviewed claim, tagged `source='admin'` so the two never blur together
+(the member review queue filters to `source='member'`; grants are listed on the adjustments
+page instead).
+
+- **The whole gear table, not the claimable subset.** `allGearItems()` vs
+  `claimableGearItems()`. Members may still only submit `claimable: true` entries — this is
+  for items that are trackable in principle but unprovable in this member's case.
+- **A count, because several entries are quantity checks.** The motivating case: a member who
+  got four Zenyte shards before the in-game collection log existed. Zenyte Shard is four
+  independent entries needing 1/2/3/4 shards, so a grant that could only say "owned" would
+  credit one of the four. `grantGearItem` clamps to `maxUsefulQuantity(item)` — more than the
+  largest quantity any entry asks for scores nothing extra.
+- `calculateGearPoints` now takes `ManualGearItem[]` (`{ name, count }`) rather than names.
+  A manual credit takes the HIGHER of the clog count and the granted count, never the sum:
+  they describe the same items, so adding them would double-count. Two grants of one item
+  collapse the same way (`mergeCounts`).
+- Grants need a `vs_users` id, so a roster member with no site account can't receive one —
+  the page says so and points at the gear-points adjustment instead.
+
+**This is not a members-facing channel and must not become one.** Mass self-granting is
+exactly what the claim queue's review step exists to prevent; these are exceptions the code
+can't account for, tracked by hand.
+
 ## Keeping the gear/CA tables current
 
 `gearScoring.json` and `combatAchievements.json` are the canonical hand-maintained

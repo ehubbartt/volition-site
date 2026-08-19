@@ -8,7 +8,8 @@
 
 import { db } from './db';
 import { rsnExactPattern } from './users';
-import { getApprovedGearNames } from './rankClaims';
+import { getApprovedGearItems } from './rankClaims';
+import { getRankOverride, applyRankOverride, resolveRank, type RankOverride } from './rankOverrides';
 import { getRankConfig } from './rankConfig';
 import { fetchPlayerRankInputs, type RosterEntry } from './rankData';
 import { getTcgProgress } from './tcgProgress';
@@ -61,23 +62,34 @@ export type RankCheckResult =
 // — e.g. the mass rank update — so we don't re-fetch the whole clan once per player.
 export async function checkAndSaveRank(
 	target: RankCheckTarget,
-	opts?: { roster?: Record<string, RosterEntry> }
+	opts?: { roster?: Record<string, RosterEntry>; overrides?: Map<string, RankOverride> }
 ): Promise<RankCheckResult> {
 	const { userId, rsn, discordId, accountType } = target;
 	try {
-		// Approved manual gear claims merge into the gear calculation (items the Temple
-		// clog can't prove — see rankClaims.ts).
-		const manualGear = await getApprovedGearNames(userId);
-		const [config, inputs, tcg] = await Promise.all([
+		// Approved manual gear — member claims AND admin grants — merges into the gear
+		// calculation (items the Temple clog can't prove; see rankClaims.ts).
+		const manualGear = await getApprovedGearItems(userId);
+		const [config, inputs, tcg, override] = await Promise.all([
 			getRankConfig(),
 			fetchPlayerRankInputs(rsn, opts?.roster, manualGear, accountType),
-			getTcgProgress(userId)
+			getTcgProgress(userId),
+			// Staff adjustments for members the automated scoring can't score correctly (see
+			// rankOverrides.ts). Loaded per player; the bulk paths that walk the whole roster
+			// pass their own pre-loaded map in instead of querying once per member.
+			opts?.overrides ? Promise.resolve(opts.overrides.get(rsn.toLowerCase()) ?? null) : getRankOverride(rsn)
 		]);
 		// Fold in the member's Volition TCG collection completion (RSN-keyed external
 		// data can't read it — see rankData.ts) before scoring + caching.
 		inputs.tcgOwned = tcg.owned;
 		inputs.tcgTotal = tcg.total;
-		const { rank, scores } = scorePlayer(inputs, config);
+		// Manual adjustments land on the INPUTS, before scoring, so the configured caps,
+		// curves and thresholds still apply and the cached vs_rank_sim row shows exactly
+		// what was scored.
+		applyRankOverride(inputs, override);
+		const { rank: computedRank, scores } = scorePlayer(inputs, config);
+		// A hard rank pin beats the composite. The composite is still computed and cached,
+		// so the /me breakdown stays honest about the underlying numbers.
+		const rank = resolveRank(computedRank, override);
 		// Signature (prestige) rank: how many whole categories are maxed → the tier earned.
 		const signatureKey =
 			earnedSignatureTier(completedFromNormalized(scores as unknown as Record<string, number>))?.key ?? null;

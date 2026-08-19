@@ -2,6 +2,7 @@ import { redirect, error, fail } from '@sveltejs/kit';
 import { selectAll } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { checkAndSaveRank } from '$lib/server/rankCheck';
+import { getRankOverridesByRsn } from '$lib/server/rankOverrides';
 import { fetchClanRoster } from '$lib/server/rankData';
 import { microCached } from '$lib/server/microCache';
 import type { Actions, PageServerLoad } from './$types';
@@ -113,7 +114,13 @@ export const actions: Actions = {
 			return fail(502, { runError: 'WOM clan roster unavailable (likely rate-limited).', retryable: true });
 		}
 
-		const [members, fetchedAt] = await Promise.all([readMembers(), readFetchedAt()]);
+		// One lookup of the staff adjustments for the whole batch, rather than a query per
+		// member inside checkAndSaveRank (see rankOverrides.ts).
+		const [members, fetchedAt, overrides] = await Promise.all([
+			readMembers(),
+			readFetchedAt(),
+			getRankOverridesByRsn()
+		]);
 
 		// Pending this pass: members whose last check predates the run start (never-checked
 		// sorts as '' → always pending). A member re-checked in an earlier batch has a fresh
@@ -139,7 +146,7 @@ export const actions: Actions = {
 		for (const m of worklist) {
 			const res = await checkAndSaveRank(
 				{ userId: m.id, rsn: m.rsn, discordId: m.discord_id, accountType: m.account_type },
-				{ roster }
+				{ roster, overrides }
 			);
 			processed++;
 			if (res.ok) {

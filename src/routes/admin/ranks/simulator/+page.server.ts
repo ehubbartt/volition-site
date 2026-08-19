@@ -18,7 +18,8 @@ import {
 } from '$lib/server/rankData';
 import { calculateGearPoints, calculateCAPoints } from '$lib/server/rankScoring';
 import { usesIronmanEhb, computeIronmanEhb } from '$lib/server/rankScoring/ehb';
-import { getApprovedGearNamesByRsn } from '$lib/server/rankClaims';
+import { getApprovedGearItemsByRsn } from '$lib/server/rankClaims';
+import { getRankOverridesByRsn, applyRankOverride, resolveRank } from '$lib/server/rankOverrides';
 import { getTcgProgress, getTcgCatalog } from '$lib/server/tcgProgress';
 import { setPlayerRank } from '$lib/server/playerStats';
 import { microCached } from '$lib/server/microCache';
@@ -396,9 +397,12 @@ export const actions: Actions = {
 			.slice(0, REFRESH_BATCH);
 
 		const sb = db();
-		// Approved manual gear claims (untrackable items) merge into the gear calc,
+		// Approved manual gear (member claims + admin grants) merges into the gear calc,
 		// same as /me's checkRank. One bulk read per batch, keyed by lowercase RSN.
-		const manualGearByRsn = await getApprovedGearNamesByRsn();
+		const manualGearByRsn = await getApprovedGearItemsByRsn();
+		// Staff adjustments, applied to the inputs before they're cached — so every reader
+		// of vs_rank_sim sees what the member was actually scored on (rankOverrides.ts).
+		const overridesByRsn = await getRankOverridesByRsn();
 		// Site account types, so GIM members get iron-rate EHB (rankScoring/ehb.ts).
 		const accountTypeByRsn = await readAccountTypes();
 		// Site user ids, so each player's Volition TCG collection completion can be scored.
@@ -423,29 +427,48 @@ export const actions: Actions = {
 			// Volition TCG completion — 0 / total for roster members with no site account.
 			const tcg = await getTcgProgress(userIdByRsn.get(entry.rsn.toLowerCase()) ?? null);
 
+			// Fold in this member's staff adjustments BEFORE caching, so vs_rank_sim holds
+			// the numbers they're actually scored on and every reader agrees — the same
+			// order checkAndSaveRank uses.
+			const adjusted = applyRankOverride(
+				{
+					ehb,
+					totalLevel,
+					gearPoints: gear.gearPoints,
+					clogFinished: temple?.finished ?? 0,
+					clogAvailable: temple?.available ?? 0,
+					monthsInClan: Math.round(monthsBetween(entry.clanJoinedAt) * 100) / 100,
+					caPoints: caResult.caPoints,
+					tcgOwned: tcg.owned,
+					tcgTotal: tcg.total,
+					caTier: caResult.highestTier
+				},
+				overridesByRsn.get(entry.rsn.toLowerCase())
+			);
+
 			const { error: upErr } = await sb.from('vs_rank_sim').upsert(
 				{
 					rsn: entry.rsn,
 					wom_id: entry.womId,
-					ehb,
-					total_level: totalLevel,
-					gear_points: gear.gearPoints,
-					clog_finished: temple?.finished ?? 0,
-					clog_available: temple?.available ?? 0,
-					months_in_clan: Math.round(monthsBetween(entry.clanJoinedAt) * 100) / 100,
-					ca_points: caResult.caPoints,
+					ehb: adjusted.ehb,
+					total_level: adjusted.totalLevel,
+					gear_points: adjusted.gearPoints,
+					clog_finished: adjusted.clogFinished,
+					clog_available: adjusted.clogAvailable,
+					months_in_clan: adjusted.monthsInClan,
+					ca_points: adjusted.caPoints,
 					tcg_owned: tcg.owned,
 					tcg_total: tcg.total,
 					temple_available: temple != null,
 					wikisync_available: ca != null,
-					ca_tier: caResult.highestTier,
+					ca_tier: adjusted.caTier,
 					wom_role: entry.womRole, // cache the in-game role so compare needs no live WOM call
 
 					gear_detail: { matchedItems: gear.matchedItems, missedItems: gear.missedItems, partials: gear.partials },
 					ca_detail: {
 						tasksCompleted: caResult.tasksCompleted,
 						wikiPoints: caResult.wikiPoints,
-						highestTier: caResult.highestTier
+						highestTier: adjusted.caTier
 					},
 					fetched_at: new Date().toISOString()
 				},
@@ -561,7 +584,11 @@ export const actions: Actions = {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
 
 		const config = await getRankConfig(true);
-		const [rows, current] = await Promise.all([readSimRows(), readCurrentRanks()]);
+		const [rows, current, overridesByRsn] = await Promise.all([
+			readSimRows(),
+			readCurrentRanks(),
+			getRankOverridesByRsn()
+		]);
 		// The comparison runs entirely off the cached rows — wom_role is cached during the
 		// refresh — so it never needs a live WOM call. The roster is fetched only for coverage
 		// stats (size / not-yet-cached), and is OPTIONAL: a WOM rate-limit no longer blocks it.
@@ -610,7 +637,12 @@ export const actions: Actions = {
 				},
 				config
 			);
-			const projected = determineProjectedRank(scores.composite, config);
+			// A pinned member's rank IS the pin, so compare against that — otherwise every
+			// pinned member reads as a permanent mismatch against their in-game role.
+			const projected = resolveRank(
+				determineProjectedRank(scores.composite, config),
+				overridesByRsn.get(row.rsn.toLowerCase())
+			);
 			const stored = toRankValue(current.get(row.rsn.toLowerCase()) ?? null);
 			if (stored) {
 				storedCompared++;
@@ -690,7 +722,7 @@ export const actions: Actions = {
 		if (!locals.user || !isAdmin(locals.user)) throw error(403, 'Not allowed');
 
 		const config = await getRankConfig(true);
-		const rows = await readSimRows();
+		const [rows, overridesByRsn] = await Promise.all([readSimRows(), getRankOverridesByRsn()]);
 
 		let updated = 0;
 		let missing = 0;
@@ -709,7 +741,11 @@ export const actions: Actions = {
 				},
 				config
 			);
-			const rank = determineProjectedRank(scores.composite, config);
+			// Honour a hard rank pin: a bulk apply must never quietly undo a staff decision.
+			const rank = resolveRank(
+				determineProjectedRank(scores.composite, config),
+				overridesByRsn.get(row.rsn.toLowerCase())
+			);
 			const res = await setPlayerRank(null, row.rsn, rank);
 			if (res.ok) updated++;
 			else missing++;

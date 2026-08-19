@@ -62,6 +62,11 @@
 		wikisyncAvailable: boolean;
 		signature: SignatureView;
 		fetchedAt: string | null;
+		// A staff member adjusted this player's scoring by hand (docs/RANKS.md, manual
+		// adjustments). Said out loud so a rank the visible numbers don't produce never
+		// looks like a bug — `rankPinned` is the strongest form, a rank set outright.
+		adjusted?: boolean;
+		rankPinned?: boolean;
 	}
 	// Signature ranks: how many whole categories are maxed + which tier that earns.
 	interface SignatureView {
@@ -708,6 +713,12 @@
 				]
 					.filter(Boolean)
 					.join(', ')}) — re-check after syncing to improve accuracy.
+			{/if}
+			{#if rank.rankPinned}
+				This rank was set by staff, so it won't move with the score below.
+			{:else if rank.adjusted}
+				Staff have adjusted this player's scoring to account for something the tracked data
+				can't show.
 			{/if}
 		</p>
 	{:else if emptyText}
