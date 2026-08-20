@@ -161,6 +161,10 @@ test.describe.serial('Battleship', () => {
 
 		// Both boards render every square once the battle is on. Derived from the rules
 		// rather than hardcoded, so a change to the scaling dial doesn't silently pass.
+		// The tester hides the boards by default (admins play in these events), so this
+		// test has to ask for them before it can drive them.
+		await clickUntil(page, /show the boards/i, '.board');
+
 		const size = boardSizeFor(6); // 12 players → 6 a side
 		await expect(page.locator('.wrap').first().locator('.cell')).toHaveCount(size * size);
 
@@ -221,6 +225,54 @@ test.describe.serial('Battleship', () => {
 		// Craters are now on the enemy board — the shot reached the database.
 		const craters = page.locator('.board').nth(1).locator('.cell.hit, .cell.miss');
 		await expect(craters).not.toHaveCount(0);
+	});
+
+	test('the tester hides the boards until asked', async ({ page }) => {
+		// Admins play in these events, so opening the tester must not put the opponent's
+		// ships on screen — nor on a shared or streamed one.
+		await page.goto(`/admin/battleship/${SLUG}`);
+		await expect(page.getByRole('heading', { name: 'E2E Battleship' })).toBeVisible();
+		await expect(page.locator('.board')).toHaveCount(0);
+		await expect(page.locator('.cell')).toHaveCount(0);
+
+		// Revealing is a client-side toggle, so retry until hydration catches (see clickUntil).
+		await clickUntil(page, /show the boards/i, '.board');
+		await expect(page.locator('.board')).toHaveCount(2);
+
+		// And it hides again.
+		await page.getByRole('button', { name: /hide the boards/i }).click();
+		await expect(page.locator('.board')).toHaveCount(0);
+	});
+
+	test('an admin can remove a bomb, and its craters go with it', async ({ page }) => {
+		// The only way to undo a bomb used to be SQL. It has to take its damage with it —
+		// removing the ammunition while leaving the craters would be a lie about the board.
+		await page.goto(`/admin/battleship/${SLUG}`);
+		await expect(page.getByRole('heading', { name: /^all bombs/i })).toBeVisible();
+		// The boards are hidden by default now; this test counts craters, so reveal them.
+		await clickUntil(page, /show the boards/i, '.board');
+
+		const rows = page.locator('.arsenal li');
+		const before = await rows.count();
+		expect(before).toBeGreaterThan(0);
+
+		// The game fired a Broadside earlier, so there are craters on the board. Removing
+		// the bomb that made them must clear them.
+		const craters = page.locator('.board').nth(1).locator('.cell.hit, .cell.miss');
+		const cratersBefore = await craters.count();
+
+		const fired = rows.filter({ hasText: /fired/i });
+		const target = (await fired.count()) ? fired.first() : rows.first();
+		const wasFired = (await fired.count()) > 0;
+
+		await target.getByRole('button', { name: /remove/i }).click();
+		await expect(page.locator('.ok')).toContainText(/removed a tier/i);
+		await expect(rows).toHaveCount(before - 1);
+
+		if (wasFired) {
+			await expect(page.locator('.ok')).toContainText(/craters cleared/i);
+			expect(await craters.count()).toBeLessThan(cratersBefore);
+		}
 	});
 
 	test('the battle page points at the Dink checker', async ({ page }) => {
@@ -306,15 +358,154 @@ test.describe.serial('Battleship', () => {
 		}
 	});
 
+	test('the fleet key groups both fleets by hull, and tells you the search spacing', async ({
+		page
+	}) => {
+		// The panel this replaced listed all N ships by name, which said nothing about what
+		// to aim at. What a player needs is the SHAPES still out there and, above all, the
+		// shortest one — that number is the spacing a search pattern can't miss through.
+		await page.goto(`/events/${SLUG}/battleship`);
+		await expect(page.getByRole('heading', { name: 'E2E Battleship' })).toBeVisible();
+
+		const keys = page.locator('.fleetkey');
+		await expect(keys).toHaveCount(2);
+
+		// Collapsed by default for your own fleet, open for the one you're shooting at —
+		// a <details>, so this holds with JS off too.
+		const enemy = keys.filter({ hasNot: page.getByText('— yours') });
+		await expect(enemy).toHaveCount(1);
+		await expect(enemy).toHaveAttribute('open', '');
+
+		// One row per hull LENGTH, not per ship, drawn at its real size.
+		const rows = enemy.locator('.classes li');
+		const rowCount = await rows.count();
+		expect(rowCount).toBeGreaterThan(0);
+		const lengths: number[] = [];
+		for (let i = 0; i < rowCount; i++) {
+			lengths.push(await rows.nth(i).locator('.seg').count());
+		}
+		// Longest first, every length distinct, and the drawn segments match the stated
+		// length — the shape is the whole point, so a silent off-by-one would gut it.
+		expect(lengths).toEqual([...lengths].sort((a, b) => b - a));
+		expect(new Set(lengths).size).toBe(lengths.length);
+		for (let i = 0; i < rowCount; i++) {
+			await expect(rows.nth(i).locator('.len')).toHaveText(`${lengths[i]} long`);
+		}
+
+		// The aiming hint names the shortest hull still afloat. With no ships sunk yet
+		// that's the smallest class on the board.
+		await expect(enemy.locator('.hint')).toContainText(`${Math.min(...lengths)} squares long`);
+
+		// And it is advice about shooting, so it must NOT appear on your own fleet.
+		const mine = keys.filter({ hasText: '— yours' });
+		await expect(mine).toHaveCount(1);
+		await expect(mine.locator('.hint')).toHaveCount(0);
+	});
+
+	test('the map tells a sunk hull apart from a wounded one', async ({ page }) => {
+		test.slow(); // bombing until something actually goes down
+
+		// This is a REGRESSION test. `sunkShipIds` is documented as working even when the
+		// fleet is withheld, and it did not: sunk-ness was resolved through the fleet, which
+		// is null on an enemy board, so every wreck rendered as ordinary damage — on the one
+		// board where knowing what is already dead changes where your next bomb goes.
+
+		// Bomb the enemy board on a 3x3 grid of anchors until something sinks. A Broadside
+		// clamps to fit, so every anchor is legal, and a full sweep would sink the lot —
+		// stopping at the first casualty keeps the game playable for whatever runs next.
+		const sunkCount = async () => {
+			const body = await page.evaluate(
+				async (slug) => (await fetch(`/api/battleship/${slug}`)).text(),
+				SLUG
+			);
+			const game = JSON.parse(body).game;
+			return game.sides.reduce(
+				(n: number, s: { fleetSummary: { sunk: boolean }[] }) =>
+					n + s.fleetSummary.filter((f) => f.sunk).length,
+				0
+			);
+		};
+
+		await page.goto(`/admin/battleship/${SLUG}`);
+		await clickUntil(page, /show the boards/i, '.board');
+		const enemyCells = page.locator('.board').nth(1).locator('.cell');
+		const edge = Math.round(Math.sqrt(await enemyCells.count()));
+
+		let sank = await sunkCount();
+		for (let y = 1; y < edge && !sank; y += 3) {
+			for (let x = 1; x < edge && !sank; x += 3) {
+				await page.getByRole('button', { name: /\+broadside → fleet red/i }).click();
+				await enemyCells.nth(y * edge + x).click();
+				const fire = page.getByRole('button', { name: /^fire at /i });
+				if (!(await fire.count())) continue; // not hydrated — the next anchor retries
+				await fire.click();
+				await expect(page.locator('.ok, .err')).not.toHaveCount(0);
+				sank = await sunkCount();
+			}
+		}
+		expect(sank, 'the sweep should have sunk at least one hull').toBeGreaterThan(0);
+
+		// Now the PLAYER page, where the enemy fleet is withheld — the case that broke.
+		await page.goto(`/events/${SLUG}/battleship`);
+		await expect(page.getByRole('heading', { name: 'E2E Battleship' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: /their waters/i })).toBeVisible();
+
+		const payload = await page.evaluate(
+			async (slug) => (await fetch(`/api/battleship/${slug}`)).text(),
+			SLUG
+		);
+		const parsed = JSON.parse(payload).game;
+		const mySide = parsed.game?.viewerSide ?? parsed.viewerSide;
+		const foe = parsed.sides.find((s: { side: number }) => s.side !== mySide);
+		expect(foe.fleet, 'the enemy fleet is still withheld — that is the whole point').toBeNull();
+
+		const sunkIds = new Set(
+			foe.fleetSummary.filter((f: { sunk: boolean }) => f.sunk).map((f: { id: string }) => f.id)
+		);
+		expect(sunkIds.size).toBeGreaterThan(0);
+
+		// Every crater the payload says belongs to a dead hull must be drawn as a wreck,
+		// and every hit on a hull still afloat must NOT be.
+		const board = page.locator('.board');
+		const expectedSunk = parsed.shots.filter(
+			(s: { targetSide: number; hit: boolean; shipId: string | null }) =>
+				s.targetSide === foe.side && s.hit && s.shipId && sunkIds.has(s.shipId)
+		).length;
+		const expectedWounded = parsed.shots.filter(
+			(s: { targetSide: number; hit: boolean; shipId: string | null }) =>
+				s.targetSide === foe.side && s.hit && (!s.shipId || !sunkIds.has(s.shipId))
+		).length;
+
+		await expect(board.locator('.cell.sunk')).toHaveCount(expectedSunk);
+		await expect(board.locator('.cell.hit:not(.sunk)')).toHaveCount(expectedWounded);
+
+		// The outline is what makes a wreck read as one hull rather than n craters, so at
+		// least one edge must actually be drawn on every sunk cell — a cell with no edge
+		// class would be a wreck with no outline at all.
+		await expect(board.locator('.cell.sunk:not(.et):not(.er):not(.eb):not(.el)')).toHaveCount(0);
+	});
+
 	test.afterAll(async ({ browser }) => {
 		// Clean up the test game so staging isn't littered with e2e runs.
+		//
+		// EVERY match, not just the first. A run that dies before this hook leaves its game
+		// behind, and the next run adds another with the same NAME — at which point deleting
+		// one row and asserting none remain can never pass, and the leftovers keep failing
+		// every future run. Worse, a stale game stuck in `battle` competes to be the event
+		// `activeBattleshipFor` picks for an incoming drop.
 		const page = await browser.newPage({ storageState: 'e2e/.auth/user.json' });
-		await page.goto('/admin/battleship');
-		const row = page.locator('.games li', { hasText: 'E2E Battleship' });
-		if (await row.count()) {
-			await row.first().getByRole('button', { name: /delete/i }).click();
-			await expect(page.locator('.games li', { hasText: 'E2E Battleship' })).toHaveCount(0);
+		const rows = () => page.locator('.games li', { hasText: 'E2E Battleship' });
+		for (let left = Infinity, guard = 0; left > 0 && guard < 20; guard++) {
+			await page.goto('/admin/battleship');
+			const before = await rows().count();
+			if (before === 0) break;
+			// Hydration: the delete is a use:enhance form, so a click can land on inert
+			// markup. Reloading and re-counting each pass makes that self-correcting.
+			await rows().first().getByRole('button', { name: /delete/i }).click();
+			await expect(rows()).toHaveCount(before - 1);
+			left = before - 1;
 		}
+		await expect(rows(), 'every E2E Battleship game should be gone').toHaveCount(0);
 		await page.close();
 	});
 });

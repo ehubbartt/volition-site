@@ -1,0 +1,385 @@
+// SERVER-ONLY: manual rank adjustments (vs_rank_overrides, db/scripts/
+// rank_manual_adjustments.sql) — the staff escape hatch for members the automated
+// scoring can't score correctly, and the only way a rank is ever set by hand.
+//
+// The motivating case: group ironmen hold the Grandmaster combat-achievement tier
+// without completing every task, so the WikiSync task list understates their CA
+// component and no amount of code can tell that apart from someone who simply hasn't
+// done the tasks. An admin sets `caTierOverride = 'grandmaster'` on /admin/ranks/
+// adjustments and the component scores correctly from then on.
+//
+// TWO LEVELS, deliberately ordered weakest-first:
+//   - INPUT adjustments (ca tier, gear/ehb/clog/months nudges, total level) feed the
+//     normal formula, so caps, curves and thresholds all still apply and the member
+//     keeps climbing on their own from the adjusted baseline. Prefer these.
+//   - `rankOverride` is a HARD PIN: the composite is still computed and cached (so the
+//     /me breakdown stays honest about the underlying numbers) but the rank the member
+//     is given is the pinned one. A blunt instrument; use when nothing else fits.
+//
+// Applied at FETCH time, exactly like approved gear claims: the adjusted inputs are what
+// gets cached in vs_rank_sim, so every downstream reader (the /me breakdown, the home
+// rank spread, the simulator) reflects them with no extra plumbing. Nothing is rewritten
+// retroactively — an adjustment lands on the member's next rank check, which the admin
+// page runs for them on save.
+
+import { db } from './db';
+import { caPointsForTier, CA_TIER_ORDER, type RankInputs } from './rankScoring';
+import { RANK_ORDER, type RankValue } from '$lib/ranks';
+
+export interface RankOverride {
+	id: number;
+	rsn: string; // lowercased key
+	display_rsn: string | null;
+	user_id: string | null;
+	discord_id: string | null;
+	rank_override: RankValue | null;
+	ca_tier_override: string | null;
+	gear_points_bonus: number;
+	ehb_bonus: number;
+	clog_bonus: number;
+	months_bonus: number;
+	total_level_override: number | null;
+	reason: string;
+	/** The admin who FIRST adjusted this member; never rewritten by a later edit. */
+	created_by: string | null;
+	/** The admin who last touched it — what "adjusted by" means on the record. */
+	updated_by: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+const COLS =
+	'id, rsn, display_rsn, user_id, discord_id, rank_override, ca_tier_override, gear_points_bonus, ehb_bonus, clog_bonus, months_bonus, total_level_override, reason, created_by, updated_by, created_at, updated_at';
+
+/** The values an admin can set. Everything but `reason` is optional/clearable. */
+export interface RankOverrideInput {
+	rsn: string;
+	userId?: string | null;
+	discordId?: string | null;
+	rankOverride?: string | null;
+	caTierOverride?: string | null;
+	gearPointsBonus?: number;
+	ehbBonus?: number;
+	clogBonus?: number;
+	monthsBonus?: number;
+	totalLevelOverride?: number | null;
+	reason: string;
+}
+
+export const CA_TIERS = CA_TIER_ORDER;
+
+const normRsn = (rsn: string) => rsn.trim().toLowerCase();
+
+// "Does this actually change anything?" — asked of a stored ROW (does the record list it?)
+// and of a pending EDIT (is there still anything to store?). One predicate over the values,
+// so the two answers can't drift apart when a field is added: a new adjustment only has to
+// be added to `adjustmentValues` below, and both callers pick it up.
+interface AdjustmentValues {
+	rank: string | null;
+	caTier: string | null;
+	totalLevel: number | null;
+	gear: number;
+	ehb: number;
+	clog: number;
+	months: number;
+}
+
+function anyAdjustment(v: AdjustmentValues): boolean {
+	return (
+		v.rank != null ||
+		v.caTier != null ||
+		v.totalLevel != null ||
+		v.gear !== 0 ||
+		v.ehb !== 0 ||
+		v.clog !== 0 ||
+		v.months !== 0
+	);
+}
+
+// Postgres returns `numeric` columns as strings through PostgREST, so the two decimal
+// fields are coerced rather than compared as-is — '0' !== 0 would report every untouched
+// row as adjusted.
+const adjustmentValues = (ov: RankOverride): AdjustmentValues => ({
+	rank: ov.rank_override,
+	caTier: ov.ca_tier_override,
+	totalLevel: ov.total_level_override,
+	gear: ov.gear_points_bonus,
+	ehb: Number(ov.ehb_bonus),
+	clog: ov.clog_bonus,
+	months: Number(ov.months_bonus)
+});
+
+// Does this row actually change anything? A row edited back down to "no pin, no tier, all
+// zeroes" must not be advertised as an active adjustment — on the member's profile or in
+// the admin record. (patchRankOverride deletes such rows, so this mainly guards rows
+// written by the older full-form path.)
+export function hasEffect(ov: RankOverride | null | undefined): boolean {
+	return ov ? anyAdjustment(adjustmentValues(ov)) : false;
+}
+
+// --- Reads ------------------------------------------------------------------
+
+export async function getRankOverride(rsn: string | null | undefined): Promise<RankOverride | null> {
+	if (!rsn) return null;
+	const { data, error } = await db().from('vs_rank_overrides').select(COLS).eq('rsn', normRsn(rsn)).maybeSingle();
+	if (error) {
+		console.error('[rank-overrides] lookup failed:', error.message);
+		return null;
+	}
+	return (data as RankOverride | null) ?? null;
+}
+
+// Every override keyed by lowercase RSN — the bulk paths (rank-sim refresh, mass
+// update) iterate RSNs and would otherwise query per player.
+export async function getRankOverridesByRsn(): Promise<Map<string, RankOverride>> {
+	const { data, error } = await db().from('vs_rank_overrides').select(COLS);
+	if (error) {
+		console.error('[rank-overrides] bulk load failed:', error.message);
+		return new Map();
+	}
+	return new Map(((data ?? []) as RankOverride[]).map((r) => [r.rsn, r]));
+}
+
+export interface RankOverrideRow extends RankOverride {
+	/** The member's site profile, when they have one (display only). */
+	profile_rsn: string | null;
+	discord_username: string | null;
+	/** The rank they currently hold on the shared players row (display only). */
+	current_rank: string | null;
+	/** The admin who last changed it, and who first set it — resolved to a display name. */
+	updated_by_name: string | null;
+	created_by_name: string | null;
+}
+
+// The admin list: every override, newest edit first, joined to whatever identity we can
+// resolve. Two separate lookups rather than a PostgREST embed — `rsn` is a plain text
+// key here, not a foreign key, so there's no relationship to embed through.
+export async function listRankOverrides(): Promise<RankOverrideRow[]> {
+	const { data, error } = await db().from('vs_rank_overrides').select(COLS).order('updated_at', { ascending: false });
+	if (error) {
+		console.error('[rank-overrides] list failed:', error.message);
+		return [];
+	}
+	const rows = (data ?? []) as RankOverride[];
+	if (rows.length === 0) return [];
+
+	// One lookup covers both roles: the member the row is about, and the admins who set it.
+	const userIds = [
+		...new Set(rows.flatMap((r) => [r.user_id, r.updated_by, r.created_by]).filter(Boolean))
+	] as string[];
+	const rsns = rows.map((r) => r.rsn);
+
+	const [users, players] = await Promise.all([
+		userIds.length
+			? db().from('vs_users').select('id, rsn, discord_username').in('id', userIds)
+			: Promise.resolve({ data: [] }),
+		db().from('players').select('rsn, rank')
+	]);
+
+	const byUser = new Map(
+		((users.data ?? []) as { id: string; rsn: string | null; discord_username: string | null }[]).map((u) => [u.id, u])
+	);
+	const rankByRsn = new Map(
+		((players.data ?? []) as { rsn: string | null; rank: string | null }[])
+			.filter((p) => p.rsn && rsns.includes(p.rsn.toLowerCase()))
+			.map((p) => [p.rsn!.toLowerCase(), p.rank])
+	);
+
+	// An admin's RSN is what other staff know them by; the Discord name is the fallback for
+	// an account that never set one.
+	const nameOf = (id: string | null) => {
+		if (!id) return null;
+		const u = byUser.get(id);
+		return u ? u.rsn || u.discord_username : null;
+	};
+
+	return rows.map((r) => {
+		const u = r.user_id ? byUser.get(r.user_id) : null;
+		return {
+			...r,
+			profile_rsn: u?.rsn ?? null,
+			discord_username: u?.discord_username ?? null,
+			current_rank: rankByRsn.get(r.rsn) ?? null,
+			updated_by_name: nameOf(r.updated_by),
+			created_by_name: nameOf(r.created_by)
+		};
+	});
+}
+
+// --- Writes -----------------------------------------------------------------
+
+export type SaveOverrideResult = { ok: true; rsn: string } | { ok: false; error: string };
+
+// Upsert one member's adjustments. Validates the enumerated fields (an unknown rank or
+// CA tier is rejected rather than silently stored and later ignored) and coerces the
+// numeric nudges, so a blank form field reads as 0 and not NaN.
+export async function saveRankOverride(input: RankOverrideInput, actorId: string): Promise<SaveOverrideResult> {
+	const rsn = normRsn(input.rsn);
+	if (!rsn) return { ok: false, error: 'Pick a player.' };
+	const reason = input.reason.trim();
+	if (!reason) return { ok: false, error: 'A reason is required — this is the record of why the rank was changed.' };
+
+	const rank = input.rankOverride?.trim().toLowerCase() || null;
+	if (rank && !(RANK_ORDER as readonly string[]).includes(rank)) {
+		return { ok: false, error: `“${input.rankOverride}” is not a clan rank.` };
+	}
+	const caTier = input.caTierOverride?.trim().toLowerCase() || null;
+	if (caTier && !CA_TIER_ORDER.includes(caTier)) {
+		return { ok: false, error: `“${input.caTierOverride}” is not a combat-achievement tier.` };
+	}
+
+	// Preserve the original author across edits: the upsert writes every column, so
+	// created_by would otherwise be rewritten to whoever touched it last and the record
+	// would lose who started it.
+	const { data: prior } = await db().from('vs_rank_overrides').select('created_by').eq('rsn', rsn).maybeSingle();
+
+	const num = (v: number | undefined) => (Number.isFinite(v) ? Number(v) : 0);
+	const { error } = await db()
+		.from('vs_rank_overrides')
+		.upsert(
+			{
+				rsn,
+				display_rsn: input.rsn.trim(),
+				user_id: input.userId || null,
+				discord_id: input.discordId || null,
+				rank_override: rank,
+				ca_tier_override: caTier,
+				gear_points_bonus: Math.round(num(input.gearPointsBonus)),
+				ehb_bonus: num(input.ehbBonus),
+				clog_bonus: Math.round(num(input.clogBonus)),
+				months_bonus: num(input.monthsBonus),
+				total_level_override:
+					input.totalLevelOverride == null || !Number.isFinite(input.totalLevelOverride)
+						? null
+						: Math.round(input.totalLevelOverride),
+				reason,
+				created_by: (prior as { created_by: string | null } | null)?.created_by ?? actorId,
+				updated_by: actorId,
+				updated_at: new Date().toISOString()
+			},
+			{ onConflict: 'rsn' }
+		);
+	return error ? { ok: false, error: error.message } : { ok: true, rsn };
+}
+
+/** The adjustable fields, as a patch — anything omitted keeps its current value. */
+export type RankOverridePatch = Partial<
+	Pick<
+		RankOverrideInput,
+		| 'rankOverride'
+		| 'caTierOverride'
+		| 'gearPointsBonus'
+		| 'ehbBonus'
+		| 'clogBonus'
+		| 'monthsBonus'
+		| 'totalLevelOverride'
+	>
+>;
+
+// Change ONE thing about a member's adjustments, leaving the rest alone. This is what the
+// per-component editors on a member's profile post to: they each own a single field, and a
+// full upsert from one of them would silently wipe every other adjustment on the row.
+//
+// When the merged result adjusts nothing at all (every nudge back to zero, no tier, no pin)
+// the row is DELETED rather than kept as a no-op — the record should list live adjustments
+// only, and the audit log already holds the history of how it got there.
+export async function patchRankOverride(
+	target: { rsn: string; userId?: string | null; discordId?: string | null },
+	patch: RankOverridePatch,
+	reason: string,
+	actorId: string
+): Promise<SaveOverrideResult> {
+	const existing = await getRankOverride(target.rsn);
+	const merged: RankOverrideInput = {
+		rsn: target.rsn,
+		userId: target.userId ?? existing?.user_id ?? null,
+		discordId: target.discordId ?? existing?.discord_id ?? null,
+		rankOverride: 'rankOverride' in patch ? patch.rankOverride : existing?.rank_override ?? null,
+		caTierOverride: 'caTierOverride' in patch ? patch.caTierOverride : existing?.ca_tier_override ?? null,
+		gearPointsBonus: patch.gearPointsBonus ?? existing?.gear_points_bonus ?? 0,
+		ehbBonus: patch.ehbBonus ?? Number(existing?.ehb_bonus ?? 0),
+		clogBonus: patch.clogBonus ?? existing?.clog_bonus ?? 0,
+		monthsBonus: patch.monthsBonus ?? Number(existing?.months_bonus ?? 0),
+		totalLevelOverride:
+			'totalLevelOverride' in patch ? patch.totalLevelOverride : existing?.total_level_override ?? null,
+		// A fresh reason wins; otherwise the row keeps the one it already carried, so clearing
+		// one field doesn't force the admin to re-justify the others.
+		reason: reason.trim() || existing?.reason || ''
+	};
+
+	const wouldAdjust = anyAdjustment({
+		rank: merged.rankOverride ?? null,
+		caTier: merged.caTierOverride ?? null,
+		totalLevel: merged.totalLevelOverride ?? null,
+		gear: merged.gearPointsBonus ?? 0,
+		ehb: merged.ehbBonus ?? 0,
+		clog: merged.clogBonus ?? 0,
+		months: merged.monthsBonus ?? 0
+	});
+
+	if (!wouldAdjust) {
+		// Clearing needs no justification — there's nothing left to justify.
+		if (!existing) return { ok: true, rsn: normRsn(target.rsn) };
+		const res = await clearRankOverride(target.rsn);
+		return res.ok ? { ok: true, rsn: normRsn(target.rsn) } : { ok: false, error: res.error ?? 'Could not clear.' };
+	}
+
+	// A reason is required to START adjusting someone, but not to amend a row that already
+	// carries one. Enforced HERE rather than at each call site, so the rule can't be stated
+	// three different ways by three different editors (and it's checked against the merged
+	// row, which is the thing actually being stored).
+	if (!merged.reason.trim()) {
+		return { ok: false, error: 'A reason is required — this is the record of why the score was changed.' };
+	}
+
+	return saveRankOverride(merged, actorId);
+}
+
+export async function clearRankOverride(rsn: string): Promise<{ ok: boolean; error?: string }> {
+	const { error } = await db().from('vs_rank_overrides').delete().eq('rsn', normRsn(rsn));
+	return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+// --- Application (pure) -----------------------------------------------------
+
+// Fold a member's adjustments into their freshly-fetched scoring inputs, in place, and
+// return them. Called at fetch time by every scoring path, so the ADJUSTED numbers are
+// what gets cached in vs_rank_sim and every reader downstream agrees.
+//
+// The CA tier override only ever RAISES the component (Math.max): it says "this member
+// holds this tier", and a member whose task list already proves more keeps the more.
+// The additive nudges may be negative but never take an input below zero.
+export function applyRankOverride<T extends RankInputs>(inputs: T, ov: RankOverride | null | undefined): T {
+	if (!ov) return inputs;
+
+	if (ov.ca_tier_override) {
+		const floor = caPointsForTier(ov.ca_tier_override);
+		if (floor > inputs.caPoints) {
+			inputs.caPoints = floor;
+			// Keep the displayed tier honest about what the member is being scored as.
+			const withTier = inputs as T & { caTier?: string; caDetail?: { highestTier?: string } };
+			if (withTier.caTier !== undefined) withTier.caTier = ov.ca_tier_override;
+			if (withTier.caDetail) withTier.caDetail.highestTier = ov.ca_tier_override;
+		}
+	}
+
+	if (ov.gear_points_bonus) inputs.gearPoints = Math.max(0, inputs.gearPoints + ov.gear_points_bonus);
+	if (Number(ov.ehb_bonus)) inputs.ehb = Math.max(0, inputs.ehb + Number(ov.ehb_bonus));
+	if (ov.clog_bonus) {
+		inputs.clogFinished = Math.max(0, inputs.clogFinished + ov.clog_bonus);
+		// The clog component needs a non-zero `available` to score at all, so a member with
+		// no Temple log would otherwise gain nothing from a slot adjustment.
+		if (inputs.clogAvailable <= 0) inputs.clogAvailable = inputs.clogFinished;
+	}
+	if (Number(ov.months_bonus)) inputs.monthsInClan = Math.max(0, inputs.monthsInClan + Number(ov.months_bonus));
+	if (ov.total_level_override != null) inputs.totalLevel = ov.total_level_override;
+
+	return inputs;
+}
+
+// The rank a member is actually given: the hard pin when one is set, otherwise the
+// computed one. Every path that WRITES players.rank or DISPLAYS a rank goes through
+// this, so a pin can't be quietly undone by the next bulk apply.
+export function resolveRank(computed: RankValue, ov: RankOverride | null | undefined): RankValue {
+	return (ov?.rank_override as RankValue | null) ?? computed;
+}

@@ -70,6 +70,13 @@ Placement is on a **deadline**, not a gate: when the window closes the battle op
 or not both sides placed. A side that never placed gets a random legal fleet, because a
 side with no ships cannot be shot at and would stall the event for everyone else.
 
+`startBattle` replaces anything that is not a **complete, correctly-sized** fleet for the
+current board — not merely anything empty. The earlier test ("has ships, and each has
+cells") would pass a side into battle with 20 ships against 31, or with a fleet built for a
+smaller board. Neither is reachable through `placeFleet`, which rejects an incomplete
+fleet, but a repair or a board-size change can leave one behind, and this is the last gate
+before it becomes the game everyone plays.
+
 ### The board scales with the draft
 
 Water per player is fixed (**15 squares**), so the grid grows with the headcount — bombs
@@ -113,10 +120,23 @@ up to a bomb.
 | Tier | Drop value | Bomb | Squares |
 |---|---|---|---|
 | Cannonball | 5m+ | 1×1 | 1 |
-| Bombard | 25m+ | 2×2 | 4 |
-| Broadside | 50m+ | 3×3 | 9 |
+| Bombard | 20m+ | 2×2 | 4 |
+| Broadside | 60m+ | 3×3 | 9 |
 
-All three thresholds are set per event when it's created.
+All three thresholds are set per event when it's created, and are shown to players on the
+event page — read straight off `config.tiers`, so retuning them mid-event updates what
+everyone sees without a deploy.
+
+> **Keep the array sorted by `min_value`, cheapest first.** `vs_value_tracked_rsns` reads
+> `structure #>> '{battleship,tiers,0,min_value}'` to tell the dink-proxy what gp floor to
+> record at. Put the biggest tier first and the proxy stops recording everything below it
+> — the bombs simply never arrive. `tierForValue` itself doesn't care about order; the
+> view does.
+
+**Retuning tiers mid-event** is supported and is the intended lever when the pace is
+wrong. Two things move: the event's own `config.tiers`, and the bombs already banked
+against the old numbers. `db/scripts/battleship-retier.sql` does both in one transaction
+and never demotes a banked bomb — see the header of that file.
 
 > **Why the floor is 5m and not lower.** Members who run Dink against several Discord
 > servers are pinned to a `minLootValue` of 3m so the site's tracking doesn't spam their
@@ -174,6 +194,16 @@ afterwards, and could overwrite the captain's. All of this is enforced server-si
 > (running the tester, or spectating) receives both fleets. This matters because at a clan
 > event the captains are usually admins — leaving admins unredacted would have let a
 > captain read their opponent's board.
+>
+> **The admin tester goes through the same redaction.** It used to return the raw snapshot,
+> which was fine while it was only a tester and stopped being fine the moment admins were
+> playing: opening the page showed them their opponent's ships, and hiding the boards in the
+> UI would not have helped, because the positions would still have been in the page payload.
+> A playing admin now gets craters only, exactly as a player does.
+>
+> **And the boards start hidden**, even for a genuine spectator, behind a *Show the boards*
+> toggle that resets on every load. Someone opening the tester during a live event — or
+> sharing their screen — should not have both fleets on it before they have decided to look.
 
 **One board at a time.** The battle page shows *either* the enemy's water or your own,
 never both, chosen with a labelled switch — two 25×25 grids side by side shrink each into
@@ -187,6 +217,41 @@ switch before they can aim.
 squares stay lit until you fire or pick elsewhere, and the button reads "Fire at F7". The
 preview alone is not enough — it follows the pointer, so it vanishes exactly when you move
 to the Fire button, and on a phone there is no hover at all.
+
+**Three crater states, not two.** A square you have hit reads differently depending on
+whether the hull under it is still alive:
+
+| | Looks like | Means |
+|---|---|---|
+| Miss | splash ring on open water | nothing there |
+| Hit | burning orange, `✳` | you hit a hull that is **still afloat** — shoot next to it |
+| Sunk | burnt out and dark, `✖`, **outlined** | that whole hull is down — dead water |
+
+The outline is the part that does the work: it traces the *outside* edge of a sunk hull,
+so a wreck reads as one object of a known length and orientation rather than n unrelated
+craters. Two wrecks lying alongside each other each keep their own outline, so you can
+still tell them apart. A legend under the board spells the three states out.
+
+> **`sunkShipIds` has to work on a board whose fleet is withheld** — that is the *only*
+> board where it matters, since knowing what is already dead is what stops you wasting a
+> bomb. It originally resolved sunk-ness through the fleet, which is `null` on an enemy
+> board, so every wreck silently rendered as ordinary damage. `BoardGrid` now falls back to
+> the ship id carried on each hit shot. Covered by a regression test in
+> `e2e/battleship.spec.ts`.
+
+**The fleet key** (`FleetKey.svelte`, the *Ship types* panel) is what turns "somewhere in
+625 squares" into a plan. It groups both fleets by hull length, draws each class at its
+real size, and shows how many of each are still afloat — collapsed by default, and opening
+on the enemy's since that's the one you aim at.
+
+The line that earns the panel is the **shortest hull still afloat**. That number is the
+search spacing: if nothing under 3 squares is left, a shot every third square cannot miss
+all of them, and two thirds of the board stops being worth a bomb. It only renders for the
+enemy fleet — on your own it would be advice about shooting yourself.
+
+It reads `fleetSummary`, which `redactFor` already puts on every snapshot for **both**
+sides, so the panel widens nobody's view: ship sizes and sunk flags are exactly what a real
+game reveals when something goes down.
 
 ---
 
@@ -206,6 +271,10 @@ to the Fire button, and on a phone there is no hover at all.
   size (verified square with no horizontal overflow at 1440 / 1024 / 390px); and the cells
   must reset `min-height` and `border-image`, because they are `<button>`s and app.css's
   global bronze frame would otherwise force them 38px tall and rectangular.
+- `src/lib/battleship/FleetKey.svelte` — the *Ship types* panel described above. Pure
+  presentation over `fleetSummary`; a native `<details>`, so it collapses without JS. Class
+  names are derived from the ship names rather than a second copy of `CLASS_BY_LEN`, so a
+  rename in `rules.ts` can't leave the key disagreeing with the board.
 - `src/lib/server/battleship.ts` — the store: load a snapshot, and the actions
   (`startDraft`, `draftPick`, `placeFleet`, `startBattle`, `earnBomb`, `fireBomb`).
 - `src/lib/server/battleshipPage.ts` — the member payload. Its only job is that everything
@@ -290,6 +359,18 @@ Battleship needed a second admission rule.
 3. `processDinkDrops` checks each drop for a bomb **before and independently of** tile
    matching, so one drop can credit a bingo tile, a personal-board tile *and* arm a bomb —
    the same "credit every matching candidate" rule the consumer already follows.
+
+**Only LOOT notifications arm bombs.** A new collection-log item makes Dink send *two*
+notifications for one drop, seconds apart: a LOOT one (source = the NPC) and a COLLECTION
+one (source = `Collection log`). They carry different sources — and often different
+quantities and values, since the loot notification reports the whole stack and the
+collection one a single item — so they hash to different `drop_key`s and `earnBomb`'s
+idempotency cannot tell they are the same drop. The consumer skips `notif_type =
+'collection'` for bombs only.
+
+Tiles still match either notification on purpose: crediting the same tile twice is a no-op,
+so "watch both ways" is right for them. A bomb is minted **per drop_key**, which is why the
+same rule doubled every big drop the first time an event ran.
 
 **A drop arms a bomb in exactly one event.** `activeBattleshipFor` picks it, and the pick
 is ordered: a **real** event beats a **test** one, and the newest wins the tie. Unordered
@@ -428,6 +509,30 @@ unless `--keep`.
 - **RLS.** The three new tables inherit the repo's current posture (see
   [`PENDING-OPS.md`](PENDING-OPS.md) §1). `enable_rls.sql` loops every public table, so
   re-applying it covers them with no edit.
+
+### Undoing a bomb
+
+`/admin/battleship/<slug>` lists **All bombs** — every bomb on both sides, spent and
+unspent, with who earned it and where it came from. The firing panel above it only ever
+shows the acting side's *unspent* ones, so before this the only way to reverse a bomb that
+should not exist was SQL.
+
+`removeBomb` does three things together, because doing fewer would leave a lie behind:
+
+1. **Its craters go too.** A fired bomb wrote one `vs_battleship_shots` row per cell, all
+   sharing its `bomb_id`. Leaving them would keep the damage while removing the
+   ammunition — the enemy fleet would stay hit by a shot that no longer exists.
+2. **It cannot come back.** Minting is idempotent on `unique (event_id, drop_key)`, so
+   deleting the row *removes* that protection and the next mint pass would recreate it. The
+   source is closed as well: a manual claim is set back to `rejected`, a Dink drop is
+   stamped `reverted` (an outcome the reconcile pass does not re-surface). Admin grants
+   have no upstream row and need nothing.
+3. **A decided game can become undecided.** If the craters that finished a fleet are among
+   those removed, the winner is no longer the winner, so the game reopens rather than
+   sitting on a result its own board contradicts.
+
+It's audit-logged — taking ammunition off a side mid-event should be answerable for
+afterwards — and there is no undo.
 
 ### Manual claims (members who can't run Dink)
 

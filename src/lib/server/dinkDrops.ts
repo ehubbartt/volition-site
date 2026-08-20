@@ -19,6 +19,7 @@ import { postBingoCredit } from '$lib/server/dropsFeed';
 import { creditPersonalTile, loadPersonalBoard } from '$lib/server/personalBoard';
 import { getTrackedItemsForUser, type ActiveItemTile } from '$lib/server/dinkAllowlist';
 import { activeBattleshipFor, earnBomb } from '$lib/server/battleship';
+import { claimTile, sideForUser, pieceForDropKey, anyLiveConnect4, CONNECT4_KIND } from '$lib/server/connect4';
 
 // Slugs whose auto-credits should NOT post to the public bingo feed. The old dink-self-test
 // event lived here; it's now a manual pin with no event, so there's nothing to suppress —
@@ -319,6 +320,15 @@ export async function revertDinkCredit(dropId: number): Promise<{ ok: boolean; e
 
 	// Event credit: derive the user + tile, then delete the auto-tracked approved completion.
 	if (!row.event_id) return { ok: false, error: 'Drop has no event' };
+
+	// Connect Four keeps its credit as a PIECE on the board, not a completion row, and
+	// removing one has rules of its own (only the top of a column can go, and the game may
+	// have to reopen). Send the admin to the tester rather than half-undoing it here.
+	const { data: evRow } = await sb.from('vs_events').select('kind, slug').eq('id', row.event_id).maybeSingle();
+	const ev = evRow as { kind: string; slug: string } | null;
+	if (ev?.kind === CONNECT4_KIND) {
+		return { ok: false, error: `Undo this from the Connect Four tester: /admin/connect4/${ev.slug}` };
+	}
 	const userId = await resolveUserId(row.rsn);
 	if (!userId) return { ok: false, error: 'RSN does not resolve to a site user' };
 
@@ -402,7 +412,9 @@ export async function processDinkDrops(
 	// Per-batch caches.
 	const userIdByRsn = new Map<string, string | null>();
 	const objectivesByUser = new Map<string, ActiveItemTile[]>();
-	type EventCtx = { start: string | null; status: string; slug: string; name: string; board: Awaited<ReturnType<typeof loadEventBoard>> };
+	// `board` is null for event kinds that don't have a bingo board (Connect Four scores
+	// from its own piece table); creditEvent is the only reader and refuses without one.
+	type EventCtx = { kind: string; start: string | null; status: string; slug: string; name: string; board: Awaited<ReturnType<typeof loadEventBoard>> | null };
 	const eventCache = new Map<string, EventCtx | null>();
 
 	// Per drop: the verdict + the tile/event it was attributed to (persisted so collect-N
@@ -429,17 +441,29 @@ export async function processDinkDrops(
 		if (eventCache.has(eventId)) return eventCache.get(eventId) ?? null;
 		const { data: e } = await sb
 			.from('vs_events')
-			.select('id, slug, name, status, structure, starts_at, signup_opens_at')
+			.select('id, kind, slug, name, status, structure, starts_at, signup_opens_at')
 			.eq('id', eventId)
 			.maybeSingle();
 		if (!e) { eventCache.set(eventId, null); return null; }
-		const ev = e as { id: string; slug: string; name: string; status: string; structure: unknown; starts_at: string | null; signup_opens_at: string | null };
-		const ctx: EventCtx = { start: ev.starts_at ?? ev.signup_opens_at, status: ev.status, slug: ev.slug, name: ev.name, board: await loadEventBoard(ev) };
+		const ev = e as { id: string; kind: string; slug: string; name: string; status: string; structure: unknown; starts_at: string | null; signup_opens_at: string | null };
+		// Connect Four scores from its own piece table, not a bingo board — skip the board
+		// load, which would find no structure to read anyway.
+		const board = ev.kind === CONNECT4_KIND ? null : await loadEventBoard(ev);
+		const ctx: EventCtx = { kind: ev.kind, start: ev.starts_at ?? ev.signup_opens_at, status: ev.status, slug: ev.slug, name: ev.name, board };
 		eventCache.set(eventId, ctx);
 		return ctx;
 	}
 
 	type CandResult = Outcome | 'retry'; // 'retry' = transient error → leave drop unprocessed
+
+	// One candidate, routed to whatever owns it. The event's `kind` picks the scorer, so
+	// adding an event type never touches the matching or the batching around this.
+	async function creditCandidate(drop: DropRow, cand: ActiveItemTile, userId: string): Promise<CandResult> {
+		if (cand.kind === 'personal') return creditPersonal(drop, cand);
+		const ctx = await eventCtxFor(cand.event_id as string);
+		if (ctx?.kind === CONNECT4_KIND) return creditConnect4(drop, cand, userId);
+		return creditEvent(drop, cand, userId);
+	}
 
 	// Credit one PERSONAL board tile: activation rule, then flip obtained (shared helper).
 	async function creditPersonal(drop: DropRow, cand: ActiveItemTile): Promise<CandResult> {
@@ -455,13 +479,80 @@ export async function processDinkDrops(
 		return res === 'credited' ? 'credited' : 'duplicate';
 	}
 
+	// Connect Four: the drop claims the shared tile above a column for the DROPPER'S SIDE.
+	// Both clans chase the same 25 tiles, so two drops can want the same one; who gets it is
+	// settled by the pieces table's unique (event_id, col, row) index inside `claimTile`,
+	// never here. Cached per (event, user) for the batch, same as objectives.
+	// One check per batch: with no game running, the "did this drop already claim a tile?"
+	// lookup below is skipped entirely and costs nothing.
+	let c4Running: boolean | null = null;
+	async function anyConnect4Running(): Promise<boolean> {
+		if (c4Running === null) {
+			try {
+				c4Running = await anyLiveConnect4();
+			} catch {
+				c4Running = false;
+			}
+		}
+		return c4Running;
+	}
+
+	const c4SideCache = new Map<string, 1 | 2 | null>();
+	async function connect4SideFor(eventId: string, userId: string): Promise<1 | 2 | null> {
+		const key = `${eventId}|${userId}`;
+		if (c4SideCache.has(key)) return c4SideCache.get(key) ?? null;
+		let side: 1 | 2 | null = null;
+		try {
+			side = await sideForUser(eventId, userId);
+		} catch (e) {
+			console.warn('[dink] connect4 side lookup failed:', e instanceof Error ? e.message : e);
+		}
+		c4SideCache.set(key, side);
+		return side;
+	}
+
+	async function creditConnect4(drop: DropRow, cand: ActiveItemTile, userId: string): Promise<CandResult> {
+		const eventId = cand.event_id as string;
+		const side = await connect4SideFor(eventId, userId);
+		// Signed up but not yet on a side — never guess which clan a drop belongs to.
+		if (!side) return 'no_tile';
+		// The drop key IS the idempotency guard. Without one, the reconcile pass would drop
+		// a second piece for the same drop every time it re-ran, so claim nothing.
+		if (!drop.drop_key) return 'no_tile';
+		const res = await claimTile({
+			eventId,
+			side,
+			dropKey: drop.drop_key,
+			itemId: drop.item_id,
+			itemName: drop.item_name,
+			byUserId: userId,
+			receivedAt: drop.received_at
+		});
+		switch (res.status) {
+			case 'claimed':
+				return 'credited';
+			// `raced` means the other side claimed that tile first. Nothing is owed, and no
+			// re-run can change that, so it is terminal like a duplicate rather than
+			// 'no_tile' — which the reconcile pass would re-surface for three days.
+			case 'raced':
+			case 'duplicate':
+				return 'duplicate';
+			case 'timing':
+				return 'timing';
+			case 'error':
+				return 'retry';
+			default:
+				return 'no_tile';
+		}
+	}
+
 	// Credit one EVENT tile: timing gate (= activation), idempotency, collect-N, then the
 	// approved-completion insert (unchanged hardening). Queues a feed post on success.
 	async function creditEvent(drop: DropRow, cand: ActiveItemTile, userId: string): Promise<CandResult> {
 		const eventId = cand.event_id as string;
 		const tileId = cand.tile_id as string;
 		const ctx = await eventCtxFor(eventId);
-		if (!ctx) return 'no_tile';
+		if (!ctx?.board) return 'no_tile';
 		const tile = ctx.board.tiles.find((t) => t.id === tileId);
 		if (!tile) return 'no_tile';
 		// Activation/timing: the tile must have been OPEN at the drop's received_at.
@@ -541,9 +632,21 @@ export async function processDinkDrops(
 		// complete a bingo tile and arm a bomb, exactly as it can credit an event tile and
 		// a personal-board tile. earnBomb is idempotent on drop_key, so the reconcile pass
 		// re-running this drop can never mint a second bomb.
+		//
+		// COLLECTION rows are excluded. A new collection-log item makes Dink send TWO
+		// notifications for one drop: a LOOT one (source = the NPC) and a COLLECTION one
+		// (source = "Collection log"), seconds apart. They carry different sources — and
+		// sometimes different quantities and values, since the loot row reports the stack
+		// and the collection row a single item — so they hash to different drop_keys and
+		// earnBomb's idempotency cannot see they are the same drop.
+		//
+		// Tiles are unaffected and deliberately match either notification, because
+		// crediting the same tile twice is a no-op. A bomb is minted PER drop_key, so
+		// counting both handed every player two bombs for any drop that also unlocked a
+		// collection-log slot — which is most big drops.
 		let bombed: { tier: number; eventId: string } | null = null;
 		const game = await battleshipFor(userId);
-		if (game && drop.drop_key) {
+		if (game && drop.drop_key && drop.notif_type !== 'collection') {
 			// The activation rule the rest of the pipeline uses: a drop from before the
 			// battle opened never arms anything.
 			const inWindow =
@@ -579,6 +682,16 @@ export async function processDinkDrops(
 				tileIdByDrop.set(drop.id, `bomb:t${bombed.tier}`);
 				eventIdByDrop.set(drop.id, bombed.eventId);
 				credited += 1;
+				continue;
+			}
+			// A Connect Four drop that already claimed a tile matches NOTHING on a re-run: its
+			// column has moved on, so the item has left the allowlist. Without this it would be
+			// filed under "Didn't credit" and re-surfaced by every reconcile pass for days.
+			const priorClaim = drop.drop_key && (await anyConnect4Running()) ? await pieceForDropKey(drop.drop_key) : null;
+			if (priorClaim) {
+				outcomeById.set(drop.id, 'duplicate');
+				tileIdByDrop.set(drop.id, `col:${priorClaim.col}`);
+				eventIdByDrop.set(drop.id, priorClaim.eventId);
 			} else {
 				outcomeById.set(drop.id, 'no_tile');
 			}
@@ -593,7 +706,7 @@ export async function processDinkDrops(
 		let bestEvent: string | null = null;
 		let retry = false;
 		for (const cand of candidates) {
-			const res = cand.kind === 'personal' ? await creditPersonal(drop, cand) : await creditEvent(drop, cand, userId);
+			const res = await creditCandidate(drop, cand, userId);
 			if (res === 'retry') { retry = true; continue; }
 			if (res === 'credited') credited += 1;
 			if ((RANK[res] ?? 0) >= (RANK[best] ?? 0)) {

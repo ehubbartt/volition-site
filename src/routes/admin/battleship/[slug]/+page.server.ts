@@ -1,6 +1,7 @@
 import { redirect, fail, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
+import { logAudit } from '$lib/server/audit';
 import {
 	autoDraftRemaining,
 	draftPick,
@@ -10,6 +11,8 @@ import {
 	maybeAdvancePhase,
 	openPlacement,
 	placeFleet,
+	redactFor,
+	removeBomb,
 	startBattle,
 	startDraft
 } from '$lib/server/battleship';
@@ -31,8 +34,16 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	// Poll-on-read: the placement deadline opens the battle without a scheduler.
 	if (await maybeAdvancePhase(snap)) snap = (await loadBattleship(params.slug)) ?? snap;
 
-	// The tester is the one view that legitimately sees both fleets.
-	return { game: snap };
+	// The tester used to hand back the RAW snapshot — both fleets, unredacted — because it
+	// is the one view that legitimately needs them. That stopped being safe the moment
+	// admins started PLAYING: opening this page showed them their opponent's ships, and
+	// hiding the boards in the UI would not have helped, since the positions would still be
+	// sitting in the page payload.
+	//
+	// `redactFor` already encodes the right rule and is tested against it: a non-participant
+	// admin (running the tester, spectating) gets both fleets, and an admin who is on a side
+	// is a PLAYER first — their own fleet only if they captain it, never the enemy's.
+	return { game: redactFor(snap, { userId: locals.user.id, isAdmin: true }) };
 };
 
 function requireAdmin(locals: App.Locals) {
@@ -167,6 +178,39 @@ export const actions: Actions = {
 			note: 'Tester grant'
 		});
 		return res.ok ? { ok: true } : fail(400, { error: res.error });
+	},
+
+	// Undo a bomb that should not exist — a mis-approved manual claim, a drop credited to
+	// the wrong person, a duplicate. Its craters go with it and its source is closed so it
+	// cannot be minted again; see removeBomb.
+	removeBomb: async (event) => {
+		const { locals, request } = event;
+		const denied = requireAdmin(locals);
+		if (denied) return denied;
+
+		const form = await request.formData();
+		const arsenalId = form.get('arsenal_id')?.toString() ?? '';
+		if (!arsenalId) return fail(400, { error: 'No bomb given' });
+
+		const res = await removeBomb({ arsenalId });
+		if (!res.ok) return fail(400, { error: res.error });
+
+		// Taking ammunition off a side mid-event is exactly the sort of admin action that
+		// should be answerable for afterwards.
+		await logAudit(event, 200, {
+			action: 'battleship.removeBomb',
+			arsenalId,
+			side: res.value?.side,
+			tier: res.value?.tier,
+			itemName: res.value?.itemName,
+			cellsRemoved: res.value?.cellsRemoved,
+			reopened: res.value?.reopened
+		});
+
+		const bits = [`Removed a tier ${res.value?.tier} bomb from side ${res.value?.side}`];
+		if (res.value?.cellsRemoved) bits.push(`${res.value.cellsRemoved} craters cleared`);
+		if (res.value?.reopened) bits.push('the game reopened — its fleet is no longer sunk');
+		return { ok: true, report: bits.join(' · ') };
 	},
 
 	fire: async ({ locals, params, request }) => {

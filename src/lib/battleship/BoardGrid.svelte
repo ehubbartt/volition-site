@@ -48,6 +48,27 @@
 	);
 	const sunkSet = $derived(new Set(sunkShipIds));
 
+	// WHICH ship a cell belongs to. `sunkShipIds` is documented as working even when the
+	// fleet is withheld, and it did not: sunk-ness was resolved through `shipByCell`,
+	// which is empty on an enemy board, so every wreck rendered as ordinary damage — on
+	// the one board where knowing what is already dead actually changes your next shot.
+	// A hit shot carries the ship it struck, so fall back to that.
+	const shipIdByCell = $derived.by(() => {
+		const m = new Map<string, string>();
+		for (const s of fleet ?? []) for (const c of s.cells) m.set(c, s.id);
+		for (const s of shots) if (s.hit && s.shipId) m.set(s.cell, s.shipId);
+		return m;
+	});
+
+	/** Does the neighbour in this direction belong to the same hull? */
+	const sameShip = (x: number, y: number, dx: number, dy: number, shipId: string | null) => {
+		if (!shipId) return false;
+		const nx = x + dx;
+		const ny = y + dy;
+		if (nx < 0 || ny < 0 || nx >= size || ny >= size) return false;
+		return shipIdByCell.get(cellId(nx, ny)) === shipId;
+	};
+
 	// The footprint for a square you are POINTING AT. `anchorFor` centres it on that square
 	// (a 3x3 wraps around it) and clamps it so the whole bomb lands on the board, matching
 	// the server's "the whole bomb has to land" rule. Both previews go through it, so the
@@ -94,7 +115,8 @@
 				{@const id = cellId(x, y)}
 				{@const shot = shotByCell.get(id)}
 				{@const ship = shipByCell.get(id)}
-				{@const sunk = ship ? sunkSet.has(ship.id) : false}
+				{@const shipId = shipIdByCell.get(id) ?? null}
+				{@const sunk = !!shipId && sunkSet.has(shipId)}
 				<button
 					type="button"
 					class="cell"
@@ -102,20 +124,27 @@
 					class:hit={shot?.hit}
 					class:miss={shot && !shot.hit}
 					class:sunk
+					class:et={sunk && !sameShip(x, y, 0, -1, shipId)}
+					class:er={sunk && !sameShip(x, y, 1, 0, shipId)}
+					class:eb={sunk && !sameShip(x, y, 0, 1, shipId)}
+					class:el={sunk && !sameShip(x, y, -1, 0, shipId)}
 					class:preview={previewCells.has(id)}
 					class:target={targetCells.has(id)}
 					disabled={mode !== 'target' || disabled}
-					aria-label="{columnLabel(x)}{y + 1}{shot ? (shot.hit ? ' — hit' : ' — miss') : ''}{ship &&
-					!shot
-						? ' — your ship'
-						: ''}"
+					aria-label="{columnLabel(x)}{y + 1}{shot
+						? sunk
+							? ' — sunk'
+							: shot.hit
+								? ' — hit, still afloat'
+								: ' — miss'
+						: ''}{ship && !shot ? ' — your ship' : ''}"
 					onmouseenter={() => (hover = { x, y })}
 					onfocus={() => (hover = { x, y })}
 					onmouseleave={() => (hover = null)}
 					onblur={() => (hover = null)}
 					onclick={() => pick(x, y)}
 				>
-					{#if shot?.hit}<span class="mark">✳</span>{/if}
+					{#if shot?.hit}<span class="mark">{sunk ? '✖' : '✳'}</span>{/if}
 				</button>
 			{/each}
 		{/each}
@@ -252,15 +281,41 @@
 			rgba(255, 255, 255, 0.03);
 	}
 
+	/* A hit on a hull that is STILL AFLOAT: burning. Bright, and worth another shot
+	   next to it. */
 	.cell.hit {
 		background: radial-gradient(circle at 50% 45%, #ff6a3d 0%, #a11b0b 60%, #5c0f06 100%);
 		color: #ffe6b0;
 		box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.6);
 	}
+	/* A cell of a hull that is FULLY DOWN: burnt out. Dark, and dead water — there is
+	   nothing left there to shoot. */
 	.cell.sunk {
-		background: radial-gradient(circle at 50% 45%, #4a1109 0%, #24070a 70%, #12040a 100%);
-		color: rgba(255, 200, 160, 0.65);
+		position: relative;
+		background: radial-gradient(circle at 50% 45%, #3a2a26 0%, #1b1310 70%, #0d0908 100%);
+		color: rgba(255, 220, 190, 0.55);
 	}
+
+	/* Colour alone would leave "burning" and "burnt out" as two shades of dark red, told
+	   apart only by whichever cell happens to sit next to which. The outline is the real
+	   signal: it traces the OUTSIDE edge of a sunk hull, so a wreck reads as one object of
+	   a known length and orientation instead of n unrelated craters. Drawn per edge — an
+	   edge is outside when the neighbour is not the same ship. */
+	.cell.sunk::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+		border-style: solid;
+		border-color: rgba(255, 208, 150, 0.75);
+		/* Each edge class sets its own custom property, so unlike four competing
+		   box-shadow rules these combine instead of overwriting each other. */
+		border-width: var(--bt, 0) var(--br, 0) var(--bb, 0) var(--bl, 0);
+	}
+	.cell.et { --bt: 2px; }
+	.cell.er { --br: 2px; }
+	.cell.eb { --bb: 2px; }
+	.cell.el { --bl: 2px; }
 
 	/* Exploring: a soft wash that follows the pointer. */
 	.cell.preview {

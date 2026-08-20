@@ -107,15 +107,30 @@ shows). Three tiers, over the seven scored categories:
 ## Where scoring runs
 
 - **`/me` "Check my rank"** (`routes/me/+page.server.ts` `checkRank`): fetches live
-  inputs (+ the member's approved gear claims), caches them in `vs_rank_sim`, and — only
-  when BOTH Temple and WikiSync responded — writes the rank to `players.rank` (the bot
-  mirrors it to Discord). A saved climb returns `form.rankUp` → the confetti overlay.
+  inputs (+ the member's approved gear claims), caches them in `vs_rank_sim`, and writes the
+  rank to `players.rank` (the bot mirrors it to Discord) unless a stats source errored
+  transiently (see the save-gate below). A saved climb returns `form.rankUp` → the confetti
+  overlay.
 - **Single-player core** (`src/lib/server/rankCheck.ts` `checkAndSaveRank`): the shared body
   of the above — fetch live inputs, cache the breakdown (reusing any case/underscore-variant
-  `vs_rank_sim` row so a spelling mismatch never duplicates), and persist `players.rank` only
-  when both stats sources responded. `/me`'s `checkRank` (with its per-user cooldown + rank-up
-  celebration) and the admin **"Re-check one player"** both call it, so the two paths score,
-  cache, and save identically.
+  `vs_rank_sim` row so a spelling mismatch never duplicates), and persist `players.rank`.
+  `/me`'s `checkRank` (with its per-user cooldown + rank-up celebration) and the admin
+  **"Re-check one player"** both call it, so the two paths score, cache, and save identically.
+- **Save-gate: missing ≠ errored** (the key rule). `fetchPlayerRankInputs` now reports a
+  `templeStatus`/`wikisyncStatus` of `'ok'` | `'missing'` | `'error'` (via `getJsonOutcome`,
+  which reads the HTTP status: a 404 / empty body is `'missing'`, a network/timeout/429/5xx is
+  `'error'`). On a source `'error'` `checkAndSaveRank` **bails before writing anything** —
+  neither `players.rank` NOR the `vs_rank_sim` cache row is touched, so the member keeps their
+  last-good rank *and* Temple flag. (The bail is above the cache upsert on purpose: a degraded
+  pass zeros gear/clog/CA, and writing `gear_points=0` / `temple_available=false` next to a
+  retained high rank is exactly what makes the home page shade a real Myth/TzTok member as
+  "ranked without Temple" — an impossible combination, since gear is Temple-only. Skipping the
+  cache too keeps the shading honest and the `/me` breakdown on last-good data.) A player
+  Temple/WikiSync has simply never tracked comes back `'missing'`: their gear/clog/CA genuinely
+  score 0, so the composite IS their correct rank on available data, and it's cached + saved.
+  During a real outage every source errors → nothing saves → no mass demotion.
+  `templeAvailable`/`wikisyncAvailable` stay `status === 'ok'` (they drive the breakdown display
+  + the home non-Temple shading, which reads `vs_rank_sim.temple_available`).
 - **Admin "Re-check rank" on `/u/[rsn]`** (`recheck` action): an admin viewing any member's
   profile gets a button (shown when `data.canRecheck`, i.e. `isAdmin`) that runs the same
   single-player live check for that member — resolved from `vs_users`, so it folds in their
@@ -129,10 +144,18 @@ shows). Three tiers, over the seven scored categories:
   default, `onlyMissing`) drops members whose cached row is already Temple-complete so a
   top-up only fetches new members / prior Temple outages — uncheck for a full re-fetch.
 - **`/admin/ranks/mass-update`**: runs the full `checkAndSaveRank` (fetch → score → cache →
-  write `players.rank` + `signature_rank`) over EVERY site member, one small batch at a time,
+  write `players.rank` + `signature_rank`) over the WHOLE clan, one small batch at a time,
   auto-chaining until done. Unlike the simulator refresh (which only caches inputs), this also
-  applies the result, so it's the one-click "bring everyone's live rank up to date." Passes a
-  cached WOM roster into each check so it isn't re-fetched per member.
+  applies the result, so it's the one-click "bring everyone's live rank up to date." The
+  population is every site member (`vs_users`) **unioned with every `players` roster member who
+  never linked a site account** — matched by discord id then normalized RSN. The home rank
+  breakdown counts the full `players` roster, so scoring only site users left roster-only
+  members stranded on their old bot rank (and always shaded "no Temple", having no `vs_rank_sim`
+  row); those members are now scored by RSN with a null user id (their claim + TCG reads no-op)
+  and a null account type (WOM carries none, so main-rate EHB — a GIM's may read a touch high).
+  Passes a cached WOM roster into each check so it isn't re-fetched per member. Reports `saved`
+  vs `skipped` (members whose Temple/WikiSync **errored transiently** — re-run to catch them);
+  members those sources have simply never tracked are saved on available data, not skipped.
 - The three admin rank tools live under one hub, **`/admin/ranks`** (a `RanksTabs` bar):
   Gear Claims (the default tab) · Simulator · Mass Update. Each is its own route with its own
   load/actions; the bar just makes them read as one panel.
@@ -259,6 +282,125 @@ tiles wear a "claim" ribbon, and on /me (where the panel gets an `onClaim` handl
 modal carries a "Claim this item" shortcut that opens the claim form prefilled.
 `GEAR_SCORE_CAP` must stay equal to the sum of all entry points — update it whenever
 entries are added or repointed.
+
+## Manual adjustments (the staff escape hatch)
+
+Some members can't be scored correctly from tracked data, and no amount of code can tell
+their case apart from someone who simply hasn't done the work.
+
+**Editing happens IN PLACE on the member's profile** (`/u/[rsn]`), not in a separate form:
+an admin opens the member and clicks the thing that's wrong — a score bar, the rank badge,
+or a gear tile. The value being edited sits right next to the number it changes, which is
+the whole point (there's no picker to select the wrong member with, and no item field to
+mistype). `RankPanel` takes an `adminEdit` prop; it's null for everyone else, and that null
+is what keeps the panel read-only for members. The actions live on `/u/[rsn]/+page.server.ts`
+(`adjust` · `pinRank` · `clearAdjustments` · `grantItem` · `revokeGrant`) and each one
+**re-scores the member immediately**, so the panel behind the editor shows the result.
+
+**`/admin/ranks/adjustments` is the RECORD** — the clan-wide view of everything set by hand,
+with a link through to each member's profile to change it. Its one remaining form covers the
+only members a profile can't: clan-roster members with no site account (about half the
+roster), who have no `/u` page to open. Overrides are keyed by RSN precisely so they're
+reachable; items can't be granted to them at all (grants hang off `vs_users.id`), so a
+gear-points adjustment is the substitute.
+
+Both surfaces are admin-only, both require a reason, and both are automatically recorded in
+`vs_audit_log` — `shouldAudit` catches every POST under `/admin/**` **and every form action
+by a privileged actor anywhere**, which is what covers the profile ones. `audit.ts`
+humanizes them ("Adjusted bajj's ca score to grandmaster", "Granted bajj 4× Zenyte shard").
+
+**Who did it.** `vs_rank_overrides` carries `created_by` (first adjusted, never rewritten —
+`saveRankOverride` reads the prior row to preserve it) and `updated_by` (last touched). The
+record's "Adjusted by" column shows the latter, and adds "first set by X" only when that was
+someone else. Grants reuse `vs_rank_item_claims.reviewed_by` for their "Granted by". The
+member's profile says "Staff-adjusted by X" in its standing note, so an admin doesn't have
+to leave for the record to find out who. Names resolve to RSN, falling back to the Discord
+name. **One reason is stored per member, not per field** — every editor pre-fills and
+rewrites the same row-level reason, and the labels say so; the per-change history lives in
+the audit log.
+
+### 1. Scoring adjustments (`vs_rank_overrides`)
+
+`src/lib/server/rankOverrides.ts`, schema in `db/scripts/rank_manual_adjustments.sql`. One
+row per member, **keyed by lowercased RSN** — not by `vs_users.id` — because scoring runs by
+RSN and the roster includes members with no site account at all (the mass update scores them
+from WOM alone). `user_id` / `discord_id` are carried for display and linking only.
+
+Ordered weakest-first, and that order is the guidance:
+
+- **Input adjustments** feed the normal formula, so the caps, curves and thresholds still
+  apply and the member keeps climbing on their own from the adjusted baseline:
+  - `ca_tier_override` — treat the member as having banked every tier-completion reward up
+    to that tier (`caPointsForTier` in `rankScoring.ts`, the same arithmetic
+    `calculateCAPoints` does from a task list). **This is the group-ironman case**: GIMs hold
+    the Grandmaster combat-achievement tier without completing every task, so the WikiSync
+    task list understates their CA component. It only ever RAISES the component — a member
+    whose task list already proves more keeps the more.
+  - `gear_points_bonus` · `ehb_bonus` · `clog_bonus` · `months_bonus` — additive nudges to the
+    raw inputs (may be negative, never take an input below 0). A `clog_bonus` on a member with
+    no Temple log also seeds `clogAvailable`, which the component needs to score at all.
+  - `total_level_override` — replaces the fetched total level outright.
+- **`rank_override` is a HARD PIN**: the composite is still computed and cached (so the /me
+  breakdown stays honest about the underlying numbers) but the rank the member is *given* is
+  the pinned one. Blunt — reach for the input adjustments first. Edited from the pencil on the
+  rank badge itself.
+
+**Each editor owns exactly one field.** They post to `patchRankOverride`, which merges into
+the existing row rather than upserting the whole thing — a full write from the EHB editor
+would otherwise blank the CA tier an admin set a minute earlier, silently. When the merge
+leaves nothing adjusted (every nudge back to zero, no tier, no pin) the row is **deleted**
+rather than kept as a no-op, so the record lists live adjustments only. There's no editor for
+the **Volition TCG** bar: that count comes from the site's own card tables, so it's always
+exactly knowable and there is nothing an adjustment could legitimately correct.
+
+**Where it applies.** The input adjustments land at FETCH time, exactly like approved gear
+claims, so the ADJUSTED numbers are what gets cached in `vs_rank_sim` and every reader
+downstream (the /me breakdown, the home rank spread, the simulator's recalc) reflects them
+with no extra plumbing — `applyRankOverride(inputs, override)` in `checkAndSaveRank` and in
+the rank-sim refresh. The pin is applied wherever a rank is WRITTEN or DISPLAYED, via
+`resolveRank(computed, override)`: `checkAndSaveRank` (so /me, the admin re-check and the
+mass update all honour it), the simulator's **bulk apply** (a bulk apply must never quietly
+undo a staff decision) and its **comparison** (a pinned member's rank IS the pin, so they
+don't read as a permanent mismatch), and `buildRankBreakdown` in `meData.ts`. The simulator's
+distribution/threshold-suggestion views deliberately do NOT apply pins — those measure the
+*formula's* spread. `RankPanel` says "this rank was set by staff" / "staff have adjusted this
+player's scoring" so a rank the visible numbers don't produce never looks like a bug.
+
+Nothing is rewritten retroactively — an adjustment reaches the member's rank on their next
+check, so **the admin page runs one for them on save** (and on clear, and on grant/revoke).
+A degraded re-check is reported as a warning; the adjustment itself is already stored.
+
+### 2. Item grants (`vs_rank_item_claims`, `source = 'admin'`)
+
+The same table as member gear claims, with two added columns (`source`, `quantity`). An admin
+grants an item outright — written as an already-APPROVED row so it flows through the exact
+same scoring path as a reviewed claim, tagged `source='admin'` so the two never blur together
+(the member review queue filters to `source='member'`; grants are listed on the adjustments
+page instead).
+
+- **Granted from the tile itself.** An admin clicks the gear piece in the member's gear grid;
+  the item modal that already shows its points and tracking source carries the grant control.
+  So the item credited is by construction the item being looked at, and the modal shows what's
+  already credited (staff grant vs approved claim) with a revoke.
+- **The whole gear table, not the claimable subset.** `allGearItems()` vs
+  `claimableGearItems()`. Members may still only submit `claimable: true` entries — this is
+  for items that are trackable in principle but unprovable in this member's case. A claim the
+  member submitted is NOT editable from the tile; it goes back through the review queue.
+- **A count, because several entries are quantity checks.** The motivating case: a member who
+  got four Zenyte shards before the in-game collection log existed. Zenyte Shard is four
+  independent entries needing 1/2/3/4 shards, so a grant that could only say "owned" would
+  credit one of the four. `grantGearItem` clamps to `maxUsefulQuantity(item)` — more than the
+  largest quantity any entry asks for scores nothing extra.
+- `calculateGearPoints` now takes `ManualGearItem[]` (`{ name, count }`) rather than names.
+  A manual credit takes the HIGHER of the clog count and the granted count, never the sum:
+  they describe the same items, so adding them would double-count. Two grants of one item
+  collapse the same way (`mergeCounts`).
+- Grants need a `vs_users` id, so a roster member with no site account can't receive one —
+  the page says so and points at the gear-points adjustment instead.
+
+**This is not a members-facing channel and must not become one.** Mass self-granting is
+exactly what the claim queue's review step exists to prevent; these are exceptions the code
+can't account for, tracked by hand.
 
 ## Keeping the gear/CA tables current
 

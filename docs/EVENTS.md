@@ -87,6 +87,12 @@ Shared server primitives feed it (build alongside the first v2 event): `getTiles
 and one `vs_active_tiles` accessor + a single "participant key" helper (`coalesce(team_id, user_id)`).
 
 ## Recipe — adding a new event
+
+> **Need the people before you need the event?** `kind='signup'` is a list-and-questions
+> event with no objectives at all, and its roster can be pushed into whatever you build
+> afterwards. See [`SIGNUPS.md`](SIGNUPS.md) — it saves inventing a half-event to hold
+> names in.
+
 1. Insert a `vs_events` row (`kind`, dates, `structure` if it has topology).
 2. Insert its objectives: `vs_tiles` rows (board) **or** `vs_tasks` rows (flat task event). Put
    auto-track rules in each tile's `triggers`; leave empty for manual/proof tiles.
@@ -128,12 +134,38 @@ and one `vs_active_tiles` accessor + a single "participant key" helper (`coalesc
   - Personal tile kinds: `item` (clog/Dink), `skill` (WoM XP since lock), `ca` (WikiSync combat
     achievements), `diary` (WikiSync achievement-diary tiers, `meta.diary_region`/`diary_tier`,
     catalogue in `src/lib/diary.ts` — at most one region per board) and `clue` (grouped clue
-    tiles behind the "group clue items" sub-toggle: `meta.clue_tier`/`clue_target`/
-    `clue_candidates` — any `clue_target` NEW unlocks among the candidate names, which were
-    the player's missing tier uniques at generation; synthetic negative item ids per tier;
+    tiles behind the "group clue items" sub-toggle: `meta.clue_tier`/`clue_target`; any
+    `clue_target` uniques gained in that tier **since `locked_at`**, counted from Temple's
+    own category + per-item date by `clueGainsSince`; synthetic negative item ids per tier;
     completion + `meta.clue_progress` come from the Temple clog re-poll, not Dink). CA + diary
     state share one WikiSync read (`getWikiSyncState`); only `item` tiles are Dink-trackable
     (`active_tiles.sql`).
+  > **Why clue progress does not use `meta.clue_candidates`.** It used to, and every
+  > hard/elite/master clue tile was consequently unwinnable. Candidates are frozen at
+  > generation from `itemEhc.json`, and that file's builder keeps an item only when Temple
+  > values it above zero — but Temple reports `hours: 0` for a slot the player OWNS, so
+  > every item the sampled (deep-log) accounts all owned was dropped. `hard_treasure_trails`
+  > came out with 11 items that overlap by **zero** with what players actually pull from hard
+  > clues: one member owned 100 hard uniques and had gained 16 since locking while her tile
+  > read 0. Counting from Temple's category + date needs no catalogue of ours to be complete,
+  > and it heals an affected board on its next refresh. `clue_candidates` is still written at
+  > generation (it is what prices the tile) but is no longer read for progress.
+  >
+  > The date is safe to trust for this: a slot obtained before the player's first Temple sync
+  > carries the sync stamp instead of a real date, but generating a board REQUIRES a Temple
+  > log, so that stamp always predates the lock. `scripts/clue-progress-check.mjs` pins that
+  > case down — if it ever regresses, every long-standing player's clue tiles would complete
+  > the moment they refreshed.
+  > **Rebuilding `itemEhc.json` needs a THIN account in `--player`.** An item's value comes
+  > from a player who LACKS it (`missing_hours`); a player who owns it reports `hours: 0`.
+  > The values endpoint returns the whole ~1712-id catalogue for anyone, so one low-log
+  > account values nearly everything, while deep logs supply the names and categories (the
+  > catalogue endpoint lists only owned slots). Built from deep logs alone, every item those
+  > accounts all owned valued 0 and was dropped — which is how `hard_treasure_trails` ended
+  > up with 11 items. Items Temple genuinely values at 0 are now kept at a 0.01h floor
+  > rather than dropped, so they rank last and stay off high-difficulty boards instead of
+  > vanishing. Always `--player` the union of everyone used before plus the new ones: the
+  > catalogue is a union and values are a max, so adding players can only improve both.
   - Item pool: boss drops from `itemEhb.json` (curated EHB math, `build_item_ehb.mjs`) always;
     plus non-boss clog items from `itemEhc.json` (Temple per-item EHC, `build_item_ehc.mjs` —
     maintainer-run) behind the "Include non-PVM collection log items" toggle. Both pools share

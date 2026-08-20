@@ -1,0 +1,98 @@
+// Connect Four tile pool — the candidate boss drops an admin curates the event's 250
+// tiles from, and a one-click spread across the difficulty range to start from.
+//
+// This is the TEAM-WIDE analogue of personalBoard.ts's `missingCandidates`: the same
+// itemEhb.json universe scored by the same `bestEhbSource` maths (so a tile's difficulty
+// means the same thing here as it does on a personal board), minus the per-player
+// "already in their collection log" filter — a clan of 120 has everything already, so
+// filtering on ownership would empty the pool.
+//
+// Boss drops only. Non-boss clog items (itemEhc.json) are deliberately excluded: this
+// event is tracked from Dink LOOT notifications, and a clog-only item doesn't reliably
+// fire one.
+
+import itemEhbData from './data/itemEhb.json';
+import { bestEhbSource, isPetItem, type ItemEhb } from '$lib/ehb';
+import { getEhbOverrides, getExcludedItemIds } from './ehbOverrides';
+import { DECK_SIZE, type TileRef } from '$lib/connect4/rules';
+
+const ITEM_EHB = itemEhbData as ItemEhb[];
+
+// Cosmetics nobody grinds on purpose, and jars, which are a coin-flip on a rare table.
+const COSMETIC_EXCLUDE = /3rd age|gilded/i;
+const JAR_EXCLUDE = /\bjar\b/i;
+
+export interface PoolCandidate extends TileRef {
+	ehb: number;
+	/** The mechanic behind the cheapest source — 'kill', 'toa', 'cox'… for display. */
+	mechanic: string;
+}
+
+export interface PoolOptions {
+	/** Cheapest tile to offer, in efficient hours. */
+	minEhb?: number;
+	/** Dearest tile to offer, in efficient hours. */
+	maxEhb?: number;
+	includePets?: boolean;
+	includeJars?: boolean;
+	includeCosmetics?: boolean;
+}
+
+/**
+ * Every boss drop worth putting on a board, cheapest first. Admin EHB overrides and the
+ * item exclusion list are honoured, so a drop the maintainer has already pinned or
+ * banished behaves the same here as everywhere else.
+ */
+export async function poolCandidates(opts: PoolOptions = {}): Promise<PoolCandidate[]> {
+	const overrides = await getEhbOverrides();
+	const excluded = await getExcludedItemIds();
+	const min = opts.minEhb ?? 0;
+	const max = opts.maxEhb ?? Infinity;
+
+	const out: PoolCandidate[] = [];
+	for (const item of ITEM_EHB) {
+		if (excluded.has(item.id)) continue;
+		if (!opts.includePets && isPetItem(item.name)) continue;
+		if (!opts.includeJars && JAR_EXCLUDE.test(item.name)) continue;
+		if (!opts.includeCosmetics && COSMETIC_EXCLUDE.test(item.name)) continue;
+		const best = bestEhbSource(item, undefined, overrides);
+		if (!best || !isFinite(best.ehb) || best.ehb <= 0) continue;
+		if (best.ehb < min || best.ehb > max) continue;
+		out.push({
+			item_id: item.id,
+			item_name: item.name,
+			source: best.src?.s ?? null,
+			ehb: best.ehb,
+			mechanic: best.src?.t ?? 'kill'
+		});
+	}
+	return out.sort((a, b) => a.ehb - b.ehb);
+}
+
+/**
+ * A starting selection of `count` tiles spread evenly across the candidate difficulty
+ * range: the list is split into `count` equal bands and one tile is taken from each, so
+ * the deck is neither all Bandos tassets nor all Zulrah scales. Deterministic (it takes
+ * the middle of each band) — an admin who wants a different mix edits the selection
+ * rather than re-rolling and hoping.
+ */
+export function autoSelect(candidates: PoolCandidate[], count = DECK_SIZE): PoolCandidate[] {
+	if (candidates.length <= count) return candidates.slice();
+	const out: PoolCandidate[] = [];
+	const band = candidates.length / count;
+	for (let i = 0; i < count; i++) {
+		const idx = Math.min(candidates.length - 1, Math.floor(i * band + band / 2));
+		out.push(candidates[idx]);
+	}
+	return out;
+}
+
+/** Strip a curated selection down to what actually gets stored on the event. */
+export function toTileRefs(picked: Pick<PoolCandidate, 'item_id' | 'item_name' | 'source' | 'ehb'>[]): TileRef[] {
+	return picked.map((p) => ({
+		item_id: p.item_id,
+		item_name: p.item_name,
+		source: p.source ?? null,
+		ehb: p.ehb
+	}));
+}

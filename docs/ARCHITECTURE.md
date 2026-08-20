@@ -14,7 +14,9 @@ system works.
 | Frontend & shared UI | [`FRONTEND.md`](FRONTEND.md) | you build UI, use wiki images / bingo tiles, or touch styling |
 | Events / boards / bingo | [`EVENTS.md`](EVENTS.md) | you build any new event, board, or bingo (the shared spine) |
 | Battleship event | [`BATTLESHIP.md`](BATTLESHIP.md) | you touch the draft/placement/battle event where drops become bombs |
-| Ranks (scoring, checks, gear claims) | [`RANKS.md`](RANKS.md) | you touch the composite rank formula, /me rank check, rank-sim, or manual gear claims |
+| Connect Four event | [`CONNECT4.md`](CONNECT4.md) | you touch the clan-vs-clan event on a shared 25×10 board where drops claim tiles |
+| Signup forms | [`SIGNUPS.md`](SIGNUPS.md) | you need a list of people (and answers) before the real event exists |
+| Ranks (scoring, checks, gear claims, manual adjustments) | [`RANKS.md`](RANKS.md) | you touch the composite rank formula, /me rank check, rank-sim, manual gear claims, or the staff adjustment/grant escape hatch |
 | Dink auto-tracking | [`event-builder-and-dink-tracking.md`](event-builder-and-dink-tracking.md) | you work on the drop-tracking pipeline |
 | Staging deploy | [`DEPLOY-STAGING.md`](DEPLOY-STAGING.md) | you deploy or configure the staging app |
 | Outstanding ops | [`PENDING-OPS.md`](PENDING-OPS.md) | you're picking up the RLS lockdown / prod ship / migrations |
@@ -52,6 +54,17 @@ Every request passes through the handle hook, in order:
   work.
 - **Bot bridge:** the site posts to a Discord webhook the bot listens on for actions like
   granting a Discord role after a reward (see `src/lib/server/botBridge.ts`).
+- **Voice tracking is bot-owned, and keyed by Discord identity.** The bot's 5-minute poll
+  writes `voice_activity_log` (one row per tick) and `voice_user_stats` (the running total,
+  via an `increment_voice_user_stats` RPC); `/admin/voice` only reads them
+  (`src/lib/server/admin/voice.ts`). Both tables key on the **Discord snowflake** and carry
+  the **Discord username** — nothing in the pipeline knows an RSN. The panel resolves a
+  display name through `players.discord_id → rsn`, which for most members is nothing like
+  their Discord name, so every surface carries BOTH names and the search matches RSN,
+  Discord name and snowflake alike. Anything that renders only one of them makes members
+  unfindable. The "Recent activity" tab is a **global tail of the newest ticks**, so a
+  member with time banked but no recent session is legitimately absent from it — their own
+  history comes from the per-member drill-down (`buildVoiceUser`, `/api/admin/voice/[userId]`).
 
 ## Environment variables
 

@@ -1,0 +1,282 @@
+import { test, expect, type Page } from '@playwright/test';
+
+// Drives a signup event through its whole life in the UI: an admin creates it, writes
+// questions, a member answers them, the admin reads the answers back, and then the people
+// are pushed into a real event.
+//
+// That last step is the one worth a browser test. Everything before it is a form; the
+// handoff is the reason the form exists, and it is the step that silently does nothing if
+// the checkboxes and the hidden inputs ever drift apart.
+
+const STAMP = Date.now().toString(36);
+const SLUG = `e2e-signup-${STAMP}`;
+const TARGET_SLUG = `e2e-target-${STAMP}`;
+
+/**
+ * Click a button whose handler only exists after hydration, and keep clicking until the
+ * thing it toggles shows up. Same reason as the battleship spec: these pages are
+ * server-rendered and hydrate a moment later, so a plain click can land on inert markup.
+ */
+async function clickUntil(page: Page, button: string | RegExp, expected: string) {
+	const target = page.locator(expected);
+	for (let attempt = 0; attempt < 12; attempt++) {
+		await page.getByRole('button', { name: button }).first().click();
+		try {
+			await target.first().waitFor({ state: 'visible', timeout: 2_000 });
+			return;
+		} catch {
+			// not hydrated yet — go round again
+		}
+	}
+	throw new Error(`"${button}" never revealed ${expected}`);
+}
+
+/**
+ * Pick an option and wait for the branch it reveals. The event-type dropdown is bound to
+ * Svelte state, so until the page hydrates, selecting "Signup form" changes the select and
+ * nothing else — the fields it should reveal never appear and the next `fill` hangs.
+ */
+async function selectUntil(page: Page, value: string, expected: string) {
+	const form = createForm(page);
+	const target = form.locator(expected);
+	for (let attempt = 0; attempt < 12; attempt++) {
+		await form.locator('select[name="kind"]').selectOption(value);
+		try {
+			await target.first().waitFor({ state: 'visible', timeout: 2_000 });
+			return;
+		} catch {
+			// not hydrated yet — go round again
+		}
+	}
+	throw new Error(`selecting "${value}" never revealed ${expected}`);
+}
+
+/**
+ * The create form, specifically. /admin/events carries one edit form per event inside a
+ * collapsed <details>, so a bare `input[name="name"]` matches ~22 elements and Playwright
+ * picks the first — which is hidden, and never becomes fillable.
+ */
+const createForm = (page: Page) => page.locator('form[action="?/createEvent"]');
+
+/**
+ * Pick the conversion target and wait for the submit to become clickable. The button is
+ * `disabled` until the bound state sees a target, so before hydration `selectOption`
+ * changes the DOM and the button stays disabled — and Playwright waits on a disabled
+ * button until the test times out rather than failing with anything useful.
+ */
+async function chooseTarget(page: Page, slug: string) {
+	const button = page.getByRole('button', { name: /^add \d+ (person|people)$/i });
+	for (let attempt = 0; attempt < 12; attempt++) {
+		await page.selectOption('select[name="target_slug"]', slug);
+		try {
+			await expect(button).toBeEnabled({ timeout: 2_000 });
+			return button;
+		} catch {
+			// not hydrated yet — go round again
+		}
+	}
+	throw new Error(`the convert button never enabled for "${slug}"`);
+}
+
+test.describe.serial('Signup forms', () => {
+	test('an admin can create a signup form and write questions', async ({ page }) => {
+		test.slow();
+
+		await page.goto('/admin/events');
+
+		// Two events: the signup form, and something to hand its people over to at the end.
+		for (const [kind, slug, name, button] of [
+			['signup', SLUG, 'E2E Signup', /^create signup form$/i],
+			['custom', TARGET_SLUG, 'E2E Target', /^create event$/i]
+		] as const) {
+			const form = createForm(page);
+			await selectUntil(page, kind, 'input[name="slug"]');
+			await form.locator('input[name="slug"]').fill(slug);
+			await form.locator('input[name="name"]').fill(name);
+			await form.getByRole('button', { name: button }).click();
+			await expect(page.locator('.err')).toHaveCount(0);
+			// The list is fetched separately, so wait for the row rather than assuming the
+			// insert landed before the next iteration rewrites the form.
+			await expect(page.locator('.event-list li.card', { hasText: `/${slug}` })).toHaveCount(1);
+		}
+
+		// A signup event must NOT land on the generic detail page — that is the DuoWolf
+		// pairing flow, which would offer to duo people up for an event that doesn't exist.
+		await page.goto(`/events/${SLUG}`);
+		await expect(page).toHaveURL(`/events/${SLUG}/signup`);
+
+		// ── write the questions ──────────────────────────────────────────────
+		await page.goto(`/admin/events/${SLUG}/signup`);
+		await clickUntil(page, /add question/i, '.qrow');
+
+		const rows = page.locator('.qrow');
+		await rows.nth(0).locator('.qlabel').fill('How many hours a week can you play?');
+		await rows.nth(0).locator('.qtype').selectOption('number');
+		await rows.nth(0).getByRole('checkbox').check();
+
+		await page.getByRole('button', { name: /add question/i }).click();
+		await expect(rows).toHaveCount(2);
+		await rows.nth(1).locator('.qlabel').fill('When are you usually on?');
+		await rows.nth(1).locator('.qtype').selectOption('choice');
+		// Picking "choice" seeds two blank options so the field is never born unanswerable.
+		const choices = rows.nth(1).locator('.choice input');
+		await expect(choices).toHaveCount(2);
+		await choices.nth(0).fill('Weekends');
+		await choices.nth(1).fill('Weekdays');
+
+		await page.getByRole('button', { name: /save questions/i }).click();
+		await expect(page.locator('.ok')).toContainText(/saved 2 questions/i);
+
+		// The saved form is what comes back — not what was typed. A reload proves it landed
+		// in the database rather than only in local state.
+		await page.reload();
+		await expect(page.locator('.qrow')).toHaveCount(2);
+		await expect(page.locator('.qrow').nth(0).locator('.qlabel')).toHaveValue(
+			'How many hours a week can you play?'
+		);
+	});
+
+	test('a member answers the questions, and the answers reach the roster', async ({ page }) => {
+		await page.goto(`/events/${SLUG}/signup`);
+		// The page has no server load — it paints a skeleton and fills in when
+		// /api/signup/[slug] lands, so the form is not in the DOM at `goto`. Locators wait on
+		// their own; the raw `page.evaluate` below does not.
+		await page.locator('form[action="?/submit"]').waitFor();
+
+		// Required fields are required SERVER-side, not just in the browser: strip the
+		// attributes and post anyway, and the server must still refuse.
+		//
+		// Stripping and then clicking separately is a race — the page hydrates in between,
+		// Svelte re-renders the inputs with `required` restored, and the browser blocks the
+		// submit so the server never sees it. Doing both in one evaluate leaves no window.
+		// This works whether or not `use:enhance` has attached: either it intercepts the
+		// submit event, or the form posts natively. Both land on the same action.
+		await page.evaluate(() => {
+			const f = document.querySelector<HTMLFormElement>('form[action="?/submit"]');
+			f?.querySelectorAll('[required]').forEach((el) => el.removeAttribute('required'));
+			f?.requestSubmit();
+		});
+		await expect(page.locator('.fielderr').first()).toContainText(/required/i);
+
+		// Now answer properly.
+		await page.reload();
+		await page.locator('form[action="?/submit"]').waitFor();
+		const hours = page.locator('input[type="number"]');
+		await hours.fill('14');
+		await page.locator('select').first().selectOption('Weekends');
+		await page.getByRole('button', { name: /sign me up/i }).click();
+		await expect(page.locator('.ok')).toContainText(/on the list/i);
+
+		// Editing is a second submit of the same form, not a different flow.
+		await expect(page.getByRole('button', { name: /save my answers/i })).toBeVisible();
+		await page.locator('input[type="number"]').fill('20');
+		await page.getByRole('button', { name: /save my answers/i }).click();
+		await expect(page.locator('.ok')).toContainText(/updated/i);
+
+		// The admin sees the answer, not just the name — the whole point of asking.
+		await page.goto(`/admin/events/${SLUG}/signup`);
+		const row = page.locator('tbody tr').first();
+		await expect(row).toContainText('20');
+		await expect(row).toContainText('Weekends');
+	});
+
+	test('the roster converts into a real event', async ({ page }) => {
+		await page.goto(`/admin/events/${SLUG}/signup`);
+		await expect(page.locator('tbody tr')).toHaveCount(1);
+
+		// Everyone is selected by default, so the common case is one click.
+		await (await chooseTarget(page, TARGET_SLUG)).click();
+		await expect(page.locator('.ok').first()).toContainText(/added 1 to e2e target/i);
+
+		// Idempotent: doing it again adds nobody and says so, rather than erroring on the
+		// unique index. This is the realistic second use — convert, spot a straggler,
+		// convert again.
+		await page.reload();
+		await (await chooseTarget(page, TARGET_SLUG)).click();
+		await expect(page.locator('.ok').first()).toContainText(/added 0.*already in it/i);
+
+		// The people really landed on the TARGET — the report is a claim, this is the proof,
+		// read from the target event's own payload rather than from the page that made it.
+		const detail = await page.evaluate(
+			async (slug) => (await fetch(`/api/events/${slug}`)).text(),
+			TARGET_SLUG
+		);
+		expect(JSON.parse(detail).stats.totalSignups).toBe(1);
+
+		// And the source list is untouched — converting is a copy, not a move, so a mistake
+		// is re-runnable rather than fatal.
+		await page.reload();
+		await expect(page.locator('tbody tr')).toHaveCount(1);
+	});
+
+	test('the member actions refuse an event that is not a signup', async ({ page }) => {
+		// REGRESSION. These actions live at /events/[slug]/signup, but a POST never runs a
+		// `load` — so guarding the kind only in `load` left them able to operate on ANY
+		// event. `?/submit` would have inserted a signup row into any open event (no
+		// questions → nothing required), walking past Battleship's phase gate and the RSN
+		// requirement; `?/withdraw` would have deleted a TEAMED signup, orphaning a team row
+		// or pulling a drafted player. The guard is in `loadSignupEvent`, so both 404.
+		//
+		// Navigate first: a relative fetch needs an origin, and a fresh page is about:blank.
+		await page.goto('/events');
+		for (const action of ['submit', 'withdraw']) {
+			const body = await page.evaluate(
+				async ([slug, act]) => {
+					const res = await fetch(`/events/${slug}/signup?/${act}`, {
+						method: 'POST',
+						headers: { 'x-sveltekit-action': 'true' },
+						body: new FormData()
+					});
+					return res.text();
+				},
+				[TARGET_SLUG, action]
+			);
+			// The refusal is in the ENVELOPE, not the HTTP status: SvelteKit answers an
+			// action request with 200 and `{type:'failure', status, data}`. Asserting on
+			// res.status would read 200 and call a working guard broken.
+			const parsed = JSON.parse(body) as { type: string; status: number };
+			expect(parsed.type, `?/${action} → ${body}`).toBe('failure');
+			expect(parsed.status, `?/${action} → ${body}`).toBe(404);
+		}
+
+		// And the target event's roster is unchanged — the refusal is real, not cosmetic.
+		const detail = await page.evaluate(
+			async (slug) => (await fetch(`/api/events/${slug}`)).text(),
+			TARGET_SLUG
+		);
+		expect(JSON.parse(detail).stats.totalSignups).toBe(1);
+	});
+
+	test('the form builder refuses an event that is not a signup', async ({ page }) => {
+		// Saving questions against, say, a bingo would write a signupForm key into its
+		// structure, where nothing reads it and the bingo normalizer strips it on the next
+		// builder save — an admin's work quietly lost. It has to refuse up front.
+		const res = await page.goto(`/admin/events/${TARGET_SLUG}/signup`);
+		expect(res?.status()).toBe(400);
+		await expect(page.locator('body')).toContainText(/not a signup form/i);
+	});
+
+	test.afterAll(async ({ browser }) => {
+		// Delete every event this spec made, however many runs have piled up. Deleting only
+		// the first match is what left orphans behind in the battleship spec and then failed
+		// every later run on the same assertion.
+		const page = await browser.newPage({ storageState: 'e2e/.auth/user.json' });
+		for (const slug of [SLUG, TARGET_SLUG]) {
+			for (let attempt = 0; attempt < 6; attempt++) {
+				await page.goto('/admin/events');
+				const card = page.locator('.event-list li.card', { hasText: `/${slug}` });
+				if ((await card.count()) === 0) break;
+
+				// The card's controls live behind a <details>; open it, then satisfy the
+				// type-the-slug guard and the confirm() before Delete will do anything.
+				const summary = card.first().locator('summary').first();
+				if (await summary.count()) await summary.click();
+				await card.first().locator('input[name="confirm_slug"]').fill(slug);
+				page.once('dialog', (d) => d.accept());
+				await card.first().getByRole('button', { name: /^delete$/i }).click();
+				await expect(page.locator('.event-list li.card', { hasText: `/${slug}` })).toHaveCount(0);
+			}
+		}
+		await page.close();
+	});
+});

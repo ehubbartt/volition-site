@@ -28,11 +28,11 @@
 	);
 
 	const shotsAt = (side: number) => game.shots.filter((s) => s.targetSide === side);
-	const sunkIds = (side: number) => {
-		const hit = new Set(shotsAt(side).map((s) => s.cell));
-		const f = sides.find((s) => s.side === side)?.fleet ?? [];
-		return f.filter((sh) => sh.cells.length > 0 && sh.cells.every((c) => hit.has(c))).map((sh) => sh.id);
-	};
+	// Read sunk state off fleetSummary, not the fleet: a redacted side has no `fleet` at
+	// all, and the summary carries the sunk flags precisely so sinkings stay visible
+	// without the positions.
+	const sunkIds = (side: number) =>
+		(sides.find((s) => s.side === side)?.fleetSummary ?? []).filter((f) => f.sunk).map((f) => f.id);
 
 	const gp = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}m` : n.toLocaleString());
 	const standing = (side: number) => game.standings.find((s) => s.side === side);
@@ -41,6 +41,14 @@
 		setup: 'Setup', signup: 'Signups open', draft: 'Drafting',
 		placement: 'Placing fleets', battle: 'Battle', finished: 'Finished'
 	};
+
+	// Do the fleets reach this page at all? False once the viewer is playing — the server
+	// withholds them (see the load), so there is nothing to reveal.
+	const hasFleets = $derived(sides.some((s) => !!s.fleet));
+	// Boards start HIDDEN. An admin opening this page during a live event should not have
+	// their opponent's ships on screen before they have decided to look, and a shared or
+	// streamed screen should not leak them either. Not persisted: it re-hides every load.
+	let boardsShown = $state(false);
 
 	// Reset the aim when the acting side flips, so a stale anchor can't be fired.
 	$effect(() => {
@@ -214,6 +222,28 @@
 	<!-- ── Boards ──────────────────────────────────────────────────────── -->
 	{#if sides.length === 2}
 		<section class="osrs-panel">
+			<div class="revealbar">
+				<button class="btn" onclick={() => (boardsShown = !boardsShown)}>
+					{boardsShown ? 'Hide the boards' : 'Show the boards'}
+				</button>
+				{#if !boardsShown}
+					<span class="muted small">
+						{#if hasFleets}
+							Hidden by default — this page shows BOTH fleets, so don't open it on a shared
+							screen, and don't look if you're playing.
+						{:else}
+							Hidden by default. You're playing in this game, so the fleets have been
+							withheld from this page too — you'll see craters, not ships.
+						{/if}
+					</span>
+				{:else if !hasFleets}
+					<span class="muted small">
+						You're playing in this game, so the fleets are withheld here as well.
+					</span>
+				{/if}
+			</div>
+
+			{#if boardsShown}
 			<div class="actbar">
 				<span class="muted">Acting as</span>
 				{#each sides as s (s.side)}
@@ -256,9 +286,17 @@
 						{standing(actingSide)?.hits ?? 0} hits / {standing(actingSide)?.shotsFired ?? 0} shots ·
 						{standing(actingSide)?.sunk ?? 0} sunk
 					</p>
-					<p class="note">The tester sees both fleets — a player never does.</p>
+					<p class="note">
+						{#if hasFleets}
+							You are not playing in this game, so the tester is showing you both fleets — a
+							player never sees this.
+						{:else}
+							You are playing, so this board shows craters only, exactly as a player sees it.
+						{/if}
+					</p>
 				</div>
 			</div>
+			{/if}
 
 			{#if game.phase === 'battle'}
 				<div class="fire">
@@ -300,6 +338,41 @@
 				</div>
 			{/if}
 		</section>
+
+		<!-- ── Arsenal ─────────────────────────────────────────────────── -->
+		<!-- EVERY bomb on both sides, spent and unspent. The firing panel above only ever
+		     shows the acting side's unspent ones, so until now a bomb that should not exist
+		     could only be removed with SQL. Removing one takes its craters with it. -->
+		{#if game.arsenal.length}
+			<section class="osrs-panel">
+				<h2>All bombs <span class="muted">({game.arsenal.length})</span></h2>
+				<p class="muted small">
+					Remove a bomb that shouldn't have been minted — a mis-approved claim, a drop
+					credited to the wrong person, a duplicate. If it was already fired its craters go
+					with it, and its source is closed so it can't be minted again. There is no undo.
+				</p>
+				<ul class="arsenal">
+					{#each game.arsenal as a (a.id)}
+						{@const side = sides.find((s) => s.side === a.side)}
+						<li class:spent={!!a.spentAt}>
+							<span class="afleet" style="color: {side?.color}">{side?.name ?? `Side ${a.side}`}</span>
+							<span class="atier">{game.config.tiers.find((t) => t.tier === a.tier)?.name ?? `Tier ${a.tier}`}</span>
+							<span class="aitem">{a.itemName ?? '—'}</span>
+							<span class="awho muted">
+								{side?.members.find((m) => m.userId === a.earnedBy)?.rsn ?? 'unattributed'}
+							</span>
+							<span class="aval muted">{a.value ? gp(a.value) : ''}</span>
+							<span class="asrc muted">{a.source ?? ''}</span>
+							<span class="astate">{a.spentAt ? 'fired' : 'banked'}</span>
+							<form method="POST" action="?/removeBomb" use:enhance>
+								<input type="hidden" name="arsenal_id" value={a.id} />
+								<button class="btn tiny danger" type="submit">remove</button>
+							</form>
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
 
 		<!-- ── Rosters ─────────────────────────────────────────────────── -->
 		<section class="osrs-panel">
@@ -382,6 +455,26 @@
 	/* The pick buttons wear the same colour as the banner. */
 	.pickbtn { border-color: var(--side); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--side) 45%, transparent); }
 
+	.arsenal { list-style: none; padding: 0; margin: 0.6rem 0 0; display: grid; gap: 0.25rem; }
+	.arsenal li {
+		display: grid;
+		grid-template-columns: 7rem 6.5rem minmax(6rem, 1fr) 8rem 5rem minmax(0, 8rem) 4rem auto;
+		gap: 0.5rem; align-items: center;
+		padding: 0.3rem 0.5rem; border-radius: 3px;
+		background: rgb(255 255 255 / 0.03);
+		font-size: 0.8rem;
+	}
+	.arsenal li.spent { opacity: 0.55; }
+	.arsenal .afleet, .arsenal .atier, .arsenal .astate { font-family: var(--font-heading); }
+	.arsenal .astate { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; }
+	.arsenal span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.btn.tiny { min-height: 26px; padding: 0 8px; font-size: 0.72rem; }
+	.btn.danger { color: #ef8a8a; }
+	@media (max-width: 900px) {
+		.arsenal li { grid-template-columns: 1fr auto; grid-auto-rows: min-content; }
+		.arsenal .aval, .arsenal .asrc, .arsenal .awho { display: none; }
+	}
+
 	.poolfilter { display: grid; gap: 0.2rem; font-size: 0.8rem; color: var(--muted); max-width: 18rem; }
 	.poolfilter input {
 		background: var(--inset, #241f1a); color: var(--text); border: 1px solid var(--line, #4a4038);
@@ -413,6 +506,8 @@
 	.pickdismiss { font-size: 0.75rem; color: var(--muted-soft); margin-top: 0.4rem; }
 	@keyframes pickfade { from { opacity: 0; } to { opacity: 1; } }
 	@media (prefers-reduced-motion: reduce) { .pickoverlay { animation: none; } }
+	.revealbar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+	.revealbar .small { font-size: 0.78rem; max-width: 46rem; }
 	.actbar { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
 	.boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1.25rem; }
 	.stat { font-size: 0.8rem; color: var(--muted); margin: 0.5rem 0 0; }

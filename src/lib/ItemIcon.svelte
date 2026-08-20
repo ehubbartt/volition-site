@@ -1,27 +1,19 @@
 <script lang="ts">
+	import WikiImage from '$lib/WikiImage.svelte';
 	import { itemIconUrl } from '$lib/osrsItems';
 
-	// OSRS Wiki item icon with the fiddly hotlink incantation (referrerpolicy +
-	// onerror-hide) baked in, so wallet/loot lists stop re-spelling it. Hides itself
-	// on a 404 rather than showing a broken-image glyph.
+	// OSRS Wiki item icon for wallet/loot lists. Delegates to <WikiImage> so it gets the
+	// candidate-spelling walk and the throttle retry — it used to hide itself on the first
+	// error, which meant every title-cased file name (and every throttled request) left a
+	// gap in the list.
 	let { item, size = 20 }: { item: string; size?: number } = $props();
 </script>
 
-<img
-	class="item-icon"
-	src={itemIconUrl(item)}
-	alt=""
-	width={size}
-	height={size}
-	loading="lazy"
-	referrerpolicy="no-referrer"
-	onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-/>
+<WikiImage src={itemIconUrl(item)} size={size} class="item-icon" />
 
 <style>
-	.item-icon {
+	:global(img.item-icon) {
 		object-fit: contain;
 		vertical-align: middle;
-		image-rendering: -webkit-optimize-contrast;
 	}
 </style>

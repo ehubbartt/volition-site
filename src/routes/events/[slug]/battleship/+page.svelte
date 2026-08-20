@@ -6,6 +6,7 @@
 	import Skeleton from '$lib/Skeleton.svelte';
 	import TileSubmitModal from '$lib/TileSubmitModal.svelte';
 	import BoardGrid from '$lib/battleship/BoardGrid.svelte';
+	import FleetKey from '$lib/battleship/FleetKey.svelte';
 	import {
 		anchorFor,
 		autoPlace,
@@ -160,6 +161,37 @@
 
 <!-- Re-fetch in place. Deliberately not a browser reload: that would throw away the
      bomb you have armed and the square you have aimed at. -->
+<!-- What earns what. Rendered wherever a player might ask "how big is a bomb?", and
+     driven off the event's own tiers, so changing them mid-event updates this too —
+     which is the moment people most need to see it. -->
+{#snippet tierTable(lead: string)}
+	{#if game}
+		<div class="tiers">
+			<span class="tierlead">{lead}</span>
+			<ul>
+				{#each game.config.tiers as t (t.tier)}
+					<li>
+						<strong>{t.name}</strong>
+						<span class="tval">{gp(t.min_value)}+</span>
+						<span class="tspan">{t.span}×{t.span}</span>
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
+{/snippet}
+
+<!-- What the craters mean. Two shades of dark red is not a distinction anyone should
+     have to work out from context, and "is that hull dead or just wounded?" is the
+     question that decides where the next bomb goes. -->
+{#snippet boardLegend()}
+	<ul class="legend">
+		<li><span class="swatch miss"></span>miss</li>
+		<li><span class="swatch hit">✳</span>hit — still afloat</li>
+		<li><span class="swatch wreck">✖</span>sunk — the outline is the whole hull</li>
+	</ul>
+{/snippet}
+
 {#snippet refreshBtn(label: string)}
 	<span class="refreshwrap">
 		<button class="btn refresh" onclick={refresh} disabled={refreshing}>
@@ -238,6 +270,7 @@
 						<button class="btn primary" type="submit">Join the event</button>
 					</form>
 				{/if}
+				{@render tierTable('When the battle opens, a single drop this big arms a bomb:')}
 				<p class="muted small dinktip">
 					Your drops only become bombs if Dink is reporting them —
 					<a href="/dink-check">test your setup →</a> before the battle starts.
@@ -406,6 +439,7 @@
 								{standing(game.viewerSide)?.hits ?? 0} hits ·
 								{standing(game.viewerSide)?.sunk ?? 0}/{foe?.fleetSummary.length ?? 0} of their ships sunk
 							</p>
+							{@render boardLegend()}
 						</div>
 					{:else}
 						<div class="board">
@@ -432,21 +466,19 @@
 								{standing(game.viewerSide)?.afloat ?? 0}/{standing(game.viewerSide)?.totalCells ?? 0} squares afloat
 								· {standing(game.viewerSide)?.lost ?? 0} ship{(standing(game.viewerSide)?.lost ?? 0) === 1 ? '' : 's'} lost
 							</p>
+							{@render boardLegend()}
 						</div>
 					{/if}
 
 					{#if game.phase === 'battle'}
 						<div class="fire">
+							{@render tierTable('Any single drop this big arms a bomb, automatically:')}
 							<h3>
 								Your bombs
 								{#if firable.length}<span class="muted">— {firable.length} ready to fire</span>{/if}
 							</h3>
 							{#if firable.length === 0}
-								<p class="muted">
-									No bombs banked. Any single drop worth
-									{gp(game.config.tiers[0].min_value)}+ arms one automatically —
-									{#each game.config.tiers as t, i (t.tier)}{i ? ', ' : ''}{gp(t.min_value)} = {t.span}×{t.span}{/each}.
-								</p>
+								<p class="muted">No bombs banked yet — go get a drop.</p>
 							{:else}
 								<div class="bombs">
 									{#each firable as b (b.id)}
@@ -563,24 +595,19 @@
 			{/if}
 
 			<section class="osrs-panel">
-				<h2 class="osrs-titlebar">Fleets</h2>
-				<div class="rosters">
+				<h2 class="osrs-titlebar">Ship types</h2>
+				<p class="muted keylead">
+					What you're hunting, and what's left of it. Both fleets carry the same ships.
+				</p>
+				<div class="keys">
 					{#each game.sides as s (s.side)}
-						{@const sunkCount = s.fleetSummary.filter((f) => f.sunk).length}
-						<div>
-							<h3 style="color: {s.color}">
-								{s.name}
-								<span class="muted">— {sunkCount}/{s.fleetSummary.length} sunk</span>
-							</h3>
-							<ul class="ships">
-								{#each s.fleetSummary as f (f.id)}
-									<li class:sunk={f.sunk} title={f.sunk ? `${f.name} — sunk` : f.name}>
-										<span class="hull">{f.sunk ? '✗' : '▬'}</span>
-										{f.name}<span class="muted">({f.len})</span>
-									</li>
-								{/each}
-							</ul>
-						</div>
+						<FleetKey
+							fleetSummary={s.fleetSummary}
+							color={s.color}
+							label="{s.name}{s.side === game.viewerSide ? ' — yours' : ''}"
+							enemy={s.side !== game.viewerSide}
+							open={s.side !== game.viewerSide}
+						/>
 					{/each}
 				</div>
 			</section>
@@ -693,6 +720,21 @@
 	.refresh { font-size: 0.8rem; }
 	.refreshed { font-size: 0.72rem; color: var(--muted-soft); }
 	.refreshbar { margin-top: 0.6rem; }
+
+	/* The earning rates. Deliberately hard to miss and always on screen — they are the
+	   rules of the whole event, and they can change mid-event. */
+	.tiers { margin: 0 0 0.9rem; }
+	.tierlead { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+	.tiers ul { list-style: none; padding: 0; margin: 0; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+	.tiers li {
+		display: grid; gap: 0.05rem; justify-items: start;
+		padding: 0.35rem 0.7rem; border-radius: 3px;
+		background: rgb(255 255 255 / 0.04);
+		border-left: 3px solid var(--accent);
+	}
+	.tiers strong { font-family: var(--font-heading); font-size: 0.9rem; color: var(--heading); }
+	.tiers .tval { font-size: 0.85rem; color: var(--yellow); }
+	.tiers .tspan { font-size: 0.72rem; color: var(--muted); }
 	/* The readout under each grid, styled like an in-game info strip. */
 	.stat {
 		margin: 0.5rem 0 0; padding: 0.35rem 0.6rem; font-size: 0.8rem;
@@ -721,7 +763,7 @@
 
 	/* ── Rosters & fleets ───────────────────────────────────────────── */
 	.rosters { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1rem; }
-	.roster, .ships { list-style: none; padding: 0; margin: 0; font-size: 0.82rem; }
+	.roster { list-style: none; padding: 0; margin: 0; font-size: 0.82rem; }
 	.roster { columns: 2; }
 	.roster li { padding: 0.1rem 0; }
 	.poolhead { margin: 1.25rem 0 0.4rem; font-family: var(--font-heading); color: var(--heading); font-size: 0.95rem; }
@@ -729,14 +771,26 @@
 	.roster.pool { columns: 4; }
 	@media (max-width: 720px) { .roster.pool { columns: 2; } }
 	.hint { font-size: 0.75rem; color: var(--muted-soft); margin: 0.6rem 0 0; }
-	/* A big event has ~18 ships a side — one line each is a wall, so flow them into
-	   as many columns as fit and lead with a hull/wreck glyph you can scan. */
-	.ships { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 0.1rem 0.75rem; }
-	.ships li { display: flex; align-items: baseline; gap: 0.35rem; padding: 0.1rem 0; white-space: nowrap; }
-	.ships li .muted { font-size: 0.75rem; }
-	.ships li.sunk { color: var(--muted); }
-	.ships li.sunk .hull { color: var(--danger); }
-	.hull { color: var(--gold-mid); font-size: 0.7rem; }
+	/* The ship-by-ship roster that used to live here listed all 31 hulls by name, which
+	   told you nothing about what to aim at. FleetKey groups them by shape instead. */
+	.keylead { font-size: 0.8rem; margin: 0 0 0.6rem; }
+	.keys { display: grid; gap: 0.5rem; }
+
+	/* ── Board legend ───────────────────────────────────────────────── */
+	.legend { list-style: none; margin: 0.4rem 0 0; padding: 0; display: flex; flex-wrap: wrap;
+	          gap: 0.25rem 1rem; font-size: 0.75rem; color: var(--muted); }
+	.legend li { display: flex; align-items: center; gap: 0.35rem; }
+	/* Same fills as the cells themselves, so the key can't drift from the board. */
+	.swatch { width: 14px; height: 14px; flex: none; display: flex; align-items: center;
+	          justify-content: center; font-size: 0.6rem; line-height: 1; border-radius: 1px; }
+	.swatch.miss { background:
+		radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.5) 0 12%, transparent 14%),
+		radial-gradient(circle at 50% 50%, transparent 26%, rgba(255, 255, 255, 0.28) 28% 34%, transparent 36%),
+		rgba(255, 255, 255, 0.06); }
+	.swatch.hit { background: radial-gradient(circle at 50% 45%, #ff6a3d 0%, #a11b0b 60%, #5c0f06 100%);
+	              color: #ffe6b0; }
+	.swatch.wreck { background: radial-gradient(circle at 50% 45%, #3a2a26 0%, #1b1310 70%, #0d0908 100%);
+	                color: rgba(255, 220, 190, 0.55); box-shadow: inset 0 0 0 2px rgba(255, 208, 150, 0.75); }
 
 	/* ── Arsenal ────────────────────────────────────────────────────── */
 	.fire { margin-top: 1rem; }

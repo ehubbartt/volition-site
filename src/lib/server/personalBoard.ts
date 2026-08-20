@@ -19,7 +19,13 @@
 // when that's enabled.
 
 import { db } from './db';
-import { fetchTempleCollectionLog, fetchPlayerSkillXp, updateWomPlayer, fetchWikiSyncPlayer } from './rankData';
+import {
+	fetchTempleCollectionLog,
+	fetchPlayerSkillXp,
+	updateWomPlayer,
+	fetchWikiSyncPlayer,
+	type TempleClog
+} from './rankData';
 import { bestEhbSource, isPetItem, type ItemEhb, type ItemEhc, type EhbOverrides } from '$lib/ehb';
 import { getEhbOverrides, getExcludedItemIds } from './ehbOverrides';
 import { uploadProof } from './submissions';
@@ -428,6 +434,10 @@ async function creditTile(
 async function fetchOwnedClogNames(rsn: string): Promise<Set<string> | null> {
 	const temple = await fetchTempleCollectionLog(rsn);
 	if (!temple) return null;
+	return ownedNamesFrom(temple);
+}
+
+function ownedNamesFrom(temple: TempleClog): Set<string> {
 	const owned = new Set<string>();
 	for (const category of Object.values(temple.items)) {
 		if (!Array.isArray(category)) continue;
@@ -436,6 +446,63 @@ async function fetchOwnedClogNames(rsn: string): Promise<Set<string> | null> {
 		}
 	}
 	return owned;
+}
+
+/**
+ * How many uniques the player has obtained in each clue tier SINCE a moment — read from
+ * Temple's own per-item `date`, not from our item catalogue.
+ *
+ * This exists because counting against a frozen candidate list turned out to be
+ * unwinnable. Candidates come from `itemEhc.json`, whose builder drops any item every
+ * sampled player already owns (Temple reports `hours: 0` for an owned slot, and the
+ * builder keeps only values > 0). Deep-log accounts own nearly every hard/elite/master
+ * clue unique, so those tiers collapsed to a handful of leftovers — 11 "hard" items that
+ * do not overlap at all with what players actually pull from hard clues. Every grouped
+ * clue tile on those tiers was impossible to complete.
+ *
+ * Temple's category + date is the authority instead: it needs no catalogue of ours to be
+ * complete, and it makes already-earned uniques count retroactively, so a board broken by
+ * the above heals on its next refresh with no backfill.
+ *
+ * SAFETY OF THE DATE. For a slot obtained before the player's first Temple sync, `date` is
+ * the sync stamp rather than the true obtain date. That cannot produce a false credit
+ * here: generating a board REQUIRES a Temple collection log (`clog_unavailable` refuses
+ * otherwise), so the first sync always precedes generation, and therefore the lock. A
+ * pre-sync item is always stamped at or before `since`.
+ */
+export function clueGainsSince(temple: TempleClog, since: string): Map<string, number> {
+	const cutoff = new Date(since).getTime();
+	const gains = new Map<string, number>();
+	if (!Number.isFinite(cutoff)) return gains;
+
+	for (const [category, rows] of Object.entries(temple.items)) {
+		const tier = clueTierOf(category);
+		if (!tier || !Array.isArray(rows)) continue;
+		let n = 0;
+		for (const item of rows as { count?: number; date?: string | number | null }[]) {
+			if (!(Number(item?.count ?? 1) > 0)) continue;
+			const at = templeDateMs(item?.date);
+			// No date at all: Temple knows the slot but not when. Treat as pre-existing —
+			// crediting an undated slot would hand out tiles for a whole back catalogue.
+			if (at == null || at <= cutoff) continue;
+			n++;
+		}
+		gains.set(tier, n);
+	}
+	return gains;
+}
+
+/** Temple sends "YYYY-MM-DD HH:MM:SS" on the clog endpoint and unix seconds elsewhere. */
+function templeDateMs(date: string | number | null | undefined): number | null {
+	if (date == null) return null;
+	if (typeof date === 'number') return date > 0 ? date * 1000 : null;
+	const s = date.trim();
+	if (!s) return null;
+	if (/^\d+$/.test(s)) return Number(s) * 1000;
+	// Space-separated and UTC; `new Date("YYYY-MM-DD HH:MM:SS")` is implementation-defined,
+	// so normalise to ISO rather than trusting the engine to guess.
+	const ms = Date.parse(s.replace(' ', 'T') + 'Z');
+	return Number.isFinite(ms) ? ms : null;
 }
 
 const ownedCache = new Map<string, { at: number; owned: Set<string> }>();
@@ -1319,26 +1386,40 @@ export async function refreshPersonalBoard(userId: string): Promise<RefreshResul
 	const itemTiles = board.tiles.filter(
 		(t) => !t.obtained && t.kind === 'item' && t.item_name && t.match_type !== 'loot'
 	);
-	// Clue tiles count NEW unlocks among the candidate names that were missing at
-	// generation — owning any `clue_target` of them completes the tile.
+	// Clue tiles count uniques gained in their tier SINCE THE BOARD LOCKED, straight from
+	// Temple's category + date. They no longer consult `clue_candidates`: that list is
+	// frozen at generation from `itemEhc.json`, whose hard/elite/master tiers are missing
+	// nearly every item players actually obtain (see clueGainsSince), which made those
+	// tiles unwinnable rather than merely slow.
 	const clueTiles = board.tiles.filter(
-		(t) => !t.obtained && t.kind === 'clue' && t.clue_target != null && t.clue_candidates?.length
+		(t) => !t.obtained && t.kind === 'clue' && t.clue_tier && t.clue_target != null
 	);
 	if (itemTiles.length || clueTiles.length) {
-		const owned = await getOwnedClogNames(userId, board.rsn, true); // force a fresh Temple read
-		if (owned == null) return { ok: false, reason: 'clog_unavailable' };
+		// One Temple read serves both: the flat owned-name set for item tiles, and the
+		// per-category dates for clue tiles.
+		const temple = await fetchTempleCollectionLog(board.rsn);
+		if (!temple) return { ok: false, reason: 'clog_unavailable' };
+		const owned = ownedNamesFrom(temple);
+		ownedCache.set(userId, { at: Date.now(), owned });
+
 		for (const t of itemTiles) {
 			if (owned.has((t.item_name as string).toLowerCase())) {
 				const r = await creditTile(eventId, userId, String(t.idx), 'clog', { targetLabel: t.item_name ?? undefined });
 				if (r === 'credited') newlyObtained.push(t.item_name as string);
 			}
 		}
-		for (const t of clueTiles) {
-			const have = (t.clue_candidates as string[]).filter((n) => owned.has(n)).length;
-			if (have !== t.clue_progress) await updateTileMeta(eventId, String(t.idx), { clue_progress: have });
-			if (have >= (t.clue_target as number)) {
-				const r = await creditTile(eventId, userId, String(t.idx), 'clog', { targetLabel: t.item_name ?? undefined });
-				if (r === 'credited') newlyObtained.push(t.item_name as string);
+
+		if (clueTiles.length) {
+			// Progress is measured from the LOCK, not from generation: a draft board can be
+			// regenerated freely, and only locking it starts the clock.
+			const gains = clueGainsSince(temple, board.locked_at);
+			for (const t of clueTiles) {
+				const have = gains.get(t.clue_tier as string) ?? 0;
+				if (have !== t.clue_progress) await updateTileMeta(eventId, String(t.idx), { clue_progress: have });
+				if (have >= (t.clue_target as number)) {
+					const r = await creditTile(eventId, userId, String(t.idx), 'clog', { targetLabel: t.item_name ?? undefined });
+					if (r === 'credited') newlyObtained.push(t.item_name as string);
+				}
 			}
 		}
 	}

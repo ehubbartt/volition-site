@@ -15,7 +15,9 @@
 		"test:e2e:ui": "playwright test --ui",
 		"test:e2e:report": "playwright show-report",
 		"sim:battleship": "node scripts/battleship-sim.mjs",
-		"demo:battleship": "node scripts/battleship-demo.mjs"
+		"demo:battleship": "node scripts/battleship-demo.mjs",
+		"sim:connect4": "node scripts/connect4-sim.mjs",
+		"demo:connect4": "node scripts/connect4-demo.mjs"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.62.0",

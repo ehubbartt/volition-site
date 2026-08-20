@@ -1,13 +1,17 @@
 <script lang="ts">
-	// Shared sub-navigation for the Rank admin hub: gear-claim approval, the rank
-	// simulator, and the mass rank update. Each is its own route (its own load/actions);
-	// this bar makes them read as one panel, mirroring DinkTabs / StatsTabs.
+	// Shared sub-navigation for the Rank admin hub: gear-claim approval, manual
+	// adjustments, the rank simulator, and the mass rank update. Each is its own route
+	// (its own load/actions); this bar makes them read as one panel, mirroring
+	// DinkTabs / StatsTabs.
 	import { page } from '$app/stores';
 
 	type TabDef = { label: string; href: string };
 
 	const TABS: TabDef[] = [
 		{ label: 'Gear Claims', href: '/admin/ranks/claims' },
+		// The record of manual adjustments — they're MADE on the member's own profile
+		// (/u/[rsn]), and this is the clan-wide view over the result.
+		{ label: 'Adjustments', href: '/admin/ranks/adjustments' },
 		{ label: 'Simulator', href: '/admin/ranks/simulator' },
 		{ label: 'Mass Update', href: '/admin/ranks/mass-update' }
 	];
