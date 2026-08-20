@@ -648,7 +648,10 @@
 			{/if}
 			{#if game.phase === 'finished'}
 				<p class="muted">
-					Finished{#if game.winner} — {game.sides[game.winner - 1].name} won{:else} — a draw{/if}.
+					<!-- One branch each, rather than a shared prefix: Svelte trims the leading
+					     space inside a block, which rendered it as "Finished— Yellow won". -->
+					{#if game.winner}Finished — {game.sides[game.winner - 1].name} won.{:else}Finished — a
+						draw.{/if}
 				</p>
 				<form method="POST" action="?/reopen" use:enhance><button type="submit">Reopen</button></form>
 			{/if}

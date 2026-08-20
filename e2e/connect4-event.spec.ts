@@ -444,7 +444,9 @@ test('finishing declares a winner, and reopening returns it to live', async () =
 	await page.getByRole('button', { name: 'End the game' }).click();
 
 	await expect(page.locator('.osrs-badge').first()).toHaveText('finished', { timeout: 30_000 });
-	await expect(page.locator('.pad', { hasText: 'Finished' })).toContainText(/won|a draw/);
+	await expect(page.locator('.pad', { hasText: 'Finished' })).toContainText(
+		/Finished — (.+ won|a draw)\./
+	);
 	await expect(page.locator('.score.winner')).toHaveCount(1);
 	// A finished game takes no more claims.
 	await expect(page.locator('.tile-detail button.credit')).toHaveCount(0);
