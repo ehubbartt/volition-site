@@ -35,13 +35,18 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const game = await loadConnect4(params.slug);
 	if (!game) throw error(404, 'No such Connect Four game');
 
-	// Poll-on-read, the house pattern: heal the tracked-item projection (in case a claim
-	// died between its insert and its sync) and give the drop consumer a nudge, so a real
-	// drop shows up on the board without a scheduler.
-	await syncTrackedItems(game.id);
+	// Poll-on-read, the house pattern: nudge the drop consumer so a real drop reaches the
+	// board without a scheduler, then heal the tracked-item projection in case a claim died
+	// between its insert and its sync.
+	//
+	// Order matters, and so does the count: this used to sync FIRST and then re-load, which
+	// meant three full snapshot reads per page load (one here, one inside the sync, one for
+	// the re-read) — a third of the latency on every credit. Draining first means the single
+	// re-read already contains anything that just landed, and the sync gets handed that
+	// snapshot rather than fetching its own.
 	if (game.phase === 'live') await maybeProcessDinkDrops();
-
 	const fresh = (await loadConnect4(params.slug)) ?? game;
+	await syncTrackedItems(fresh.id, fresh);
 
 	// The roster to assign from: everyone with a site account. Signed-up members are
 	// flagged so the panel can show who is already playing.

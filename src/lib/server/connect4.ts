@@ -699,7 +699,7 @@ export async function claimTile(input: {
 		).filter((r) => r.side === input.side);
 		const nextLive = liveTiles(deck, after);
 
-		await syncTrackedItems(input.eventId);
+		await syncTrackedItems(input.eventId, { ...snap, pieces: after, live: nextLive });
 
 		let finished = false;
 		if (after.length >= DECK_SIZE) {
@@ -752,8 +752,14 @@ export async function creditManual(input: {
  * candidate matcher. Diff-based and idempotent, so it is safe to run on every page load —
  * which is exactly how a crash between a claim and its sync heals itself.
  */
-export async function syncTrackedItems(eventId: string): Promise<Result<{ added: number; removed: number }>> {
-	const snap = await loadConnect4ById(eventId);
+export async function syncTrackedItems(
+	eventId: string,
+	preloaded?: Connect4Snapshot
+): Promise<Result<{ added: number; removed: number }>> {
+	// Callers that already hold a fresh snapshot pass it in. This runs on every page load
+	// and after every claim, and re-reading the whole game each time was a third of the
+	// latency on a credit.
+	const snap = preloaded ?? (await loadConnect4ById(eventId));
 	if (!snap) return errResult('No such game');
 	const sb = db();
 

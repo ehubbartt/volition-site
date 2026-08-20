@@ -4,9 +4,10 @@
 	import { onMount } from 'svelte';
 	import Connect4Board from '$lib/connect4/Connect4Board.svelte';
 	import Connect4Board3D, { type HoverInfo } from '$lib/connect4/Connect4Board3D.svelte';
+	import TileHoverCard, { type CardInfo } from '$lib/connect4/TileHoverCard.svelte';
 	import WikiImage from '$lib/WikiImage.svelte';
 	import { itemImageUrl, monsterImageUrl } from '$lib/wikiImage';
-	import { columnLabel } from '$lib/connect4/rules';
+	import { ROWS, columnCounts, columnLabel, landingRow, type Piece } from '$lib/connect4/rules';
 	import { formatEhb } from '$lib/ehb';
 	import { Playback, loadSeen, saveSeen, paceFor } from '$lib/connect4/playback.svelte';
 
@@ -14,7 +15,17 @@
 
 	const game = $derived(data.game);
 	const runCells = $derived(new Set(data.runCells));
-	const pieceIds = $derived(game.pieces.map((p) => p.id as string));
+
+	// ── optimistic credit ─────────────────────────────────────────────────────
+	// Crediting is a form POST, and the round trip plus the reload took a couple of seconds
+	// — long enough that the piece appeared to fall for no reason, ages after the click, or
+	// that nothing seemed to happen at all. The board therefore drops the piece IMMEDIATELY
+	// from what the client already knows (gravity is a pure function of the pieces), and the
+	// server's answer replaces it when it lands.
+	const PENDING = 'pending-claim';
+	let optimistic = $state<Piece[] | null>(null);
+	const boardPieces = $derived(optimistic ?? game.pieces);
+	const pieceIds = $derived(boardPieces.map((p) => p.id as string));
 
 	// ── playback ──────────────────────────────────────────────────────────────
 	// Whatever landed since this browser last watched the board falls into place, in the
@@ -61,6 +72,43 @@
 		if (playback.settled(pieceIds.length) && pieceIds.length) saveSeen(game.slug, pieceIds);
 	});
 
+	/** Show the piece landing now, before the server has confirmed it. */
+	function creditOptimistically(col: number, side: number) {
+		const row = landingRow(columnCounts(game.pieces), col);
+		if (row === null) return;
+		const tile = game.live[col]?.tile;
+		const piece = {
+			id: PENDING,
+			col,
+			row,
+			side: side as 1 | 2,
+			deck_idx: col * ROWS + row,
+			item_id: tile?.item_id ?? null,
+			item_name: tile?.item_name ?? null,
+			source: tile?.source ?? null,
+			by_user_id: null,
+			by_rsn: null,
+			drop_key: 'manual:pending',
+			claimed_at: new Date().toISOString()
+		} satisfies Piece;
+		const next = [...game.pieces, piece];
+		optimistic = next;
+		// Claim this board so the catch-up effect doesn't also try to animate it.
+		handled = next.map((p) => p.id).join('|');
+		playback.play(
+			next.map((p) => p.id as string),
+			next.length - 1,
+			paceFor(1, speed)
+		);
+	}
+
+	/** Hand the board back to the server's version once the claim has actually landed. */
+	function settleOptimistic() {
+		optimistic = null;
+		handled = pieceIds.join('|');
+		saveSeen(game.slug, pieceIds);
+	}
+
 	function replayAll() {
 		replaying = true;
 		playback.play(pieceIds, 0, paceFor(pieceIds.length, speed));
@@ -106,8 +154,51 @@
 	// card. A 3D hover can be a placed PIECE (what claimed that cell) or a floating TOKEN
 	// (what is still on offer above that column), so this card renders both.
 	let hover3d = $state<HoverInfo | null>(null);
+	// Same flag-not-cancel dance as the flat board: leaving the canvas for the card would
+	// otherwise clear the hover before the pointer arrived at the wiki links.
+	let overCard3d = false;
+	let hide3d: ReturnType<typeof setTimeout> | null = null;
+	function set3dHover(info: HoverInfo | null) {
+		if (hide3d) clearTimeout(hide3d);
+		if (info) hover3d = info;
+		else
+			hide3d = setTimeout(() => {
+				if (!overCard3d) hover3d = null;
+			}, 260);
+	}
 	const claimedVia = (p: { drop_key?: string }) =>
 		p.drop_key?.startsWith('manual:') ? 'credited by hand' : p.drop_key?.startsWith('test-') ? 'simulated' : 'from a Dink drop';
+
+	// The 3D board reports what the pointer is over; the card itself is the same component
+	// the flat board uses, so both views describe a tile identically.
+	const hover3dCard = $derived.by((): CardInfo | null => {
+		const h = hover3d;
+		if (!h) return null;
+		if (h.kind === 'piece') {
+			const p = h.piece;
+			return {
+				kind: 'piece',
+				itemName: p.item_name ?? 'Unknown drop',
+				source: p.source,
+				where: `${columnLabel(p.col)}${p.row + 1}`,
+				sideName: game.sides[p.side - 1]?.name ?? `side ${p.side}`,
+				sideColor: game.sides[p.side - 1]?.color,
+				byRsn: p.by_rsn,
+				via: claimedVia(p),
+				x: h.x,
+				y: h.y
+			};
+		}
+		return {
+			kind: 'tile',
+			itemName: h.tile.tile.item_name,
+			source: h.tile.tile.source,
+			ehb: h.tile.tile.ehb,
+			where: `column ${columnLabel(h.tile.col)}`,
+			x: h.x,
+			y: h.y
+		};
+	});
 
 	// Team assignment panel
 	let filter = $state('');
@@ -260,7 +351,7 @@
 						</span>
 					{:else}
 						<button type="button" onclick={replayAll} disabled={!game.pieces.length}>
-							▶ Replay the whole event
+							▶ Replay
 						</button>
 						<label class="tiny">
 							speed
@@ -281,7 +372,7 @@
 
 				{#if view === '3d'}
 					<Connect4Board3D
-						pieces={game.pieces}
+						pieces={boardPieces}
 						live={game.live}
 						sideColors={game.sides.map((s) => s.color)}
 						{runCells}
@@ -289,11 +380,11 @@
 						falling={playback.falling}
 						{selected}
 						onselect={(c) => (selected = selected === c ? null : c)}
-						onhover={(info) => (hover3d = info)}
+						onhover={set3dHover}
 					/>
 				{:else}
 					<Connect4Board
-						pieces={game.pieces}
+						pieces={boardPieces}
 						live={game.live}
 						sideColors={game.sides.map((s) => s.color)}
 						sideNames={game.sides.map((s) => s.name)}
@@ -319,7 +410,18 @@
 							</div>
 						</div>
 						{#if game.phase === 'live'}
-							<form method="POST" action="?/credit" use:enhance class="inline">
+							<form
+								method="POST"
+								action="?/credit"
+								class="inline"
+								use:enhance={({ formData }) => {
+									creditOptimistically(Number(formData.get('col')), Number(formData.get('side')));
+									return async ({ update }) => {
+										await update({ reset: false });
+										settleOptimistic();
+									};
+								}}
+							>
 								<input type="hidden" name="col" value={selectedTile.col} />
 								{#each game.sides as s (s.side)}
 									<button type="submit" name="side" value={s.side} style="--c: {s.color}" class="credit">
@@ -336,39 +438,18 @@
 		</div>
 	</section>
 
-	{#if hover3d}
-		<div class="hovercard" style="left: {hover3d.x}px; top: {hover3d.y}px;" role="tooltip">
-			{#if hover3d.kind === 'piece'}
-				{@const p = hover3d.piece}
-				<div class="hc-head" style="--c: {game.sides[p.side - 1]?.color ?? '#888'}">
-					<WikiImage src={itemImageUrl(p.item_name ?? '')} alt="" size={34} />
-					<div class="hc-name">
-						<strong>{p.item_name ?? 'Unknown drop'}</strong>
-						<span class="hc-sub">
-							{columnLabel(p.col)}{p.row + 1} · {game.sides[p.side - 1]?.name ?? `side ${p.side}`}
-						</span>
-					</div>
-				</div>
-				<div class="hc-meta">
-					{#if p.source}<div>from <strong>{p.source}</strong></div>{/if}
-					{#if p.by_rsn}<div>by <strong>{p.by_rsn}</strong></div>{/if}
-					<div class="hc-via">{claimedVia(p)}</div>
-				</div>
-			{:else}
-				{@const t = hover3d.tile}
-				<div class="hc-head" style="--c: var(--accent)">
-					<WikiImage src={itemImageUrl(t.tile.item_name)} alt="" size={34} />
-					<div class="hc-name">
-						<strong>{t.tile.item_name}</strong>
-						<span class="hc-sub">column {columnLabel(t.col)} · still up for grabs</span>
-					</div>
-				</div>
-				<div class="hc-meta">
-					{#if t.tile.source}<div>from <strong>{t.tile.source}</strong></div>{/if}
-					{#if t.tile.ehb}<div class="hc-via">{formatEhb(t.tile.ehb)} to obtain</div>{/if}
-				</div>
-			{/if}
-		</div>
+	{#if hover3dCard}
+		<TileHoverCard
+			info={hover3dCard}
+			onkeep={() => {
+				overCard3d = true;
+				if (hide3d) clearTimeout(hide3d);
+			}}
+			onrelease={() => {
+				overCard3d = false;
+				set3dHover(null);
+			}}
+		/>
 	{/if}
 
 	<!-- ── setup: the tile pool ──────────────────────────────────────────── -->
@@ -691,117 +772,6 @@
 	.viewtoggle button.on {
 		opacity: 1;
 		color: var(--accent);
-	}
-
-	/* The 3D board reports hover through a callback rather than drawing its own card, so
-	   the page owns this copy. Kept identical to the flat board's. */
-	.hovercard {
-		position: fixed;
-		z-index: 50;
-		transform: translate(-50%, calc(-100% - 10px));
-		pointer-events: none;
-		min-width: 12rem;
-		max-width: 18rem;
-		padding: 0.5rem 0.6rem;
-		background: var(--surface);
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius);
-		box-shadow: var(--shadow-card);
-	}
-	.hc-head {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		border-left: 3px solid var(--c);
-		padding-left: 0.4rem;
-	}
-	.hc-name {
-		display: grid;
-		min-width: 0;
-	}
-	.hc-name strong {
-		color: var(--heading);
-		font-size: 0.9rem;
-		line-height: 1.2;
-	}
-	.hc-sub,
-	.hc-meta {
-		font-size: 0.75rem;
-		color: var(--muted);
-	}
-	.hc-meta {
-		margin-top: 0.35rem;
-	}
-	.hc-via {
-		opacity: 0.75;
-		font-style: italic;
-	}
-
-	.pad {
-		padding: 0.75rem;
-	}
-	/* Six columns don't fit a phone: the table scrolls inside its own box rather than
-	   taking the page sideways with it. */
-	.table-wrap {
-		overflow-x: auto;
-	}
-	.row {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-		margin-bottom: 0.5rem;
-	}
-	.row.wrap {
-		margin-bottom: 0;
-	}
-	.inline {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-		flex-wrap: wrap;
-	}
-	.credit {
-		border-left: 4px solid var(--c);
-	}
-
-	.roster,
-	.candidates {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
-		gap: 0.25rem;
-		max-height: 22rem;
-		overflow-y: auto;
-		padding: 0.25rem;
-		background: var(--surface-alt);
-		border-radius: var(--radius);
-	}
-	.member,
-	.cand {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-		padding: 0.2rem 0.35rem;
-		border-radius: 3px;
-		font-size: 0.85rem;
-		cursor: pointer;
-	}
-	.member.on,
-	.cand.on {
-		background: var(--accent-soft);
-	}
-	.cand-name {
-		flex: 1;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-	.pill {
-		font-size: 0.7rem;
-		padding: 0.05rem 0.4rem;
-		border-radius: 999px;
-		border: 1px solid var(--c);
-		color: var(--c);
 	}
 
 	.grid {

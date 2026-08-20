@@ -19,6 +19,7 @@
 	//
 	// Hover raycasts a single invisible plane rather than 250 instances: the plane hit maps
 	// straight back to a column and row, which is cheaper and exact.
+	import { untrack } from 'svelte';
 	import * as THREE from 'three';
 	import '$lib/cards/threeSetup';
 	import { detectWebgl, prefersReducedMotion } from '$lib/cards/glCapabilities';
@@ -106,33 +107,82 @@
 
 	const reduced = () => prefersReducedMotion();
 
-	// A small default tilt, so the board reads as an object rather than a flat picture of
-	// one. Dragging rotates it within a deliberately narrow range — this is a board you
-	// read, not a model you inspect, and letting it spin to a useless angle helps nobody.
-	let yaw = $state(-0.13);
-	let pitch = $state(0.1);
-	const YAW_LIMIT = 0.5;
-	const PITCH_LIMIT = 0.38;
+	// STRAIGHT ON by default — this is a board you read, and reading 250 cells at an angle
+	// is worse than reading them square.
+	//
+	// Dragging gives a small parallax tilt and nothing more. The limits used to be ±0.5rad,
+	// which swung the board (26 units wide) far enough that it overflowed a frame fitted
+	// for the straight-on view — and the tokens, sitting ABOVE the board, were the first
+	// thing pushed off screen. Keeping the range small means the fit margin below can cover
+	// every reachable angle.
+	const YAW_HOME = 0;
+	const PITCH_HOME = 0;
+	let yaw = $state(YAW_HOME);
+	let pitch = $state(PITCH_HOME);
+	const YAW_LIMIT = 0.22;
+	const PITCH_LIMIT = 0.14;
 
+	/** Straight-on box fit — the starting guess for `requiredDistance`. */
 	function fitDistance(): number {
 		if (!camera) return 20;
 		const vFov = (camera.fov * Math.PI) / 180;
 		const distH = SCENE_H / 2 / Math.tan(vFov / 2);
 		const distW = W / 2 / Math.tan(vFov / 2) / camera.aspect;
-		// Enough margin that rotating to the limits never swings a corner out of frame —
-		// at 1.04 the tilt clipped the near edge.
-		return Math.max(distH, distW) * 1.14;
+		return Math.max(distH, distW) * 1.04;
 	}
 
-	function placeCamera() {
-		if (!camera) return;
-		const d = fitDistance();
-		camera.position.set(
+	// The eight corners of everything that has to stay on screen: the board's own box,
+	// extended up to the top of the token band.
+	const CORNERS: THREE.Vector3[] = [];
+	for (const x of [-W / 2, W / 2])
+		for (const y of [-H / 2, SCENE_TOP])
+			for (const z of [-DISC_D, FRAME_D / 2 + 0.6]) CORNERS.push(new THREE.Vector3(x, y, z));
+	const probe = new THREE.PerspectiveCamera();
+	const scratch = new THREE.Vector3();
+
+	function camAt(cam: THREE.PerspectiveCamera, d: number) {
+		cam.position.set(
 			Math.sin(yaw) * Math.cos(pitch) * d,
 			SCENE_CY + Math.sin(pitch) * d,
 			Math.cos(yaw) * Math.cos(pitch) * d
 		);
-		camera.lookAt(0, SCENE_CY, 0);
+		cam.lookAt(0, SCENE_CY, 0);
+	}
+
+	/**
+	 * How far back the camera has to sit for the WHOLE scene to be on screen at the CURRENT
+	 * angle.
+	 *
+	 * A fixed straight-on fit is wrong the moment you tilt: the tokens sit at the very top
+	 * of the scene, so they were the first thing pushed out of frame, and the board just
+	 * looked like it had eaten them. Projecting the corners and pushing the distance out
+	 * until nothing overflows is correct at any angle, and converges in two or three passes.
+	 */
+	function requiredDistance(): number {
+		if (!camera) return 20;
+		probe.fov = camera.fov;
+		probe.aspect = camera.aspect;
+		probe.near = camera.near;
+		probe.far = camera.far;
+		let d = fitDistance();
+		for (let i = 0; i < 4; i++) {
+			camAt(probe, d);
+			probe.updateMatrixWorld(true);
+			probe.updateProjectionMatrix();
+			let worst = 1;
+			for (const c of CORNERS) {
+				scratch.copy(c).project(probe);
+				worst = Math.max(worst, Math.abs(scratch.x), Math.abs(scratch.y));
+			}
+			if (worst <= 1.002) break;
+			d *= worst * 1.01;
+		}
+		return d;
+	}
+
+	function placeCamera() {
+		if (!camera) return;
+		camAt(camera, requiredDistance());
 		camera.updateProjectionMatrix();
 	}
 
@@ -167,13 +217,13 @@
 		const dy = e.clientY - last.y;
 		if (Math.abs(dx) + Math.abs(dy) > 2) movedWhileDown = true;
 		last = { x: e.clientX, y: e.clientY };
-		yaw = Math.max(-YAW_LIMIT, Math.min(YAW_LIMIT, yaw + dx * 0.004));
-		pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch + dy * 0.004));
+		yaw = Math.max(-YAW_LIMIT, Math.min(YAW_LIMIT, yaw + dx * 0.0022));
+		pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch + dy * 0.0022));
 		placeCamera();
 	}
 	function resetView() {
-		yaw = -0.13;
-		pitch = 0.1;
+		yaw = YAW_HOME;
+		pitch = PITCH_HOME;
 		placeCamera();
 	}
 
@@ -232,6 +282,7 @@
 			const mesh = new THREE.Mesh(geo, [rim, face, back]);
 			mesh.position.set(wx(col), TOKEN_Y, 0.35);
 			mesh.userData.col = col;
+			mesh.frustumCulled = false;
 			mesh.visible = false;
 			scene!.add(mesh);
 			return mesh;
@@ -345,6 +396,8 @@
 
 		fitCamera();
 		ready = true;
+		syncDiscs();
+		syncTokens();
 		loop();
 	}
 
@@ -524,9 +577,16 @@
 	}
 
 	$effect(() => {
-		init();
+		// `host` is the ONLY thing that should rebuild the scene. `init()` reaches
+		// `placeCamera()`, which reads yaw/pitch — so without untrack this effect tracked
+		// them, and every drag tore the whole scene down and rebuilt it. The rebuilt tokens
+		// start hidden and the sync effect had no reason to re-run, so they vanished for
+		// good the first time you rotated the board.
+		const el = host;
+		if (!el) return;
+		untrack(() => init());
 		const ro = new ResizeObserver(() => fitCamera());
-		if (host) ro.observe(host);
+		ro.observe(el);
 		return () => {
 			disposed = true;
 			cancelAnimationFrame(raf);

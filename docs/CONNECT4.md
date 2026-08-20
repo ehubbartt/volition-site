@@ -199,8 +199,21 @@ Three things here are easy to get wrong, and all three were:
   with no effects. A numeric default ships HTML with an empty board and flashes it full on
   hydration.
 
-Hovering a piece names the drop that claimed it, the boss it came from, who got it, and
-whether it arrived from Dink or by hand.
+**Crediting is optimistic.** The piece drops the instant you click, derived on the client
+(gravity is a pure function of the pieces), and the server's answer replaces it when it
+arrives. The round trip is a couple of seconds — long enough that waiting for it made the
+board look broken, and made the fall animation appear at random ages after the click.
+
+Hovering anything on the board — a placed piece or a floating objective — raises one card
+(`TileHoverCard.svelte`), shared by the flat and 3D views so they can never describe a tile
+differently. It names the drop, the boss, the hours to obtain, who claimed it and whether it
+came from Dink or by hand, and carries **wiki links** for the item and the boss.
+
+> The card has to survive the pointer leaving the tile to reach those links, and that needs
+> a FLAG checked when the hide timer fires — not a cancel. Pointer events are dispatched
+> before their compatibility mouse events, so the card's `pointerenter` arrives *before* the
+> tile's `mouseleave`: a cancel is simply undone by the schedule that follows it, and the
+> card hides exactly as you reach the links.
 
 ### The 3D board
 
@@ -222,9 +235,23 @@ never disagree about the state of the game.
 
 Hover **raycasts a single invisible plane** for board cells rather than 250 instances — the
 hit maps straight back to a column and row, which is both cheaper and exact. The coins are
-raycast directly, since there are only 25 and they need exact hits. Dragging rotates the
-board within a deliberately narrow range; this is a board you read, not a model you inspect,
-and a drag that ends over a coin does not also select it.
+raycast directly, since there are only 25 and they need exact hits.
+
+It opens **straight on** — reading 250 cells at an angle is worse than reading them square —
+and dragging gives a small parallax tilt. A drag that ends over a coin does not also select
+it.
+
+Two things about that tilt, both learned the hard way:
+
+- **The camera fit has to follow the angle.** A fixed straight-on fit is wrong the moment
+  you rotate, and the coins sit at the very top of the scene, so they were the first thing
+  pushed out of frame — it looked like the board had eaten them. `requiredDistance()`
+  projects the scene's corners and pushes the camera back until nothing overflows, which is
+  correct at any angle and converges in two or three passes.
+- **Rotating must not rebuild the scene.** `init()` reaches `placeCamera()`, which reads
+  yaw/pitch, so the mount effect *tracked* them: every drag tore the scene down and rebuilt
+  it, and the rebuilt coins start hidden with nothing left to re-show them. The mount effect
+  now `untrack`s its body and depends only on the host element.
 
 It reuses the card game's capability probes (`$lib/cards/glCapabilities`): no WebGL says so
 and points at the flat board, CPU-rendered WebGL warns that it will be slow, and reduced

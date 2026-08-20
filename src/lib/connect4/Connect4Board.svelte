@@ -19,8 +19,7 @@
 	// the page play a run of claims into place (see playback.svelte.ts) rather than swapping
 	// the whole board at once.
 	import TileRail from './TileRail.svelte';
-	import WikiImage from '$lib/WikiImage.svelte';
-	import { itemImageUrl } from '$lib/wikiImage';
+	import TileHoverCard, { type CardInfo } from './TileHoverCard.svelte';
 	import { COLS, ROWS, cellId, columnLabel, type LiveTile, type Piece } from './rules';
 
 	let {
@@ -62,25 +61,77 @@
 	const cols = $derived(Array.from({ length: COLS }, (_, i) => i));
 	const colFull = $derived(cols.map((c) => shown.filter((p) => p.col === c).length >= ROWS));
 
-	// Hover card. Anchored from the cell's own rect so it reads next to the piece rather
-	// than in a panel somewhere below a 250-cell board.
-	let hovered = $state<{ piece: Piece; x: number; y: number } | null>(null);
-	function enter(e: MouseEvent | FocusEvent, piece: Piece | undefined) {
-		if (!piece) return;
-		const el = e.currentTarget as HTMLElement;
-		const r = el.getBoundingClientRect();
-		hovered = { piece, x: r.left + r.width / 2, y: r.top };
+	// Hover card, for BOTH the objectives on the rail and the pieces on the board.
+	// Anchored from the element's own rect so it reads next to the thing you pointed at
+	// rather than in a panel somewhere below a 250-cell board.
+	//
+	// It carries wiki links, so it must survive the pointer leaving the tile on its way to
+	// the card: hiding is deferred a beat, and the card cancels that when entered.
+	let hovered = $state<CardInfo | null>(null);
+	let hideTimer: ReturnType<typeof setTimeout> | null = null;
+	// Whether the pointer is on the card itself. This has to be a FLAG checked when the
+	// timer fires, not a cancel: pointer events are dispatched before their compatibility
+	// mouse events, so the card's pointerenter arrives BEFORE the tile's mouseleave — a
+	// cancel would be undone by the schedule that follows it, and the card always hid just
+	// as you reached the links.
+	let overCard = false;
+	function show(info: CardInfo) {
+		if (hideTimer) clearTimeout(hideTimer);
+		hovered = info;
 	}
-	const leave = () => (hovered = null);
+	function leave() {
+		if (hideTimer) clearTimeout(hideTimer);
+		hideTimer = setTimeout(() => {
+			if (!overCard) hovered = null;
+		}, 260);
+	}
+	const keep = () => {
+		overCard = true;
+		if (hideTimer) clearTimeout(hideTimer);
+	};
+	const release = () => {
+		overCard = false;
+		leave();
+	};
 
 	const claimedVia = (p: Piece) =>
 		p.drop_key?.startsWith('manual:') ? 'credited by hand' : p.drop_key?.startsWith('test-') ? 'simulated' : 'from a Dink drop';
+
+	function enter(e: MouseEvent | FocusEvent, piece: Piece | undefined) {
+		if (!piece) return;
+		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		show({
+			kind: 'piece',
+			itemName: piece.item_name ?? 'Unknown drop',
+			source: piece.source,
+			where: `${columnLabel(piece.col)}${piece.row + 1}`,
+			sideName: sideNames[piece.side - 1] ?? `side ${piece.side}`,
+			sideColor: sideColors[piece.side - 1],
+			byRsn: piece.by_rsn,
+			via: claimedVia(piece),
+			x: r.left + r.width / 2,
+			y: r.top
+		});
+	}
+
+	function railHover(info: { slot: LiveTile; x: number; y: number } | null) {
+		if (!info) return leave();
+		show({
+			kind: 'tile',
+			itemName: info.slot.tile.item_name,
+			source: info.slot.tile.source,
+			ehb: info.slot.tile.ehb,
+			where: `column ${columnLabel(info.slot.col)}`,
+			x: info.x,
+			y: info.y
+		});
+	}
 </script>
 
 <svelte:window onscroll={leave} />
 
 <div class="wrap" style="--n: {COLS}; --rows: {ROWS};">
-	<TileRail {live} {selected} {onselect} />
+	<TileRail {live} {selected} {onselect} onhover={railHover} />
 
 	<div class="collabels" aria-hidden="true">
 		{#each cols as c (c)}<span class:full={colFull[c]}>{columnLabel(c)}</span>{/each}
@@ -116,21 +167,7 @@
 </div>
 
 {#if hovered}
-	{@const p = hovered.piece}
-	<div class="hovercard" style="left: {hovered.x}px; top: {hovered.y}px;" role="tooltip">
-		<div class="hc-head" style="--c: {sideColors[p.side - 1] ?? '#888'}">
-			<WikiImage src={itemImageUrl(p.item_name ?? '')} alt="" size={34} />
-			<div class="hc-name">
-				<strong>{p.item_name ?? 'Unknown drop'}</strong>
-				<span class="hc-sub">{columnLabel(p.col)}{p.row + 1} · {sideNames[p.side - 1] ?? `side ${p.side}`}</span>
-			</div>
-		</div>
-		<div class="hc-meta">
-			{#if p.source}<div>from <strong>{p.source}</strong></div>{/if}
-			{#if p.by_rsn}<div>by <strong>{p.by_rsn}</strong></div>{/if}
-			<div class="hc-via">{claimedVia(p)}</div>
-		</div>
-	</div>
+	<TileHoverCard info={hovered} onkeep={keep} onrelease={release} />
 {/if}
 
 <style>
@@ -283,49 +320,6 @@
 					0 0 16px 5px var(--disc);
 			}
 		}
-	}
-
-	/* ── the hover card ───────────────────────────────────────────────────── */
-	.hovercard {
-		position: fixed;
-		z-index: 50;
-		transform: translate(-50%, calc(-100% - 10px));
-		pointer-events: none;
-		min-width: 12rem;
-		max-width: 18rem;
-		padding: 0.5rem 0.6rem;
-		background: var(--surface);
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius);
-		box-shadow: var(--shadow-card);
-	}
-	.hc-head {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		border-left: 3px solid var(--c);
-		padding-left: 0.4rem;
-	}
-	.hc-name {
-		display: grid;
-		min-width: 0;
-	}
-	.hc-name strong {
-		color: var(--heading);
-		font-size: 0.9rem;
-		line-height: 1.2;
-	}
-	.hc-sub,
-	.hc-meta {
-		font-size: 0.75rem;
-		color: var(--muted);
-	}
-	.hc-meta {
-		margin-top: 0.35rem;
-	}
-	.hc-via {
-		opacity: 0.75;
-		font-style: italic;
 	}
 
 	@media (max-width: 720px) {

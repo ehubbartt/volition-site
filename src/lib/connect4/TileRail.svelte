@@ -13,12 +13,21 @@
 	let {
 		live = [],
 		selected = null,
-		onselect
+		onselect,
+		onhover
 	}: {
 		live: (LiveTile | null)[];
 		selected?: number | null;
 		onselect?: (col: number) => void;
+		/** Reports the pointed-at objective (and where it is) so the board can card it. */
+		onhover?: (info: { slot: LiveTile; x: number; y: number } | null) => void;
 	} = $props();
+
+	function report(e: MouseEvent | FocusEvent, slot: LiveTile | null) {
+		if (!slot) return onhover?.(null);
+		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		onhover?.({ slot, x: r.left + r.width / 2, y: r.top });
+	}
 </script>
 
 <div class="rail">
@@ -31,6 +40,10 @@
 			title={slot ? `${columnLabel(col)} — ${slot.tile.item_name}${slot.tile.source ? ` (${slot.tile.source})` : ''}` : `${columnLabel(col)} — column full`}
 			aria-label={slot ? `Column ${columnLabel(col)}: ${slot.tile.item_name}` : `Column ${columnLabel(col)} is full`}
 			onclick={() => onselect?.(col)}
+			onmouseenter={(e) => report(e, slot)}
+			onfocus={(e) => report(e, slot)}
+			onmouseleave={() => onhover?.(null)}
+			onblur={() => onhover?.(null)}
 		>
 			{#if slot}
 				<span class="disc">
