@@ -16,6 +16,7 @@ import {
 	effectiveGearCap,
 	CA_MAX_POINTS
 } from './rankScoring';
+import { getRankOverride, resolveRank, hasEffect, type RankOverride } from './rankOverrides';
 import type { RankValue } from '$lib/ranks';
 import { isCategoryComplete, earnedSignatureTier } from '$lib/rankSignature';
 
@@ -142,7 +143,7 @@ const SIM_ROW_COLUMNS =
 // Build the full per-section breakdown the /me Rank tab shows, recomputing scores
 // from the cached row with the CURRENT config so it stays in sync as the formula is
 // tuned. Pairs each weighted component with its raw input + cap for "x / cap" display.
-function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
+function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig, override?: RankOverride | null) {
 	const scores = computeScores(
 		{
 			ehb: row.ehb,
@@ -204,7 +205,14 @@ function buildRankBreakdown(row: RankSimRow, config: RankScoringConfig) {
 		: 1;
 
 	return {
-		rank: determineProjectedRank(scores.composite, config) as RankValue,
+		// A staff rank pin beats the composite here too, so the badge on the profile matches
+		// the rank the member actually holds in Discord (rankOverrides.ts). The rest of the
+		// breakdown keeps showing the real underlying numbers.
+		rank: resolveRank(determineProjectedRank(scores.composite, config) as RankValue, override),
+		// Whether a staff adjustment is in play at all — the panel says so rather than
+		// leaving an unexplainable badge next to a composite that doesn't produce it.
+		adjusted: hasEffect(override),
+		rankPinned: override?.rank_override != null,
 		composite: scores.composite,
 		nextRank: (nextTier?.womRole ?? null) as RankValue | null,
 		nextThreshold: nextTier?.scoreMin ?? null,
@@ -236,8 +244,9 @@ export async function loadRankBreakdown(rsn: string | null): Promise<{
 	error: string | null;
 }> {
 	if (!rsn) return { breakdown: null, error: null };
-	const [config, { data: simRows, error: simErr }] = await Promise.all([
+	const [config, override, { data: simRows, error: simErr }] = await Promise.all([
 		getRankConfig(),
+		getRankOverride(rsn),
 		db()
 			.from('vs_rank_sim')
 			.select(SIM_ROW_COLUMNS)
@@ -251,7 +260,7 @@ export async function loadRankBreakdown(rsn: string | null): Promise<{
 		return { breakdown: null, error: detail };
 	}
 	const simRow = simRows?.[0];
-	return { breakdown: simRow ? buildRankBreakdown(simRow as RankSimRow, config) : null, error: null };
+	return { breakdown: simRow ? buildRankBreakdown(simRow as RankSimRow, config, override) : null, error: null };
 }
 
 export async function buildMeData(user: SessionUser) {

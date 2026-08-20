@@ -9,7 +9,8 @@
 	import { retryImage } from '$lib/imageRetry';
 	import { formatEhb } from '$lib/ehb';
 	import { SIGNATURE_TIERS, earnedSignatureTier, nextSignatureTier } from '$lib/rankSignature';
-	import { fly } from 'svelte/transition';
+	import { fly, slide } from 'svelte/transition';
+	import { enhance } from '$app/forms';
 
 	// Shared Rank tab body for /me and /u/[rsn]: rank badge + composite, progress to
 	// the next rank, the weighted component breakdown, gear pieces, and combat
@@ -62,6 +63,11 @@
 		wikisyncAvailable: boolean;
 		signature: SignatureView;
 		fetchedAt: string | null;
+		// A staff member adjusted this player's scoring by hand (docs/RANKS.md, manual
+		// adjustments). Said out loud so a rank the visible numbers don't produce never
+		// looks like a bug — `rankPinned` is the strongest form, a rank set outright.
+		adjusted?: boolean;
+		rankPinned?: boolean;
 	}
 	// Signature ranks: how many whole categories are maxed + which tier that earns.
 	interface SignatureView {
@@ -115,6 +121,34 @@
 	}
 	type AdviceResponse = RankAdvice | { available: false; reason: string };
 
+	// --- Admin in-place editing (staff adjustments, docs/RANKS.md) -------------
+	interface OverrideView {
+		rank_override: string | null;
+		ca_tier_override: string | null;
+		gear_points_bonus: number;
+		ehb_bonus: number;
+		clog_bonus: number;
+		months_bonus: number;
+		total_level_override: number | null;
+		reason: string;
+	}
+	interface GrantedItem {
+		id: number;
+		item_name: string;
+		quantity: number;
+		source: string;
+	}
+	interface AdminEditView {
+		override: OverrideView | null;
+		/** The admin who last adjusted them, for the standing note. */
+		setBy: string | null;
+		caTiers: string[];
+		rankOptions: { value: string; label: string }[];
+		granted: GrantedItem[];
+		/** Lowercased item name → how many the gear table can use (only items above 1). */
+		quantityCaps: Record<string, number>;
+	}
+
 	let {
 		rank,
 		currentRank = null,
@@ -125,7 +159,8 @@
 		actions,
 		status,
 		signaturePref = undefined,
-		signatureActionUrl
+		signatureActionUrl,
+		adminEdit = null
 	}: {
 		rank: RankBreakdownView | null;
 		currentRank?: string | null;
@@ -146,6 +181,11 @@
 		signaturePref?: boolean;
 		/** Form-action URL the header toggle POSTs to (e.g. "?/setSignaturePref"). */
 		signatureActionUrl?: string;
+		/** ADMIN ONLY (/u/[rsn]): turns the panel into an editor. Every score bar, the rank
+		 * badge, and every gear tile gain an edit affordance that POSTs to this page's
+		 * adjust / pinRank / grantItem / revokeGrant actions. Null (the default, and always
+		 * for members) renders the panel exactly as before. See docs/RANKS.md. */
+		adminEdit?: AdminEditView | null;
 	} = $props();
 
 	// --- Rank advisor + rank-ladder reference ---------------------------------
@@ -278,6 +318,82 @@
 	// claimable-but-unowned pieces the claim shortcut (when the page provides onClaim).
 	let infoPiece = $state<{ piece: GearPiece; tierLabel: string } | null>(null);
 
+	// --- Admin editing state ---------------------------------------------------
+	// Which editor is open: a component key, 'rank' for the pin, or null. One at a time —
+	// these are inline panels, so several open at once would push the page around.
+	let editing = $state<string | null>(null);
+	let saving = $state(false);
+	const toggleEdit = (key: string) => (editing = editing === key ? null : key);
+
+	// What each component's editor edits. `tcg` is deliberately absent: the Volition TCG
+	// count comes from the site's own card tables, so it is always exactly knowable and
+	// there is nothing an adjustment could legitimately correct.
+	const EDITABLE: Record<string, { label: string; hint: string; step: string; unit: string }> = {
+		gear: {
+			label: 'Gear points to add',
+			hint: 'Prefer granting the actual item on its tile below when you know what it is — that way the gear grid shows it too.',
+			step: '1',
+			unit: 'points'
+		},
+		ehb: { label: 'EHB to add', hint: 'Added to their efficient hours bossed.', step: '0.1', unit: 'hours' },
+		clog: {
+			label: 'Collection log slots to add',
+			hint: 'Added to their finished-slot count.',
+			step: '1',
+			unit: 'slots'
+		},
+		time: {
+			label: 'Months in clan to add',
+			hint: 'For a join date that reset when they left and came back.',
+			step: '0.5',
+			unit: 'months'
+		},
+		level: {
+			label: 'Total level',
+			hint: 'Replaces the fetched total level outright. Leave blank to use the fetched one.',
+			step: '1',
+			unit: ''
+		}
+	};
+
+	// The value each editor starts on — what's currently adjusted, so opening an editor
+	// shows the live state rather than a blank box.
+	function currentAdjustment(key: string): string {
+		const o = adminEdit?.override;
+		if (!o) return '';
+		if (key === 'ca') return o.ca_tier_override ?? '';
+		if (key === 'gear') return String(o.gear_points_bonus || '');
+		if (key === 'ehb') return String(Number(o.ehb_bonus) || '');
+		if (key === 'clog') return String(o.clog_bonus || '');
+		if (key === 'time') return String(Number(o.months_bonus) || '');
+		if (key === 'level') return o.total_level_override == null ? '' : String(o.total_level_override);
+		if (key === 'rank') return o.rank_override ?? '';
+		return '';
+	}
+	/** Is this component currently carrying an adjustment? Drives the "adjusted" flag. */
+	const isAdjusted = (key: string) => currentAdjustment(key) !== '';
+
+	/** Manual gear credited for a tile's check item, if any (drives the tile's grant editor). */
+	function grantFor(itemName: string | null): GrantedItem | null {
+		if (!itemName || !adminEdit) return null;
+		const key = itemName.toLowerCase();
+		return adminEdit.granted.find((g) => g.item_name.toLowerCase() === key) ?? null;
+	}
+
+	// Shared enhance handler for every editor: close on success, and let the page's own
+	// load refresh the panel behind it so the new score is visible immediately.
+	function editSubmit() {
+		saving = true;
+		return async ({ result, update }: { result: { type: string }; update: (o?: { reset?: boolean }) => Promise<void> }) => {
+			saving = false;
+			await update({ reset: false });
+			if (result.type === 'success') {
+				editing = null;
+				infoPiece = null;
+			}
+		};
+	}
+
 	// ⓘ explainer per component: where the number comes from + how it's scored.
 	// Keys match rankScoring's ComponentKey.
 	const COMP_TIPS: Record<string, string> = {
@@ -396,9 +512,54 @@
 					</div>
 				</div>
 			{/key}
+			<!-- Admins edit the rank where they read it: click the badge's pencil to pin it. -->
+			{#if adminEdit}
+				<button
+					type="button"
+					class="edit-btn"
+					class:on={editing === 'rank'}
+					class:active={isAdjusted('rank')}
+					aria-expanded={editing === 'rank'}
+					title={isAdjusted('rank') ? 'This rank is pinned by staff — edit' : 'Pin this rank by hand'}
+					onclick={() => toggleEdit('rank')}
+				>
+					{isAdjusted('rank') ? '📌 pinned' : '✎ pin rank'}
+				</button>
+			{/if}
 		</div>
 		{#if actions}{@render actions()}{/if}
 	</div>
+
+	{#if adminEdit && editing === 'rank'}
+		<form
+			method="POST"
+			action="?/pinRank"
+			class="editor"
+			transition:slide={{ duration: 150 }}
+			use:enhance={editSubmit}
+		>
+			<p class="editor-hint">
+				A hard override: this rank is what they get, whatever the score below says, until it's
+				removed. Blunt — adjust the individual scores first if one of them is simply wrong.
+			</p>
+			<div class="editor-row">
+				<label>
+					Rank
+					<select name="value">
+						<option value="">No pin — score them normally</option>
+						{#each adminEdit.rankOptions as r (r.value)}
+							<option value={r.value} selected={adminEdit.override?.rank_override === r.value}>{r.label}</option>
+						{/each}
+					</select>
+				</label>
+				<label class="grow">
+					Reason <span class="lbl-note">— covers every adjustment on this member</span>
+					<input type="text" name="reason" maxlength="300" value={adminEdit.override?.reason ?? ''} placeholder="Why is this being set by hand?" />
+				</label>
+				<button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+			</div>
+		</form>
+	{/if}
 
 	<!-- In-game rank display toggle (self-only, shown only once a signature rank is earned):
 	     Clan ↔ Signature, with an animated slider. What an admin sets in-game via /sync. -->
@@ -476,6 +637,24 @@
 			{#if adviceError}<p class="advise-err">{adviceError}</p>{/if}
 		</div>
 
+		<!-- One line saying the panel is being edited by staff, plus the way out of all of
+		     it at once. Only an admin sees this; the member's own note lives in the footer. -->
+		{#if adminEdit?.override}
+			<form method="POST" action="?/clearAdjustments" class="adjusted-note" use:enhance={editSubmit}>
+				<span>
+					<strong>Staff-adjusted{adminEdit.setBy ? ` by ${adminEdit.setBy}` : ''}.</strong>
+					{adminEdit.override.reason}
+				</span>
+				<button
+					type="submit"
+					disabled={saving}
+					onclick={(e) => {
+						if (!confirm('Remove every staff adjustment on this member and re-score them on the raw data?')) e.preventDefault();
+					}}>Remove all</button
+				>
+			</form>
+		{/if}
+
 		<div class="comps">
 			{#each rank.components as c (c.key)}
 				{@const a = adviceOn ? adviceByKey.get(c.key) : undefined}
@@ -487,7 +666,25 @@
 								<InfoTip tip={COMP_TIPS[c.key]} label="How {c.label.toLowerCase()} is scored" />
 							{/if}
 						</span>
-						<span class="comp-weight">{pct(c.weight)} of score</span>
+						<span class="comp-weight">
+							{pct(c.weight)} of score
+							<!-- Admin: adjust THIS component, in place. Only the components an
+							     adjustment can legitimately correct get a control — the TCG count
+							     comes from the site's own card tables, so it's always exact. -->
+							{#if adminEdit && (c.key === 'ca' || EDITABLE[c.key])}
+								<button
+									type="button"
+									class="edit-btn"
+									class:on={editing === c.key}
+									class:active={isAdjusted(c.key)}
+									aria-expanded={editing === c.key}
+									title="Adjust {c.label.toLowerCase()} by hand"
+									onclick={() => toggleEdit(c.key)}
+								>
+									{isAdjusted(c.key) ? '✎ adjusted' : '✎'}
+								</button>
+							{/if}
+						</span>
 					</div>
 					<div class="osrs-bar">
 						<span class="osrs-bar-fill" style="width:{pct(c.normalized)}"></span>
@@ -504,6 +701,61 @@
 						<span class="comp-raw">{num(c.raw)} / {num(c.cap)}</span>
 						<span class="comp-norm">{pct(c.normalized)}</span>
 					</div>
+
+					{#if adminEdit && editing === c.key}
+						<form
+							method="POST"
+							action="?/adjust"
+							class="editor"
+							transition:slide={{ duration: 150 }}
+							use:enhance={editSubmit}
+						>
+							<input type="hidden" name="field" value={c.key} />
+							{#if c.key === 'ca'}
+								<p class="editor-hint">
+									Treats them as having banked every tier reward up to this one — for a group
+									ironman who holds the tier in game without every task done. Only ever raises
+									the score.
+								</p>
+								<div class="editor-row">
+									<label>
+										Combat achievement tier
+										<select name="value">
+											<option value="">Score from WikiSync (default)</option>
+											{#each adminEdit.caTiers as t (t)}
+												<option value={t} selected={adminEdit.override?.ca_tier_override === t}>{tierLabel(t)}</option>
+											{/each}
+										</select>
+									</label>
+									<label class="grow">
+										Reason <span class="lbl-note">— covers every adjustment on this member</span>
+										<input type="text" name="reason" maxlength="300" value={adminEdit.override?.reason ?? ''} placeholder="Why is this being set by hand?" />
+									</label>
+									<button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+								</div>
+							{:else}
+								{@const e = EDITABLE[c.key]}
+								<p class="editor-hint">{e.hint}</p>
+								<div class="editor-row">
+									<label>
+										{e.label}
+										<input
+											type="number"
+											name="value"
+											step={e.step}
+											value={currentAdjustment(c.key)}
+											placeholder={c.key === 'level' ? 'Use the fetched level' : '0'}
+										/>
+									</label>
+									<label class="grow">
+										Reason <span class="lbl-note">— covers every adjustment on this member</span>
+										<input type="text" name="reason" maxlength="300" value={adminEdit.override?.reason ?? ''} placeholder="Why is this being set by hand?" />
+									</label>
+									<button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+								</div>
+							{/if}
+						</form>
+					{/if}
 					{#if a && !a.atCap && a.advice}
 						<p class="comp-advice" style="border-left-color:{COMP_COLOR[c.key]}">
 							{a.advice}
@@ -709,6 +961,12 @@
 					.filter(Boolean)
 					.join(', ')}) — re-check after syncing to improve accuracy.
 			{/if}
+			{#if rank.rankPinned}
+				This rank was set by staff, so it won't move with the score below.
+			{:else if rank.adjusted}
+				Staff have adjusted this player's scoring to account for something the tracked data
+				can't show.
+			{/if}
 		</p>
 	{:else if emptyText}
 		<p class="muted small">{emptyText}</p>
@@ -782,6 +1040,58 @@
 			>
 				Claim this item with proof
 			</button>
+		{/if}
+
+		<!-- Admin: credit this exact item to the member, from the tile itself. The count
+		     matters — several gear entries are quantity checks, so four Zenyte shards is a
+		     different credit from one. -->
+		{#if adminEdit}
+			{@const item = p.checkItem ?? p.iconItem ?? p.name}
+			{@const granted = grantFor(item)}
+			<div class="modal-admin">
+				{#if granted}
+					<p class="modal-admin-head">
+						Credited by hand:
+						<strong>{granted.item_name}{granted.quantity > 1 ? ` ×${granted.quantity}` : ''}</strong>
+						<span class="muted">({granted.source === 'admin' ? 'staff grant' : 'approved claim'})</span>
+					</p>
+				{/if}
+				{#if !granted || granted.source === 'admin'}
+					{@const cap = adminEdit.quantityCaps[item.toLowerCase()] ?? 1}
+					<form method="POST" action="?/grantItem" class="modal-grant" use:enhance={editSubmit}>
+						<input type="hidden" name="item_name" value={item} />
+						<label>
+							Count
+							<input type="number" name="quantity" min="1" max={cap} step="1" value={granted?.quantity ?? 1} />
+							<!-- Only worth saying for the entries that actually count more than one
+							     (Zenyte shard 4, Tormented synapse 3); everywhere else it's noise. -->
+							{#if cap > 1}<small class="cap-hint">up to {cap} count toward the gear table</small>{/if}
+						</label>
+						<label class="grow">
+							Reason
+							<input
+								type="text"
+								name="reason"
+								required
+								maxlength="300"
+								placeholder="e.g. dropped before the collection log existed"
+							/>
+						</label>
+						<button type="submit" disabled={saving}>{granted ? 'Update' : 'Grant'}</button>
+					</form>
+					{#if granted}
+						<form method="POST" action="?/revokeGrant" use:enhance={editSubmit}>
+							<input type="hidden" name="id" value={granted.id} />
+							<button class="modal-revoke" type="submit" disabled={saving}>Revoke this grant</button>
+						</form>
+					{/if}
+				{:else}
+					<p class="muted small">
+						This came from a claim the member submitted — review it under Admin → Ranks → Gear
+						Claims.
+					</p>
+				{/if}
+			</div>
 		{/if}
 	</ItemInfoModal>
 {/if}
@@ -1245,6 +1555,158 @@
 	.modal-claim {
 		width: 100%;
 		margin-top: 0.5rem;
+	}
+
+	/* --- Admin in-place editing (only rendered when adminEdit is passed) ------- */
+	/* The pencil that opens each editor. Deliberately quiet until something IS
+	   adjusted, so an admin reading a profile sees the member's data, not a toolbar. */
+	.edit-btn {
+		margin-left: 0.4rem;
+		padding: 0.05rem 0.35rem;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		background: none;
+		color: var(--muted);
+		font: inherit;
+		font-size: 0.72rem;
+		cursor: pointer;
+		vertical-align: middle;
+	}
+	.edit-btn:hover,
+	.edit-btn.on {
+		color: var(--accent);
+		border-color: var(--accent);
+	}
+	.edit-btn.active {
+		color: #d9a441;
+		border-color: #d9a441;
+	}
+	.editor {
+		margin: 0.5rem 0 0.75rem;
+		padding: 0.7rem 0.8rem;
+		border: 1px solid var(--accent);
+		border-radius: 6px;
+		background: var(--surface);
+	}
+	.editor-hint {
+		margin: 0 0 0.6rem;
+		font-size: 0.78rem;
+		line-height: 1.4;
+		color: var(--muted);
+		max-width: 68ch;
+	}
+	.editor-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.6rem;
+		align-items: flex-end;
+	}
+	.editor-row label,
+	.modal-grant label {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		font-size: 0.78rem;
+		color: var(--muted);
+	}
+	.editor-row .grow,
+	.modal-grant .grow {
+		flex: 1;
+		min-width: 12rem;
+	}
+	.editor-row input,
+	.editor-row select,
+	.modal-grant input {
+		padding: 0.35rem 0.5rem;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		background: var(--bg);
+		color: var(--text);
+		font: inherit;
+		font-size: 0.85rem;
+	}
+	.editor-row button,
+	.modal-grant button {
+		padding: 0.38rem 0.9rem;
+		border: 1px solid var(--accent);
+		border-radius: 4px;
+		background: none;
+		color: var(--accent);
+		font: inherit;
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+	.editor-row button:disabled,
+	.modal-grant button:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+	/* The standing "this member is adjusted" line above the score bars. */
+	.adjusted-note {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.6rem;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 0.75rem;
+		padding: 0.5rem 0.7rem;
+		border: 1px solid #d9a441;
+		border-radius: 6px;
+		font-size: 0.82rem;
+		color: var(--muted);
+	}
+	.adjusted-note strong {
+		color: #d9a441;
+	}
+	.adjusted-note button {
+		padding: 0.25rem 0.6rem;
+		border: 1px solid var(--danger, #d9534f);
+		border-radius: 4px;
+		background: none;
+		color: var(--danger, #d9534f);
+		font: inherit;
+		font-size: 0.78rem;
+		cursor: pointer;
+	}
+	/* The grant controls inside a gear tile's modal. */
+	.modal-admin {
+		margin-top: 0.6rem;
+		padding-top: 0.6rem;
+		border-top: 1px solid var(--border);
+	}
+	.modal-admin-head {
+		margin: 0 0 0.5rem;
+		font-size: 0.82rem;
+	}
+	.modal-grant {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		align-items: flex-end;
+	}
+	.modal-grant input[type='number'] {
+		width: 4.5rem;
+	}
+	/* The scope note beside "Reason" — one reason is stored per member, not per field. */
+	.lbl-note {
+		font-weight: normal;
+		opacity: 0.75;
+	}
+	.cap-hint {
+		font-size: 0.7rem;
+		color: var(--muted);
+		white-space: nowrap;
+	}
+	.modal-revoke {
+		margin-top: 0.5rem;
+		padding: 0.25rem 0.6rem;
+		border: 1px solid var(--danger, #d9534f);
+		border-radius: 4px;
+		background: none;
+		color: var(--danger, #d9534f);
+		font: inherit;
+		font-size: 0.78rem;
+		cursor: pointer;
 	}
 	.modal-note {
 		margin: 0.2rem 0 0.5rem;

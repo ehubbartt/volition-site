@@ -10,6 +10,7 @@
 
 import { db } from './db';
 import { uploadProof } from './submissions';
+import { calculateGearPoints, type ManualGearItem } from './rankScoring';
 import gearScoring from './rankScoring/gearScoring.json';
 
 interface GearCheck {
@@ -67,13 +68,58 @@ export function claimableGearItems(): ClaimableGearItem[] {
 	return (claimable ??= flattenGear(true));
 }
 
+// EVERY gear-table check item. Members may only submit the `claimable: true` subset above,
+// but an ADMIN may grant any of these outright from /admin/ranks/adjustments — for items
+// that are trackable in principle yet unprovable in this member's case (drops that predate
+// the in-game collection log, an account restored from a backup, …).
+let allGear: ClaimableGearItem[] | null = null;
+export function allGearItems(): ClaimableGearItem[] {
+	return (allGear ??= flattenGear(false));
+}
+
 // Display lookup over the FULL gear table (every check item, claimable or not), so the admin
 // review queue can still resolve entry/tier/points for older claims of items that are no
 // longer manually claimable.
 let allGearByItem: Map<string, ClaimableGearItem> | null = null;
 function gearItemMeta(name: string): ClaimableGearItem | undefined {
-	allGearByItem ??= new Map(flattenGear(false).map((c) => [c.item.toLowerCase(), c]));
+	allGearByItem ??= new Map(allGearItems().map((c) => [c.item.toLowerCase(), c]));
 	return allGearByItem.get(name.toLowerCase());
+}
+
+// Every item the gear table asks for MORE THAN ONE of, with that ceiling — Zenyte shard 4,
+// Tormented synapse 3, and so on. Sent to the grant control so the count field can cap
+// itself and say what the ceiling is; a grant of "4 shards" is the case the count exists
+// for, and an admin shouldn't have to know the gear table by heart to get it right.
+// Items absent from the map are plain has-it/hasn't checks (max 1).
+let quantityCaps: Record<string, number> | null = null;
+export function itemQuantityCaps(): Record<string, number> {
+	if (quantityCaps) return quantityCaps;
+	const caps: Record<string, number> = {};
+	for (const entry of (gearScoring as { gear: GearEntry[] }).gear) {
+		for (const check of entry.items) {
+			const qty = check.quantity || 1;
+			if (qty <= 1) continue;
+			for (const n of Array.isArray(check.name) ? check.name : [check.name]) {
+				const key = n.toLowerCase();
+				caps[key] = Math.max(caps[key] ?? 1, qty);
+			}
+		}
+	}
+	return (quantityCaps = caps);
+}
+
+// The highest quantity any gear entry asks for of this item — the Zenyte shard entries top
+// out at 4, so granting more than that buys nothing and grantGearItem clamps to it.
+export function maxUsefulQuantity(itemName: string): number {
+	const key = itemName.toLowerCase();
+	let max = 1;
+	for (const entry of (gearScoring as { gear: GearEntry[] }).gear) {
+		for (const check of entry.items) {
+			const names = Array.isArray(check.name) ? check.name : [check.name];
+			if (names.some((n) => n.toLowerCase() === key)) max = Math.max(max, check.quantity || 1);
+		}
+	}
+	return max;
 }
 
 export interface GearClaim {
@@ -86,9 +132,14 @@ export interface GearClaim {
 	review_note: string | null;
 	submitted_at: string;
 	reviewed_at: string | null;
+	/** 'member' = submitted through the /me claim modal; 'admin' = granted outright. */
+	source: 'member' | 'admin';
+	/** How many of the item are credited — admin grants may exceed 1 (four Zenyte shards). */
+	quantity: number;
 }
 
-const CLAIM_COLS = 'id, user_id, item_name, proof_urls, note, status, review_note, submitted_at, reviewed_at';
+const CLAIM_COLS =
+	'id, user_id, item_name, proof_urls, note, status, review_note, submitted_at, reviewed_at, source, quantity';
 
 // The member's claims, newest first (drives the /me Rank tab list + duplicate guard).
 export async function listGearClaims(userId: string): Promise<GearClaim[]> {
@@ -100,37 +151,56 @@ export async function listGearClaims(userId: string): Promise<GearClaim[]> {
 	return (data ?? []) as GearClaim[];
 }
 
-// APPROVED claim item names for one member — merged into calculateGearPoints.
-export async function getApprovedGearNames(userId: string | null): Promise<string[]> {
+// Collapse rows into one credit per item, keeping the LARGEST count — two grants of the
+// same item describe the same shards, so they must not stack into a bigger number than
+// either one claimed.
+function mergeCounts(rows: { item_name: string; quantity?: number | null }[]): ManualGearItem[] {
+	const best = new Map<string, ManualGearItem>();
+	for (const r of rows) {
+		const key = r.item_name.toLowerCase();
+		const count = Math.max(1, Math.floor(r.quantity ?? 1));
+		const cur = best.get(key);
+		if (!cur || count > (cur.count ?? 1)) best.set(key, { name: r.item_name, count });
+	}
+	return [...best.values()];
+}
+
+// APPROVED manual gear (member claims + admin grants) for one member — merged into
+// calculateGearPoints.
+export async function getApprovedGearItems(userId: string | null): Promise<ManualGearItem[]> {
 	// A roster member with no site account (mass-update scores them by RSN) has no claims.
 	if (!userId) return [];
 	const { data } = await db()
 		.from('vs_rank_item_claims')
-		.select('item_name')
+		.select('item_name, quantity')
 		.eq('user_id', userId)
 		.eq('status', 'approved');
-	return [...new Set(((data ?? []) as { item_name: string }[]).map((r) => r.item_name))];
+	return mergeCounts((data ?? []) as { item_name: string; quantity: number | null }[]);
 }
 
-// APPROVED claim names for the whole clan, keyed by lowercase RSN (the rank-sim
+// APPROVED manual gear for the whole clan, keyed by lowercase RSN (the rank-sim
 // refresh iterates WOM roster RSNs, not user ids).
-export async function getApprovedGearNamesByRsn(): Promise<Map<string, string[]>> {
+export async function getApprovedGearItemsByRsn(): Promise<Map<string, ManualGearItem[]>> {
 	const { data } = await db()
 		.from('vs_rank_item_claims')
 		// Disambiguate the embed: this table has TWO FKs to vs_users (user_id +
 		// reviewed_by), so a bare vs_users(...) is ambiguous and PostgREST errors.
-		.select('item_name, vs_users!user_id(rsn)')
+		.select('item_name, quantity, vs_users!user_id(rsn)')
 		.eq('status', 'approved');
-	const out = new Map<string, string[]>();
+	const grouped = new Map<string, { item_name: string; quantity: number | null }[]>();
 	// The vs_users embed is many-to-one — an object at runtime despite the array typing.
-	for (const r of (data ?? []) as unknown as { item_name: string; vs_users: { rsn: string | null } | null }[]) {
+	for (const r of (data ?? []) as unknown as {
+		item_name: string;
+		quantity: number | null;
+		vs_users: { rsn: string | null } | null;
+	}[]) {
 		const rsn = r.vs_users?.rsn?.toLowerCase();
 		if (!rsn) continue;
-		const list = out.get(rsn) ?? [];
-		if (!list.includes(r.item_name)) list.push(r.item_name);
-		out.set(rsn, list);
+		const list = grouped.get(rsn) ?? [];
+		list.push(r);
+		grouped.set(rsn, list);
 	}
-	return out;
+	return new Map([...grouped].map(([rsn, rows]) => [rsn, mergeCounts(rows)]));
 }
 
 export type SubmitClaimResult =
@@ -172,10 +242,133 @@ export async function submitGearClaim(
 		user_id: userId,
 		item_name: canonical.item, // canonical casing, so scoring's lowercase match always hits
 		proof_urls: proofUrls,
-		note: note || null
+		note: note || null,
+		source: 'member',
+		quantity: 1
 	});
 	if (error) return { ok: false, reason: 'error', error: error.message };
 	return { ok: true };
+}
+
+// --- Admin grants (the exception channel) -----------------------------------
+// An admin credits a member with a gear item outright, over the WHOLE gear table rather
+// than the `claimable: true` subset members may submit — for items that are trackable in
+// principle but unprovable in this member's case (the four Zenyte shards dropped before
+// the in-game collection log existed; an account whose log was lost). Written as an
+// already-APPROVED row so it flows through the exact same scoring path as a reviewed
+// claim, tagged source='admin' so the two never blur together.
+//
+// This is NOT a members-facing channel and must never become one: mass self-granting is
+// the failure mode the review queue exists to prevent. /admin/ranks/adjustments is admin-
+// gated, every write is captured in vs_audit_log, and each grant carries its reason.
+
+export type GrantResult = { ok: true; id: number } | { ok: false; error: string };
+
+export async function grantGearItem(
+	userId: string,
+	itemName: string,
+	quantity: number,
+	reason: string,
+	adminId: string
+): Promise<GrantResult> {
+	const canonical = allGearItems().find((c) => c.item.toLowerCase() === itemName.trim().toLowerCase());
+	if (!canonical) return { ok: false, error: `“${itemName}” is not an item in the gear table.` };
+	if (!reason.trim()) return { ok: false, error: 'A reason is required — this is the record of why it was granted.' };
+
+	// More than the largest quantity any entry asks for scores nothing extra; clamp so the
+	// stored number matches what the member is actually being credited with.
+	const qty = Math.min(Math.max(1, Math.floor(quantity || 1)), maxUsefulQuantity(canonical.item));
+
+	// One live grant per item per member: re-granting replaces the count rather than
+	// stacking a second row that mergeCounts would just collapse anyway.
+	const { data: existing } = await db()
+		.from('vs_rank_item_claims')
+		.select('id')
+		.eq('user_id', userId)
+		.eq('source', 'admin')
+		.ilike('item_name', canonical.item)
+		.eq('status', 'approved')
+		.limit(1);
+
+	const row = {
+		user_id: userId,
+		item_name: canonical.item,
+		proof_urls: [],
+		note: reason.trim(),
+		status: 'approved',
+		source: 'admin',
+		quantity: qty,
+		review_note: reason.trim(),
+		reviewed_by: adminId,
+		reviewed_at: new Date().toISOString()
+	};
+
+	const q = existing?.length
+		? db().from('vs_rank_item_claims').update(row).eq('id', existing[0].id).select('id').single()
+		: db().from('vs_rank_item_claims').insert(row).select('id').single();
+	const { data, error } = await q;
+	if (error) return { ok: false, error: error.message };
+	return { ok: true, id: (data as { id: number }).id };
+}
+
+// Take back an admin grant. Deleted rather than rejected: a grant was never a member
+// submission, so there's no decision history worth keeping on the row — the audit log
+// holds who granted it, who removed it, and when.
+export async function revokeGearGrant(id: number): Promise<{ ok: boolean; error?: string }> {
+	const { error } = await db().from('vs_rank_item_claims').delete().eq('id', id).eq('source', 'admin');
+	return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+export interface GearGrant extends GearClaim {
+	rsn: string | null;
+	discord_username: string | null;
+	entry: string;
+	points: number;
+	/** The admin who granted it (vs_rank_item_claims.reviewed_by), as a display name. */
+	granted_by_name: string | null;
+}
+
+// What a grant of `qty` of one item actually buys, in gear-table terms. Scored rather than
+// looked up, because a quantity grant can complete SEVERAL entries — four Zenyte shards
+// finish all four shard entries, 800 points, where the item-name lookup alone would name
+// only the first and report 200. Entries needing other items too stay partial and so are
+// correctly left out.
+function grantEffect(itemName: string, qty: number): { entry: string; points: number } {
+	const scored = calculateGearPoints(null, [{ name: itemName, count: qty }]);
+	if (scored.matchedItems.length === 0) {
+		const meta = gearItemMeta(itemName);
+		return { entry: meta?.entry ?? itemName, points: 0 };
+	}
+	return {
+		entry: scored.matchedItems.map((m) => m.name).join(', '),
+		points: scored.gearPoints
+	};
+}
+
+// Every live admin grant, newest first — the "what have we credited by hand" list.
+export async function listGearGrants(): Promise<GearGrant[]> {
+	const { data, error } = await db()
+		.from('vs_rank_item_claims')
+		// Both vs_users embeds must be pinned to their FK: this table has two (the member the
+		// grant is for, and the admin who made it), so an unqualified embed is ambiguous and
+		// PostgREST errors out — which is how the review queue silently emptied once before.
+		.select(
+			`${CLAIM_COLS}, vs_users!user_id(rsn, discord_username), granted_by:vs_users!reviewed_by(rsn, discord_username)`
+		)
+		.eq('source', 'admin')
+		.eq('status', 'approved')
+		.order('reviewed_at', { ascending: false })
+		.limit(300);
+	if (error) console.error('[rank-claims] grant list query failed:', error.message);
+	type Named = { rsn: string | null; discord_username: string | null } | null;
+	return ((data ?? []) as unknown as (GearClaim & { vs_users: Named; granted_by: Named })[]).map((r) => ({
+		...r,
+		rsn: r.vs_users?.rsn ?? null,
+		discord_username: r.vs_users?.discord_username ?? null,
+		// An admin's RSN is what other staff know them by; Discord name is the fallback.
+		granted_by_name: r.granted_by ? r.granted_by.rsn || r.granted_by.discord_username : null,
+		...grantEffect(r.item_name, r.quantity)
+	}));
 }
 
 export interface PendingGearClaim extends GearClaim {
@@ -194,6 +387,10 @@ export async function listGearClaimsForReview(): Promise<{ pending: PendingGearC
 		// reviewed_by), so a bare vs_users(...) is ambiguous and PostgREST errors —
 		// which silently emptied the admin review queue. Pin it to the submitter FK.
 		.select(`${CLAIM_COLS}, vs_users!user_id(rsn, discord_username)`)
+		// Member submissions only. Admin grants are already-approved rows written from
+		// /admin/ranks/adjustments; they'd otherwise flood this queue's decided list with
+		// entries nobody reviewed. They're listed on the adjustments page instead.
+		.eq('source', 'member')
 		.order('submitted_at', { ascending: false })
 		.limit(200);
 	if (error) console.error('[rank-claims] review queue query failed:', error.message);

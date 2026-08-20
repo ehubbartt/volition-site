@@ -298,8 +298,13 @@
 					<ul class="claim-list">
 						{#each data.gearClaims as c (c.id)}
 							<li>
-								<span>{c.item_name}</span>
-								<span class="claim-status {c.status}">{c.status}</span>
+								<span>{c.item_name}{c.quantity > 1 ? ` ×${c.quantity}` : ''}</span>
+								<!-- Staff can credit an item outright (docs/RANKS.md, manual adjustments).
+								     Those rows land here already approved, so say where they came from
+								     rather than implying the member submitted them. -->
+								<span class="claim-status {c.status}">
+									{c.source === 'admin' ? 'granted by staff' : c.status}
+								</span>
 								{#if c.status === 'rejected' && c.review_note}
 									<span class="muted small">— {c.review_note}</span>
 								{/if}

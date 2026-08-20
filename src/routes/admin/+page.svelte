@@ -47,7 +47,7 @@
 		{
 			href: '/admin/ranks',
 			title: 'Ranks',
-			desc: 'Gear-claim approval, the rank simulator, and a mass rank re-check — all in one place.',
+			desc: 'Gear-claim approval, the record of manual adjustments, the rank simulator, and a mass rank re-check.',
 			show: data.admin
 		},
 		{

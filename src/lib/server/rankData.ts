@@ -4,7 +4,13 @@
 // a failed source degrades that component to 0 rather than throwing, matching the
 // bot's behaviour (and wom.ts's "return null on outage" style).
 
-import { calculateGearPoints, calculateCAPoints, type RankInputs, type GearPartial } from './rankScoring';
+import {
+	calculateGearPoints,
+	calculateCAPoints,
+	type RankInputs,
+	type GearPartial,
+	type ManualGearItem
+} from './rankScoring';
 import { usesIronmanEhb, computeIronmanEhb } from './rankScoring/ehb';
 import { getJson, getJsonOutcome } from './http';
 import { SKILLS, SKILL_WOM_KEY, type Skill } from '$lib/ehp';
@@ -241,14 +247,15 @@ export function monthsBetween(joinedAt: string | null): number {
 // Fetch every input needed to score ONE player. `roster` (the bulk WOM call) supplies
 // ehb + join date; pass it in when scoring many players so we don't re-fetch the group
 // per player. Missing roster entry → ehb/time default to 0 (non-clan or unsynced).
-// `manualGearNames` = the player's admin-approved gear claims (rankClaims.ts) — items
-// the Temple clog can't prove, merged into the gear calculation as owned.
+// `manualGear` = the player's approved gear claims and admin grants (rankClaims.ts) —
+// items the Temple clog can't prove, merged into the gear calculation as owned, each with
+// the count it's credited at (four Zenyte shards from before the log existed).
 // `accountType` = the member's site account_type; group-ironman accounts have their EHB
 // recomputed on iron rates (rankScoring/ehb.ts) instead of using WOM's value for them.
 export async function fetchPlayerRankInputs(
 	rsn: string,
 	roster?: Record<string, RosterEntry>,
-	manualGearNames?: string[],
+	manualGear?: ManualGearItem[],
 	accountType?: string | null
 ): Promise<PlayerRankData> {
 	const r = roster ?? (await fetchClanRoster());
@@ -265,7 +272,7 @@ export async function fetchPlayerRankInputs(
 
 	const temple = templeRes.status === 'ok' ? templeRes.data : null;
 	const ca = wikiRes.status === 'ok' ? wikiRes.data.caIds : null;
-	const gear = calculateGearPoints(temple?.items, manualGearNames);
+	const gear = calculateGearPoints(temple?.items, manualGear);
 	const caResult = calculateCAPoints(ca);
 	// Iron EHB only overrides when the boss snapshot actually came back; on a WOM outage
 	// we keep WOM's EHB rather than zeroing a GIM's whole EHB component.

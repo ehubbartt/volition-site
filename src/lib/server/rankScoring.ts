@@ -101,19 +101,28 @@ export interface GearPartial {
 	missing: string[];
 }
 
+// A manually-credited gear item (rankClaims.ts): an approved member claim (always
+// count 1) or an admin grant, which carries a COUNT because several gear entries are
+// quantity checks — the four Zenyte Shard entries need 1/2/3/4 shards, so granting a
+// member "4 Zenyte shards" has to say four, not just "owned".
+export interface ManualGearItem {
+	name: string;
+	count?: number;
+}
+
 export function calculateGearPoints(
 	templeItems: TempleItems | null | undefined,
-	// Admin-approved manual gear claims (rankClaims.ts) — item names that count as
-	// owned (count 1) even though the Temple clog can't prove them (obtain method
-	// registers no log slot, or upgraded variants combined outside the log).
-	manualItemNames?: string[]
+	// Manually-credited gear (rankClaims.ts) — items that count as owned even though
+	// the Temple clog can't prove them (the obtain method registers no log slot,
+	// upgraded variants combined outside the log, or drops that predate the log).
+	manualItems?: ManualGearItem[]
 ): {
 	gearPoints: number;
 	matchedItems: { name: string; earned: number; max: number }[];
 	missedItems: string[];
 	partials: GearPartial[];
 } {
-	if (!templeItems && !manualItemNames?.length) {
+	if (!templeItems && !manualItems?.length) {
 		return { gearPoints: 0, matchedItems: [], missedItems: [], partials: [] };
 	}
 
@@ -127,9 +136,13 @@ export function calculateGearPoints(
 			playerItems[key] = Math.max(playerItems[key] || 0, item.count || 1);
 		}
 	}
-	for (const name of manualItemNames ?? []) {
-		const key = name.toLowerCase();
-		playerItems[key] = Math.max(playerItems[key] || 0, 1);
+	// A manual credit takes the HIGHER of the two counts, never the sum: the clog and the
+	// grant describe the same items, so adding them would double-count a member whose log
+	// already shows some of what was granted.
+	for (const manual of manualItems ?? []) {
+		if (!manual?.name) continue;
+		const key = manual.name.toLowerCase();
+		playerItems[key] = Math.max(playerItems[key] || 0, Math.max(1, Math.floor(manual.count ?? 1)));
 	}
 
 	let totalPoints = 0;
@@ -234,7 +247,21 @@ export function getGearCatalog(): GearCatalogEntry[] {
 // --- Combat achievements: tier-completion points from WikiSync task ids ------
 // Mirrors simulateRanks.calculateCAPoints: sum wiki points from completed tasks,
 // then award each FULLY-completed tier's reward (cumulative thresholds).
-const CA_TIER_ORDER = ['easy', 'medium', 'hard', 'elite', 'master', 'grandmaster'];
+export const CA_TIER_ORDER = ['easy', 'medium', 'hard', 'elite', 'master', 'grandmaster'];
+
+// The CA points a member holding `tier` has banked: every tier-completion reward up to
+// and including it. This is the same arithmetic calculateCAPoints does from a WikiSync
+// task list, expressed from the tier alone — needed by the manual CA-tier override
+// (rankOverrides.ts), because a group ironman can hold a tier in-game without the task
+// list that would normally prove it. Unknown tier → 0.
+export function caPointsForTier(tier: string | null | undefined): number {
+	if (!tier) return 0;
+	const target = CA_TIER_ORDER.indexOf(tier.toLowerCase());
+	if (target < 0) return 0;
+	let points = 0;
+	for (let i = 0; i <= target; i++) points += CA.tierCompletionRewards[CA_TIER_ORDER[i]] ?? 0;
+	return points;
+}
 
 export function calculateCAPoints(completedTaskIds: number[] | null | undefined): {
 	caPoints: number;
