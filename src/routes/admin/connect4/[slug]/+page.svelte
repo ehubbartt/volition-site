@@ -124,14 +124,32 @@
 
 	// Pool curation
 	let poolFilter = $state('');
+	let selectedOnly = $state(false);
 	let poolPicked = $state<Set<number>>(new Set());
+
+	// What the event has actually SAVED. The ticks start from this — otherwise auto-fill
+	// (which saves straight away) leaves a list where nothing looks chosen, and the save
+	// button reads "Use these 0 tiles".
+	const savedIds = $derived(new Set(game.pool.map((t) => t.item_id)));
+	let handledPool = '';
+	$effect(() => {
+		const key = [...savedIds].sort((a, b) => a - b).join(',');
+		if (key === handledPool) return;
+		handledPool = key;
+		poolPicked = new Set(savedIds);
+	});
+	// Whether the ticks differ from what is saved, so the button can say which it is.
+	const poolDirty = $derived(
+		poolPicked.size !== savedIds.size || [...poolPicked].some((id) => !savedIds.has(id))
+	);
+
 	const shownCandidates = $derived(
-		data.candidates.filter(
-			(c) =>
-				!poolFilter ||
-				c.item_name.toLowerCase().includes(poolFilter.toLowerCase()) ||
-				(c.source ?? '').toLowerCase().includes(poolFilter.toLowerCase())
-		)
+		data.candidates.filter((c) => {
+			if (selectedOnly && !poolPicked.has(c.item_id)) return false;
+			if (!poolFilter) return true;
+			const q = poolFilter.toLowerCase();
+			return c.item_name.toLowerCase().includes(q) || (c.source ?? '').toLowerCase().includes(q);
+		})
 	);
 	function togglePool(id: number) {
 		const next = new Set(poolPicked);
@@ -191,6 +209,7 @@
 			Simulated a {form.simulated.item} drop for {form.simulated.rsn} — {form.simulated.credited} credited.
 		</p>
 	{/if}
+	{#if form?.pooled}<p class="ok">Tile pool saved — {form.pooled} tiles chosen.</p>{/if}
 	{#if form?.undone}<p class="ok">Removed the piece at {form.undone}.</p>{/if}
 	{#if form?.resynced}<p class="ok">Allowlist resynced ({form.resynced.added} added, {form.resynced.removed} removed).</p>{/if}
 
@@ -366,17 +385,27 @@
 						<button type="submit">Auto-fill {data.deckSize} across the difficulty range</button>
 					</form>
 					<input placeholder="Filter items or bosses…" bind:value={poolFilter} />
-					<span class="muted tiny">{poolPicked.size} ticked</span>
+					<label class="tiny check">
+						<input type="checkbox" bind:checked={selectedOnly} /> chosen only
+					</label>
+					<span class="muted tiny">
+						{poolPicked.size} ticked
+						{#if poolDirty}<strong class="unsaved">· unsaved</strong>{/if}
+					</span>
 				</div>
 
 				<form method="POST" action="?/setPool" use:enhance>
+					<!-- The selection travels as hidden inputs, NOT as the visible checkboxes:
+					     the list is filtered and capped, so submitting only what happens to be
+					     on screen would quietly drop every chosen tile scrolled or filtered out
+					     of view. -->
+					{#each [...poolPicked] as id (id)}<input type="hidden" name="itemId" value={id} />{/each}
+
 					<div class="candidates">
 						{#each shownCandidates.slice(0, 400) as c (c.item_id)}
 							<label class="cand" class:on={poolPicked.has(c.item_id)}>
 								<input
 									type="checkbox"
-									name="itemId"
-									value={c.item_id}
 									checked={poolPicked.has(c.item_id)}
 									onchange={() => togglePool(c.item_id)}
 								/>
@@ -384,14 +413,29 @@
 								<span class="cand-name">{c.item_name}</span>
 								<span class="muted tiny">{c.source} · {formatEhb(c.ehb)}</span>
 							</label>
+						{:else}
+							<p class="muted tiny pad">
+								{selectedOnly ? 'Nothing chosen matches that filter.' : 'No candidates match that filter.'}
+							</p>
 						{/each}
 					</div>
 					{#if shownCandidates.length > 400}
 						<p class="muted tiny">Showing the first 400 of {shownCandidates.length} — filter to narrow.</p>
 					{/if}
-					<button type="submit" disabled={poolPicked.size !== data.deckSize}>
-						Use these {poolPicked.size} tiles
+					<button type="submit" disabled={poolPicked.size !== data.deckSize || !poolDirty}>
+						{#if !poolDirty && poolPicked.size === data.deckSize}
+							Saved — {data.deckSize} tiles ready
+						{:else}
+							Save these {poolPicked.size} tiles
+						{/if}
 					</button>
+					{#if poolPicked.size !== data.deckSize}
+						<span class="muted tiny">
+							{poolPicked.size < data.deckSize
+								? `${data.deckSize - poolPicked.size} more to pick`
+								: `${poolPicked.size - data.deckSize} too many`}
+						</span>
+					{/if}
 				</form>
 			</div>
 		</section>
@@ -791,6 +835,9 @@
 	}
 	.danger {
 		color: var(--danger);
+	}
+	.unsaved {
+		color: var(--yellow);
 	}
 	.err {
 		color: var(--danger);
