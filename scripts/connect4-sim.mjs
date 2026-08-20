@@ -288,8 +288,17 @@ try {
 			itemId: contested.item_id, itemName: contested.item_name, byUserId: sideTwo[0].id
 		})
 	]);
+	// Exactly one side may claim it. The loser reports `raced` if it lost at INSERT time
+	// (its row hit the unique index) or `no_tile` if it lost at READ time (the winner's
+	// piece was already visible, so the column had moved on before it looked). Both are
+	// correct losses — which one you get depends on how the two overlap, so asserting a
+	// specific one would make this test flaky rather than strict.
 	const outcomes = [raceA.status, raceB.status].sort().join('+');
-	check('exactly one side wins the contested tile', outcomes === 'claimed+raced', outcomes);
+	check(
+		'exactly one side wins the contested tile',
+		outcomes === 'claimed+raced' || outcomes === 'claimed+no_tile',
+		outcomes
+	);
 
 	const { data: contestedCells } = await sb
 		.from('vs_connect4_pieces')

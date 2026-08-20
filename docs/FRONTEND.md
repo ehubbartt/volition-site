@@ -49,19 +49,27 @@ buttons, stone tiles) fit every theme. Current themes: `default` (Old School), `
 Reuse these instead of re-deriving wiki URLs or re-styling tiles (avoids the casing/format
 bugs that used to recur per feature):
 
-- **`src/lib/wikiImage.ts`** — the single source of truth for OSRS Wiki image URLs. Core
-  `wikiFileName()` / `wikiImageUrl()` (first letter upper-cased, spaces→`_`, apostrophes
-  `%27`; the rest is **case-sensitive**, so pass canonical wiki casing — e.g. the monster
-  `Shellbane gryphon`, not `Shellbane Gryphon`), plus `wikiThumbUrl()` for scaled renders and
-  the typed helpers `itemImageUrl`, `skillImageUrl`, `monsterImageUrl` (with a raid alias map),
-  and `caTierImageUrl`. `itemIconUrl` (`$lib/osrsItems`), `skillIconUrl` (`$lib/ehp`) and the
-  CA icon fns (`$lib/ca`) are thin re-exports of these — don't fork new copies.
+- **`src/lib/wikiImage.ts`** — the single source of truth for OSRS Wiki image URLs. URLs go
+  through **`Special:FilePath`**, not `/images/<File>.png`: MediaWiki keeps files in
+  hash-bucketed subdirectories, so the flat path only resolved for the ones that happened to
+  be served that way. FilePath is a strict superset of it and takes `?width=`, so
+  `wikiThumbUrl()` needs no knowledge of the `/thumb/` layout either.
+  File names are **case-sensitive past the first letter**, and our item names come from the
+  OSRS item database in a different case (`Staff_of_the_Dead.png`, not
+  `Staff_of_the_dead.png`). There is no case-insensitive lookup, so the typed helpers
+  (`itemImageUrl`, `skillImageUrl`, `monsterImageUrl` — with a raid alias map — and
+  `caTierImageUrl`) return a **list of candidate spellings** (as given, then the wiki's title
+  case, hyphens included) which `<WikiImage>` walks. Measured over the boss-drop catalogue,
+  that took blank icons from 61/345 to 5. `itemIconUrl` (`$lib/osrsItems`), `skillIconUrl`
+  (`$lib/ehp`) and the CA icon fns (`$lib/ca`) are thin re-exports — don't fork new copies.
 - **`src/lib/WikiImage.svelte`** — an `<img>` with the hotlink incantation baked in
   (`referrerpolicy="no-referrer"` + `use:retryImage`); renders nothing for an empty `src`.
-  `retryImage` (`$lib/imageRetry`) re-fetches a transiently-failed hotlink a few times
-  (backoff + cache-bust) before hiding it, so a wiki-side throttle no longer latches a tile
-  blank until a manual page refresh — use it on any raw hotlinked `<img>` (e.g. the rank
-  gear grid) that isn't already a `WikiImage`.
+  `src` takes a url **or a list of candidates**.
+  `retryImage` (`$lib/imageRetry`) handles the two failures that blank a tile and that
+  `onerror` cannot tell apart, since it carries no status: it tries every candidate spelling
+  once (clearing a case mismatch within a frame), then backs off and retries the whole list
+  (clearing a wiki-side throttle), and hides the element only once both are exhausted. Use it
+  on any raw hotlinked `<img>` (e.g. the rank gear grid) that isn't already a `WikiImage`.
 - **`src/lib/BingoTile.svelte`** — the reusable board tile (bronze OSRS button frame, icon on
   a light parchment disc so even dark glyphs like the Agility icon stay visible, clamped name
   + optional sub-line, `obtained` green ring, `highlighted` accent glow). Props: `image`,

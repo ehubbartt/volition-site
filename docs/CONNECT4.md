@@ -99,9 +99,11 @@ what it should within a batch. Across batches and processes the index is the onl
   detection, scoring. No DB and no SvelteKit imports, so the server, the pages and the
   simulation all score a game identically. Cells are `"col,row"` with **row 0 at the
   bottom**; never build one by hand, use `cellId`/`parseCell`.
-- `src/lib/connect4/Connect4Board.svelte` — the board. The rail, the column labels and the
-  play area are **three grids sharing one column-track definition**, which is what keeps a
-  tile card exactly over its column at any width.
+- `src/lib/connect4/Connect4Board.svelte` — the flat board. The rail, the column labels and
+  the play area are **three grids sharing one column-track definition**, which is what keeps
+  a tile card exactly over its column at any width.
+- `src/lib/connect4/Connect4Board3D.svelte` — the same board in three.js (see below).
+- `src/lib/connect4/playback.svelte.ts` — the playback clock (see below).
 - `src/lib/connect4/TileRail.svelte` — the 25 objective cards.
 - `src/lib/server/connect4.ts` — the store: load a snapshot, and the actions (`setPool`,
   `enrolMembers`, `assignSides`, `startGame`, `claimTile`, `creditManual`, `undoClaim`,
@@ -170,6 +172,64 @@ Two failure modes are worth knowing about, because both were found by the simula
 `revertDinkCredit` refuses a Connect Four drop and points at the tester, because removing a
 piece has rules of its own.
 
+### Watching the board move
+
+A board that changes while you are not looking should not just *be different* when you come
+back. Two things use one mechanism (`playback.svelte.ts`):
+
+- **Catch-up.** Whatever has been claimed since this browser last watched falls into place
+  in claim order. The baseline is the **last visit**, kept in localStorage per event — a
+  reload is precisely the case being served, so it must not be reset by the page loading.
+- **Replay.** A button walks the whole event from an empty board, at 1× to 8×.
+
+Both are "reveal pieces 0..n on a clock", so both are the same class with a different
+starting index. The board renders only the first `revealed` pieces and animates whichever
+id is `falling`, which is why the flat board and the 3D board need no separate animation
+code — they take the same two props.
+
+Three things here are easy to get wrong, and all three were:
+
+- **The effect must not re-run on its own writes.** It banks the ids it has handled; without
+  that, the second run finds nothing fresh (the first run having already saved them) and
+  cancels the run it just started.
+- **The ids are banked when a run ENDS**, not when it starts, so a run cut short by a reload
+  plays again rather than being silently skipped.
+- **`revealed` starts at `null`, meaning "all"**, because the server renders this component
+  with no effects. A numeric default ships HTML with an empty board and flashes it full on
+  hydration.
+
+Hovering a piece names the drop that claimed it, the boss it came from, who got it, and
+whether it arrived from Dink or by hand.
+
+### The 3D board
+
+A **Flat / 3D** toggle on the play bar, remembered per browser. Both boards take the same
+props and are driven by the same clock, so the choice is purely how it looks and they can
+never disagree about the state of the game.
+
+`Connect4Board3D.svelte` builds:
+
+- the **frame in front of the discs**, extruded from one `THREE.Shape` with 250 circular
+  holes punched in it — that is what makes it read as the board game rather than a grid of
+  circles;
+- discs as two `InstancedMesh`es, one per side, because 250 individual meshes is a lot of
+  draw calls for something a phone may be rendering in software;
+- the one piece currently falling as a real mesh, so its animation isn't a matrix rewrite
+  every frame; it joins the instances when it lands;
+- scoring runs as a pulsing emissive ring.
+
+Hover **raycasts a single invisible plane** rather than 250 instances — the hit maps
+straight back to a column and row, which is both cheaper and exact. Dragging rotates the
+board within a deliberately narrow range; this is a board you read, not a model you inspect.
+
+It reuses the card game's capability probes (`$lib/cards/glCapabilities`): no WebGL says so
+and points at the flat board, CPU-rendered WebGL warns that it will be slow, and reduced
+motion drops the piece straight in. The GL context and every buffer are disposed on unmount,
+because toggling back and forth would otherwise leak a context per mount.
+
+> **The tile rail stays as HTML above the canvas** in 3D. The objectives have to be
+> readable, and 25 item names is not something to render as textures.
+
 ### Undo
 
 Only the **top piece of a column** can be removed. Taking one from underneath would rewrite
@@ -224,10 +284,10 @@ point it at a database that does.
   by `redactSnapshot`.
 - **Balance is unvalidated.** The scoring defaults are a first pass against unmeasured drop
   rates. All three dials are per-event and retunable mid-game.
-- **No three.js board.** The CSS board is the shipped one; a 3D treatment is a possible
-  later pass and nothing depends on it.
 - **No Discord announcements.** Completing a connect four is the natural hook, in
   `claimTile`'s report.
+- **The 3D board has no click-to-credit.** Crediting is done from the tile rail, which is
+  shared by both views; the canvas is read-only.
 - **The pool is boss drops only**, and the same 25 tiles serve both clans.
 - **RLS.** The new table inherits the repo's current posture (see
   [`PENDING-OPS.md`](PENDING-OPS.md) §1). `enable_rls.sql` loops every public table, so

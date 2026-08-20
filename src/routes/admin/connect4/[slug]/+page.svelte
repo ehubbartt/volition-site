@@ -3,6 +3,8 @@
 	import { invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import Connect4Board from '$lib/connect4/Connect4Board.svelte';
+	import Connect4Board3D from '$lib/connect4/Connect4Board3D.svelte';
+	import TileRail from '$lib/connect4/TileRail.svelte';
 	import WikiImage from '$lib/WikiImage.svelte';
 	import { itemImageUrl, monsterImageUrl } from '$lib/wikiImage';
 	import { columnLabel } from '$lib/connect4/rules';
@@ -79,6 +81,33 @@
 
 	let selected = $state<number | null>(null);
 	const selectedTile = $derived(selected === null ? null : (game.live[selected] ?? null));
+
+	// ── 2D / 3D ───────────────────────────────────────────────────────────────
+	// The two boards take the same props and are driven by the same playback clock, so the
+	// choice is purely how it looks. Remembered, because it's a preference, not a mode.
+	const VIEW_KEY = 'vs_c4_view';
+	let view = $state<'flat' | '3d'>('flat');
+	onMount(() => {
+		try {
+			if (localStorage.getItem(VIEW_KEY) === '3d') view = '3d';
+		} catch {
+			/* storage unavailable — flat is the safe default */
+		}
+	});
+	function setView(v: 'flat' | '3d') {
+		view = v;
+		try {
+			localStorage.setItem(VIEW_KEY, v);
+		} catch {
+			/* ignore */
+		}
+	}
+
+	// The 3D board raycasts its own hover and reports it here; the flat board draws its own
+	// card. Same data either way.
+	let hover3d = $state<{ piece: (typeof game.pieces)[number]; x: number; y: number } | null>(null);
+	const claimedVia = (p: { drop_key?: string }) =>
+		p.drop_key?.startsWith('manual:') ? 'credited by hand' : p.drop_key?.startsWith('test-') ? 'simulated' : 'from a Dink drop';
 
 	// Team assignment panel
 	let filter = $state('');
@@ -225,19 +254,43 @@
 						</label>
 						<span class="muted tiny">{game.pieces.length} claims</span>
 					{/if}
+					<span class="viewtoggle">
+						<button type="button" class:on={view === 'flat'} onclick={() => setView('flat')}>Flat</button>
+						<button type="button" class:on={view === '3d'} onclick={() => setView('3d')}>3D</button>
+					</span>
 				</div>
 
-				<Connect4Board
-					pieces={game.pieces}
-					live={game.live}
-					sideColors={game.sides.map((s) => s.color)}
-					sideNames={game.sides.map((s) => s.name)}
-					{runCells}
-					revealed={playback.revealed}
-					falling={playback.falling}
-					{selected}
-					onselect={(c) => (selected = selected === c ? null : c)}
-				/>
+				{#if view === '3d'}
+					<!-- The rail stays as HTML above the canvas: the objectives have to be
+					     readable, and 25 item names is not something to render as textures. -->
+					<div class="rail-host" style="--n: 25; --gap: 3px; --min-cell: 0px;">
+						<TileRail
+							live={game.live}
+							{selected}
+							onselect={(c) => (selected = selected === c ? null : c)}
+						/>
+					</div>
+					<Connect4Board3D
+						pieces={game.pieces}
+						sideColors={game.sides.map((s) => s.color)}
+						{runCells}
+						revealed={playback.revealed}
+						falling={playback.falling}
+						onhover={(info) => (hover3d = info)}
+					/>
+				{:else}
+					<Connect4Board
+						pieces={game.pieces}
+						live={game.live}
+						sideColors={game.sides.map((s) => s.color)}
+						sideNames={game.sides.map((s) => s.name)}
+						{runCells}
+						revealed={playback.revealed}
+						falling={playback.falling}
+						{selected}
+						onselect={(c) => (selected = selected === c ? null : c)}
+					/>
+				{/if}
 
 				{#if selectedTile}
 					<div class="tile-detail">
@@ -269,6 +322,26 @@
 			{/if}
 		</div>
 	</section>
+
+	{#if hover3d}
+		{@const p = hover3d.piece}
+		<div class="hovercard" style="left: {hover3d.x}px; top: {hover3d.y}px;" role="tooltip">
+			<div class="hc-head" style="--c: {game.sides[p.side - 1]?.color ?? '#888'}">
+				<WikiImage src={itemImageUrl(p.item_name ?? '')} alt="" size={34} />
+				<div class="hc-name">
+					<strong>{p.item_name ?? 'Unknown drop'}</strong>
+					<span class="hc-sub">
+						{columnLabel(p.col)}{p.row + 1} · {game.sides[p.side - 1]?.name ?? `side ${p.side}`}
+					</span>
+				</div>
+			</div>
+			<div class="hc-meta">
+				{#if p.source}<div>from <strong>{p.source}</strong></div>{/if}
+				{#if p.by_rsn}<div>by <strong>{p.by_rsn}</strong></div>{/if}
+				<div class="hc-via">{claimedVia(p)}</div>
+			</div>
+		</div>
+	{/if}
 
 	<!-- ── setup: the tile pool ──────────────────────────────────────────── -->
 	{#if game.phase === 'setup'}
@@ -551,6 +624,69 @@
 		height: 100%;
 		background: var(--accent);
 		transition: width 0.12s linear;
+	}
+	.viewtoggle {
+		display: inline-flex;
+		margin-left: auto;
+	}
+	.viewtoggle button {
+		min-height: 0;
+		padding: 0.15rem 0.6rem;
+		font-size: 0.78rem;
+		opacity: 0.6;
+	}
+	.viewtoggle button.on {
+		opacity: 1;
+		color: var(--accent);
+	}
+	.rail-host {
+		margin-bottom: 0.3rem;
+		overflow-x: auto;
+		min-width: 0;
+	}
+
+	/* The 3D board reports hover through a callback rather than drawing its own card, so
+	   the page owns this copy. Kept identical to the flat board's. */
+	.hovercard {
+		position: fixed;
+		z-index: 50;
+		transform: translate(-50%, calc(-100% - 10px));
+		pointer-events: none;
+		min-width: 12rem;
+		max-width: 18rem;
+		padding: 0.5rem 0.6rem;
+		background: var(--surface);
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius);
+		box-shadow: var(--shadow-card);
+	}
+	.hc-head {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		border-left: 3px solid var(--c);
+		padding-left: 0.4rem;
+	}
+	.hc-name {
+		display: grid;
+		min-width: 0;
+	}
+	.hc-name strong {
+		color: var(--heading);
+		font-size: 0.9rem;
+		line-height: 1.2;
+	}
+	.hc-sub,
+	.hc-meta {
+		font-size: 0.75rem;
+		color: var(--muted);
+	}
+	.hc-meta {
+		margin-top: 0.35rem;
+	}
+	.hc-via {
+		opacity: 0.75;
+		font-style: italic;
 	}
 
 	.pad {
