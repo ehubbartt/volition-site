@@ -104,6 +104,7 @@ what it should within a batch. Across batches and processes the index is the onl
   a tile card exactly over its column at any width.
 - `src/lib/connect4/Connect4Board3D.svelte` — the same board in three.js (see below).
 - `src/lib/connect4/playback.svelte.ts` — the playback clock (see below).
+- `src/lib/connect4/tokenTexture.ts` — the floating tokens' item art, as cached textures.
 - `src/lib/connect4/TileRail.svelte` — the 25 objective cards.
 - `src/lib/server/connect4.ts` — the store: load a snapshot, and the actions (`setPool`,
   `enrolMembers`, `assignSides`, `startGame`, `claimTile`, `creditManual`, `undoClaim`,
@@ -216,19 +217,63 @@ never disagree about the state of the game.
   draw calls for something a phone may be rendering in software;
 - the one piece currently falling as a real mesh, so its animation isn't a matrix rewrite
   every frame; it joins the instances when it lands;
-- scoring runs as a pulsing emissive ring.
+- scoring runs as a pulsing emissive ring;
+- the 25 objectives as **floating coins** above the board (below).
 
-Hover **raycasts a single invisible plane** rather than 250 instances — the hit maps
-straight back to a column and row, which is both cheaper and exact. Dragging rotates the
-board within a deliberately narrow range; this is a board you read, not a model you inspect.
+Hover **raycasts a single invisible plane** for board cells rather than 250 instances — the
+hit maps straight back to a column and row, which is both cheaper and exact. The coins are
+raycast directly, since there are only 25 and they need exact hits. Dragging rotates the
+board within a deliberately narrow range; this is a board you read, not a model you inspect,
+and a drag that ends over a coin does not also select it.
 
 It reuses the card game's capability probes (`$lib/cards/glCapabilities`): no WebGL says so
 and points at the flat board, CPU-rendered WebGL warns that it will be slow, and reduced
-motion drops the piece straight in. The GL context and every buffer are disposed on unmount,
-because toggling back and forth would otherwise leak a context per mount.
+motion drops the piece straight in. The GL context, every buffer and the token textures are
+disposed on unmount, because toggling back and forth would otherwise leak a context per
+mount.
 
-> **The tile rail stays as HTML above the canvas** in 3D. The objectives have to be
-> readable, and 25 item names is not something to render as textures.
+### The floating tokens
+
+In 3D the objectives are **coins in the scene**, one per column, carrying the real item art —
+not a strip of flat HTML over a 3D board, which read as two unrelated things stacked on each
+other. Clicking one selects its column (the same **Credit** buttons appear below); hovering
+one names the item, its boss and what it costs in efficient hours.
+
+The art is a `CanvasTexture` built by `tokenTexture.ts`: the same parchment disc the flat
+rail draws, with the item icon composited on top. Two things make that possible at all:
+
+- **The wiki sends `access-control-allow-origin: *`** on the image and on every redirect hop,
+  so an `<img>` with `crossOrigin='anonymous'` can be drawn into a canvas without tainting
+  it — which is what lets the canvas be a texture. This is the reason the tokens were flat
+  HTML in the first pass.
+- **It walks the same candidate spellings** as the DOM path (`wikiImageSources`), so the
+  case-sensitivity fix carries over.
+
+The texture is returned immediately with the bare disc and the icon appears when it loads —
+nothing awaits an image, because a board that waits on 25 round trips before it draws is far
+worse than a coin that is briefly blank. Textures are cached by item name, so a replacement
+tile reusing an item costs nothing.
+
+**A claimed tile's coin drops into its column and becomes the piece.** The existing `FALL_MS`
+window is split rather than extended, so the playback clock is untouched and replay needs no
+special case:
+
+| | |
+|---|---|
+| `0 → 0.35` | the coin falls from the band to the top row, shrinking and turning |
+| at `0.35` | the coin is spent; its replacement appears in the band and the coloured disc takes over at the top row |
+| `0.35 → 1` | the disc falls to its landing row with the usual bounce |
+
+The handoff is at one x and an adjacent y, so it reads as the coin turning into the piece
+rather than two objects swapping.
+
+The coins bob on a per-column phase offset — 25 of them moving in lockstep looks mechanical —
+kept well under the 1-unit column spacing so neighbours never intersect. The selected coin
+lifts and lights up. Reduced motion holds them still.
+
+> The flat board keeps its HTML rail (`TileRail.svelte`), which is still the right answer
+> there — and it is what the 3D coin face is drawn to match, so the two views read as the
+> same object.
 
 ### Undo
 
@@ -286,8 +331,8 @@ point it at a database that does.
   rates. All three dials are per-event and retunable mid-game.
 - **No Discord announcements.** Completing a connect four is the natural hook, in
   `claimTile`'s report.
-- **The 3D board has no click-to-credit.** Crediting is done from the tile rail, which is
-  shared by both views; the canvas is read-only.
+- **The 3D board's board area is read-only.** Clicking a floating coin selects its column and
+  the Credit buttons appear below, but the cells themselves take no clicks.
 - **The pool is boss drops only**, and the same 25 tiles serve both clans.
 - **RLS.** The new table inherits the repo's current posture (see
   [`PENDING-OPS.md`](PENDING-OPS.md) §1). `enable_rls.sql` loops every public table, so

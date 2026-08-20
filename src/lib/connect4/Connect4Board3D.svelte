@@ -22,25 +22,37 @@
 	import * as THREE from 'three';
 	import '$lib/cards/threeSetup';
 	import { detectWebgl, prefersReducedMotion } from '$lib/cards/glCapabilities';
-	import { COLS, ROWS, cellId, type Piece } from './rules';
+	import { COLS, ROWS, cellId, type LiveTile, type Piece } from './rules';
 	import { FALL_MS } from './playback.svelte';
+	import { disposeTokenTextures, tokenTexture } from './tokenTexture';
 
 	let {
 		pieces = [],
+		live = [],
 		sideColors = ['#ef4444', '#eab308'],
 		runCells = new Set<string>(),
 		revealed = null,
 		falling = null,
+		selected = null,
+		onselect,
 		onhover
 	}: {
 		pieces: Piece[];
+		/** The objective on offer above each column — rendered as the floating tokens. */
+		live: (LiveTile | null)[];
 		sideColors?: string[];
 		runCells?: Set<string>;
 		revealed?: number | null;
 		falling?: string | null;
-		/** Reports the hovered piece (and where on screen) so the page can show its card. */
-		onhover?: (info: { piece: Piece; x: number; y: number } | null) => void;
+		selected?: number | null;
+		onselect?: (col: number) => void;
+		/** Reports what the pointer is over so the page can show one card for either. */
+		onhover?: (info: HoverInfo | null) => void;
 	} = $props();
+
+	export type HoverInfo =
+		| { kind: 'piece'; piece: Piece; x: number; y: number }
+		| { kind: 'tile'; tile: LiveTile; x: number; y: number };
 
 	const shown = $derived(revealed === null ? pieces : pieces.slice(0, Math.max(0, revealed)));
 
@@ -53,6 +65,18 @@
 	const W = COLS * CELL + PAD * 2;
 	const H = ROWS * CELL + PAD * 2;
 	const FRAME_D = 0.42;
+
+	// The objective tokens hover in a band above the frame. TOKEN_GAP is measured from the
+	// top of the frame, so the coins clear it without floating off on their own.
+	const TOKEN_R = 0.52;
+	const TOKEN_D = 0.16;
+	const TOKEN_GAP = 1.15;
+	const TOKEN_Y = H / 2 + TOKEN_GAP;
+	// What the camera has to frame: the board AND the band above it. The scene is no longer
+	// centred on the frame, so everything aims at SCENE_CY rather than the origin.
+	const SCENE_TOP = TOKEN_Y + TOKEN_R + 0.35;
+	const SCENE_H = SCENE_TOP + H / 2;
+	const SCENE_CY = (SCENE_TOP - H / 2) / 2;
 
 	// Cell (col,row) → world x/y. Row 0 is the BOTTOM, which is also +y here, so the two
 	// coordinate systems agree without a flip anywhere else.
@@ -71,6 +95,8 @@
 	let glowMat: THREE.MeshStandardMaterial | null = null;
 	let fallingMesh: THREE.Mesh | null = null;
 	let pickPlane: THREE.Mesh | null = null;
+	/** One coin per column, indexed by column. Hidden where the column has retired. */
+	let tokens: THREE.Mesh[] = [];
 	let raf = 0;
 	let disposed = false;
 
@@ -91,7 +117,7 @@
 	function fitDistance(): number {
 		if (!camera) return 20;
 		const vFov = (camera.fov * Math.PI) / 180;
-		const distH = H / 2 / Math.tan(vFov / 2);
+		const distH = SCENE_H / 2 / Math.tan(vFov / 2);
 		const distW = W / 2 / Math.tan(vFov / 2) / camera.aspect;
 		// Enough margin that rotating to the limits never swings a corner out of frame —
 		// at 1.04 the tilt clipped the near edge.
@@ -103,10 +129,10 @@
 		const d = fitDistance();
 		camera.position.set(
 			Math.sin(yaw) * Math.cos(pitch) * d,
-			Math.sin(pitch) * d,
+			SCENE_CY + Math.sin(pitch) * d,
 			Math.cos(yaw) * Math.cos(pitch) * d
 		);
-		camera.lookAt(0, 0, 0);
+		camera.lookAt(0, SCENE_CY, 0);
 		camera.updateProjectionMatrix();
 	}
 
@@ -123,8 +149,11 @@
 	// $state because the template binds a class to it — the grab cursor depends on it.
 	let dragging = $state(false);
 	let last = { x: 0, y: 0 };
+	// A rotate that happens to end over a coin must not also select it.
+	let movedWhileDown = false;
 	function onDown(e: PointerEvent) {
 		dragging = true;
+		movedWhileDown = false;
 		last = { x: e.clientX, y: e.clientY };
 		(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
 	}
@@ -136,6 +165,7 @@
 		if (!dragging) return;
 		const dx = e.clientX - last.x;
 		const dy = e.clientY - last.y;
+		if (Math.abs(dx) + Math.abs(dy) > 2) movedWhileDown = true;
 		last = { x: e.clientX, y: e.clientY };
 		yaw = Math.max(-YAW_LIMIT, Math.min(YAW_LIMIT, yaw + dx * 0.004));
 		pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch + dy * 0.004));
@@ -183,6 +213,53 @@
 		geo.translate(0, 0, -FRAME_D / 2);
 		const mat = new THREE.MeshStandardMaterial({ color: 0x2f6ea8, roughness: 0.55, metalness: 0.05 });
 		return new THREE.Mesh(geo, mat);
+	}
+
+	/**
+	 * One coin per column, floating above the frame. The face carries the item art (see
+	 * tokenTexture); the rim is the same warm bronze as the site's OSRS chrome.
+	 *
+	 * A cylinder's groups are [side, top, bottom], and rotating it a quarter turn about X
+	 * turns the TOP cap towards the camera — so the face material is index 1.
+	 */
+	function buildTokens(): THREE.Mesh[] {
+		const geo = new THREE.CylinderGeometry(TOKEN_R, TOKEN_R, TOKEN_D, 28);
+		geo.rotateX(Math.PI / 2);
+		const rim = new THREE.MeshStandardMaterial({ color: 0x8a6f3c, roughness: 0.5, metalness: 0.45 });
+		const back = new THREE.MeshStandardMaterial({ color: 0x6b5630, roughness: 0.6, metalness: 0.35 });
+		return Array.from({ length: COLS }, (_, col) => {
+			const face = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.05 });
+			const mesh = new THREE.Mesh(geo, [rim, face, back]);
+			mesh.position.set(wx(col), TOKEN_Y, 0.35);
+			mesh.userData.col = col;
+			mesh.visible = false;
+			scene!.add(mesh);
+			return mesh;
+		});
+	}
+
+	/** Point each coin at the item its column is currently offering. */
+	function syncTokens() {
+		for (let col = 0; col < COLS; col++) {
+			const mesh = tokens[col];
+			if (!mesh) continue;
+			const slot = live[col] ?? null;
+			// A column mid-drop keeps its coin — the fall animation owns it until it lands.
+			if (!slot) {
+				if (!fall || fall.col !== col) mesh.visible = false;
+				continue;
+			}
+			mesh.visible = true;
+			const face = (mesh.material as THREE.Material[])[1] as THREE.MeshStandardMaterial;
+			const tex = tokenTexture(slot.tile.item_name);
+			if (face.map !== tex) {
+				face.map = tex;
+				face.needsUpdate = true;
+			}
+			const isSel = selected === col;
+			face.emissive.set(isSel ? 0x664400 : 0x000000);
+			face.emissiveIntensity = isSel ? 0.9 : 0;
+		}
 	}
 
 	function init() {
@@ -260,6 +337,8 @@
 		fallingMesh.visible = false;
 		scene.add(fallingMesh);
 
+		tokens = buildTokens();
+
 		// Invisible pick plane at disc depth — one raycast target instead of 250.
 		pickPlane = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({ visible: false }));
 		scene.add(pickPlane);
@@ -313,25 +392,72 @@
 		raf = requestAnimationFrame(loop);
 		if (!renderer || !scene || !camera) return;
 
-		// The falling piece.
+		// THE CLAIM. The objective's coin drops out of the band and INTO the column, becoming
+		// the piece — one continuous motion in two halves, so the whole thing still fits the
+		// FALL_MS the playback clock hands out and replay needs no special case.
+		//
+		//   0 .. HANDOFF   the coin falls from the band to the top row, shrinking
+		//   HANDOFF .. 1   the coloured disc carries on from that same spot, with the bounce
+		//
+		// The handoff is at one x and an adjacent y, so it reads as the coin turning into the
+		// piece rather than two objects swapping.
+		const HANDOFF = 0.35;
 		if (fall && fallingMesh) {
 			const t = Math.min(1, (performance.now() - fall.startedAt) / FALL_MS);
-			const target = wy(fall.row);
-			const top = H / 2 + 1.2;
-			// Ease-in for the drop, then a small squash-free bounce at the end.
-			let y: number;
-			if (t < 0.72) {
-				const k = t / 0.72;
-				y = top + (target - top) * (k * k);
+			const entry = wy(ROWS - 1);
+			const coin = tokens[fall.col];
+
+			if (t < HANDOFF) {
+				const k = t / HANDOFF;
+				if (coin) {
+					coin.visible = true;
+					coin.position.set(wx(fall.col), TOKEN_Y + (entry - TOKEN_Y) * (k * k), 0.35 * (1 - k));
+					const shrink = 1 - 0.35 * k;
+					coin.scale.setScalar(shrink);
+					coin.rotation.z = k * 0.9;
+				}
+				fallingMesh.visible = false;
 			} else {
-				const k = (t - 0.72) / 0.28;
-				y = target + Math.sin(k * Math.PI) * 0.32;
+				if (coin) {
+					// The coin is spent; the replacement takes its place up in the band.
+					coin.scale.setScalar(1);
+					coin.rotation.z = 0;
+					coin.position.set(wx(fall.col), TOKEN_Y, 0.35);
+					coin.visible = !!live[fall.col];
+				}
+				const k = (t - HANDOFF) / (1 - HANDOFF);
+				const target = wy(fall.row);
+				let y: number;
+				if (k < 0.72) {
+					const e = k / 0.72;
+					y = entry + (target - entry) * (e * e);
+				} else {
+					const e = (k - 0.72) / 0.28;
+					y = target + Math.sin(e * Math.PI) * 0.32;
+				}
+				fallingMesh.visible = true;
+				fallingMesh.position.set(wx(fall.col), y, 0);
 			}
-			fallingMesh.position.set(wx(fall.col), y, 0);
+
 			if (t >= 1) {
 				fall = null;
 				fallingMesh.visible = false;
 				syncDiscs();
+				syncTokens();
+			}
+		}
+
+		// The coins bob, each on its own phase so 25 of them don't move in lockstep. Kept
+		// well under the 1-unit column spacing so neighbours never intersect.
+		if (!reduced()) {
+			const now = performance.now() / 1000;
+			for (let col = 0; col < COLS; col++) {
+				const coin = tokens[col];
+				if (!coin?.visible || (fall && fall.col === col)) continue;
+				const phase = col * 0.7;
+				const lift = selected === col ? 0.3 : 0;
+				coin.position.y = TOKEN_Y + lift + Math.sin(now * 1.3 + phase) * 0.09;
+				coin.rotation.y = Math.sin(now * 0.8 + phase) * 0.28;
 			}
 		}
 
@@ -344,9 +470,34 @@
 	// ── hover ─────────────────────────────────────────────────────────────────
 	const ray = new THREE.Raycaster();
 	const ndc = new THREE.Vector2();
+	/** The coin under the pointer, if any. Only 25 meshes, so raycasting them is cheap. */
+	function coinAt(e: PointerEvent): { col: number; top: number } | null {
+		if (!camera || !renderer) return null;
+		const rect = renderer.domElement.getBoundingClientRect();
+		ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+		ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+		ray.setFromCamera(ndc, camera);
+		const hit = ray.intersectObjects(tokens.filter((t) => t.visible), false)[0];
+		if (!hit) return null;
+		const col = (hit.object as THREE.Mesh).userData.col as number;
+		// Screen y of the coin's top edge, so the page can anchor a card above it.
+		const p = new THREE.Vector3(wx(col), TOKEN_Y + TOKEN_R, 0.35).project(camera);
+		return { col, top: rect.top + ((1 - p.y) / 2) * rect.height };
+	}
+
 	function onMove(e: PointerEvent) {
 		if (!camera || !pickPlane || !renderer || !onhover) return;
 		const rect = renderer.domElement.getBoundingClientRect();
+
+		// Coins sit in front of the board and are what the pointer is most likely aiming at.
+		const coin = coinAt(e);
+		if (coin) {
+			const slot = live[coin.col];
+			hoverCol = coin.col;
+			return onhover(slot ? { kind: 'tile', tile: slot, x: e.clientX, y: coin.top } : null);
+		}
+		hoverCol = null;
+
 		ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
 		ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 		ray.setFromCamera(ndc, camera);
@@ -355,7 +506,21 @@
 		const col = Math.round(hit.point.x / CELL + (COLS - 1) / 2);
 		const row = Math.round(hit.point.y / CELL + (ROWS - 1) / 2);
 		const piece = shown.find((p) => p.col === col && p.row === row);
-		onhover(piece ? { piece, x: e.clientX, y: rect.top + ((1 - (hit.point.y + H / 2) / H) * rect.height) } : null);
+		onhover(
+			piece
+				? { kind: 'piece', piece, x: e.clientX, y: rect.top + ((1 - (hit.point.y + H / 2) / H) * rect.height) }
+				: null
+		);
+	}
+
+	/** Which column's coin the pointer is over — drives the grab/pointer cursor. */
+	let hoverCol = $state<number | null>(null);
+
+	function onClick(e: PointerEvent) {
+		// A drag that ends over a coin shouldn't also select it.
+		if (movedWhileDown) return;
+		const coin = coinAt(e);
+		if (coin && live[coin.col]) onselect?.(coin.col);
 	}
 
 	$effect(() => {
@@ -375,6 +540,7 @@
 				if (Array.isArray(m)) m.forEach((x) => x.dispose());
 				else m?.dispose?.();
 			});
+			disposeTokenTextures();
 			renderer?.dispose();
 			renderer?.domElement.remove();
 			renderer = null;
@@ -386,7 +552,12 @@
 	$effect(() => {
 		void shown;
 		void runCells;
-		if (ready) syncDiscs();
+		void live;
+		void selected;
+		if (ready) {
+			syncDiscs();
+			syncTokens();
+		}
 	});
 
 	// A new piece started falling → hand it to the falling mesh.
@@ -419,13 +590,17 @@
 	<div
 		class="host"
 		class:dragging
+		class:overcoin={hoverCol !== null}
 		bind:this={host}
 		onpointermove={(e) => {
 			onDrag(e);
 			if (!dragging) onMove(e);
 		}}
 		onpointerdown={onDown}
-		onpointerup={onUp}
+		onpointerup={(e) => {
+			onClick(e);
+			onUp(e);
+		}}
 		onpointercancel={onUp}
 		onpointerleave={() => onhover?.(null)}
 		role="img"
@@ -453,7 +628,7 @@
 		width: 100%;
 		/* The board is 25 x 10, so give the canvas roughly that shape and let the camera
 		   fit to whatever it actually gets. */
-		aspect-ratio: 25 / 11;
+		aspect-ratio: 25 / 13;
 		min-height: 200px;
 		border-radius: 4px;
 		overflow: hidden;
@@ -464,6 +639,9 @@
 	}
 	.host.dragging {
 		cursor: grabbing;
+	}
+	.host.overcoin:not(.dragging) {
+		cursor: pointer;
 	}
 	.reset {
 		position: absolute;

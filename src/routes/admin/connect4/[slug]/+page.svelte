@@ -3,8 +3,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import Connect4Board from '$lib/connect4/Connect4Board.svelte';
-	import Connect4Board3D from '$lib/connect4/Connect4Board3D.svelte';
-	import TileRail from '$lib/connect4/TileRail.svelte';
+	import Connect4Board3D, { type HoverInfo } from '$lib/connect4/Connect4Board3D.svelte';
 	import WikiImage from '$lib/WikiImage.svelte';
 	import { itemImageUrl, monsterImageUrl } from '$lib/wikiImage';
 	import { columnLabel } from '$lib/connect4/rules';
@@ -104,8 +103,9 @@
 	}
 
 	// The 3D board raycasts its own hover and reports it here; the flat board draws its own
-	// card. Same data either way.
-	let hover3d = $state<{ piece: (typeof game.pieces)[number]; x: number; y: number } | null>(null);
+	// card. A 3D hover can be a placed PIECE (what claimed that cell) or a floating TOKEN
+	// (what is still on offer above that column), so this card renders both.
+	let hover3d = $state<HoverInfo | null>(null);
 	const claimedVia = (p: { drop_key?: string }) =>
 		p.drop_key?.startsWith('manual:') ? 'credited by hand' : p.drop_key?.startsWith('test-') ? 'simulated' : 'from a Dink drop';
 
@@ -261,21 +261,15 @@
 				</div>
 
 				{#if view === '3d'}
-					<!-- The rail stays as HTML above the canvas: the objectives have to be
-					     readable, and 25 item names is not something to render as textures. -->
-					<div class="rail-host" style="--n: 25; --gap: 3px; --min-cell: 0px;">
-						<TileRail
-							live={game.live}
-							{selected}
-							onselect={(c) => (selected = selected === c ? null : c)}
-						/>
-					</div>
 					<Connect4Board3D
 						pieces={game.pieces}
+						live={game.live}
 						sideColors={game.sides.map((s) => s.color)}
 						{runCells}
 						revealed={playback.revealed}
 						falling={playback.falling}
+						{selected}
+						onselect={(c) => (selected = selected === c ? null : c)}
 						onhover={(info) => (hover3d = info)}
 					/>
 				{:else}
@@ -324,22 +318,37 @@
 	</section>
 
 	{#if hover3d}
-		{@const p = hover3d.piece}
 		<div class="hovercard" style="left: {hover3d.x}px; top: {hover3d.y}px;" role="tooltip">
-			<div class="hc-head" style="--c: {game.sides[p.side - 1]?.color ?? '#888'}">
-				<WikiImage src={itemImageUrl(p.item_name ?? '')} alt="" size={34} />
-				<div class="hc-name">
-					<strong>{p.item_name ?? 'Unknown drop'}</strong>
-					<span class="hc-sub">
-						{columnLabel(p.col)}{p.row + 1} · {game.sides[p.side - 1]?.name ?? `side ${p.side}`}
-					</span>
+			{#if hover3d.kind === 'piece'}
+				{@const p = hover3d.piece}
+				<div class="hc-head" style="--c: {game.sides[p.side - 1]?.color ?? '#888'}">
+					<WikiImage src={itemImageUrl(p.item_name ?? '')} alt="" size={34} />
+					<div class="hc-name">
+						<strong>{p.item_name ?? 'Unknown drop'}</strong>
+						<span class="hc-sub">
+							{columnLabel(p.col)}{p.row + 1} · {game.sides[p.side - 1]?.name ?? `side ${p.side}`}
+						</span>
+					</div>
 				</div>
-			</div>
-			<div class="hc-meta">
-				{#if p.source}<div>from <strong>{p.source}</strong></div>{/if}
-				{#if p.by_rsn}<div>by <strong>{p.by_rsn}</strong></div>{/if}
-				<div class="hc-via">{claimedVia(p)}</div>
-			</div>
+				<div class="hc-meta">
+					{#if p.source}<div>from <strong>{p.source}</strong></div>{/if}
+					{#if p.by_rsn}<div>by <strong>{p.by_rsn}</strong></div>{/if}
+					<div class="hc-via">{claimedVia(p)}</div>
+				</div>
+			{:else}
+				{@const t = hover3d.tile}
+				<div class="hc-head" style="--c: var(--accent)">
+					<WikiImage src={itemImageUrl(t.tile.item_name)} alt="" size={34} />
+					<div class="hc-name">
+						<strong>{t.tile.item_name}</strong>
+						<span class="hc-sub">column {columnLabel(t.col)} · still up for grabs</span>
+					</div>
+				</div>
+				<div class="hc-meta">
+					{#if t.tile.source}<div>from <strong>{t.tile.source}</strong></div>{/if}
+					{#if t.tile.ehb}<div class="hc-via">{formatEhb(t.tile.ehb)} to obtain</div>{/if}
+				</div>
+			{/if}
 		</div>
 	{/if}
 
@@ -638,11 +647,6 @@
 	.viewtoggle button.on {
 		opacity: 1;
 		color: var(--accent);
-	}
-	.rail-host {
-		margin-bottom: 0.3rem;
-		overflow-x: auto;
-		min-width: 0;
 	}
 
 	/* The 3D board reports hover through a callback rather than drawing its own card, so
