@@ -7,7 +7,15 @@
 	import TileHoverCard, { type CardInfo } from '$lib/connect4/TileHoverCard.svelte';
 	import WikiImage from '$lib/WikiImage.svelte';
 	import { itemImageUrl, monsterImageUrl } from '$lib/wikiImage';
-	import { ROWS, cellId, columnCounts, columnLabel, landingRow, type Piece } from '$lib/connect4/rules';
+	import {
+		ROWS,
+		cellId,
+		cellLabel,
+		columnCounts,
+		columnLabel,
+		landingRow,
+		type Piece
+	} from '$lib/connect4/rules';
 	import { formatEhb } from '$lib/ehb';
 	import { Playback, loadSeen, saveSeen, paceFor } from '$lib/connect4/playback.svelte';
 
@@ -323,7 +331,7 @@
 	{#if form?.error}<p class="err">{form.error}</p>{/if}
 	{#if form?.claim}
 		<p class="ok">
-			Claimed {form.claim.cell} for {game.sides[form.claim.side - 1]?.name} — {form.claim.tile}
+			Claimed {cellLabel(form.claim.cell ?? '')} for {game.sides[form.claim.side - 1]?.name} — {form.claim.tile}
 			{#if form.claim.runs}<strong> · {form.claim.runs} scoring run{form.claim.runs > 1 ? 's' : ''}!</strong>{/if}
 		</p>
 	{/if}
@@ -333,7 +341,11 @@
 		</p>
 	{/if}
 	{#if form?.pooled}<p class="ok">Tile pool saved — {form.pooled} tiles chosen.</p>{/if}
-	{#if form?.undone}<p class="ok">Removed the piece at {form.undone}.</p>{/if}
+	{#if form?.undone}
+		<p class="ok">
+			Removed the piece{typeof form.undone === 'string' ? ` at ${cellLabel(form.undone)}` : ''}.
+		</p>
+	{/if}
 	{#if form?.resynced}<p class="ok">Allowlist resynced ({form.resynced.added} added, {form.resynced.removed} removed).</p>{/if}
 
 	<!-- ── standings ─────────────────────────────────────────────────────── -->
@@ -566,7 +578,18 @@
 			<div class="row">
 				<input placeholder="Filter by RSN…" bind:value={filter} />
 				<span class="muted tiny">{picked.size} selected</span>
-				<form method="POST" action="?/assign" use:enhance class="inline">
+				<form
+					method="POST"
+					action="?/assign"
+					class="inline"
+					use:enhance={() =>
+						async ({ update, result }) => {
+							await update({ reset: false });
+							// A seated batch must let go of the roster. Leaving it ticked means the
+							// next side you click quietly takes the people you just placed with it.
+							if (result.type === 'success') picked = new Set();
+						}}
+				>
 					{#each [...picked] as id (id)}<input type="hidden" name="userId" value={id} />{/each}
 					{#each game.sides as s (s.side)}
 						<button type="submit" name="side" value={s.side} disabled={!picked.size} style="--c: {s.color}" class="credit">
@@ -700,6 +723,12 @@
 	   sideways instead of scrolling inside the board's box. */
 	.page > * {
 		min-width: 0;
+	}
+	/* Six columns of claims do not fit a phone. Scroll the table inside its own box —
+	   without this it is wider than the viewport and takes the whole PAGE sideways. */
+	.table-wrap {
+		overflow-x: auto;
+		overscroll-behavior-x: contain;
 	}
 	header {
 		display: flex;

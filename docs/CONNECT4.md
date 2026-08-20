@@ -362,6 +362,19 @@ than inventing `vs_users` rows, which would land in the member counts and rank t
 home page builds from that table. Safe on staging, which takes no live Dink traffic. Don't
 point it at a database that does.
 
+#### The UX pass
+
+`e2e/connect4-event.spec.ts` runs with `npm run test:e2e` and drives the whole event
+through the **real admin UI** in a browser — create, auto-fill the deck, seat both sides,
+deal, hover an objective, credit by hand, race five clicks at one column, build a run and
+extend it, send a drop through the Dink pipeline, undo, replay, switch to the 3D board and
+back, play at 390px, finish, reopen and delete. Where the simulation asserts the rules, this
+asserts that a person can DO all of it: that a credited piece is on screen in ~100ms rather
+than waiting on the ~4s round trip, that the drop animation actually plays, that nothing
+scrolls sideways on a phone, and that the page never throws. Screenshots land in
+`e2e-shots/connect4/`, and it deletes its own test game — plus any left behind by a run
+that died half-way.
+
 ### Known gaps / next passes
 
 - **No member page.** Everything is admin-only. The member view is the next pass, and

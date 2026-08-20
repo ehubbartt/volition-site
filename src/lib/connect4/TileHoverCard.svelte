@@ -31,11 +31,35 @@
 		onkeep,
 		onrelease
 	}: { info: CardInfo; onkeep?: () => void; onrelease?: () => void } = $props();
+
+	// The card is centred over its tile and sits above it, which walks off the screen for
+	// the columns near either edge — and off the top for a tile high up. On a phone that
+	// put the wiki links out of reach entirely. Clamp it into the viewport instead.
+	const MARGIN = 8;
+	const GAP = 10; // matches the translate below, and the ::after bridge
+
+	let vw = $state(0);
+	let cardW = $state(0);
+	let cardH = $state(0);
+
+	const left = $derived.by(() => {
+		const half = (cardW || 220) / 2;
+		if (!vw) return info.x;
+		const min = half + MARGIN;
+		const max = vw - half - MARGIN;
+		return max < min ? vw / 2 : Math.min(Math.max(info.x, min), max);
+	});
+	// `top` is where the card's BOTTOM sits, so it needs its own height of room above it.
+	const top = $derived(Math.max(info.y, (cardH || 120) + GAP + MARGIN));
 </script>
+
+<svelte:window bind:innerWidth={vw} />
 
 <div
 	class="hovercard"
-	style="left: {info.x}px; top: {info.y}px; --c: {info.sideColor ?? 'var(--accent)'}"
+	bind:clientWidth={cardW}
+	bind:clientHeight={cardH}
+	style="left: {left}px; top: {top}px; --c: {info.sideColor ?? 'var(--accent)'}"
 	role="tooltip"
 	onpointerenter={() => onkeep?.()}
 	onpointerleave={() => onrelease?.()}
