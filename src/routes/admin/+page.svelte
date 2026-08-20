@@ -39,6 +39,12 @@
 			show: data.admin
 		},
 		{
+			href: '/admin/connect4',
+			title: 'Connect Four',
+			desc: 'Create and run a clan-vs-clan Connect Four event — curate the tile pool, assign sides, and drive the board by hand.',
+			show: data.admin
+		},
+		{
 			href: '/admin/crate-sim',
 			title: 'Crate Simulator',
 			desc: 'Bulk-simulate gamba crate opens — VP/GP generated, return ratio, and drop rates.',

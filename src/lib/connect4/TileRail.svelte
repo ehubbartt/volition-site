@@ -1,0 +1,111 @@
+<script lang="ts">
+	// The row of objectives above the board — one card per column, showing the drop that
+	// claims it. Rendered as a grid on the SAME column tracks as the board (same `--n`,
+	// same `--gap`, same min-width), so every card sits exactly over the column it feeds.
+	//
+	// At 25 columns a card is ~45px wide, which is room for the item's icon and nothing
+	// else. The name lives in the detail strip the parent shows for the selected column —
+	// trying to fit it here produces 25 unreadable slivers.
+	import WikiImage from '$lib/WikiImage.svelte';
+	import { itemImageUrl } from '$lib/wikiImage';
+	import { columnLabel, type LiveTile } from './rules';
+
+	let {
+		live = [],
+		selected = null,
+		onselect
+	}: {
+		live: (LiveTile | null)[];
+		selected?: number | null;
+		onselect?: (col: number) => void;
+	} = $props();
+</script>
+
+<div class="rail">
+	{#each live as slot, col (col)}
+		<button
+			type="button"
+			class="tile"
+			class:retired={!slot}
+			class:selected={selected === col}
+			title={slot ? `${columnLabel(col)} — ${slot.tile.item_name}${slot.tile.source ? ` (${slot.tile.source})` : ''}` : `${columnLabel(col)} — column full`}
+			aria-label={slot ? `Column ${columnLabel(col)}: ${slot.tile.item_name}` : `Column ${columnLabel(col)} is full`}
+			onclick={() => onselect?.(col)}
+		>
+			{#if slot}
+				<span class="disc">
+					<WikiImage src={itemImageUrl(slot.tile.item_name)} alt="" size={28} />
+				</span>
+			{:else}
+				<span class="done">✓</span>
+			{/if}
+		</button>
+	{/each}
+</div>
+
+<style>
+	.rail {
+		display: grid;
+		grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+		gap: var(--gap);
+		min-width: calc(var(--n) * (var(--min-cell) + var(--gap)));
+	}
+
+	/* These are <button>s, so app.css's global bronze frame would force them 38px tall
+	   and rectangular. Reset it, exactly as BoardGrid has to. */
+	.tile {
+		border-image: none;
+		min-height: 0;
+		margin: 0;
+		/* No padding: the disc fills the square card, or it renders as a flat ellipse. */
+		padding: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		aspect-ratio: 1;
+		background: linear-gradient(180deg, #3b3226 0%, #2a2419 100%);
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		cursor: pointer;
+		transition:
+			transform 0.1s ease-out,
+			border-color 0.1s ease-out;
+	}
+	.tile:hover:not(.retired) {
+		border-color: var(--accent);
+		transform: translateY(-2px);
+	}
+	.tile.selected {
+		border-color: var(--accent);
+		box-shadow: 0 0 0 2px var(--accent-soft);
+	}
+	.tile.retired {
+		background: linear-gradient(180deg, #241f18 0%, #1a1712 100%);
+		opacity: 0.45;
+		cursor: default;
+	}
+
+	/* A light disc behind the icon so dark wiki glyphs stay visible on the dark card. */
+	.disc {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
+		border-radius: 50%;
+		background: radial-gradient(circle at 40% 35%, #efe4c8 0%, #cbbb95 75%, #a89774 100%);
+		box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.35);
+		overflow: hidden;
+	}
+	.disc :global(img) {
+		max-width: 80%;
+		max-height: 80%;
+		width: auto;
+		height: auto;
+		object-fit: contain;
+	}
+	.done {
+		color: var(--success);
+		font-size: 0.9rem;
+	}
+</style>

@@ -1,0 +1,555 @@
+<script lang="ts">
+	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
+	import { onMount } from 'svelte';
+	import Connect4Board from '$lib/connect4/Connect4Board.svelte';
+	import WikiImage from '$lib/WikiImage.svelte';
+	import { itemImageUrl, monsterImageUrl } from '$lib/wikiImage';
+	import { columnLabel } from '$lib/connect4/rules';
+	import { formatEhb } from '$lib/ehb';
+
+	let { data, form } = $props();
+
+	const game = $derived(data.game);
+	const runCells = $derived(new Set(data.runCells));
+
+	// The last claim made from this page, so the piece that just landed is the one that
+	// falls. Cleared on the next refresh so a poll doesn't replay the animation forever.
+	let newestCell = $state<string | null>(null);
+	$effect(() => {
+		if (form?.claim?.cell) newestCell = form.claim.cell;
+	});
+
+	let selected = $state<number | null>(null);
+	const selectedTile = $derived(selected === null ? null : (game.live[selected] ?? null));
+
+	// Team assignment panel
+	let filter = $state('');
+	let picked = $state<Set<string>>(new Set());
+	const shownRoster = $derived(
+		data.roster.filter((r) => !filter || (r.rsn ?? '').toLowerCase().includes(filter.toLowerCase()))
+	);
+	function toggle(id: string) {
+		const next = new Set(picked);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		picked = next;
+	}
+
+	// Pool curation
+	let poolFilter = $state('');
+	let poolPicked = $state<Set<number>>(new Set());
+	const shownCandidates = $derived(
+		data.candidates.filter(
+			(c) =>
+				!poolFilter ||
+				c.item_name.toLowerCase().includes(poolFilter.toLowerCase()) ||
+				(c.source ?? '').toLowerCase().includes(poolFilter.toLowerCase())
+		)
+	);
+	function togglePool(id: number) {
+		const next = new Set(poolPicked);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		poolPicked = next;
+	}
+
+	// A shared race-y board goes stale the moment the other clan gets a drop, so unlike
+	// Battleship (where an auto-reload would throw away an armed bomb) this page polls.
+	let refreshedAt = $state<string>('');
+	let polling = $state(true);
+	async function refresh() {
+		await invalidateAll();
+		refreshedAt = new Date().toLocaleTimeString();
+	}
+	onMount(() => {
+		refreshedAt = new Date().toLocaleTimeString();
+		const id = setInterval(() => {
+			if (polling && game.phase === 'live') refresh();
+		}, 10_000);
+		return () => clearInterval(id);
+	});
+
+	const members = $derived(game.sides.flatMap((s) => s.members));
+</script>
+
+<svelte:head><title>{game.name} — Connect Four</title></svelte:head>
+
+<div class="page">
+	<header>
+		<div>
+			<a href="/admin/connect4" class="back">← All games</a>
+			<h1>{game.name}</h1>
+		</div>
+		<div class="head-right">
+			<span class="osrs-badge">{game.phase}</span>
+			{#if game.test}<span class="osrs-badge test">test</span>{/if}
+			<button type="button" onclick={refresh}>Refresh</button>
+			{#if refreshedAt}<span class="muted tiny">updated {refreshedAt}</span>{/if}
+		</div>
+	</header>
+
+	{#if form?.error}<p class="err">{form.error}</p>{/if}
+	{#if form?.claim}
+		<p class="ok">
+			Claimed {form.claim.cell} for {game.sides[form.claim.side - 1]?.name} — {form.claim.tile}
+			{#if form.claim.runs}<strong> · {form.claim.runs} scoring run{form.claim.runs > 1 ? 's' : ''}!</strong>{/if}
+		</p>
+	{/if}
+	{#if form?.simulated}
+		<p class="ok">
+			Simulated a {form.simulated.item} drop for {form.simulated.rsn} — {form.simulated.credited} credited.
+		</p>
+	{/if}
+	{#if form?.undone}<p class="ok">Removed the piece at {form.undone}.</p>{/if}
+	{#if form?.resynced}<p class="ok">Allowlist resynced ({form.resynced.added} added, {form.resynced.removed} removed).</p>{/if}
+
+	<!-- ── standings ─────────────────────────────────────────────────────── -->
+	<section class="scores">
+		{#each game.sides as side, i (side.side)}
+			{@const st = game.standings[i]}
+			<div class="score" style="--c: {side.color}" class:winner={game.winner === side.side}>
+				<div class="score-head">
+					<span class="chip"></span>
+					<strong>{side.name}</strong>
+					<span class="muted tiny">{side.members.length} players</span>
+				</div>
+				<div class="total">{st.total.toLocaleString()}</div>
+				<div class="muted tiny">
+					{st.tiles} tiles ({st.tilePoints.toLocaleString()}) · lines {st.linePoints.toLocaleString()}
+					{#if st.longest >= 4} · longest {st.longest} in a row{/if}
+				</div>
+			</div>
+		{/each}
+	</section>
+
+	<!-- ── the board ─────────────────────────────────────────────────────── -->
+	<section class="osrs-panel board-panel">
+		<div class="osrs-titlebar">
+			The board — {game.pieces.length} / {data.deckSize} claimed
+		</div>
+		<div class="pad">
+			{#if game.phase === 'setup'}
+				<p class="muted">
+					The board opens when the game starts. Curate {data.deckSize} tiles and put at least one
+					member on a side first.
+				</p>
+			{:else}
+				<Connect4Board
+					pieces={game.pieces}
+					live={game.live}
+					sideColors={game.sides.map((s) => s.color)}
+					sideNames={game.sides.map((s) => s.name)}
+					{runCells}
+					{newestCell}
+					{selected}
+					onselect={(c) => (selected = selected === c ? null : c)}
+				/>
+
+				{#if selectedTile}
+					<div class="tile-detail">
+						<WikiImage src={itemImageUrl(selectedTile.tile.item_name)} alt="" size={40} />
+						<div>
+							<strong>{columnLabel(selectedTile.col)} — {selectedTile.tile.item_name}</strong>
+							<div class="muted tiny">
+								{#if selectedTile.tile.source}
+									<WikiImage src={monsterImageUrl(selectedTile.tile.source)} alt="" size={16} />
+									{selectedTile.tile.source}
+								{/if}
+								{#if selectedTile.tile.ehb} · {formatEhb(selectedTile.tile.ehb)} to obtain{/if}
+							</div>
+						</div>
+						{#if game.phase === 'live'}
+							<form method="POST" action="?/credit" use:enhance class="inline">
+								<input type="hidden" name="col" value={selectedTile.col} />
+								{#each game.sides as s (s.side)}
+									<button type="submit" name="side" value={s.side} style="--c: {s.color}" class="credit">
+										Credit {s.name}
+									</button>
+								{/each}
+							</form>
+						{/if}
+					</div>
+				{:else if game.phase === 'live'}
+					<p class="muted tiny hint">Click a tile above the board to see it and credit it by hand.</p>
+				{/if}
+			{/if}
+		</div>
+	</section>
+
+	<!-- ── setup: the tile pool ──────────────────────────────────────────── -->
+	{#if game.phase === 'setup'}
+		<section class="osrs-panel">
+			<div class="osrs-titlebar">Tile pool — {data.poolCount} / {data.deckSize} chosen</div>
+			<div class="pad">
+				<p class="muted tiny">
+					One curated tile per cell of the board. They're dealt into a shuffled deck when the game
+					starts: each column gets its own slice, and claiming the tile on top reveals the next one.
+				</p>
+				<div class="row">
+					<form method="POST" action="?/autoPool" use:enhance>
+						<button type="submit">Auto-fill {data.deckSize} across the difficulty range</button>
+					</form>
+					<input placeholder="Filter items or bosses…" bind:value={poolFilter} />
+					<span class="muted tiny">{poolPicked.size} ticked</span>
+				</div>
+
+				<form method="POST" action="?/setPool" use:enhance>
+					<div class="candidates">
+						{#each shownCandidates.slice(0, 400) as c (c.item_id)}
+							<label class="cand" class:on={poolPicked.has(c.item_id)}>
+								<input
+									type="checkbox"
+									name="itemId"
+									value={c.item_id}
+									checked={poolPicked.has(c.item_id)}
+									onchange={() => togglePool(c.item_id)}
+								/>
+								<WikiImage src={itemImageUrl(c.item_name)} alt="" size={22} />
+								<span class="cand-name">{c.item_name}</span>
+								<span class="muted tiny">{c.source} · {formatEhb(c.ehb)}</span>
+							</label>
+						{/each}
+					</div>
+					{#if shownCandidates.length > 400}
+						<p class="muted tiny">Showing the first 400 of {shownCandidates.length} — filter to narrow.</p>
+					{/if}
+					<button type="submit" disabled={poolPicked.size !== data.deckSize}>
+						Use these {poolPicked.size} tiles
+					</button>
+				</form>
+			</div>
+		</section>
+	{/if}
+
+	<!-- ── teams ─────────────────────────────────────────────────────────── -->
+	<section class="osrs-panel">
+		<div class="osrs-titlebar">Teams</div>
+		<div class="pad">
+			<div class="row">
+				<input placeholder="Filter by RSN…" bind:value={filter} />
+				<span class="muted tiny">{picked.size} selected</span>
+				<form method="POST" action="?/assign" use:enhance class="inline">
+					{#each [...picked] as id (id)}<input type="hidden" name="userId" value={id} />{/each}
+					{#each game.sides as s (s.side)}
+						<button type="submit" name="side" value={s.side} disabled={!picked.size} style="--c: {s.color}" class="credit">
+							→ {s.name}
+						</button>
+					{/each}
+					<button type="submit" name="side" value="none" disabled={!picked.size}>Remove</button>
+				</form>
+			</div>
+
+			<div class="roster">
+				{#each shownRoster.slice(0, 300) as r (r.id)}
+					<label class="member" class:on={picked.has(r.id)}>
+						<input type="checkbox" checked={picked.has(r.id)} onchange={() => toggle(r.id)} />
+						<span>{r.rsn}</span>
+						{#if r.side}
+							<span class="pill" style="--c: {game.sides[r.side - 1].color}">{game.sides[r.side - 1].name}</span>
+						{/if}
+					</label>
+				{/each}
+			</div>
+			{#if shownRoster.length > 300}
+				<p class="muted tiny">Showing the first 300 of {shownRoster.length} — filter to narrow.</p>
+			{/if}
+		</div>
+	</section>
+
+	<!-- ── running the game ──────────────────────────────────────────────── -->
+	<section class="osrs-panel">
+		<div class="osrs-titlebar">Run the game</div>
+		<div class="pad row wrap">
+			{#if game.phase === 'setup'}
+				<form method="POST" action="?/start" use:enhance>
+					<button type="submit">Deal the deck and start</button>
+				</form>
+			{/if}
+			{#if game.phase === 'live'}
+				<form method="POST" action="?/simulate" use:enhance class="inline">
+					<label class="tiny">
+						Simulate a drop for
+						<select name="userId">
+							{#each members as m (m.userId)}<option value={m.userId}>{m.rsn}</option>{/each}
+						</select>
+					</label>
+					<label class="tiny">
+						column
+						<select name="col">
+							{#each game.live as slot, col (col)}
+								{#if slot}<option value={col}>{columnLabel(col)} — {slot.tile.item_name}</option>{/if}
+							{/each}
+						</select>
+					</label>
+					<button type="submit">Send it through the real pipeline</button>
+				</form>
+				<form method="POST" action="?/finish" use:enhance><button type="submit">End the game</button></form>
+			{/if}
+			{#if game.phase === 'finished'}
+				<p class="muted">
+					Finished{#if game.winner} — {game.sides[game.winner - 1].name} won{:else} — a draw{/if}.
+				</p>
+				<form method="POST" action="?/reopen" use:enhance><button type="submit">Reopen</button></form>
+			{/if}
+			<form method="POST" action="?/resync" use:enhance><button type="submit">Resync allowlist</button></form>
+			<label class="tiny check"><input type="checkbox" bind:checked={polling} /> auto-refresh</label>
+		</div>
+	</section>
+
+	<!-- ── scoring ───────────────────────────────────────────────────────── -->
+	<section class="osrs-panel">
+		<div class="osrs-titlebar">Scoring</div>
+		<form method="POST" action="?/scoring" use:enhance class="pad grid">
+			<p class="wide muted tiny">
+				Changing these re-scores the whole board immediately — the standings are always recomputed
+				from the pieces. A run only ever scores once, at its current length, so extending a four
+				into a five pays the difference.
+			</p>
+			<label>Points per tile <input name="tile_points" type="number" value={game.scoring.tile_points} /></label>
+			{#each [4, 5, 6, 7] as len, i (len)}
+				<label>Run of {len} <input name="line_{len}" type="number" value={game.scoring.line_points[i]?.points ?? 0} /></label>
+			{/each}
+			<label>Each cell past 7 <input name="extra_per_cell" type="number" value={game.scoring.extra_per_cell} /></label>
+			<div class="wide"><button type="submit">Save scoring</button></div>
+		</form>
+	</section>
+
+	<!-- ── the log ───────────────────────────────────────────────────────── -->
+	{#if game.pieces.length}
+		<section class="osrs-panel">
+			<div class="osrs-titlebar">Claims ({game.pieces.length})</div>
+			<div class="table-wrap">
+			<table class="osrs-table">
+				<thead>
+					<tr><th>Cell</th><th>Side</th><th>Tile</th><th>By</th><th>Source</th><th></th></tr>
+				</thead>
+				<tbody>
+					{#each [...game.pieces].reverse().slice(0, 60) as p (p.id)}
+						<tr>
+							<td>{columnLabel(p.col)}{p.row + 1}</td>
+							<td><span class="pill" style="--c: {game.sides[p.side - 1].color}">{game.sides[p.side - 1].name}</span></td>
+							<td>{p.item_name}</td>
+							<td>{p.by_rsn ?? '—'}</td>
+							<td class="tiny muted">
+								{#if p.drop_key?.startsWith('manual:')}by hand{:else if p.drop_key?.startsWith('test-')}simulated{:else}Dink{/if}
+							</td>
+							<td class="right">
+								<form method="POST" action="?/undo" use:enhance>
+									<input type="hidden" name="pieceId" value={p.id} />
+									<button type="submit" class="danger tiny">Undo</button>
+								</form>
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+			</div>
+			<p class="muted tiny pad">Only the top piece of a column can be removed — taking one from underneath would rewrite where everything above it landed.</p>
+		</section>
+	{/if}
+</div>
+
+<style>
+	.page {
+		max-width: 82rem;
+		margin: 0 auto;
+		padding: 1rem;
+		display: grid;
+		gap: 1rem;
+	}
+	/* Grid items default to min-width:auto, so the board's own min-width (25 columns at
+	   the phone cell floor ≈ 700px) would widen this whole column and push the page
+	   sideways instead of scrolling inside the board's box. */
+	.page > * {
+		min-width: 0;
+	}
+	header {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-end;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+	h1 {
+		margin: 0.2rem 0 0;
+	}
+	.back {
+		font-size: 0.8rem;
+		color: var(--muted);
+	}
+	.head-right {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+	.osrs-badge.test {
+		color: var(--yellow);
+	}
+
+	.scores {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+		gap: 0.75rem;
+	}
+	.score {
+		border: 1px solid var(--border);
+		border-left: 4px solid var(--c);
+		border-radius: var(--radius);
+		background: var(--surface);
+		padding: 0.6rem 0.8rem;
+	}
+	.score.winner {
+		box-shadow: 0 0 0 2px var(--accent);
+	}
+	.score-head {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+	.chip {
+		width: 0.9rem;
+		height: 0.9rem;
+		border-radius: 50%;
+		background: radial-gradient(circle at 36% 30%, rgba(255, 255, 255, 0.5) 0%, transparent 45%), var(--c);
+	}
+	.total {
+		font-family: var(--font-heading);
+		font-size: 1.7rem;
+		color: var(--heading);
+		line-height: 1.1;
+	}
+
+	.board-panel .pad {
+		padding: 0.75rem;
+	}
+	.tile-detail {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		margin-top: 0.6rem;
+		padding: 0.5rem 0.6rem;
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		flex-wrap: wrap;
+	}
+	.hint {
+		margin: 0.5rem 0 0;
+	}
+
+	.pad {
+		padding: 0.75rem;
+	}
+	/* Six columns don't fit a phone: the table scrolls inside its own box rather than
+	   taking the page sideways with it. */
+	.table-wrap {
+		overflow-x: auto;
+	}
+	.row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.5rem;
+	}
+	.row.wrap {
+		margin-bottom: 0;
+	}
+	.inline {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		flex-wrap: wrap;
+	}
+	.credit {
+		border-left: 4px solid var(--c);
+	}
+
+	.roster,
+	.candidates {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+		gap: 0.25rem;
+		max-height: 22rem;
+		overflow-y: auto;
+		padding: 0.25rem;
+		background: var(--surface-alt);
+		border-radius: var(--radius);
+	}
+	.member,
+	.cand {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.2rem 0.35rem;
+		border-radius: 3px;
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+	.member.on,
+	.cand.on {
+		background: var(--accent-soft);
+	}
+	.cand-name {
+		flex: 1;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.pill {
+		font-size: 0.7rem;
+		padding: 0.05rem 0.4rem;
+		border-radius: 999px;
+		border: 1px solid var(--c);
+		color: var(--c);
+	}
+
+	.grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+		gap: 0.6rem;
+	}
+	.grid .wide {
+		grid-column: 1 / -1;
+	}
+	label {
+		display: grid;
+		gap: 0.2rem;
+		font-size: 0.85rem;
+		color: var(--muted);
+	}
+	label.check,
+	label.tiny {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+	}
+	.tiny {
+		font-size: 0.78rem;
+	}
+	.muted {
+		color: var(--muted);
+	}
+	.right {
+		text-align: right;
+	}
+	.danger {
+		color: var(--danger);
+	}
+	.err {
+		color: var(--danger);
+		background: var(--danger-bg);
+		padding: 0.5rem;
+		border-radius: var(--radius);
+		margin: 0;
+	}
+	.ok {
+		color: var(--success);
+		background: var(--success-bg);
+		padding: 0.5rem;
+		border-radius: var(--radius);
+		margin: 0;
+	}
+</style>
