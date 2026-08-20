@@ -57,10 +57,17 @@ bugs that used to recur per feature):
   File names are **case-sensitive past the first letter**, and our item names come from the
   OSRS item database in a different case (`Staff_of_the_Dead.png`, not
   `Staff_of_the_dead.png`). There is no case-insensitive lookup, so the typed helpers
-  (`itemImageUrl`, `skillImageUrl`, `monsterImageUrl` — with a raid alias map — and
-  `caTierImageUrl`) return a **list of candidate spellings** (as given, then the wiki's title
-  case, hyphens included) which `<WikiImage>` walks. Measured over the boss-drop catalogue,
-  that took blank icons from 61/345 to 5. `itemIconUrl` (`$lib/osrsItems`), `skillIconUrl`
+  (`itemImageUrl`, `skillImageUrl`, `monsterImageUrl` and `caTierImageUrl`) return a **list
+  of candidate spellings** (as given, then the wiki's title case, hyphens included) which
+  `<WikiImage>` walks. Measured over the boss-drop catalogue, that took blank icons from
+  61/345 to 5.
+  `monsterImageUrl` adds two more passes for drop sources, whose names rarely match an NPC
+  file: `MONSTER_IMAGE_ALIASES` maps raids, reward chests and form-qualified bosses to an
+  image that exists (`Zulrah` → `Zulrah (serpentine)`, `Lunar chest` → `Blue Moon`), and a
+  **trailing `(...)` qualifier is stripped** as a further candidate, which covers the whole
+  `Vorkath (Post-quest)` / `Scurrius (MVP)` / `Rewards Chest (Fortis Colosseum) (Wave 7)`
+  family without an entry each. Over the 76 distinct sources in the Connect Four tile pool
+  that took resolution from 45/76 to 76/76. `itemIconUrl` (`$lib/osrsItems`), `skillIconUrl`
   (`$lib/ehp`) and the CA icon fns (`$lib/ca`) are thin re-exports — don't fork new copies.
 - **`src/lib/WikiImage.svelte`** — an `<img>` with the hotlink incantation baked in
   (`referrerpolicy="no-referrer"` + `use:retryImage`); renders nothing for an empty `src`.

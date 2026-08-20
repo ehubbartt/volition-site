@@ -204,6 +204,14 @@ Three things here are easy to get wrong, and all three were:
 arrives. The round trip is a couple of seconds — long enough that waiting for it made the
 board look broken, and made the fall animation appear at random ages after the click.
 
+> The client keeps a **list** of pending pieces, not a single override. An override is the
+> obvious shape and it is wrong: click Credit five times quickly and the FIRST response
+> clears it, so the four claims still in flight vanish off the board until a reload. The
+> board renders `game.pieces` plus every pending piece whose cell the server has not yet
+> filled, so a pending piece retires the moment its real one lands and never double-draws.
+> Locally-animated cells are also remembered, so the catch-up pass on the next refresh does
+> not replay a fall the user already watched.
+
 Hovering anything on the board — a placed piece or a floating objective — raises one card
 (`TileHoverCard.svelte`), shared by the flat and 3D views so they can never describe a tile
 differently. It names the drop, the boss, the hours to obtain, who claimed it and whether it
@@ -275,6 +283,11 @@ rail draws, with the item icon composited on top. Two things make that possible 
   HTML in the first pass.
 - **It walks the same candidate spellings** as the DOM path (`wikiImageSources`), so the
   case-sensitivity fix carries over.
+
+> A coin is a cylinder, but its **face is a separate `CircleGeometry` child**, not the
+> cylinder's cap. Cap UVs are generated in the cylinder's own XZ plane, so the `rotateX` that
+> turns a coin to face the camera turns the artwork with it — every item icon lands 90°
+> clockwise. A circle mesh parented at `z = depth/2` carries the texture upright.
 
 The texture is returned immediately with the bare disc and the icon appears when it loads —
 nothing awaits an image, because a board that waits on 25 round trips before it draws is far

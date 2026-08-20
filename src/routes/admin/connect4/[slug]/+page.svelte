@@ -7,7 +7,7 @@
 	import TileHoverCard, { type CardInfo } from '$lib/connect4/TileHoverCard.svelte';
 	import WikiImage from '$lib/WikiImage.svelte';
 	import { itemImageUrl, monsterImageUrl } from '$lib/wikiImage';
-	import { ROWS, columnCounts, columnLabel, landingRow, type Piece } from '$lib/connect4/rules';
+	import { ROWS, cellId, columnCounts, columnLabel, landingRow, type Piece } from '$lib/connect4/rules';
 	import { formatEhb } from '$lib/ehb';
 	import { Playback, loadSeen, saveSeen, paceFor } from '$lib/connect4/playback.svelte';
 
@@ -16,16 +16,35 @@
 	const game = $derived(data.game);
 	const runCells = $derived(new Set(data.runCells));
 
-	// ── optimistic credit ─────────────────────────────────────────────────────
-	// Crediting is a form POST, and the round trip plus the reload took a couple of seconds
-	// — long enough that the piece appeared to fall for no reason, ages after the click, or
-	// that nothing seemed to happen at all. The board therefore drops the piece IMMEDIATELY
-	// from what the client already knows (gravity is a pure function of the pieces), and the
-	// server's answer replaces it when it lands.
-	const PENDING = 'pending-claim';
-	let optimistic = $state<Piece[] | null>(null);
-	const boardPieces = $derived(optimistic ?? game.pieces);
+	// ── the local board ───────────────────────────────────────────────────────
+	// Crediting is a form POST, and the round trip plus the reload takes a couple of seconds.
+	// Rather than wait — which made the board look broken — the client keeps its OWN copy of
+	// what it believes is on the board and merges the server's version into it as it arrives.
+	//
+	// `pending` holds claims this browser has made that the server has not confirmed yet.
+	// Each is superseded the moment a server piece occupies its cell, whether that news
+	// arrives from the claim's own response or from the 10-second poll. That is what makes
+	// rapid clicking work: the first response no longer wipes the ones still in flight, and
+	// gravity for each new click is computed against the MERGED board, so the second piece
+	// stacks on the first instead of fighting it for the same cell.
+	let pending = $state<Piece[]>([]);
+	let pendingSeq = 0;
+	/** Cells this browser has already watched land, so a confirmation doesn't replay them. */
+	const animatedLocally = new Set<string>();
+
+	const serverCells = $derived(new Set(game.pieces.map((p) => cellId(p.col, p.row))));
+	const livePending = $derived(pending.filter((p) => !serverCells.has(cellId(p.col, p.row))));
+	const boardPieces = $derived(livePending.length ? [...game.pieces, ...livePending] : game.pieces);
 	const pieceIds = $derived(boardPieces.map((p) => p.id as string));
+
+	// Drop pending claims the server has now told us about. Kept out of the derived above so
+	// nothing mutates state while computing it.
+	$effect(() => {
+		const taken = serverCells;
+		if (pending.length && pending.some((p) => taken.has(cellId(p.col, p.row)))) {
+			pending = pending.filter((p) => !taken.has(cellId(p.col, p.row)));
+		}
+	});
 
 	// ── playback ──────────────────────────────────────────────────────────────
 	// Whatever landed since this browser last watched the board falls into place, in the
@@ -53,7 +72,14 @@
 		// The baseline is what this browser has SEEN, which outlives the page — a reload is
 		// exactly the "I came back and refreshed" case, so it must not reset the baseline.
 		const seen = loadSeen(slug);
-		const fresh = ids.filter((id) => !seen.has(id));
+		// A piece this browser dropped itself has already been watched; the server
+		// confirming it later carries a different (real) id, and without this it would
+		// fall a second time.
+		const fresh = ids.filter((id, i) => {
+			const p = boardPieces[i];
+			if (p && animatedLocally.has(cellId(p.col, p.row))) return false;
+			return !seen.has(id);
+		});
 		if (fresh.length && fresh.length < ids.length) {
 			// The new pieces are the tail of the list; start the run where they begin. The
 			// ids are banked when the run ENDS, so a run cut short by a reload replays.
@@ -72,13 +98,19 @@
 		if (playback.settled(pieceIds.length) && pieceIds.length) saveSeen(game.slug, pieceIds);
 	});
 
-	/** Show the piece landing now, before the server has confirmed it. */
-	function creditOptimistically(col: number, side: number) {
-		const row = landingRow(columnCounts(game.pieces), col);
-		if (row === null) return;
+	/**
+	 * Drop the piece now, before the server has confirmed it. Returns the local id so the
+	 * form can retire exactly THIS claim when its own response lands — retiring all of them
+	 * is what made a second fast click erase the first.
+	 */
+	function creditOptimistically(col: number, side: number): string | null {
+		// Against the MERGED board, so a rapid second click stacks rather than colliding.
+		const row = landingRow(columnCounts(boardPieces), col);
+		if (row === null) return null;
 		const tile = game.live[col]?.tile;
+		const id = `pending:${++pendingSeq}`;
 		const piece = {
-			id: PENDING,
+			id,
 			col,
 			row,
 			side: side as 1 | 2,
@@ -91,22 +123,18 @@
 			drop_key: 'manual:pending',
 			claimed_at: new Date().toISOString()
 		} satisfies Piece;
-		const next = [...game.pieces, piece];
-		optimistic = next;
-		// Claim this board so the catch-up effect doesn't also try to animate it.
-		handled = next.map((p) => p.id).join('|');
-		playback.play(
-			next.map((p) => p.id as string),
-			next.length - 1,
-			paceFor(1, speed)
-		);
+		animatedLocally.add(cellId(col, row));
+		pending = [...pending, piece];
+
+		const ids = [...boardPieces.map((p) => p.id as string), id];
+		handled = ids.join('|'); // this board is ours; the catch-up effect should leave it be
+		playback.play(ids, ids.length - 1, paceFor(1, speed));
+		return id;
 	}
 
-	/** Hand the board back to the server's version once the claim has actually landed. */
-	function settleOptimistic() {
-		optimistic = null;
-		handled = pieceIds.join('|');
-		saveSeen(game.slug, pieceIds);
+	/** Retire one pending claim — used when the server rejects it, or never answers. */
+	function dropPending(id: string | null) {
+		if (id) pending = pending.filter((p) => p.id !== id);
 	}
 
 	function replayAll() {
@@ -415,10 +443,15 @@
 								action="?/credit"
 								class="inline"
 								use:enhance={({ formData }) => {
-									creditOptimistically(Number(formData.get('col')), Number(formData.get('side')));
-									return async ({ update }) => {
+									const id = creditOptimistically(
+										Number(formData.get('col')),
+										Number(formData.get('side'))
+									);
+									return async ({ update, result }) => {
 										await update({ reset: false });
-										settleOptimistic();
+										// A rejected claim has no server piece to supersede it, so retire it
+										// here; a successful one is retired by the cell it now occupies.
+										if (result.type !== 'success') dropPending(id);
 									};
 								}}
 							>
@@ -772,6 +805,47 @@
 	.viewtoggle button.on {
 		opacity: 1;
 		color: var(--accent);
+	}
+
+	/* Two-column-plus lists of people and candidate items. These were lost when the
+	   inline hover-card styles were deleted, which turned Teams into one long column. */
+	.roster,
+	.candidates {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+		gap: 0.25rem;
+		max-height: 22rem;
+		overflow-y: auto;
+		padding: 0.25rem;
+		background: var(--surface-alt);
+		border-radius: var(--radius);
+	}
+	.member,
+	.cand {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.2rem 0.35rem;
+		border-radius: 3px;
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+	.member.on,
+	.cand.on {
+		background: var(--accent-soft);
+	}
+	.cand-name {
+		flex: 1;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.pill {
+		font-size: 0.7rem;
+		padding: 0.05rem 0.4rem;
+		border-radius: 999px;
+		border: 1px solid var(--c);
+		color: var(--c);
 	}
 
 	.grid {

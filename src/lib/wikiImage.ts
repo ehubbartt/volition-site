@@ -94,23 +94,62 @@ export const itemImageUrl = (item: string): string[] => wikiImageSources(item);
 // Skill icon — the file is "<Skill>_icon.png".
 export const skillImageUrl = (skill: string): string[] => wikiImageSources(`${skill.trim()} icon`);
 
-// A few CA "monster" values are raids / groupings with no single NPC image at "<name>.png";
-// map them to a representative boss image that does exist on the wiki.
+// Some "monster" values are raids, reward chests or groupings with no NPC image at
+// "<name>.png"; map them to a representative image that does exist on the wiki. Names whose
+// only problem is a trailing qualifier ("Vorkath (Post-quest)") need no entry here — see
+// `stripQualifier` in `monsterImageNames`.
 export const MONSTER_IMAGE_ALIASES: Record<string, string> = {
 	'chambers of xeric': 'Great Olm',
 	'chambers of xeric: challenge mode': 'Great Olm',
 	'theatre of blood': 'Verzik Vitur',
 	'theatre of blood: hard mode': 'Verzik Vitur',
 	'tombs of amascut': "Tumeken's Warden",
-	'tombs of amascut: expert mode': "Tumeken's Warden"
+	'tombs of amascut: expert mode': "Tumeken's Warden",
+	'chest (tombs of amascut)': "Tumeken's Warden",
+	// Bosses whose wiki file carries a form/phase qualifier the drop source doesn't.
+	zulrah: 'Zulrah (serpentine)',
+	'alchemical hydra': 'Alchemical Hydra (serpentine)',
+	'phantom muspah': 'Phantom Muspah (ranged)',
+	'grotesque guardians': 'Dusk',
+	"phosani's nightmare": 'The Nightmare',
+	// Reward chests named after the encounter rather than an NPC.
+	'lunar chest': 'Blue Moon',
+	'monumental chest': 'Doom of Mokhaiotl'
 };
 
+// A trailing "(...)" on a drop source is nearly always a variant tag Dink/the item DB adds
+// ("Vorkath (Post-quest)", "Scurrius (MVP)", "Rewards Chest (Fortis Colosseum) (Wave 7)") —
+// the wiki file is under the bare name. Strips ONE trailing group, so the nested case keeps
+// its inner parentheses.
+function stripQualifier(name: string): string {
+	return name.replace(/\s*\([^()]*\)\s*$/, '').trim();
+}
+
+/**
+ * Every name worth trying for a boss / drop source, best first: the alias if we have one,
+ * the name as given, then the same two again with a trailing qualifier removed.
+ */
+function monsterImageNames(m: string): string[] {
+	const out: string[] = [];
+	const push = (n: string) => {
+		if (n && !out.includes(n)) out.push(n);
+	};
+	const alias = (n: string) => MONSTER_IMAGE_ALIASES[n.toLowerCase()];
+
+	push(alias(m) ?? m);
+	const bare = stripQualifier(m);
+	if (bare && bare !== m) push(alias(bare) ?? bare);
+	return out;
+}
+
 // Boss / NPC image. Wiki NPC pages use "<Name>.png" as the primary image, so that convention
-// resolves for the vast majority of bosses (with the alias map covering the exceptions).
+// resolves for the vast majority of bosses (with the alias map and the qualifier strip
+// covering the exceptions).
 export function monsterImageUrl(monster: string | null | undefined): string[] {
 	const m = (monster ?? '').trim();
 	if (!m) return [];
-	return wikiImageSources(MONSTER_IMAGE_ALIASES[m.toLowerCase()] ?? m);
+	const urls = monsterImageNames(m).flatMap((n) => wikiImageSources(n));
+	return [...new Set(urls)];
 }
 
 // Combat-achievement tier medal ("Combat Achievements - <Tier> tier icon.png").

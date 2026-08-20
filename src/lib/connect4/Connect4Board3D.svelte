@@ -273,17 +273,32 @@
 	 * turns the TOP cap towards the camera — so the face material is index 1.
 	 */
 	function buildTokens(): THREE.Mesh[] {
-		const geo = new THREE.CylinderGeometry(TOKEN_R, TOKEN_R, TOKEN_D, 28);
-		geo.rotateX(Math.PI / 2);
+		// The BODY is a cylinder turned to face the camera. Its cap UVs are generated in the
+		// cylinder's own XZ plane, so turning the geometry turns the artwork with it — which
+		// is why the item icons came out rotated a quarter turn. The face is therefore a
+		// separate CircleGeometry, whose UVs are laid out in XY facing +Z: no rotation to
+		// compensate for, and nothing to get wrong again if the body ever changes.
+		const body = new THREE.CylinderGeometry(TOKEN_R, TOKEN_R, TOKEN_D, 28);
+		body.rotateX(Math.PI / 2);
+		const faceGeo = new THREE.CircleGeometry(TOKEN_R * 0.97, 28);
 		const rim = new THREE.MeshStandardMaterial({ color: 0x8a6f3c, roughness: 0.5, metalness: 0.45 });
-		const back = new THREE.MeshStandardMaterial({ color: 0x6b5630, roughness: 0.6, metalness: 0.35 });
 		return Array.from({ length: COLS }, (_, col) => {
-			const face = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.05 });
-			const mesh = new THREE.Mesh(geo, [rim, face, back]);
+			const mesh = new THREE.Mesh(body, rim);
 			mesh.position.set(wx(col), TOKEN_Y, 0.35);
 			mesh.userData.col = col;
 			mesh.frustumCulled = false;
 			mesh.visible = false;
+
+			const face = new THREE.Mesh(
+				faceGeo,
+				new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.05 })
+			);
+			// Just proud of the rim so it never z-fights with the cap behind it.
+			face.position.z = TOKEN_D / 2 + 0.004;
+			face.frustumCulled = false;
+			mesh.add(face);
+			mesh.userData.face = face;
+
 			scene!.add(mesh);
 			return mesh;
 		});
@@ -301,15 +316,17 @@
 				continue;
 			}
 			mesh.visible = true;
-			const face = (mesh.material as THREE.Material[])[1] as THREE.MeshStandardMaterial;
+			const faceMesh = mesh.userData.face as THREE.Mesh | undefined;
+			const mat = faceMesh?.material as THREE.MeshStandardMaterial | undefined;
+			if (!mat) continue;
 			const tex = tokenTexture(slot.tile.item_name);
-			if (face.map !== tex) {
-				face.map = tex;
-				face.needsUpdate = true;
+			if (mat.map !== tex) {
+				mat.map = tex;
+				mat.needsUpdate = true;
 			}
 			const isSel = selected === col;
-			face.emissive.set(isSel ? 0x664400 : 0x000000);
-			face.emissiveIntensity = isSel ? 0.9 : 0;
+			mat.emissive.set(isSel ? 0x664400 : 0x000000);
+			mat.emissiveIntensity = isSel ? 0.9 : 0;
 		}
 	}
 
