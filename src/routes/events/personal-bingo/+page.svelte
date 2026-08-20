@@ -75,7 +75,7 @@
   let generatingTest = $state(false);
 
   // Map a personal-board tile (item / skill / ca / diary) onto the generic BingoTile props.
-  function tileImage(t: Tile): string {
+  function tileImage(t: Tile): string[] {
     if (t.kind === "skill") return skillImageUrl(t.skill ?? "");
     if (t.kind === "ca")
       return t.source ? monsterImageUrl(t.source) : caTierImageUrl(t.ca_tier);

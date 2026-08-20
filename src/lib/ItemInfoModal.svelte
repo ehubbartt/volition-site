@@ -18,7 +18,7 @@
 		children
 	}: {
 		name: string;
-		image?: string | null; // full image URL (itemImageUrl(...) / skillImageUrl(...))
+		image?: string | string[] | null; // full image URL (itemImageUrl(...) / skillImageUrl(...))
 		rows?: { label: string; value: string }[];
 		wikiPages?: string[]; // wiki page names, rendered as "<page> wiki ↗" links
 		onclose: () => void;

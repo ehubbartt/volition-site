@@ -7,17 +7,74 @@
 	import { itemImageUrl, monsterImageUrl } from '$lib/wikiImage';
 	import { columnLabel } from '$lib/connect4/rules';
 	import { formatEhb } from '$lib/ehb';
+	import { Playback, loadSeen, saveSeen, paceFor } from '$lib/connect4/playback.svelte';
 
 	let { data, form } = $props();
 
 	const game = $derived(data.game);
 	const runCells = $derived(new Set(data.runCells));
+	const pieceIds = $derived(game.pieces.map((p) => p.id as string));
 
-	// The last claim made from this page, so the piece that just landed is the one that
-	// falls. Cleared on the next refresh so a poll doesn't replay the animation forever.
-	let newestCell = $state<string | null>(null);
+	// ── playback ──────────────────────────────────────────────────────────────
+	// Whatever landed since this browser last watched the board falls into place, in the
+	// order it was claimed. The baseline is the LAST VISIT (localStorage), not this page
+	// load, so coming back to a board that moved on shows you what you missed instead of
+	// silently swapping it.
+	const playback = new Playback();
+	let speed = $state(1);
+	let replaying = $state(false);
+
+	// The board this effect last acted on. Without it the effect re-runs on its own writes
+	// (and on every poll that changes nothing), and the second run — finding nothing fresh,
+	// because the first run had already banked the ids — cancels the run it just started.
+	let handled = '';
+
 	$effect(() => {
-		if (form?.claim?.cell) newestCell = form.claim.cell;
+		const ids = pieceIds;
+		const slug = game.slug;
+		if (replaying) return; // a manual replay owns the board until it finishes
+
+		const key = ids.join('|');
+		if (key === handled) return;
+		handled = key;
+
+		// The baseline is what this browser has SEEN, which outlives the page — a reload is
+		// exactly the "I came back and refreshed" case, so it must not reset the baseline.
+		const seen = loadSeen(slug);
+		const fresh = ids.filter((id) => !seen.has(id));
+		if (fresh.length && fresh.length < ids.length) {
+			// The new pieces are the tail of the list; start the run where they begin. The
+			// ids are banked when the run ENDS, so a run cut short by a reload replays.
+			playback.play(ids, ids.length - fresh.length, paceFor(fresh.length, speed));
+		} else {
+			// Nothing new, or a board this browser has never seen at all — a first visit
+			// should show the board as it stands, not replay the entire event unasked.
+			playback.showAll(ids.length);
+			saveSeen(slug, ids);
+		}
+	});
+
+	// Bank the board once a run has played out, so the next visit only shows what is new
+	// after it.
+	$effect(() => {
+		if (playback.settled(pieceIds.length) && pieceIds.length) saveSeen(game.slug, pieceIds);
+	});
+
+	function replayAll() {
+		replaying = true;
+		playback.play(pieceIds, 0, paceFor(pieceIds.length, speed));
+	}
+	function stopReplay() {
+		replaying = false;
+		playback.skip(pieceIds.length);
+		saveSeen(game.slug, pieceIds);
+	}
+	$effect(() => {
+		// A run that reaches the end releases the board back to live updates.
+		if (replaying && !playback.playing) {
+			replaying = false;
+			saveSeen(game.slug, pieceIds);
+		}
 	});
 
 	let selected = $state<number | null>(null);
@@ -65,9 +122,13 @@
 	onMount(() => {
 		refreshedAt = new Date().toLocaleTimeString();
 		const id = setInterval(() => {
-			if (polling && game.phase === 'live') refresh();
+			// Don't pull the board out from under a replay that's mid-run.
+			if (polling && game.phase === 'live' && !playback.playing) refresh();
 		}, 10_000);
-		return () => clearInterval(id);
+		return () => {
+			clearInterval(id);
+			playback.stop();
+		};
 	});
 
 	const members = $derived(game.sides.flatMap((s) => s.members));
@@ -135,13 +196,45 @@
 					member on a side first.
 				</p>
 			{:else}
+				<div class="playbar">
+					{#if playback.playing}
+						<button type="button" onclick={stopReplay}>Skip to the end</button>
+						<span class="muted tiny">
+							{(playback.revealed ?? 0) - playback.from} of {playback.to - playback.from} landing…
+						</span>
+						<span class="progress" aria-hidden="true">
+							<span
+								class="progress-fill"
+								style="width: {playback.to > playback.from
+									? (((playback.revealed ?? 0) - playback.from) / (playback.to - playback.from)) * 100
+									: 100}%"
+							></span>
+						</span>
+					{:else}
+						<button type="button" onclick={replayAll} disabled={!game.pieces.length}>
+							▶ Replay the whole event
+						</button>
+						<label class="tiny">
+							speed
+							<select bind:value={speed}>
+								<option value={1}>1×</option>
+								<option value={2}>2×</option>
+								<option value={4}>4×</option>
+								<option value={8}>8×</option>
+							</select>
+						</label>
+						<span class="muted tiny">{game.pieces.length} claims</span>
+					{/if}
+				</div>
+
 				<Connect4Board
 					pieces={game.pieces}
 					live={game.live}
 					sideColors={game.sides.map((s) => s.color)}
 					sideNames={game.sides.map((s) => s.name)}
 					{runCells}
-					{newestCell}
+					revealed={playback.revealed}
+					falling={playback.falling}
 					{selected}
 					onselect={(c) => (selected = selected === c ? null : c)}
 				/>
@@ -437,6 +530,27 @@
 	}
 	.hint {
 		margin: 0.5rem 0 0;
+	}
+	.playbar {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.5rem;
+	}
+	.progress {
+		flex: 1;
+		min-width: 6rem;
+		height: 4px;
+		background: var(--surface-alt);
+		border-radius: 999px;
+		overflow: hidden;
+	}
+	.progress-fill {
+		display: block;
+		height: 100%;
+		background: var(--accent);
+		transition: width 0.12s linear;
 	}
 
 	.pad {

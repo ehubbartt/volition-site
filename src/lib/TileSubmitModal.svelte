@@ -1,4 +1,5 @@
 <script lang="ts">
+	import WikiImage from '$lib/WikiImage.svelte';
 	import { enhance } from '$app/forms';
 	import ImageDropper from '$lib/ImageDropper.svelte';
 	import type { Snippet } from 'svelte';
@@ -10,7 +11,7 @@
 	// placed inside the component (children) renders between the header and the form — the
 	// personal board uses it to show the tile's details alongside the submit controls.
 	interface Props {
-		tile: { id: string | number; name: string; img?: string | null };
+		tile: { id: string | number; name: string; img?: string | string[] | null };
 		submitUrl: string; // form action, e.g. "?/submitTile"
 		onclose: () => void;
 		note?: string; // optional helper line under the header
@@ -54,7 +55,7 @@
 
 		<header class="head">
 			{#if tile.img}
-				<div class="head-icon"><img src={tile.img} alt="" referrerpolicy="no-referrer" onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')} /></div>
+				<div class="head-icon"><WikiImage src={tile.img} alt="" size={32} /></div>
 			{/if}
 			<h2>{tile.name}</h2>
 		</header>
@@ -163,7 +164,8 @@
 		background: radial-gradient(circle at 50% 38%, #f1e8cf, #c3b088);
 		box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.45);
 	}
-	.head-icon img {
+	/* :global — the <img> is rendered by <WikiImage>, so a scoped selector never matches it. */
+	.head-icon :global(img) {
 		max-width: 66%;
 		max-height: 66%;
 		object-fit: contain;

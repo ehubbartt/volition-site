@@ -18,7 +18,7 @@
 		onselect,
 		ontileclick
 	}: {
-		image?: string | null;
+		image?: string | string[] | null;
 		imageAlt?: string;
 		name: string;
 		sub?: string;

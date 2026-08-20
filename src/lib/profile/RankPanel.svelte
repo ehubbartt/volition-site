@@ -869,7 +869,13 @@
 								<div class="gtarget" class:boss={t.fromBoss}>
 									<div class="gtarget-img">
 										{#if t.iconItem}
-											<img src={itemIconUrl(t.iconItem)} alt={t.entry} loading="lazy" referrerpolicy="no-referrer" use:retryImage />
+											<img
+											src={itemIconUrl(t.iconItem)[0]}
+											alt={t.entry}
+											loading="lazy"
+											referrerpolicy="no-referrer"
+											use:retryImage={{ sources: itemIconUrl(t.iconItem) }}
+										/>
 										{/if}
 									</div>
 									<div class="gtarget-body">
@@ -910,8 +916,9 @@
 								<div class="gtile-img">
 									{#if p.iconItem}
 										<img
-											src={itemIconUrl(p.iconItem)}
+											src={itemIconUrl(p.iconItem)[0]}
 											alt={p.name}
+											use:retryImage={{ sources: itemIconUrl(p.iconItem) }}
 											loading="lazy"
 											referrerpolicy="no-referrer"
 											use:retryImage

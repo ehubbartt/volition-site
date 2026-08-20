@@ -14,8 +14,14 @@
 	//  - CELLS ARE <button>s, so app.css's global bronze frame would force them 38px tall
 	//    and rectangular. `border-image: none` and `min-height: 0` undo it, exactly as
 	//    BoardGrid has to.
+	//
+	// The board renders only the first `revealed` pieces in claim order, which is what lets
+	// the page play a run of claims into place (see playback.svelte.ts) rather than swapping
+	// the whole board at once.
 	import TileRail from './TileRail.svelte';
-	import { COLS, ROWS, cellId, columnLabel, type LiveTile, type Piece, type Side } from './rules';
+	import WikiImage from '$lib/WikiImage.svelte';
+	import { itemImageUrl } from '$lib/wikiImage';
+	import { COLS, ROWS, cellId, columnLabel, type LiveTile, type Piece } from './rules';
 
 	let {
 		pieces = [],
@@ -23,7 +29,8 @@
 		sideColors = ['#ef4444', '#eab308'],
 		sideNames = ['Red', 'Yellow'],
 		runCells = new Set<string>(),
-		newestCell = null,
+		revealed = null,
+		falling = null,
 		selected = null,
 		onselect,
 		oncolumn,
@@ -35,8 +42,10 @@
 		sideNames?: string[];
 		/** Cells belonging to a scoring run — they glow. */
 		runCells?: Set<string>;
-		/** The most recent claim, which falls into place. */
-		newestCell?: string | null;
+		/** Show only the first N pieces in claim order. null = the whole board. */
+		revealed?: number | null;
+		/** The piece id currently dropping — it gets the fall animation. */
+		falling?: string | null;
 		selected?: number | null;
 		onselect?: (col: number) => void;
 		/** Clicking a column (admin manual credit). Omit for a read-only board. */
@@ -44,16 +53,31 @@
 		disabled?: boolean;
 	} = $props();
 
-	const byCell = $derived(new Map(pieces.map((p) => [cellId(p.col, p.row), p])));
+	// Claim order is the order pieces arrive from the server (ordered by claimed_at).
+	const shown = $derived(revealed === null ? pieces : pieces.slice(0, Math.max(0, revealed)));
+	const byCell = $derived(new Map(shown.map((p) => [cellId(p.col, p.row), p])));
 
 	// Top-down render order, so grid row 1 is the top of the board and row 0 is the floor.
 	const rowsTopDown = $derived(Array.from({ length: ROWS }, (_, i) => ROWS - 1 - i));
 	const cols = $derived(Array.from({ length: COLS }, (_, i) => i));
+	const colFull = $derived(cols.map((c) => shown.filter((p) => p.col === c).length >= ROWS));
 
-	const colFull = $derived(
-		cols.map((c) => pieces.filter((p) => p.col === c).length >= ROWS)
-	);
+	// Hover card. Anchored from the cell's own rect so it reads next to the piece rather
+	// than in a panel somewhere below a 250-cell board.
+	let hovered = $state<{ piece: Piece; x: number; y: number } | null>(null);
+	function enter(e: MouseEvent | FocusEvent, piece: Piece | undefined) {
+		if (!piece) return;
+		const el = e.currentTarget as HTMLElement;
+		const r = el.getBoundingClientRect();
+		hovered = { piece, x: r.left + r.width / 2, y: r.top };
+	}
+	const leave = () => (hovered = null);
+
+	const claimedVia = (p: Piece) =>
+		p.drop_key?.startsWith('manual:') ? 'credited by hand' : p.drop_key?.startsWith('test-') ? 'simulated' : 'from a Dink drop';
 </script>
+
+<svelte:window onscroll={leave} />
 
 <div class="wrap" style="--n: {COLS}; --rows: {ROWS};">
 	<TileRail {live} {selected} {onselect} />
@@ -67,20 +91,21 @@
 			{#each cols as col (col)}
 				{@const id = cellId(col, row)}
 				{@const piece = byCell.get(id)}
-				{@const inRun = runCells.has(id)}
 				<button
 					type="button"
 					class="hole"
 					class:filled={!!piece}
-					class:in-run={inRun}
-					class:newest={newestCell === id}
-					style={piece
-						? `--disc: ${sideColors[piece.side - 1] ?? '#888'}; --fall: ${ROWS - row};`
-						: ''}
+					class:in-run={runCells.has(id)}
+					class:newest={!!piece && falling === piece.id}
+					style={piece ? `--disc: ${sideColors[piece.side - 1] ?? '#888'}; --fall: ${ROWS - row};` : ''}
 					disabled={disabled || !oncolumn || colFull[col]}
 					aria-label={piece
 						? `${columnLabel(col)}${row + 1} — ${sideNames[piece.side - 1] ?? `side ${piece.side}`}${piece.item_name ? `, ${piece.item_name}` : ''}`
 						: `${columnLabel(col)}${row + 1} — empty`}
+					onmouseenter={(e) => enter(e, piece)}
+					onfocus={(e) => enter(e, piece)}
+					onmouseleave={leave}
+					onblur={leave}
 					onclick={() => oncolumn?.(col)}
 				>
 					{#if piece}<span class="disc"></span>{/if}
@@ -89,6 +114,24 @@
 		{/each}
 	</div>
 </div>
+
+{#if hovered}
+	{@const p = hovered.piece}
+	<div class="hovercard" style="left: {hovered.x}px; top: {hovered.y}px;" role="tooltip">
+		<div class="hc-head" style="--c: {sideColors[p.side - 1] ?? '#888'}">
+			<WikiImage src={itemImageUrl(p.item_name ?? '')} alt="" size={34} />
+			<div class="hc-name">
+				<strong>{p.item_name ?? 'Unknown drop'}</strong>
+				<span class="hc-sub">{columnLabel(p.col)}{p.row + 1} · {sideNames[p.side - 1] ?? `side ${p.side}`}</span>
+			</div>
+		</div>
+		<div class="hc-meta">
+			{#if p.source}<div>from <strong>{p.source}</strong></div>{/if}
+			{#if p.by_rsn}<div>by <strong>{p.by_rsn}</strong></div>{/if}
+			<div class="hc-via">{claimedVia(p)}</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.wrap {
@@ -175,6 +218,9 @@
 			inset 0 2px 4px rgba(0, 0, 0, 0.9),
 			0 0 0 2px var(--accent);
 	}
+	.hole.filled {
+		cursor: help;
+	}
 
 	.disc {
 		width: 100%;
@@ -237,6 +283,49 @@
 					0 0 16px 5px var(--disc);
 			}
 		}
+	}
+
+	/* ── the hover card ───────────────────────────────────────────────────── */
+	.hovercard {
+		position: fixed;
+		z-index: 50;
+		transform: translate(-50%, calc(-100% - 10px));
+		pointer-events: none;
+		min-width: 12rem;
+		max-width: 18rem;
+		padding: 0.5rem 0.6rem;
+		background: var(--surface);
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius);
+		box-shadow: var(--shadow-card);
+	}
+	.hc-head {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		border-left: 3px solid var(--c);
+		padding-left: 0.4rem;
+	}
+	.hc-name {
+		display: grid;
+		min-width: 0;
+	}
+	.hc-name strong {
+		color: var(--heading);
+		font-size: 0.9rem;
+		line-height: 1.2;
+	}
+	.hc-sub,
+	.hc-meta {
+		font-size: 0.75rem;
+		color: var(--muted);
+	}
+	.hc-meta {
+		margin-top: 0.35rem;
+	}
+	.hc-via {
+		opacity: 0.75;
+		font-style: italic;
 	}
 
 	@media (max-width: 720px) {
