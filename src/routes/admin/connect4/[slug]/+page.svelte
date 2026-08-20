@@ -126,7 +126,11 @@
 		animatedLocally.add(cellId(col, row));
 		pending = [...pending, piece];
 
-		const ids = [...boardPieces.map((p) => p.id as string), id];
+		// Read the merged list back AFTER the write — it already ends with the new piece.
+		// Appending `id` by hand instead produced a list one longer than the board, whose
+		// key never matched the catch-up effect's, so the effect ran, found nothing fresh
+		// and called `showAll` — cancelling the drop before a single frame of it played.
+		const ids = pieceIds;
 		handled = ids.join('|'); // this board is ours; the catch-up effect should leave it be
 		playback.play(ids, ids.length - 1, paceFor(1, speed));
 		return id;
