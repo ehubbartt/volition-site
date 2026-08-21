@@ -1,10 +1,11 @@
 # Live updates: drop latency and stale views
 
-> **Status: BUILT (A1 + A2 + B2 + C1), pending ops.** The chosen options are implemented —
-> see "What shipped" below for the file map and the decisions taken. The pipeline runs dark
-> until the maintainer sets `DINK_PROCESS_SECRET` + `SITE_URL` (runbook in
-> [`PENDING-OPS.md`](PENDING-OPS.md)); until then behaviour is exactly the pre-work audit
-> below. The latency/race measurements in "How to verify" are still to be taken.
+> **Status: BUILT (A1 + A2 + B2 + C1); the worker half is not yet deployed.** The site half
+> is live (secrets set on both Fly apps and in the Worker, endpoint answering), but the
+> proxy's ping + crons sit on the un-merged `drop-drain-ping` branch with `SITE_URL` blank —
+> runbook in [`PENDING-OPS.md`](PENDING-OPS.md) § 1. Until that merges and deploys, credit
+> latency behaves exactly as the pre-work audit below. The latency/race measurements in
+> "How to verify" are still to be taken.
 
 ## What shipped
 

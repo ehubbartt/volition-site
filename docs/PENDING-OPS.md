@@ -1,98 +1,63 @@
 # Pending operations — run these by hand
 
 Everything below needs the maintainer (Supabase dashboard, Fly CLI, or wrangler).
-Nothing here is done by a deploy. Ordered by priority; each section is independent
-except where marked. Delete sections as you complete them.
+Nothing here is done by a deploy. Delete sections as you complete them.
+
+> Pruned 2026-08-21: the old sections for the refactor ship, the hand-applied SQL
+> backlog, Dink auto-tracking go-live, and the drain-pipeline **secrets** are done
+> (per the maintainer) and have been removed. What's left is below.
 
 ---
 
-## 0. Dink drain pipeline — set the secrets (turns live crediting on)
+## 1. Deploy the worker half of the drop-drain pipeline
 
-The event-driven drop pipeline (see [`LIVE-UPDATES.md`](LIVE-UPDATES.md)) is shipped but
-runs **dark** until these are set. Until then drops are credited only by the poll-on-read
-backstop, exactly as before.
+The secrets exist everywhere (both Fly apps + the Worker), but the **code that uses
+them is not deployed**: the proxy's after-insert ping and the two crons live on the
+`drop-drain-ping` branch, which is not merged to `master` — and CI deploys `master`.
+Until it merges, drops are still credited only by the poll-on-read backstop.
 
 ```sh
-# One shared secret, used on both ends:
-openssl rand -hex 32
-
-# 1. Site side — enables POST /api/dink/process (it answers 403 until this exists):
-fly secrets set -a volition-site DINK_PROCESS_SECRET='<secret>'
-fly secrets set -a volition-site-staging DINK_PROCESS_SECRET='<secret>'   # for rehearsal
-
-# 2. Worker side (in the dink-proxy repo) — enables the after-insert ping and the crons:
-npx wrangler secret put DINK_PROCESS_SECRET
-
-# 3. Worker vars — fill in SITE_URL in wrangler.jsonc with the CANONICAL prod site URL
-#    (the prod app's PUBLIC_SITE_URL value; an off-canonical host would 308 the ping) and
-#    commit. Blank = the ping and crons no-op.
-
-# 4. Deploy the worker (push the change to master; CI deploys it).
+# In the dink-proxy repo:
+# 1. Fill in SITE_URL in wrangler.jsonc on the drop-drain-ping branch — it ships
+#    BLANK on purpose. Use the CANONICAL prod site URL (the prod app's
+#    PUBLIC_SITE_URL value; an off-canonical host would 308 the ping).
+# 2. Merge drop-drain-ping → master and push; CI deploys.
 ```
 
-Verify: `curl -X POST -H "Authorization: Bearer <secret>" \
-  https://<site>/api/dink/process?reconcile=0` → `{"processed":0,"credited":0}`, then
-`npx wrangler tail` during a real/simulated drop should show the insert followed by the
-drain ping. After that, take the latency + race-window measurements listed in
-[`LIVE-UPDATES.md`](LIVE-UPDATES.md) "How to verify" and record them there.
+Verify: `npx wrangler tail` during a simulated drop shows the insert followed by the
+drain ping, and `/admin/dink-drops` shows the drop processed within ~2s. Then take
+the latency + race-window measurements listed in [`LIVE-UPDATES.md`](LIVE-UPDATES.md)
+"How to verify" and record them there.
+
+> Note the deployed worker writes to the **prod** database, so a real Dink client
+> can never reach staging. Staging rehearsal = the connect4 tester's "Send it
+> through the real pipeline" (site half only), or a local `wrangler dev` pointed at
+> the staging DB + staging site.
 
 ---
 
-## 1. RLS lockdown (security — do this first)
+## 2. RLS lockdown (security)
 
 Goal: the anon key can read/write **nothing**; every server talks to Supabase with
-the service-role key. Until step 1.4 runs, the database behaves exactly as today.
+the service-role key. Until step 2.2 runs, the database behaves exactly as today.
 
-> **Mechanism PROVEN end-to-end** via `db/scripts/rls_test.sql` + `/admin/rls-test`
-> on staging: anon key blocked on a locked table/view/function; service key reads
-> everything with RLS on. What's left is distributing the key + running the script.
+> Mechanism PROVEN end-to-end via `db/scripts/rls_test.sql` + `/admin/rls-test` on
+> staging. **Key distribution is DONE** (staging site, prod site, bot, Dink proxy
+> all run the service-role key). What's left is flipping it on.
 
-**Order matters: 1.2 → 1.3 must ALL be done before 1.4.**
-
-### 1.1 Copy the service-role key — ✅ DONE
-(Already used to configure staging.) Supabase dashboard → Project Settings → API →
-`service_role` key. Never commit it, never put it in client code.
-
-### 1.2 Hand it to every server — ✅ staging done · ☐ prod · ☐ bot
-```sh
-# ✅ DONE: volition-site-staging has SUPABASE_SERVICE_ROLE_KEY and runs on it.
-
-# ☐ PROD SITE — runs pre-refactor code from main, which only reads
-#   SUPABASE_ANON_KEY. Adding a new var does NOTHING; you must overwrite the
-#   EXISTING variable's VALUE with the service-role key (rename properly when
-#   the refactor ships to prod, see section 4):
-flyctl secrets set SUPABASE_ANON_KEY=<service_role_key> -a volition-site
-
-# ☐ BOT — code already deployed with service-key support:
-flyctl secrets set SUPABASE_SERVICE_ROLE_KEY=<service_role_key> -a <bot app name>
+### 2.1 ☐ Canary (instantly reversible)
+```sql
+alter table public.wordles enable row level security;
 ```
-Each `secrets set` restarts the app by itself — **no separate deploy needed**. Use
-the flyctl CLI, NOT the Fly dashboard's deploy button: the dashboard's GitHub
-integration builds from `main`, which is the wrong branch for staging (its failed
-build is how we learned this — see the note at the end of this section).
+Check: site loads, bot responds, a Dink drop tracks. If something breaks, that
+consumer didn't get the key — `disable row level security` reverses the canary.
 
-### 1.3 ☐ The Dink proxy Worker (easy to forget — it writes drops to the DB)
-From the `dink-proxy` repo:
-```sh
-npx wrangler secret put SUPABASE_KEY    # paste the service-role key
-```
-No code change; it's a value swap.
+### 2.2 ☐ Full lockdown
+Run ALL of `db/scripts/enable_rls.sql` in the Supabase SQL editor. It has THREE
+parts — tables, views (they bypass table RLS without `security_invoker`), and RPC
+functions (anon can call them by default). Run the whole file.
 
-Also add `SUPABASE_SERVICE_ROLE_KEY=<key>` to the `.env` on your dev machine
-(the card-art / analytics scripts use it).
-
-### 1.4 ☐ Flip RLS on (Supabase dashboard → SQL editor)
-1. **Canary** (instantly reversible):
-   ```sql
-   alter table public.wordles enable row level security;
-   ```
-   Check: site loads, bot responds, a Dink drop tracks. If something breaks, that
-   consumer didn't get the key — `disable row level security` reverses the canary.
-2. **Full lockdown**: run ALL of `db/scripts/enable_rls.sql`. It has THREE parts —
-   tables, views (they bypass table RLS without `security_invoker`), and RPC
-   functions (anon can call them by default). Run the whole file.
-
-### 1.5 ☐ Verify
+### 2.3 ☐ Verify
 With the ANON key (from any machine):
 ```sh
 curl "https://rrnmckaabbvtkkpoeefg.supabase.co/rest/v1/players?select=rsn&limit=1" \
@@ -102,110 +67,32 @@ curl "https://rrnmckaabbvtkkpoeefg.supabase.co/rest/v1/players?select=rsn&limit=
 Dashboard linter: the `rls_disabled_in_public` warnings disappear. Then click
 around the site, run a bot command that writes (wallet/points), and drop-test Dink.
 
-Also run this once and eyeball the output (functions with `prosecdef = true` are
-SECURITY DEFINER — fine now that anon can't call them, but good to know they exist):
+Also run once and eyeball (functions with `prosecdef = true` are SECURITY DEFINER —
+fine now that anon can't call them, but good to know they exist):
 ```sql
 select proname, prosecdef from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public';
 ```
 
-### 1.6 Optional hardening (any time after 1.5)
-Rotate the anon key in the dashboard — the old one had full access its whole life.
-Nothing depends on it after the lockdown, so this closes any unknown historical
-exposure for free. (Note: prod temporarily carries the service-role key in the
-`SUPABASE_ANON_KEY` variable per 1.2 — rotating the anon key doesn't affect that;
-just don't overwrite prod's variable with the NEW anon key by habit.)
+### 2.4 ☐ Optional hardening (any time after 2.3)
+Rotate the anon key in the dashboard — the old one had full access its whole life
+and nothing depends on it after the lockdown.
 
-### 1.7 ☐ Test-scaffold cleanup
-- Run SECTION 3 of `db/scripts/rls_test.sql` (drops the throwaway
-  `vs_rls_test` table/view/function).
-- Optional: remove the `/admin/rls-test` route + `db/scripts/rls_test.sql` from the
-  branch, or keep them as a re-runnable staging diagnostic.
-
-### Deploy-source gotcha (why the dashboard deploy failed)
-`volition-site-staging`'s Fly-native GitHub integration is pinned to the repo's
-default branch (`main`), so the dashboard's "deploy" button builds the WRONG branch
-and fails. Staging's real deploy path is the GitHub Actions workflow
-(`deploy-staging.yml`, builds `voli-site-2.0-refactor`; auto on push, or the
-"Run workflow" button). Fix when convenient: disconnect the GitHub integration on
-the staging app (or repoint it at the refactor branch) in the Fly dashboard.
+### 2.5 ☐ Test-scaffold cleanup
+Run SECTION 3 of `db/scripts/rls_test.sql` (drops the throwaway test
+table/view/function). Optionally remove the `/admin/rls-test` route, or keep it as
+a re-runnable diagnostic.
 
 ---
 
-## 2. Hand-applied SQL — what's applied vs pending
+## 3. Connect Four production go-live (order matters)
 
-There's no migration runner; these run in the Supabase SQL editor. Status is
-inferred from what's live — each row has a check query if you're unsure.
+1. ☐ Apply `db/scripts/connect4.sql` to the **prod** database (idempotent).
+2. ☐ Merge `staging` → `main` (fast-forward as of this writing; prod deploys itself).
+3. ☐ Confirm `/admin/connect4` loads on prod, then create the game, curate the
+   pool, **Preview** the clan split, fix the flagged names, seat, start.
 
-| Script | Status | Check / notes |
-|---|---|---|
-| `db/scripts/active_tiles.sql` | **RE-APPLY** | Updated with `security_invoker` on its 3 views. Safe to re-run (idempotent; drops/recreates two views). If you run section 1.4 first this is belt-and-braces; still re-apply so future re-runs stay locked. |
-| `db/scripts/dink_tracking_hardening.sql` | **PENDING** | Required before Dink auto-tracking goes live (section 3). Safe to re-run. |
-| `db/scripts/ehb_overrides.sql` | **PROBABLY PENDING** | `/admin/ehb` (staging) errors without it. Check: `select 1 from vs_ehb_overrides limit 1;` |
-| `db/scripts/events_v2.sql` | likely applied | Personal boards run on this spine in prod. Check: `select 1 from vs_event_participants limit 1;` Safe to re-run (additive + idempotent). |
-| `db/scripts/events_unlisted.sql` | **RUN with Dink go-live** | Adds `vs_events.unlisted` + creates the permanent Dink Self-Test event that `/dink-check` auto-enrolls into. Run BEFORE deploying the site build that filters on `unlisted`, and before the bot's unlisted-filter branch merges. |
-| `db/scripts/vs_rank_sim.sql` | applied | The `gear_detail`/`ca_detail` alters were run while fixing "Check my rank" (which now saves fine). Check: `select gear_detail from vs_rank_sim limit 1;` |
-| `db/scripts/vs_rank_sim_dedupe.sql` | **PENDING** | Removes case/underscore-variant duplicate rows that made the /me Rank tab show nothing for some members. Safe to re-run. Check for remaining dups: `select lower(replace(rsn,'_',' ')) k, count(*) from vs_rank_sim group by 1 having count(*) > 1;` |
-| `db/scripts/personal_board_difficulty_fix.sql` | **PENDING — review first** | Audits + corrects locked personal boards whose difficulty (and so VP) overstates their tiles (the keep-line/difficulty exploit, now closed in code). Run the audit select, eyeball the list (near-complete-log fallback boards can flag legitimately), then run the update. |
-| `db/scripts/dink_tokens_multi_server.sql` | **PENDING — run BEFORE deploying the multi-server toggle** | Adds `dink_tokens.multi_server` (the /dink-check checkbox + the proxy's config variant read it). Also requires deploying the updated dink-proxy worker. |
-| `db/scripts/build_item_ehc.mjs` (not SQL — local node script) | **PENDING** | Builds `src/lib/server/data/itemEhc.json` (non-boss clog items valued by Temple EHC) — needs templeosrs.com, so run locally: `node db/scripts/build_item_ehc.mjs --player=<well-synced RSN>`, eyeball the JSON (count, spot-check EHC values, pets flagged), commit it. Until then the "Include non-PVM collection log items" toggle is a no-op (file ships as `[]`). |
-| `db/scripts/create_vs_admin_roles.sql` | applied | DB role grants are live. |
-| `db/functions/vs_accept_invite.sql` | applied | Team invites work in prod. |
-| `db/scripts/grant_white_pack.sql` | one-off utility | Run only when granting. |
-| bot `db/migrations/add_vs_event_id_to_events.sql` | applied | Announce poller is live. |
-| bot `db/migrations/create_bot_config_table.sql` + `seed_command_messages.sql` | applied | `/admin/config` + `/allset` work. |
-| `db/scripts/dink_token_items.sql` | **PENDING** | Per-token Dink allowlist view. Apply in Supabase, then deploy the dink-proxy Worker change that reads `vs_dink_token_items` (until both land, the proxy keeps serving the clan-wide allowlist). |
-| `db/scripts/events_unlisted.sql` (re-apply) | **PENDING** | Trims the Dink self-test to Bones only (deletes the Cowhide/Feather/Raw chicken tiles). Re-run the whole script in Supabase, or click "Create / refresh self-test event" on /admin/dink-test after deploying. |
-| `db/scripts/rank_item_claims.sql` | **PENDING** | Manual rank gear claims table (vs_rank_item_claims). Apply in Supabase BEFORE deploying the build with /admin/rank-claims + the /me claim form (they 404/500 on the missing table otherwise). |
-| `db/scripts/rank_manual_adjustments.sql` | ✅ staging · **PENDING prod** | Manual rank adjustments: the `vs_rank_overrides` table (incl. `updated_by`, added after the first staging apply — **re-apply if you applied an earlier copy**) + `source`/`quantity` on `vs_rank_item_claims`. Apply BEFORE deploying the build: the rank/gear editors on `/u/[rsn]` and the record page both 500 on the missing table, and every rank check selects the two new claim columns. Depends on `rank_item_claims.sql` being applied first. Safe to re-run. Check: `select updated_by from vs_rank_overrides limit 1;` |
-
----
-
-## 3. Dink auto-tracking go-live (when you're ready — after sections 1 & 2)
-
-Reference: `docs/event-builder-and-dink-tracking.md`. Remaining setup:
-
-1. Apply `dink_tracking_hardening.sql` and (re-)apply `active_tiles.sql` (section 2).
-2. Worker: `SUPABASE_URL` var + `SUPABASE_KEY` secret (already service-role after
-   1.3), then `npx wrangler deploy` from the `dink-proxy` repo.
-3. Site env (Fly secret): `PROXY_BASE_URL=https://dink-proxy.<account>.workers.dev`
-   so `/admin/dink-test` can mint tokens.
-4. Test path: the doc's section "A. Proxy in isolation" (local `wrangler dev`),
-   then `/admin/dink-test` end-to-end, then watch `/admin/dink-drops`.
-
----
-
-## 4. Ship the refactor branch to prod (when staging has soaked)
-
-`voli-site-2.0-refactor` (staging) is far ahead of `main` (prod): instant
-navigation on all member + core admin pages, bans/session caches, gzip, bingo URL
-unification, service-key support. When you're satisfied with staging:
-
-1. **Squash-merge** `voli-site-2.0-refactor` → `main` (prod deploys from main).
-   Use squash on purpose: a handful of early commits were authored as "Claude"
-   with attribution trailers, and two merge commits carry `claude/*` branch names
-   — squashing collapses all of it into one commit authored by you, so none of it
-   reaches `main`'s history. (The code content is already clean.)
-2. Then rename prod's key secret properly:
-   ```sh
-   flyctl secrets set SUPABASE_SERVICE_ROLE_KEY=<key> -a volition-site
-   # optional cleanup once confirmed: flyctl secrets unset SUPABASE_ANON_KEY -a volition-site
-   ```
-3. Old URLs 301 (`/bingo/[slug]` → `/events/[slug]`, `/clog-bingo` →
-   `/events/personal-bingo`), so nothing external breaks.
-
-Staging smoke list before merging: back/forward navigation paints real content
-instantly; join/leave an event (data stays on screen while refreshing); admin
-pages show "Loading…" then fill; `/admin/stats` and `/admin/voice` on a fresh
-browser profile (first-visit placeholder path); logout fully reloads.
-
----
-
-## 5. Housekeeping (whenever)
-
-- Bot repo branches: `architecture-docs` and `editable-command-messages` are fully
-  merged — safe to delete. `repo-authoring-conventions` has one superseded commit
-  (its content already lives on main) — skim then delete.
-- The Supabase linter may also flag storage buckets or `security definer` views
-  after the lockdown; buckets are intentionally public-read (bingo proofs, card
-  art), and the definer-function audit is covered in 1.5.
+Do not create-and-start a connect4 game on prod between steps 1 and 2 being in the
+wrong order — claims would fail against the missing table. Everything else about
+the event (who can sign up, how sides are decided) is in
+[`CONNECT4.md`](CONNECT4.md) § "Clan vs clan".
