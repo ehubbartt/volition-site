@@ -14,6 +14,8 @@
 		columnCounts,
 		columnLabel,
 		landingRow,
+		runCellSet,
+		standings as computeStandings,
 		type Piece
 	} from '$lib/connect4/rules';
 	import { formatEhb } from '$lib/ehb';
@@ -22,7 +24,6 @@
 	let { data, form } = $props();
 
 	const game = $derived(data.game);
-	const runCells = $derived(new Set(data.runCells));
 
 	// ── the local board ───────────────────────────────────────────────────────
 	// Crediting is a form POST, and the round trip plus the reload takes a couple of seconds.
@@ -44,6 +45,14 @@
 	const livePending = $derived(pending.filter((p) => !serverCells.has(cellId(p.col, p.row))));
 	const boardPieces = $derived(livePending.length ? [...game.pieces, ...livePending] : game.pieces);
 	const pieceIds = $derived(boardPieces.map((p) => p.id as string));
+
+	// Scores and the run highlight are derived from the MERGED board, not from the server's
+	// snapshot. They used to arrive with the page data, which meant the four you had just
+	// completed did not light up — and the score did not move — until the round trip landed
+	// or you reloaded. The rules module is pure and client-safe, so the same functions the
+	// server scores with run here on every piece the board is showing.
+	const standings = $derived(computeStandings(boardPieces, game.scoring));
+	const runCells = $derived(runCellSet(standings.flatMap((s) => s.runs)));
 
 	// Drop pending claims the server has now told us about. Kept out of the derived above so
 	// nothing mutates state while computing it.
@@ -351,7 +360,7 @@
 	<!-- ── standings ─────────────────────────────────────────────────────── -->
 	<section class="scores">
 		{#each game.sides as side, i (side.side)}
-			{@const st = game.standings[i]}
+			{@const st = standings[i]}
 			<div class="score" style="--c: {side.color}" class:winner={game.winner === side.side}>
 				<div class="score-head">
 					<span class="chip"></span>

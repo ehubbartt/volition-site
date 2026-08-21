@@ -20,7 +20,7 @@ import {
 } from '$lib/server/connect4';
 import { autoSelect, poolCandidates, toTileRefs } from '$lib/server/connect4Pool';
 import { simulateDinkDrop, maybeProcessDinkDrops } from '$lib/server/dinkDrops';
-import { DECK_SIZE, isSide, runCellSet, type Side } from '$lib/connect4/rules';
+import { DECK_SIZE, isSide, type Side } from '$lib/connect4/rules';
 import type { Actions, PageServerLoad } from './$types';
 
 // The Connect Four tester. Every phase of a game can be driven from here by hand —
@@ -69,7 +69,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			deck: [],
 			pool: fresh.phase === 'setup' ? fresh.pool : []
 		},
-		runCells: [...runCellSet(fresh.standings.flatMap((s) => s.runs))],
 		roster: (users.data ?? []).map((u) => ({
 			id: u.id,
 			rsn: u.rsn,

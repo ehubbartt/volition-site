@@ -212,6 +212,14 @@ board look broken, and made the fall animation appear at random ages after the c
 > Locally-animated cells are also remembered, so the catch-up pass on the next refresh does
 > not replay a fall the user already watched.
 
+**So is the scoring.** The standings and the run highlight are `$derived` from the merged
+board with the same pure functions the server scores with (`standings`, `runCellSet`), not
+read out of the page payload. Taking them from the payload meant the four you had just
+completed did not light up — and the score did not move — until the round trip landed or
+you reloaded, which is precisely the moment the highlight exists for. The server stays the
+authority: its pieces replace the pending ones, and the same functions over the same rows
+give the same answer.
+
 Hovering anything on the board — a placed piece or a floating objective — raises one card
 (`TileHoverCard.svelte`), shared by the flat and 3D views so they can never describe a tile
 differently. It names the drop, the boss, the hours to obtain, who claimed it and whether it

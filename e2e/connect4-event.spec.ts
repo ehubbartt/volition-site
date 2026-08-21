@@ -307,12 +307,21 @@ test('four in a row scores, glows, and moves the standings', async () => {
 	for (const col of [10, 11, 12]) await creditAndConfirm(col, 2);
 	expect(await page.locator('.hole.in-run').count(), 'three in a row is not a run').toBe(0);
 
-	await creditAndConfirm(13, 2);
-	await expect(page.locator('.hole.in-run')).toHaveCount(4);
+	// The fourth piece completes it, and the glow and the score are the point of the
+	// moment — they have to arrive WITH the piece, not with the round trip a few seconds
+	// later. Both are derived from the board the client is showing, so this is checked
+	// before the server has confirmed anything.
+	const pending = (await serverClaims()) + 1;
+	await selectColumn(13);
+	const t0 = Date.now();
+	await creditNow(2);
+	await expect(page.locator('.hole.in-run')).toHaveCount(4, { timeout: INSTANT_MS });
+	console.log(`  ⏱ the run lit up in ${Date.now() - t0}ms`);
 	const yellowAfter = await scoreOf(1);
 	expect(yellowAfter, 'the run did not score').toBeGreaterThan(yellowBefore);
 	await expect(page.locator('.score').nth(1)).toContainText('longest 4 in a row');
 	await shot('run-of-four');
+	await expect(claimed()).toContainText(`${pending} / ${DECK} claimed`, { timeout: 60_000 });
 
 	// Extending it pays the difference rather than scoring the whole run again.
 	await creditAndConfirm(14, 2);
