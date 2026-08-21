@@ -121,7 +121,11 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// locked out of staging by their own preview.
 	if (STAGING_ADMIN_ONLY) {
 		const gatePath = event.url.pathname;
-		const openForLogin = gatePath.startsWith('/auth/') || isStaticAsset(gatePath);
+		// /api/dink/process authenticates itself with a shared secret (403 without it), and
+		// must stay reachable here so the dink-proxy ping / worker cron can drain staging's
+		// drop queue when pointed at it — an admin-session gate would eat those requests.
+		const openForLogin =
+			gatePath.startsWith('/auth/') || gatePath === '/api/dink/process' || isStaticAsset(gatePath);
 		if (!openForLogin && !isAdmin(event.locals.user)) {
 			return stagingLockResponse(!!event.locals.user);
 		}

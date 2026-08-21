@@ -6,6 +6,38 @@ except where marked. Delete sections as you complete them.
 
 ---
 
+## 0. Dink drain pipeline — set the secrets (turns live crediting on)
+
+The event-driven drop pipeline (see [`LIVE-UPDATES.md`](LIVE-UPDATES.md)) is shipped but
+runs **dark** until these are set. Until then drops are credited only by the poll-on-read
+backstop, exactly as before.
+
+```sh
+# One shared secret, used on both ends:
+openssl rand -hex 32
+
+# 1. Site side — enables POST /api/dink/process (it answers 403 until this exists):
+fly secrets set -a volition-site DINK_PROCESS_SECRET='<secret>'
+fly secrets set -a volition-site-staging DINK_PROCESS_SECRET='<secret>'   # for rehearsal
+
+# 2. Worker side (in the dink-proxy repo) — enables the after-insert ping and the crons:
+npx wrangler secret put DINK_PROCESS_SECRET
+
+# 3. Worker vars — fill in SITE_URL in wrangler.jsonc with the CANONICAL prod site URL
+#    (the prod app's PUBLIC_SITE_URL value; an off-canonical host would 308 the ping) and
+#    commit. Blank = the ping and crons no-op.
+
+# 4. Deploy the worker (push the change to master; CI deploys it).
+```
+
+Verify: `curl -X POST -H "Authorization: Bearer <secret>" \
+  https://<site>/api/dink/process?reconcile=0` → `{"processed":0,"credited":0}`, then
+`npx wrangler tail` during a real/simulated drop should show the insert followed by the
+drain ping. After that, take the latency + race-window measurements listed in
+[`LIVE-UPDATES.md`](LIVE-UPDATES.md) "How to verify" and record them there.
+
+---
+
 ## 1. RLS lockdown (security — do this first)
 
 Goal: the anon key can read/write **nothing**; every server talks to Supabase with

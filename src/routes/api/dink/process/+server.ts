@@ -6,7 +6,7 @@
 
 import { json, error } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { processDinkDrops } from '$lib/server/dinkDrops';
+import { runProcessDinkDrops } from '$lib/server/dinkDrops';
 import type { RequestHandler } from './$types';
 
 function authorized(request: Request, url: URL): boolean {
@@ -19,9 +19,13 @@ function authorized(request: Request, url: URL): boolean {
 
 export const POST: RequestHandler = async ({ request, url }) => {
 	if (!authorized(request, url)) throw error(403, 'forbidden');
-	// The cron/proxy path also runs a bounded reconcile pass (re-check recent un-credited
-	// drops against the current view) to heal ordering races. The poll-on-read backstop
-	// stays drain-only so it remains cheap.
-	const result = await processDinkDrops({ reconcile: true });
+	// `reconcile` (default on, for hand-invocation compatibility) additionally runs the
+	// bounded reconcile pass — re-checking recent un-credited drops against the current
+	// view (e.g. a player who signed up AFTER their drop). The proxy's after-insert ping
+	// sends reconcile=0 (it can fire every kill, and re-churning days of dead drops per
+	// kill is waste); the worker's 15-minute cron sends reconcile=1. Runs are serialized
+	// per instance — a burst of pings coalesces instead of stampeding.
+	const reconcile = !/^(0|false|no|off)$/i.test(url.searchParams.get('reconcile') ?? '');
+	const result = await runProcessDinkDrops({ reconcile });
 	return json(result);
 };

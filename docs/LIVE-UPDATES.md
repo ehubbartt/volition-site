@@ -1,8 +1,63 @@
 # Live updates: drop latency and stale views
 
-> **Status: PROPOSAL.** Nothing in the "Options" or "Proposed pattern" sections is built.
-> The "What happens today" section is an audit of the shipped code, with file:line, and is
-> accurate as of this branch. Written as a brief for whoever plans and builds the work.
+> **Status: BUILT (A1 + A2 + B2 + C1), pending ops.** The chosen options are implemented —
+> see "What shipped" below for the file map and the decisions taken. The pipeline runs dark
+> until the maintainer sets `DINK_PROCESS_SECRET` + `SITE_URL` (runbook in
+> [`PENDING-OPS.md`](PENDING-OPS.md)); until then behaviour is exactly the pre-work audit
+> below. The latency/race measurements in "How to verify" are still to be taken.
+
+## What shipped
+
+**Layer A — crediting (A1 + A2, in `dink-proxy`):**
+
+- `insertDinkDrops` pings `POST <SITE_URL>/api/dink/process?reconcile=0` after every
+  successful insert. Both ingest paths already run under `ctx.waitUntil`, so the ping never
+  delays Dink's response — and on prod's `auto_stop_machines = 'suspend'` it *wakes* a
+  suspended machine.
+- Two cron triggers in `wrangler.jsonc`: every minute a plain drain (bounds worst-case
+  credit latency at ~60s if a ping is lost), every 15 minutes a drain **with reconcile**
+  (the healing pass for drops whose situation changed after they landed). Handled by the
+  worker's `scheduled` export.
+- Both no-op unless `SITE_URL` *and* `DINK_PROCESS_SECRET` are configured.
+
+**Layer A, site side:**
+
+- `/api/dink/process` takes `?reconcile=0|1` (default 1, so hand-invocation keeps the old
+  behaviour). Pings drain-only; re-churning days of dead drops on every kill would be waste.
+- Runs are **serialized per instance** (`runProcessDinkDrops` in
+  `src/lib/server/dinkDrops.ts`): one in flight, a burst of pings coalesces into a single
+  follow-up run (reconcile flags OR-ed). Cross-instance overlap stays safe via the
+  idempotency keys. `maybeProcessDinkDrops` (the poll-on-read backstop) now returns the
+  in-flight promise, so the connect4 admin load's `await` actually drains before its
+  re-read — previously it awaited `void`.
+- The staging admin lock exempts `/api/dink/process` (it authenticates itself by secret),
+  so the pipeline can be rehearsed on staging.
+
+**Layer B — the screen (B2, versioned polling), built as the generic pattern:**
+
+- `src/lib/server/liveVersion.ts` — the per-kind change token (count + latest timestamp of
+  the table the board derives from, plus event status; connect4 also folds in the structure
+  phase, bingo the approved count). Memoized per instance for 1s, so the DB sees ~1 compute
+  per second per event **regardless of viewer count**. Never throws.
+- `GET /api/live/[eventId]` — member-gated, no-store, ~100 bytes.
+- `src/lib/live.svelte.ts` — `liveEvent(eventId, { onChange, intervalMs = 3000, paused,
+  initial })`: polls the token, fires `onChange` only when it moves, pauses on hidden tabs
+  (immediate poll on return), backs off ×2 to 30s on errors, and re-baselines if the page
+  navigates to a different event without a remount. `initial` is the token computed with
+  the page payload, so a change landing between render and first poll is still caught.
+- **First consumer:** the admin Connect Four board — the old 10s blind `invalidateAll`
+  interval is now a 3s version poll that refetches only on change, behind the same
+  auto-refresh checkbox and replay guard. Manual claims, undo and simulated drops move the
+  same pieces table, so they propagate to every open board identically to Dink credits.
+
+**Layer C:** C1 (do nothing beyond A) — the race window collapses to the drain interval;
+measure before doing more.
+
+**The open questions, decided:** 3s polling, no SSE now (the token is the SSE-ready seam);
+sized for the full 240-viewer roster (the 1s memo makes viewers ~free); the member Connect
+Four page is a separate follow-up that opts in with the same one-liner; no "tile taken"
+toast — the objective-swap animation is the notification; secrets runbook in
+[`PENDING-OPS.md`](PENDING-OPS.md).
 
 ## The ask
 
@@ -15,7 +70,7 @@
 R2 is the sharp one. A stale tile is not a cosmetic problem: it is a player farming a boss
 for an objective that somebody else already won.
 
-## What happens today
+## What happened before this work (the audit that motivated it)
 
 There are **two independent clocks**, and both are effectively unbounded.
 
@@ -35,8 +90,8 @@ vs_dink_drops` → *…nothing…* → `processDinkDrops()` credits it.
 - `DINK_PROCESS_SECRET` appears in neither `fly.toml` nor `fly.staging.toml`; without it the
   endpoint answers 403, so it is currently *disabled* as well as uncalled.
 
-So the only thing that drains the queue is the **backstop** in
-`src/lib/server/dinkDrops.ts:761`:
+So the only thing that drained the queue was the **backstop** in
+`src/lib/server/dinkDrops.ts` (since rewritten — see "What shipped"):
 
 ```ts
 const THROTTLE_MS = 20_000;
@@ -150,7 +205,7 @@ is the contract, swapping polling for SSE is a change behind one client helper.
 **Recommended: C1**, and *measure* the window so the decision is evidence-backed rather
 than assumed.
 
-## Proposed pattern for all future events (R3)
+## The pattern for all future events (R3) — as built
 
 The goal: an event page opts into live updates with one line, and the freshness mechanism is
 owned in one place.
@@ -172,10 +227,11 @@ export async function liveVersion(eventId: string): Promise<string>
 // Polls the version endpoint; calls onChange() when the token moves.
 // `paused` exists because a refetch must never interrupt an animation or
 // clobber optimistic local state (see the guards below).
-export function liveEvent(eventId: string, opts: {
+export function liveEvent(eventId: string | (() => string), opts: {
   onChange: () => void | Promise<void>;
   intervalMs?: number;   // default 3000
   paused?: () => boolean;
+  initial?: string;      // token computed with the page payload (baseline)
 }): void
 ```
 
@@ -215,7 +271,7 @@ transport can become SSE later without touching the pages.
 - Repo conventions: topical branch + PR, docs updated in the same commit, and no AI/model
   names anywhere in commits, branches, code or docs.
 
-## Open questions for the planner
+## Open questions for the planner (answered — see "What shipped")
 
 1. **Staleness budget** — is 3s good enough, or does a shared-tile race justify SSE now?
 2. **Concurrency** — how many simultaneous viewers should this hold? 240 is the roster;

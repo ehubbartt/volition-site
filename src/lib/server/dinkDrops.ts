@@ -751,19 +751,60 @@ export async function processDinkDrops(
 	return { processed: outcomeById.size, credited };
 }
 
-// Throttled backstop for the poll-on-read path (bingo board load): runs at most
-// once per window per server instance, de-dupes concurrent calls, and never throws
-// so a tracking hiccup can't break page rendering.
+// ——— Drain scheduling ———
+//
+// Two entry points share one serialized runner:
+//   - runProcessDinkDrops: the event-driven path (/api/dink/process — the dink-proxy's
+//     after-insert ping and the worker cron). Awaitable; serialized so a burst of pings
+//     (a multi-item kill fires one per ingest) can't stampede this instance — one run in
+//     flight, and everything that arrives mid-run coalesces into a single follow-up run
+//     (reconcile flags OR-ed together) whose promise the coalesced callers share.
+//   - maybeProcessDinkDrops: the throttled poll-on-read backstop (board page loads).
+//     Never rejects, so a tracking hiccup can't break page rendering. Returns the
+//     in-flight run when one exists so a load that wants the freshest read can await it.
+// Cross-instance overlap stays safe regardless — crediting is idempotent on drop_key and
+// the per-event unique constraints — serializing is about wasted work, not correctness.
+
+type DrainResult = Awaited<ReturnType<typeof processDinkDrops>>;
+const swallow = () => {};
+let running: Promise<DrainResult> | null = null;
+let next: { reconcile: boolean; promise: Promise<DrainResult> } | null = null;
+
+export function runProcessDinkDrops(opts: { reconcile?: boolean } = {}): Promise<DrainResult> {
+	const reconcile = opts.reconcile ?? false;
+	if (!running) {
+		running = processDinkDrops({ reconcile }).finally(() => {
+			running = null;
+		});
+		return running;
+	}
+	if (next) {
+		// A follow-up is already queued: fold this request into it.
+		if (reconcile) next.reconcile = true;
+		return next.promise;
+	}
+	const pending = { reconcile } as { reconcile: boolean; promise: Promise<DrainResult> };
+	pending.promise = running.then(swallow, swallow).then(() => {
+		next = null;
+		return runProcessDinkDrops({ reconcile: pending.reconcile });
+	});
+	next = pending;
+	return pending.promise;
+}
+
+// Throttled backstop for the poll-on-read path: runs at most once per window per server
+// instance. With the proxy ping + worker cron as the primary drain (docs/LIVE-UPDATES.md)
+// this is belt-and-braces for environments where those aren't configured.
 const THROTTLE_MS = 20_000;
 let lastRun = 0;
-let inflight: Promise<unknown> | null = null;
 
-export function maybeProcessDinkDrops(): void {
-	if (inflight || Date.now() - lastRun < THROTTLE_MS) return;
+export function maybeProcessDinkDrops(): Promise<void> {
+	if (running) return running.then(swallow, swallow);
+	if (Date.now() - lastRun < THROTTLE_MS) return Promise.resolve();
 	lastRun = Date.now();
-	inflight = processDinkDrops()
-		.catch((e) => console.warn('[dinkDrops] background process failed:', e instanceof Error ? e.message : e))
-		.finally(() => {
-			inflight = null;
-		});
+	return runProcessDinkDrops()
+		.then(swallow)
+		.catch((e) =>
+			console.warn('[dinkDrops] background process failed:', e instanceof Error ? e.message : e)
+		);
 }

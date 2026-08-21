@@ -175,6 +175,13 @@ piece has rules of its own.
 
 ### Watching the board move
 
+**The tester keeps itself fresh** via the live-updates pattern
+([`LIVE-UPDATES.md`](LIVE-UPDATES.md)): a 3-second poll of the ~100-byte version token,
+with a full board re-load only when the token moves — behind the auto-refresh checkbox,
+and never while a replay is running. Dink credits, manual claims, undo and simulated
+drops all move the same pieces table, so they all propagate to every open board the same
+way. The member page, when it lands, opts in with the same one-liner.
+
 A board that changes while you are not looking should not just *be different* when you come
 back. Two things use one mechanism (`playback.svelte.ts`):
 

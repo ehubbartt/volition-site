@@ -19,7 +19,7 @@ RuneLite + Dink  ──POST /hook/<token>/achievements──▶  dink-proxy Work
                                           AND item ∈ vs_active_tracked_items
                                           → insert row in  vs_dink_drops
                                                           │
-   site: processDinkDrops()  ◀── POST /api/dink/process (cron)  +  board-load backstop
+   site: processDinkDrops()  ◀── POST /api/dink/process (proxy ping + worker cron)  +  board-load backstop
                                                           │
                     resolve rsn → vs_users, look up THIS user's active item tiles
                     in vs_active_player_tiles, credit each match (event tile → an
@@ -101,12 +101,14 @@ in `/admin/submissions`; the tile shows "Pending review" and only ticks once app
 Dink/clog/WoM/WikiSync auto-credits skip review (they insert approved, source `dink`/
 `clog`/etc.). The automatic manual-free check remains the "Check progress" re-poll button.
 
-**Race healing.** `vs_dink_drops` stays the durable recent-drops log. The cron/proxy path
-(`POST /api/dink/process`) runs a bounded **reconcile** pass that re-checks recent
+**Race healing.** `vs_dink_drops` stays the durable recent-drops log. The 15-minute worker
+cron (`POST /api/dink/process?reconcile=1` — see `docs/LIVE-UPDATES.md` for the drain
+pipeline) runs a bounded **reconcile** pass that re-checks recent
 un-credited drops (the last 3 days, outcomes `no_tile`/`no_user`) against the *current*
 view, so a drop that arrived just before a signup/board existed still heals — but only
 ever subject to the activation rule above, never crediting a pre-activation drop. The
-poll-on-read backstop stays drain-only so it remains cheap.
+poll-on-read backstop and the proxy's after-insert ping stay drain-only so the per-kill
+path remains cheap.
 
 ---
 

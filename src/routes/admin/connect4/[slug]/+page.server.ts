@@ -21,6 +21,7 @@ import {
 } from '$lib/server/connect4';
 import { autoSelect, poolCandidates, toTileRefs } from '$lib/server/connect4Pool';
 import { simulateDinkDrop, maybeProcessDinkDrops } from '$lib/server/dinkDrops';
+import { liveVersion } from '$lib/server/liveVersion';
 import { SIGNUP_EVENT_KIND } from '$lib/events/signupForm';
 import { DECK_SIZE, isSide, type Side } from '$lib/connect4/rules';
 
@@ -79,6 +80,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const candidates = fresh.phase === 'setup' ? await poolCandidates() : [];
 
 	return {
+		// Baseline for the page's live-updates poll, computed alongside the payload so a
+		// change landing between render and the first poll still gets caught.
+		live: await liveVersion(fresh.id),
 		game: {
 			...fresh,
 			// The rail and the board don't need the undealt deck, and it is a 250-entry

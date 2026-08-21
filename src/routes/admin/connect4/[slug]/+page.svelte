@@ -22,6 +22,7 @@
 	} from '$lib/connect4/rules';
 	import { formatEhb } from '$lib/ehb';
 	import { Playback, loadSeen, saveSeen, paceFor } from '$lib/connect4/playback.svelte';
+	import { liveEvent } from '$lib/live.svelte';
 
 	let { data, form } = $props();
 
@@ -337,23 +338,26 @@
 	}
 
 	// A shared race-y board goes stale the moment the other clan gets a drop, so unlike
-	// Battleship (where an auto-reload would throw away an armed bomb) this page polls.
+	// Battleship (where an auto-reload would throw away an armed bomb) this page stays
+	// live. Version-driven (docs/LIVE-UPDATES.md): poll the ~100-byte token every few
+	// seconds and re-load the board only when it moves — fresher than the old fixed 10s
+	// full reload, for less traffic. The paused guard keeps the old protections: only
+	// while live, and never pull the board out from under a replay that's mid-run.
 	let refreshedAt = $state<string>('');
 	let polling = $state(true);
 	async function refresh() {
 		await invalidateAll();
 		refreshedAt = new Date().toLocaleTimeString();
 	}
+	liveEvent(() => data.game.id, {
+		onChange: refresh,
+		// svelte-ignore state_referenced_locally — the render-time token IS the baseline
+		initial: data.live,
+		paused: () => !polling || game.phase !== 'live' || playback.playing
+	});
 	onMount(() => {
 		refreshedAt = new Date().toLocaleTimeString();
-		const id = setInterval(() => {
-			// Don't pull the board out from under a replay that's mid-run.
-			if (polling && game.phase === 'live' && !playback.playing) refresh();
-		}, 10_000);
-		return () => {
-			clearInterval(id);
-			playback.stop();
-		};
+		return () => playback.stop();
 	});
 
 	const members = $derived(game.sides.flatMap((s) => s.members));
