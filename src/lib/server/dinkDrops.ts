@@ -19,7 +19,7 @@ import { postBingoCredit } from '$lib/server/dropsFeed';
 import { creditPersonalTile, loadPersonalBoard } from '$lib/server/personalBoard';
 import { getTrackedItemsForUser, type ActiveItemTile } from '$lib/server/dinkAllowlist';
 import { activeBattleshipFor, earnBomb } from '$lib/server/battleship';
-import { claimTile, sideForUser, pieceForDropKey, anyLiveConnect4, CONNECT4_KIND } from '$lib/server/connect4';
+import { claimTile, sideForUser, pieceForDropKey, racedOutOf, anyLiveConnect4, CONNECT4_KIND } from '$lib/server/connect4';
 
 // Slugs whose auto-credits should NOT post to the public bingo feed. The old dink-self-test
 // event lived here; it's now a manual pin with no event, so there's nothing to suppress —
@@ -76,6 +76,7 @@ type Outcome =
 	| 'no_user'
 	| 'timing'
 	| 'duplicate'
+	| 'raced' // lost the race for a shared Connect Four tile — terminal, like duplicate
 	| 'partial'
 	| 'consumed' // a prior partial that has now been rolled into a completed collect-N tile
 	| 'reverted'
@@ -531,10 +532,12 @@ export async function processDinkDrops(
 		switch (res.status) {
 			case 'claimed':
 				return 'credited';
-			// `raced` means the other side claimed that tile first. Nothing is owed, and no
+			// `raced` means another player claimed that tile first. Nothing is owed, and no
 			// re-run can change that, so it is terminal like a duplicate rather than
-			// 'no_tile' — which the reconcile pass would re-surface for three days.
+			// 'no_tile' — which the reconcile pass would re-surface for three days. Stamped
+			// distinctly so /admin/dink-drops tells the story straight.
 			case 'raced':
+				return 'raced';
 			case 'duplicate':
 				return 'duplicate';
 			case 'timing':
@@ -604,7 +607,7 @@ export async function processDinkDrops(
 	}
 
 	// Priority when one drop touches several candidates (e.g. an event tile + a board tile).
-	const RANK: Record<string, number> = { credited: 5, partial: 4, duplicate: 3, timing: 2, no_user: 1, no_tile: 0, consumed: 0, reverted: 0, bomb: 0 };
+	const RANK: Record<string, number> = { credited: 5, partial: 4, duplicate: 3, raced: 3, timing: 2, no_user: 1, no_tile: 0, consumed: 0, reverted: 0, bomb: 0 };
 
 	// Battleship arms on VALUE, not on a tracked item, so it can't ride the tile index —
 	// it's a separate per-drop check. Cached per user for the batch, same as objectives.
@@ -692,6 +695,21 @@ export async function processDinkDrops(
 				outcomeById.set(drop.id, 'duplicate');
 				tileIdByDrop.set(drop.id, `col:${priorClaim.col}`);
 				eventIdByDrop.set(drop.id, priorClaim.eventId);
+				continue;
+			}
+			// The other way a Connect Four drop matches nothing: SOMEONE ELSE claimed its
+			// tile first and the winner's claim removed the item from the allowlist. With 25
+			// shared objectives that staggered loss is the common race shape, and it is just
+			// as terminal as the tight one — only the first drop for a tile ever counts,
+			// whether the winner came through Dink or an admin's manual credit. Stamp it
+			// `raced` so the reconcile pass stops re-churning it.
+			const lost = (await anyConnect4Running())
+				? await racedOutOf({ userId, itemId: drop.item_id, itemName: drop.item_name })
+				: null;
+			if (lost) {
+				outcomeById.set(drop.id, 'raced');
+				tileIdByDrop.set(drop.id, `col:${lost.col}`);
+				eventIdByDrop.set(drop.id, lost.eventId);
 			} else {
 				outcomeById.set(drop.id, 'no_tile');
 			}

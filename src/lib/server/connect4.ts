@@ -666,6 +666,71 @@ export async function pieceForDropKey(dropKey: string): Promise<{ eventId: strin
 	return row ? { eventId: row.event_id, col: row.col, row: row.row } : null;
 }
 
+/**
+ * The piece that raced this item out — set only when EVERY copy of the item in the deck
+ * has already been claimed. One unclaimed copy, live or still buried in a column, means a
+ * re-run could yet credit, so that is not a loss and this returns null. (Decks are
+ * normally one-copy-per-item, but nothing enforces it, so this counts rather than
+ * assumes.)
+ */
+function racedOutBy(
+	deck: TileRef[],
+	pieces: Piece[],
+	item: { item_id?: number | null; item_name?: string | null }
+): Piece | null {
+	const byIdx = new Map(pieces.map((p) => [p.deck_idx, p]));
+	let winner: Piece | null = null;
+	let copies = 0;
+	for (let i = 0; i < deck.length; i++) {
+		if (!matchesTile(item, deck[i])) continue;
+		copies++;
+		const claimed = byIdx.get(i);
+		if (!claimed) return null;
+		winner = claimed;
+	}
+	return copies ? winner : null;
+}
+
+/**
+ * Did this drop lose the race for a shared tile? Answers with the winning column when a
+ * live game the player is SIGNED UP to dealt the item and every copy of it has since been
+ * claimed. The consumer needs this for a drop whose item no longer matches any allowlist
+ * row: the winner's claim removed it, so without this the loser is filed `no_tile` and
+ * re-surfaced by the reconcile pass for days. Scoped to the player's own games so a
+ * raced-out item can never swallow a drop that a board created later (bingo, personal)
+ * might legitimately still want.
+ */
+export async function racedOutOf(input: {
+	userId: string;
+	itemId?: number | null;
+	itemName?: string | null;
+}): Promise<{ eventId: string; col: number } | null> {
+	const sb = db();
+	const { data: evs } = await sb
+		.from('vs_events')
+		.select('id')
+		.eq('kind', CONNECT4_KIND)
+		.eq('status', 'open')
+		.eq('structure->connect4->>phase', 'live');
+	for (const ev of (evs ?? []) as { id: string }[]) {
+		const { data: signup } = await sb
+			.from('vs_event_signups')
+			.select('id')
+			.eq('event_id', ev.id)
+			.eq('user_id', input.userId)
+			.maybeSingle();
+		if (!signup) continue;
+		const snap = await loadConnect4ById(ev.id);
+		if (!snap?.deck.length) continue;
+		const winner = racedOutBy(snap.deck, snap.pieces, {
+			item_id: input.itemId,
+			item_name: input.itemName
+		});
+		if (winner) return { eventId: ev.id, col: winner.col };
+	}
+	return null;
+}
+
 /** Is any Connect Four game running? Lets the consumer skip the lookup above entirely. */
 export async function anyLiveConnect4(): Promise<boolean> {
 	const { data } = await db()
@@ -746,7 +811,18 @@ export async function claimTile(input: {
 			target =
 				live.find((l): l is LiveTile => !!l && matchesTile({ item_id: input.itemId, item_name: input.itemName }, l.tile)) ??
 				null;
-			if (!target) return { status: 'no_tile' };
+			if (!target) {
+				// Not on offer — but WAS it, before someone else claimed it? A drop that
+				// drains after the winner's is the common shape of a shared-tile race, and
+				// it must land `raced` (terminal) like the tight race below: `no_tile`
+				// would put it in the reconcile churn for days.
+				const winner = racedOutBy(deck, pieces, {
+					item_id: input.itemId,
+					item_name: input.itemName
+				});
+				if (winner) return { status: 'raced', error: 'Another player claimed that tile first' };
+				return { status: 'no_tile' };
+			}
 		}
 
 		const row = landingRow(columnCounts(pieces), target.col);
@@ -1059,6 +1135,9 @@ export async function deleteConnect4(eventId: string): Promise<Result> {
 	if (!snap) return errResult('No such game');
 	if (!snap.test) return errResult('Only a test game can be deleted here');
 	const sb = db();
+	// The drops that credited this game go with it — the FK would only null event_id,
+	// leaving orphaned "credited" rows in /admin/dink-drops after every e2e/sim run.
+	await sb.from('vs_dink_drops').delete().eq('event_id', eventId);
 	await sb.from('vs_event_tracked_items').delete().eq('event_id', eventId);
 	await sb.from('vs_connect4_pieces').delete().eq('event_id', eventId);
 	await sb.from('vs_event_signups').delete().eq('event_id', eventId);

@@ -200,7 +200,7 @@ N. In-progress drops are recorded as `partial` and visible in the drops debug vi
 ## Debugging: the Dink Drops view
 
 `/admin/dink-drops` lists every matched drop with the consumer's **verdict**
-(`credited` / `no_tile` / `no_user` / `timing` / `duplicate` / `partial`). Filter to
+(`credited` / `no_tile` / `no_user` / `timing` / `duplicate` / `raced` / `partial`). Filter to
 "Didn't credit" to answer "why didn't I get credit?". Per drop you can **Reprocess**
 (re-run after adding the tile / fixing an RSN) or **Un-credit** (reverse a wrong credit).
 
@@ -328,7 +328,7 @@ that passes its activation check is credited:
 - **personal-board tile** → the tile is flipped `obtained=true`.
 
 Bingo tiles are binary, so the first qualifying drop credits the tile. The verdict
-(`credited` / `no_tile` / `no_user` / `timing` / `duplicate` / `partial`) and the
+(`credited` / `no_tile` / `no_user` / `timing` / `duplicate` / `raced` / `partial`) and the
 attributed tile are stamped on the drop — personal-board credits as `p:<board_id>:<idx>`
 so **Un-credit** can reverse either kind.
 

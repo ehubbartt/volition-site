@@ -89,6 +89,19 @@ cell, both insert, exactly one lands, and the loser is told it was beaten.
 The consumer already drains drops in `received_at` order, which is what makes "first" mean
 what it should within a batch. Across batches and processes the index is the only arbiter.
 
+Losing has two shapes, and both are **terminal** — only the first claim for a tile ever
+counts, whether it arrived through Dink or an admin's manual credit:
+
+- **Tight** (same drain tick): both inserts race, the index rejects one, and the loser is
+  stamped `raced` on the spot.
+- **Staggered** (the common one): the loser drains after the winner, by which time the
+  claim has removed the item from the allowlist, so the drop matches nothing. `claimTile`
+  and the consumer both check `racedOutBy`/`racedOutOf` — "was every copy of this item in
+  the deck already claimed, on a live game this player is signed up to?" — and stamp
+  `raced` instead of `no_tile`, which the reconcile pass would otherwise re-churn for
+  three days. An item that was never dealt, or that still has an unclaimed copy buried in
+  a column, stays `no_tile` and can still credit on a later pass.
+
 ---
 
 ## Part 2 — Implementation

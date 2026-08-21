@@ -22,6 +22,7 @@
 		no_user: 'RSN not a site user',
 		timing: 'tile not open at drop time',
 		duplicate: 'already credited',
+		raced: 'another player claimed that tile first',
 		partial: 'counting toward collect-N',
 		reverted: 'reverted by admin'
 	};
