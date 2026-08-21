@@ -423,6 +423,20 @@ than inventing `vs_users` rows, which would land in the member counts and rank t
 home page builds from that table. Safe on staging, which takes no live Dink traffic. Don't
 point it at a database that does.
 
+#### Rehearsing with manufactured Dink drops
+
+The proxy repo's `scripts/send-test-drop.mjs` posts a fake Dink LOOT payload through the
+REAL worker code, in-process, at whatever Supabase the shell points at — and with
+`SITE_URL` + `DINK_PROCESS_SECRET` in the shell it fires the real drain ping, so the whole
+pipeline (insert → ping → credit → the board's 3s version poll) runs with nothing deployed.
+Aim it at the item/source of a live objective for an RSN seated on a side. Two traps:
+
+- **Test games refuse real-shaped drop keys by design** (`dropKeyAllowed`), so a proxy
+  rehearsal needs a game created with the "Test game" box **unticked**. To delete it after,
+  flip `structure.connect4.test` to true in the DB first.
+- The deployed prod worker writes to the **prod** DB — a real Dink client only reaches
+  staging through `dink-proxy-staging` (`npx wrangler deploy --env staging`).
+
 #### The UX pass
 
 `e2e/connect4-event.spec.ts` runs with `npm run test:e2e` and drives the whole event

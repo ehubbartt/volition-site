@@ -29,10 +29,15 @@ drain ping, and `/admin/dink-drops` shows the drop processed within ~2s. Then ta
 the latency + race-window measurements listed in [`LIVE-UPDATES.md`](LIVE-UPDATES.md)
 "How to verify" and record them there.
 
-> Note the deployed worker writes to the **prod** database, so a real Dink client
-> can never reach staging. Staging rehearsal = the connect4 tester's "Send it
-> through the real pipeline" (site half only), or a local `wrangler dev` pointed at
-> the staging DB + staging site.
+> Staging has its own rehearsal path, no deploy of `master` needed:
+> `npx wrangler deploy --env staging` (from the `drop-drain-ping` branch) stands up
+> **dink-proxy-staging** — same code, pointed at the staging DB and staging site,
+> Discord webhooks deliberately absent. Set its two secrets once with
+> `--env staging`. For a no-deploy rehearsal, `scripts/send-test-drop.mjs` drives
+> the worker in-process against staging — with `SITE_URL` + `DINK_PROCESS_SECRET`
+> in the shell it exercises the drain ping too. **Rehearse against a NON-test
+> game**: test games refuse real-shaped drop keys by design. Verified end-to-end:
+> manufactured drop → worker → staging DB → consumer → piece on the board in 2.4s.
 
 ---
 
