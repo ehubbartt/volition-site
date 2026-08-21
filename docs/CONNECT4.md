@@ -212,6 +212,22 @@ board look broken, and made the fall animation appear at random ages after the c
 > Locally-animated cells are also remembered, so the catch-up pass on the next refresh does
 > not replay a fall the user already watched.
 
+**The objective above a claimed column** cannot be optimistic in the same way: the deck is
+deliberately withheld from the page, so only the server knows what comes next, and shipping
+one tile ahead per column would hand both teams a peek at what to pre-farm. So it happens in
+two steps instead:
+
+| when | what the column shows |
+|---|---|
+| the click | `claiming` — the objective dims under a sweep. Claimed; replacement unknown. |
+| the claim's own response (~1s) | the real replacement, taken off `ClaimReport.replacement`. |
+| the reload behind it (~1s later) | the same thing, from the server's own payload. |
+
+The middle step is the point: `claimTile` already computed the replacement, so returning it
+from the action saves the second round trip. Each entry is keyed by the `deckIdx` of the
+tile that was claimed and retires itself the moment the server's payload moves that column
+past it — so a stale stand-in cannot outlive the truth.
+
 **So is the scoring.** The standings and the run highlight are `$derived` from the merged
 board with the same pure functions the server scores with (`standings`, `runCellSet`), not
 read out of the page payload. Taking them from the payload meant the four you had just

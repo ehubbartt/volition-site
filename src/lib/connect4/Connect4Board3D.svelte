@@ -30,6 +30,7 @@
 	let {
 		pieces = [],
 		live = [],
+		claiming,
 		sideColors = ['#ef4444', '#eab308'],
 		runCells = new Set<string>(),
 		revealed = null,
@@ -41,6 +42,8 @@
 		pieces: Piece[];
 		/** The objective on offer above each column — rendered as the floating tokens. */
 		live: (LiveTile | null)[];
+		/** Columns whose objective is claimed but not yet replaced — their slot stays empty. */
+		claiming?: Set<number>;
 		sideColors?: string[];
 		runCells?: Set<string>;
 		revealed?: number | null;
@@ -309,7 +312,9 @@
 		for (let col = 0; col < COLS; col++) {
 			const mesh = tokens[col];
 			if (!mesh) continue;
-			const slot = live[col] ?? null;
+			// A claimed column has no coin until the server names the replacement: showing
+			// the old one again would say the objective is still up for grabs.
+			const slot = claiming?.has(col) ? null : (live[col] ?? null);
 			// A column mid-drop keeps its coin — the fall animation owns it until it lands.
 			if (!slot) {
 				if (!fall || fall.col !== col) mesh.visible = false;
@@ -493,7 +498,7 @@
 					coin.scale.setScalar(1);
 					coin.rotation.z = 0;
 					coin.position.set(wx(fall.col), TOKEN_Y, 0.35);
-					coin.visible = !!live[fall.col];
+					coin.visible = !!live[fall.col] && !claiming?.has(fall.col);
 				}
 				const k = (t - HANDOFF) / (1 - HANDOFF);
 				const target = wy(fall.row);

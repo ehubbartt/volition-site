@@ -16,7 +16,9 @@
 		landingRow,
 		runCellSet,
 		standings as computeStandings,
-		type Piece
+		type LiveTile,
+		type Piece,
+		type TileRef
 	} from '$lib/connect4/rules';
 	import { formatEhb } from '$lib/ehb';
 	import { Playback, loadSeen, saveSeen, paceFor } from '$lib/connect4/playback.svelte';
@@ -45,6 +47,42 @@
 	const livePending = $derived(pending.filter((p) => !serverCells.has(cellId(p.col, p.row))));
 	const boardPieces = $derived(livePending.length ? [...game.pieces, ...livePending] : game.pieces);
 	const pieceIds = $derived(boardPieces.map((p) => p.id as string));
+
+	// THE OBJECTIVE ABOVE A CLAIMED COLUMN. The deck is deliberately withheld from the page,
+	// so the client cannot work out what comes next — only the server can say. Two steps, so
+	// the rail never just sits there showing a tile that has already been won:
+	//
+	//   0ms      the column is marked `claiming`: the objective dims and says it is being
+	//            dealt, which is the honest state — claimed, replacement unknown.
+	//   ~1.8s    the claim's own response carries the replacement, and it takes the slot.
+	//            (The reload behind it lands ~1s later and agrees.)
+	//
+	// Keyed by the deckIdx of the tile that was claimed, so an entry retires itself the
+	// moment the server's own payload moves that column past it.
+	let dealt = $state(new Map<number, { from: number; slot: LiveTile | null }>());
+
+	function noteDealt(col: number, from: number, tile: TileRef | null) {
+		const cur = dealt.get(col);
+		// Reject only strictly-older answers: five fast clicks all carry the same `from`, and
+		// the last one to arrive is the one that names the tile actually on offer now.
+		if (cur && cur.from > from) return;
+		const next = new Map(dealt);
+		next.set(col, { from, slot: tile ? { col, deckIdx: from + 1, tile } : null });
+		dealt = next;
+	}
+
+	const liveTiles = $derived(
+		game.live.map((slot, col) => {
+			const d = dealt.get(col);
+			// Only stand in while the server is still showing the tile we claimed.
+			return d && slot?.deckIdx === d.from ? d.slot : slot;
+		})
+	);
+
+	/** Columns claimed by this browser whose replacement the server has not named yet. */
+	const claiming = $derived(
+		new Set(livePending.map((p) => p.col).filter((col) => !dealt.has(col) || liveTiles[col] === game.live[col]))
+	);
 
 	// Scores and the run highlight are derived from the MERGED board, not from the server's
 	// snapshot. They used to arrive with the page data, which meant the four you had just
@@ -124,7 +162,7 @@
 		// Against the MERGED board, so a rapid second click stacks rather than colliding.
 		const row = landingRow(columnCounts(boardPieces), col);
 		if (row === null) return null;
-		const tile = game.live[col]?.tile;
+		const tile = liveTiles[col]?.tile;
 		const id = `pending:${++pendingSeq}`;
 		const piece = {
 			id,
@@ -176,7 +214,7 @@
 	});
 
 	let selected = $state<number | null>(null);
-	const selectedTile = $derived(selected === null ? null : (game.live[selected] ?? null));
+	const selectedTile = $derived(selected === null ? null : (liveTiles[selected] ?? null));
 
 	// ── 2D / 3D ───────────────────────────────────────────────────────────────
 	// The two boards take the same props and are driven by the same playback clock, so the
@@ -426,7 +464,8 @@
 				{#if view === '3d'}
 					<Connect4Board3D
 						pieces={boardPieces}
-						live={game.live}
+						live={liveTiles}
+						{claiming}
 						sideColors={game.sides.map((s) => s.color)}
 						{runCells}
 						revealed={playback.revealed}
@@ -438,7 +477,8 @@
 				{:else}
 					<Connect4Board
 						pieces={boardPieces}
-						live={game.live}
+						live={liveTiles}
+						{claiming}
 						sideColors={game.sides.map((s) => s.color)}
 						sideNames={game.sides.map((s) => s.name)}
 						{runCells}
@@ -468,11 +508,18 @@
 								action="?/credit"
 								class="inline"
 								use:enhance={({ formData }) => {
-									const id = creditOptimistically(
-										Number(formData.get('col')),
-										Number(formData.get('side'))
-									);
+									const col = Number(formData.get('col'));
+									const from = liveTiles[col]?.deckIdx ?? null;
+									const id = creditOptimistically(col, Number(formData.get('side')));
 									return async ({ update, result }) => {
+										// Take the replacement off the claim's OWN response, before the
+										// reload behind it — that is a second the rail would otherwise
+										// spend showing an objective that has already been won.
+										if (result.type === 'success' && from !== null) {
+											const claim = (result.data as { claim?: { replacement?: TileRef | null } } | undefined)
+												?.claim;
+											if (claim) noteDealt(col, from, claim.replacement ?? null);
+										}
 										await update({ reset: false });
 										// A rejected claim has no server piece to supersede it, so retire it
 										// here; a successful one is retired by the cell it now occupies.
@@ -646,7 +693,7 @@
 					<label class="tiny">
 						column
 						<select name="col">
-							{#each game.live as slot, col (col)}
+							{#each liveTiles as slot, col (col)}
 								{#if slot}<option value={col}>{columnLabel(col)} — {slot.tile.item_name}</option>{/if}
 							{/each}
 						</select>

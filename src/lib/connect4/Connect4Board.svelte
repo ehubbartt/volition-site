@@ -25,6 +25,7 @@
 	let {
 		pieces = [],
 		live = [],
+		claiming,
 		sideColors = ['#ef4444', '#eab308'],
 		sideNames = ['Red', 'Yellow'],
 		runCells = new Set<string>(),
@@ -37,6 +38,8 @@
 	}: {
 		pieces: Piece[];
 		live: (LiveTile | null)[];
+		/** Columns whose objective is claimed but not yet replaced — see TileRail. */
+		claiming?: Set<number>;
 		sideColors?: string[];
 		sideNames?: string[];
 		/** Cells belonging to a scoring run — they glow. */
@@ -131,7 +134,7 @@
 <svelte:window onscroll={leave} />
 
 <div class="wrap" style="--n: {COLS}; --rows: {ROWS};">
-	<TileRail {live} {selected} {onselect} onhover={railHover} />
+	<TileRail {live} {claiming} {selected} {onselect} onhover={railHover} />
 
 	<div class="collabels" aria-hidden="true">
 		{#each cols as c (c)}<span class:full={colFull[c]}>{columnLabel(c)}</span>{/each}

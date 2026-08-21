@@ -12,11 +12,18 @@
 
 	let {
 		live = [],
+		claiming,
 		selected = null,
 		onselect,
 		onhover
 	}: {
 		live: (LiveTile | null)[];
+		/**
+		 * Columns whose objective has been claimed but whose replacement the server has not
+		 * named yet. Shown as spent rather than as the tile that was just won — otherwise the
+		 * rail reads as though the click did nothing.
+		 */
+		claiming?: Set<number>;
 		selected?: number | null;
 		onselect?: (col: number) => void;
 		/** Reports the pointed-at objective (and where it is) so the board can card it. */
@@ -36,6 +43,7 @@
 			type="button"
 			class="tile"
 			class:retired={!slot}
+			class:claiming={claiming?.has(col)}
 			class:selected={selected === col}
 			title={slot ? `${columnLabel(col)} — ${slot.tile.item_name}${slot.tile.source ? ` (${slot.tile.source})` : ''}` : `${columnLabel(col)} — column full`}
 			aria-label={slot ? `Column ${columnLabel(col)}: ${slot.tile.item_name}` : `Column ${columnLabel(col)} is full`}
@@ -49,6 +57,7 @@
 				<span class="disc">
 					<WikiImage src={itemImageUrl(slot.tile.item_name)} alt="" size={28} />
 				</span>
+				{#if claiming?.has(col)}<span class="dealing" aria-hidden="true"></span>{/if}
 			{:else}
 				<span class="done">✓</span>
 			{/if}
@@ -76,6 +85,9 @@
 		align-items: center;
 		justify-content: center;
 		aspect-ratio: 1;
+		/* The dealing sweep is an absolutely-positioned child of this card. */
+		position: relative;
+		overflow: hidden;
 		background: linear-gradient(180deg, #3b3226 0%, #2a2419 100%);
 		border: 1px solid var(--border);
 		border-radius: 3px;
@@ -84,6 +96,38 @@
 			transform 0.1s ease-out,
 			border-color 0.1s ease-out;
 	}
+	/* Claimed, replacement not yet named: the objective is spent, so it reads as spent —
+	   dimmed under a sweep — rather than as a tile still up for grabs. */
+	.tile.claiming .disc {
+		opacity: 0.35;
+		filter: saturate(0.4);
+	}
+	.tile.claiming .dealing {
+		position: absolute;
+		inset: 0;
+		border-radius: inherit;
+		background: linear-gradient(
+			110deg,
+			transparent 30%,
+			color-mix(in srgb, var(--accent) 45%, transparent) 50%,
+			transparent 70%
+		);
+		background-size: 260% 100%;
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.tile.claiming .dealing {
+			animation: c4-dealing 900ms linear infinite;
+		}
+	}
+	@keyframes c4-dealing {
+		from {
+			background-position: 140% 0;
+		}
+		to {
+			background-position: -40% 0;
+		}
+	}
+
 	.tile:hover:not(.retired) {
 		border-color: var(--accent);
 		transform: translateY(-2px);

@@ -244,6 +244,7 @@ test('hovering an objective names the item, the boss and links to the wiki', asy
 
 test('a credited tile lands instantly and plays its drop', async () => {
 	await selectColumn(0);
+	const firstTile = await page.locator('.rail .tile').first().getAttribute('aria-label');
 
 	const t0 = Date.now();
 	await creditNow(1);
@@ -259,6 +260,22 @@ test('a credited tile lands instantly and plays its drop', async () => {
 	});
 	expect(anim.name, 'the falling piece is not animating').not.toBe('none');
 	expect(anim.transform, 'the falling piece is not moving').not.toBe('none');
+
+	// THE OBJECTIVE MOVES ON. The deck is withheld from the client, so the replacement can
+	// only come from the server — but the column must not sit there showing a tile that has
+	// already been won. It is marked as being dealt at once, and the claim's own response
+	// carries the new tile.
+	const rail = page.locator('.rail .tile').first();
+	await expect(rail).toHaveClass(/claiming/, { timeout: INSTANT_MS });
+	const t1 = Date.now();
+	await expect
+		.poll(() => rail.getAttribute('aria-label'), {
+			message: 'the objective never changed after being claimed',
+			timeout: 15_000
+		})
+		.not.toBe(firstTile);
+	console.log(`  ⏱ the new objective arrived after ${Date.now() - t1}ms`);
+	await expect(rail).not.toHaveClass(/claiming/);
 
 	// And the server agrees once it answers.
 	await expect(page.locator('.board-panel .osrs-titlebar')).toContainText(`1 / ${DECK} claimed`);

@@ -185,7 +185,19 @@ export const actions: Actions = {
 			cell: res.cell,
 			tile: res.tile?.item_name
 		});
-		return { claim: { cell: res.cell, side, tile: res.tile?.item_name ?? null, runs: res.newRuns?.length ?? 0 } };
+		return {
+			claim: {
+				cell: res.cell,
+				side,
+				col,
+				tile: res.tile?.item_name ?? null,
+				runs: res.newRuns?.length ?? 0,
+				// The tile that dropped into the emptied slot. claimTile already knows it, and
+				// sending it back lets the rail swap in the new objective when the POST answers
+				// instead of waiting for the reload behind it.
+				replacement: res.replacement ?? null
+			}
+		};
 	},
 
 	simulate: async ({ request, locals, params }) => {
