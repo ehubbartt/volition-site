@@ -20,7 +20,8 @@
 //     was recorded needlessly or missed — never that the wrong tile was credited.
 
 import { randomUUID } from 'node:crypto';
-import { db } from './db';
+import { clanMemberIds } from './clan';
+import { db, fetchAllFiltered } from './db';
 import {
 	COLS,
 	DECK_SIZE,
@@ -439,6 +440,111 @@ export async function enrolMembers(input: {
 	const assigned = await assignSides(input);
 	if (!assigned.ok) return errResult(assigned.error);
 	return okResult({ enrolled: input.userIds.length });
+}
+
+/**
+ * SEAT A WHOLE CLAN-VS-CLAN ROSTER IN ONE GO.
+ *
+ * For a 120-v-120 there is no draft to run — the sides are decided before anyone signs up,
+ * by which clan you are in. The authority for that is the bot's `players` table: a Volition
+ * member is in it, an opposing clan's member is not. (`vs_users.clan_allegiance` is
+ * self-declared at onboarding and would let anyone put themselves on either side.)
+ *
+ * `sourceEventId` is where the people come from — normally the signup form the roster was
+ * collected on. Everyone found there is signed up to THIS game as well, which is also what
+ * puts them in the Dink allowlist (`vs_active_player_tiles` branch 1).
+ *
+ * `dryRun` answers without writing, because the failure mode worth catching is a Volition
+ * member whose site account was never linked to their `players` row landing on the other
+ * side. Look at the split first; the per-member buttons fix the exceptions afterwards.
+ */
+export interface SeatReport {
+	sourceName: string;
+	clan: { id: string; rsn: string | null }[];
+	visitors: { id: string; rsn: string | null }[];
+	/**
+	 * Visitors who say on their own profile that they ARE Volition. Almost always a member
+	 * whose site account was never linked to their player row rather than someone lying, so
+	 * they are the list to check by hand before the game starts.
+	 */
+	flagged: { id: string; rsn: string | null }[];
+	seated: number;
+	dryRun: boolean;
+}
+
+export async function seatByClan(input: {
+	eventId: string;
+	sourceEventId?: string | null;
+	/** The side the clan takes. The other side gets everyone else. */
+	clanSide?: Side;
+	dryRun?: boolean;
+}): Promise<Result<SeatReport>> {
+	const sb = db();
+	const sourceId = input.sourceEventId || input.eventId;
+	const clanSide: Side = input.clanSide ?? 1;
+	const otherSide: Side = clanSide === 1 ? 2 : 1;
+
+	const { data: source } = await sb
+		.from('vs_events')
+		.select('name')
+		.eq('id', sourceId)
+		.maybeSingle();
+	const sourceName = (source as { name: string } | null)?.name ?? 'this game';
+
+	const { data: signups, error: sErr } = await fetchAllFiltered<{ user_id: string }>((from, to) =>
+		sb.from('vs_event_signups').select('user_id').eq('event_id', sourceId).range(from, to)
+	);
+	if (sErr) return errResult(sErr.message);
+	const userIds = [...new Set(signups.map((r) => r.user_id))];
+	if (!userIds.length) return errResult(`Nobody has signed up to "${sourceName}"`);
+
+	// Chunked: `in()` builds a URL, and a thousand uuids does not fit in one.
+	const users: {
+		id: string;
+		discord_id: string | null;
+		rsn: string | null;
+		clan_allegiance: string | null;
+	}[] = [];
+	for (let i = 0; i < userIds.length; i += 200) {
+		const { data, error } = await sb
+			.from('vs_users')
+			.select('id, discord_id, rsn, clan_allegiance')
+			.in('id', userIds.slice(i, i + 200));
+		if (error) return errResult(error.message);
+		users.push(...((data ?? []) as typeof users));
+	}
+
+	const inClan = await clanMemberIds(users);
+	const byRsn = (a: { rsn: string | null }, b: { rsn: string | null }) =>
+		(a.rsn ?? '').localeCompare(b.rsn ?? '');
+	const clan = users.filter((u) => inClan.has(u.id)).map((u) => ({ id: u.id, rsn: u.rsn })).sort(byRsn);
+	const out = users.filter((u) => !inClan.has(u.id));
+	const visitors = out.map((u) => ({ id: u.id, rsn: u.rsn })).sort(byRsn);
+	const flagged = out
+		.filter((u) => u.clan_allegiance === 'volition')
+		.map((u) => ({ id: u.id, rsn: u.rsn }))
+		.sort(byRsn);
+
+	if (input.dryRun) {
+		return okResult({ sourceName, clan, visitors, flagged, seated: 0, dryRun: true });
+	}
+
+	for (const [side, group] of [
+		[clanSide, clan],
+		[otherSide, visitors]
+	] as const) {
+		if (!group.length) continue;
+		const res = await enrolMembers({ eventId: input.eventId, userIds: group.map((u) => u.id), side });
+		if (!res.ok) return errResult(res.error);
+	}
+	return okResult({
+		sourceName,
+		clan,
+		visitors,
+		flagged,
+		seated: clan.length + visitors.length,
+		dryRun: false
+	});
 }
 
 /** Which side a member plays for in this game, or null if they aren't on one. */

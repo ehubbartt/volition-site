@@ -319,10 +319,14 @@ test('four in a row scores, glows, and moves the standings', async () => {
 	const yellowBefore = await scoreOf(1);
 
 	// Columns 10..14 are untouched and far from anything claimed so far, so Yellow's pieces
-	// all land on the floor and the only run on the board is the one being built.
-	await expect(page.locator('.hole.in-run')).toHaveCount(0);
+	// all land on the floor and the run being built is the only one that changes.
+	//
+	// Measured against a BASELINE rather than zero: the rapid-click test fires five claims
+	// at one column concurrently, and the server stacks them in arrival order, so it can
+	// legitimately leave a run of its own behind.
+	const runsBefore = await page.locator('.hole.in-run').count();
 	for (const col of [10, 11, 12]) await creditAndConfirm(col, 2);
-	expect(await page.locator('.hole.in-run').count(), 'three in a row is not a run').toBe(0);
+	expect(await page.locator('.hole.in-run').count(), 'three in a row is not a run').toBe(runsBefore);
 
 	// The fourth piece completes it, and the glow and the score are the point of the
 	// moment — they have to arrive WITH the piece, not with the round trip a few seconds
@@ -332,18 +336,18 @@ test('four in a row scores, glows, and moves the standings', async () => {
 	await selectColumn(13);
 	const t0 = Date.now();
 	await creditNow(2);
-	await expect(page.locator('.hole.in-run')).toHaveCount(4, { timeout: INSTANT_MS });
+	await expect(page.locator('.hole.in-run')).toHaveCount(runsBefore + 4, { timeout: INSTANT_MS });
 	console.log(`  ⏱ the run lit up in ${Date.now() - t0}ms`);
 	const yellowAfter = await scoreOf(1);
 	expect(yellowAfter, 'the run did not score').toBeGreaterThan(yellowBefore);
-	await expect(page.locator('.score').nth(1)).toContainText('longest 4 in a row');
+	await expect(page.locator('.score').nth(1)).toContainText(/longest ([4-9]|\d\d) in a row/);
 	await shot('run-of-four');
 	await expect(claimed()).toContainText(`${pending} / ${DECK} claimed`, { timeout: 60_000 });
 
 	// Extending it pays the difference rather than scoring the whole run again.
 	await creditAndConfirm(14, 2);
-	await expect(page.locator('.hole.in-run')).toHaveCount(5);
-	await expect(page.locator('.score').nth(1)).toContainText('longest 5 in a row');
+	await expect(page.locator('.hole.in-run')).toHaveCount(runsBefore + 5);
+	await expect(page.locator('.score').nth(1)).toContainText(/longest ([5-9]|\d\d) in a row/);
 	expect(await scoreOf(1), 'extending the run did not pay').toBeGreaterThan(yellowAfter);
 	await shot('run-of-five');
 });
@@ -480,6 +484,32 @@ test('finishing declares a winner, and reopening returns it to live', async () =
 
 	await page.getByRole('button', { name: 'Reopen' }).click();
 	await expect(page.locator('.osrs-badge').first()).toHaveText('live', { timeout: 30_000 });
+});
+
+test('a clan-vs-clan roster seats itself, and previewing changes nothing', async () => {
+	const seated = () => page.locator('.roster .member .pill').count();
+	const before = await seated();
+
+	// "this game's own signups" — the people already on a side.
+	await page.locator('.seat select[name="sourceEventId"]').selectOption('');
+	await page.getByRole('button', { name: 'Preview the split' }).click();
+	await expect(page.locator('.split')).toContainText('nothing has been changed yet');
+
+	const groups = await page.locator('.split-cols > div > strong').allInnerTexts();
+	const counts = groups.map((t) => Number(/(\d+)$/.exec(t.trim())?.[1] ?? -1));
+	expect(counts.every((n) => n >= 0), `unreadable split: ${groups.join(' | ')}`).toBe(true);
+	expect(counts[0] + counts[1], 'the split lost somebody').toBe(before);
+	console.log(`  🏳 split: ${groups.join('  ·  ')}`);
+
+	// A preview must not have moved anyone.
+	expect(await seated(), 'the preview seated people').toBe(before);
+
+	await page.getByRole('button', { name: 'Seat them' }).click();
+	await expect(page.locator('.split .ok')).toContainText(new RegExp(`Seated ${before}\\b`), {
+		timeout: 30_000
+	});
+	expect(await seated(), 'seating dropped somebody off the roster').toBe(before);
+	await shot('seated-by-clan');
 });
 
 test('the test game deletes from the list, and nothing errored on the way', async () => {

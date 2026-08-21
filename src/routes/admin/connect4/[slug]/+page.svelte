@@ -631,6 +631,64 @@
 	<section class="osrs-panel">
 		<div class="osrs-titlebar">Teams</div>
 		<div class="pad">
+			<!-- CLAN VS CLAN: no draft, the sides were decided before anyone signed up. -->
+			<form method="POST" action="?/seatByClan" use:enhance class="seat">
+				<label class="tiny">
+					Seat everyone from
+					<select name="sourceEventId">
+						<option value="">this game's own signups</option>
+						{#each data.signupSources as src (src.id)}<option value={src.id}>{src.name}</option>{/each}
+					</select>
+				</label>
+				<label class="tiny">
+					Volition plays as
+					<select name="side">
+						{#each game.sides as s (s.side)}<option value={s.side}>{s.name}</option>{/each}
+					</select>
+				</label>
+				<button type="submit" name="dryRun" value="1">Preview the split</button>
+				<button type="submit" name="dryRun" value="0">Seat them</button>
+				<span class="muted tiny">
+					Volition = in the clan's player list; everyone else takes the other side.
+				</span>
+			</form>
+
+			{#if form?.seating}
+				{@const st = form.seating}
+				<div class="split">
+					<p class="ok">
+						{#if st.dryRun}
+							Preview of <strong>{st.sourceName}</strong> — nothing has been changed yet.
+						{:else}
+							Seated {st.seated} from <strong>{st.sourceName}</strong>.
+						{/if}
+					</p>
+					<div class="split-cols">
+						{#each [{ name: 'Volition', who: st.clan }, { name: 'Visiting clan', who: st.visitors }] as group (group.name)}
+							<div>
+								<strong>{group.name} — {group.who.length}</strong>
+								<div class="split-names muted tiny">
+									{group.who.map((u) => u.rsn ?? '(no RSN)').join(', ')}
+								</div>
+							</div>
+						{/each}
+					</div>
+					{#if st.flagged.length}
+						<p class="warn tiny">
+							<strong>{st.flagged.length} to check:</strong>
+							{st.flagged.map((u) => u.rsn ?? '(no RSN)').join(', ')} — their profile says
+							Volition but they are not in the clan's player list, so they have been put with
+							the visitors. Move them below if they belong.
+						</p>
+					{:else}
+						<p class="muted tiny">
+							A member whose site account was never linked to their player row lands on the
+							visiting side. Fix those with the buttons below — this is only the first pass.
+						</p>
+					{/if}
+				</div>
+			{/if}
+
 			<div class="row">
 				<input placeholder="Filter by RSN…" bind:value={filter} />
 				<span class="muted tiny">{picked.size} selected</span>
@@ -901,6 +959,34 @@
 
 	/* Two-column-plus lists of people and candidate items. These were lost when the
 	   inline hover-card styles were deleted, which turned Teams into one long column. */
+	.seat {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
+		padding-bottom: 0.6rem;
+		margin-bottom: 0.6rem;
+		border-bottom: 1px solid var(--border);
+	}
+	.warn {
+		border-left: 3px solid var(--accent);
+		padding-left: 0.6rem;
+		color: var(--text);
+	}
+	.split {
+		margin-bottom: 0.8rem;
+	}
+	.split-cols {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+		gap: 0.8rem;
+	}
+	.split-names {
+		max-height: 7rem;
+		overflow-y: auto;
+		line-height: 1.5;
+	}
+
 	.roster,
 	.candidates {
 		display: grid;

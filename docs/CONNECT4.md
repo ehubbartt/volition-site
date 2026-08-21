@@ -363,6 +363,36 @@ drop is stamped `reverted`, an outcome it does not re-surface. It is audit-logge
 6. From there it runs itself. The tester can simulate a drop through the real pipeline,
    credit a column by hand, and undo a piece.
 
+### Clan vs clan: who is on which side
+
+There is no draft. The sides were decided before anyone signed up — you are on the side
+your clan is on — so the roster is a **split, not a pick**.
+
+**The opposing clan signs up on the site like anyone else.** Nothing gates them out: the
+signup page (`/events/[slug]/signup`) asks only for a signed-in user with an RSN, Discord
+OAuth accepts any Discord account, and `/dink-check` will mint them their own Dink token and
+config URL. Their tiles reach the proxy by the same route as ours — branch 1 of
+`vs_active_player_tiles` is `vs_event_tracked_items × vs_event_signups`, which knows nothing
+about clan membership.
+
+**Allegiance comes from the bot's `players` table**, via `clanMemberIds` in
+`src/lib/server/clan.ts`: in it → Volition, not in it → the visiting clan. Discord id first,
+then RSN case-insensitively with `_` and ` ` treated as the same character. Deliberately NOT
+`vs_users.clan_allegiance`, which is a free choice on the onboarding form and would let
+anyone put themselves on either side.
+
+`seatByClan` (server) + the **Seat everyone from…** control in the tester's Teams panel do
+the split in one go: pick the signup form the roster was collected on, preview, then seat.
+Seating also signs everyone up to the game, which is what puts them in the Dink allowlist.
+
+> **Preview before you seat, and read the flagged list.** The rule's failure mode is a real
+> Volition member whose site account was never linked to their `players` row — no Discord
+> match and an RSN that does not match either — who lands with the visitors. The report
+> calls out anyone in that bucket whose own profile says `volition`; on the staging clone
+> that is 27 of 104 non-matching accounts. The per-member → *side* buttons fix the rest.
+
+Costs two queries regardless of size: a 135-person roster splits in ~290ms.
+
 ### Testing
 
 ```bash
@@ -401,6 +431,13 @@ that died half-way.
 
 ### Known gaps / next passes
 
+- **Staging is admin-only** (`STAGING_ADMIN_ONLY`), so the visiting clan cannot see anything
+  there. Their signups and the live game have to be on production, which means this branch
+  has to reach `main` and `db/scripts/connect4.sql` has to be applied to the production
+  database first.
+- **A wrong RSN is a silent no-op.** Drops are matched to a site account by RSN, so a
+  visitor who typos theirs will play a whole event that scores nothing. Worth a pass over
+  the roster's RSNs before the start.
 - **No member page.** Everything is admin-only. The member view is the next pass, and
   should use the instant-nav pattern (see [`PAGES.md`](PAGES.md)) with the deck stripped
   by `redactSnapshot`.

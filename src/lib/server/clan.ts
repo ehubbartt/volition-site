@@ -1,4 +1,4 @@
-import { db } from './db';
+import { db, fetchAllFiltered } from './db';
 import { rsnExactPattern } from './users';
 import type { ViewAsRole } from './auth';
 
@@ -62,4 +62,38 @@ export async function filterClanMembers(
 	}
 
 	return members;
+}
+
+/**
+ * Clan membership for a WHOLE roster, in two queries instead of N.
+ *
+ * `filterClanMembers` above falls back to one ILIKE per user it could not match by
+ * Discord id, which is fine for a handful and is a hundred sequential round trips for a
+ * clan-vs-clan roster. This reads `players` once and matches in memory, by the same rule:
+ * Discord id first, then RSN case-insensitively with '_' and ' ' treated as the same
+ * character (OSRS does).
+ *
+ * The answer is "is this person in the Volition players table", which is what makes it
+ * usable as an allegiance test: everyone else — an opposing clan signing up for a
+ * clan-vs-clan event — is definitionally not in it.
+ */
+export async function clanMemberIds(
+	users: { id: string; discord_id: string | null; rsn: string | null }[]
+): Promise<Set<string>> {
+	const out = new Set<string>();
+	if (!users.length) return out;
+
+	const { data: players } = await fetchAllFiltered<{ rsn: string | null; discord_id: string | null }>(
+		(from, to) => db().from('players').select('rsn, discord_id').range(from, to)
+	);
+
+	const norm = (rsn: string) => rsn.trim().replace(/_/g, ' ').toLowerCase();
+	const discordIds = new Set(players.map((p) => p.discord_id).filter((d): d is string => !!d));
+	const rsns = new Set(players.map((p) => (p.rsn ? norm(p.rsn) : null)).filter((r): r is string => !!r));
+
+	for (const u of users) {
+		if (u.discord_id && discordIds.has(u.discord_id)) out.add(u.id);
+		else if (u.rsn && rsns.has(norm(u.rsn))) out.add(u.id);
+	}
+	return out;
 }

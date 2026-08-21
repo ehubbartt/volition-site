@@ -11,6 +11,7 @@ import {
 	finishGame,
 	loadConnect4,
 	reopenGame,
+	seatByClan,
 	setPool,
 	setSideNames,
 	startGame,
@@ -20,7 +21,23 @@ import {
 } from '$lib/server/connect4';
 import { autoSelect, poolCandidates, toTileRefs } from '$lib/server/connect4Pool';
 import { simulateDinkDrop, maybeProcessDinkDrops } from '$lib/server/dinkDrops';
+import { SIGNUP_EVENT_KIND } from '$lib/events/signupForm';
 import { DECK_SIZE, isSide, type Side } from '$lib/connect4/rules';
+
+/**
+ * Events whose signups can seat this game. Signup forms are the normal case — the roster
+ * for a clan-vs-clan is collected on one before the game exists — and the game's own
+ * signups are always available as "whoever is already here".
+ */
+async function signupSources(eventId: string): Promise<{ id: string; name: string }[]> {
+	const { data } = await db()
+		.from('vs_events')
+		.select('id, name')
+		.eq('kind', SIGNUP_EVENT_KIND)
+		.order('created_at', { ascending: false })
+		.limit(25);
+	return ((data ?? []) as { id: string; name: string }[]).filter((e) => e.id !== eventId);
+}
 import type { Actions, PageServerLoad } from './$types';
 
 // The Connect Four tester. Every phase of a game can be driven from here by hand —
@@ -75,6 +92,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			side: sideByUser.get(u.id) ?? null
 		})),
 		candidates,
+		// Rosters a clan-vs-clan game can be seated from — normally the signup form the
+		// list was collected on.
+		signupSources: await signupSources(fresh.id),
 		poolCount: fresh.pool.length,
 		deckSize: DECK_SIZE
 	};
@@ -103,6 +123,20 @@ export const actions: Actions = {
 			? await assignSides({ eventId: game.id, userIds, side: null })
 			: await enrolMembers({ eventId: game.id, userIds, side });
 		return res.ok ? { assigned: userIds.length } : fail(400, { error: res.error });
+	},
+
+	seatByClan: async ({ request, locals, params }) => {
+		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
+		const form = await request.formData();
+		const game = await loadConnect4(params.slug);
+		if (!game) return fail(404, { error: 'No such game' });
+		const res = await seatByClan({
+			eventId: game.id,
+			sourceEventId: String(form.get('sourceEventId') ?? '') || null,
+			clanSide: sideOf(form) ?? 1,
+			dryRun: form.get('dryRun') === '1'
+		});
+		return res.ok ? { seating: res.value } : fail(400, { error: res.error });
 	},
 
 	setPool: async ({ request, locals, params }) => {
