@@ -44,7 +44,7 @@ import type { Actions, PageServerLoad } from './$types';
 // The Connect Four tester. Every phase of a game can be driven from here by hand —
 // curate the pool, put people on sides, start, simulate a drop through the REAL pipeline,
 // credit a column manually, undo a piece — so a whole game can be rehearsed without
-// waiting on real drops. Admin-only; there is no member page yet.
+// waiting on real drops. Admin-only; members watch at /events/[slug]/connect4.
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	if (!locals.user) throw redirect(303, '/');

@@ -11,6 +11,7 @@ import { buildBingoDetail, type BingoDetail } from './bingoPage';
 import type { Steering } from '$lib/swrResource.svelte';
 import { DUO_WOLF_EVENT_SLUG } from './duoWolfTiles';
 import { BATTLESHIP_KIND } from './battleship';
+import { CONNECT4_KIND } from './connect4';
 import { SIGNUP_EVENT_KIND } from '$lib/events/signupForm';
 import { loadDuoStandings, type DuoStandings } from './duoStandings';
 
@@ -161,6 +162,12 @@ export async function buildEventDetail(
 	// "invite them to duo" — teams come from the captains' draft, not from pairing up.
 	if (event.kind === BATTLESHIP_KIND) {
 		return { kind: 'redirect', to: `/events/${slug}/battleship` };
+	}
+
+	// Connect Four the same way: the board page owns the whole spectator experience, and
+	// the pairing flow below has nothing to offer a clan-vs-clan with admin-run seating.
+	if (event.kind === CONNECT4_KIND) {
+		return { kind: 'redirect', to: `/events/${slug}/connect4` };
 	}
 
 	// Signup events go the same way, for the same reason. A signup has no teams and no

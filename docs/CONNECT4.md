@@ -13,8 +13,8 @@ the implementation. See also [`EVENTS.md`](EVENTS.md) for the shared events spin
 [`event-builder-and-dink-tracking.md`](event-builder-and-dink-tracking.md) for the drop
 pipeline this hangs off.
 
-> **Status: admin-only, staging-only.** There is no member-facing page yet, and the schema
-> is applied to staging alone. Everything below is driven from `/admin/connect4`.
+> **Status: staging-only.** The schema is applied to staging alone. Games are driven from
+> `/admin/connect4`; members watch (read-only) at `/events/[slug]/connect4`.
 
 ---
 
@@ -112,6 +112,8 @@ what it should within a batch. Across batches and processes the index is the onl
 - `src/lib/server/connect4Pool.ts` — the candidate generator (boss drops from
   `itemEhb.json` priced by `bestEhbSource`) and the auto-fill.
 - `src/routes/admin/connect4/` — game list + creation; `[slug]/` is the tester.
+- `src/routes/events/[slug]/connect4/` — the member board (below), fed by
+  `src/lib/server/connect4Page.ts` via `/api/connect4/[slug]`.
 - `db/scripts/connect4.sql` — schema. **Staging only so far**: `db/apply.sh --staging`.
 - `scripts/connect4-sim.mjs` / `scripts/connect4-demo.mjs` — the simulation and the demo.
 
@@ -180,7 +182,7 @@ piece has rules of its own.
 with a full board re-load only when the token moves — behind the auto-refresh checkbox,
 and never while a replay is running. Dink credits, manual claims, undo and simulated
 drops all move the same pieces table, so they all propagate to every open board the same
-way. The member page, when it lands, opts in with the same one-liner.
+way. The member page opts in with the same one-liner.
 
 A board that changes while you are not looking should not just *be different* when you come
 back. Two things use one mechanism (`playback.svelte.ts`):
@@ -355,6 +357,28 @@ the live tile and the winner all correct themselves, because none of them is sto
 The source is closed too, or the reconcile pass would put the piece straight back: a Dink
 drop is stamped `reverted`, an outcome it does not re-surface. It is audit-logged.
 
+### The member board
+
+`/events/[slug]/connect4` is the spectator half: the same board, rail, replay machinery
+and hover cards as the tester, with everything that *acts* removed. It follows the
+instant-nav pattern ([`PAGES.md`](PAGES.md)) — no server load, a universal load that
+fires `/api/connect4/[slug]` behind skeletons — and `/events/[slug]` redirects the
+`connect4` kind here, exactly as it does for Battleship.
+
+`src/lib/server/connect4Page.ts` builds the payload, and is where the trust boundary
+lives: the snapshot goes through `redactSnapshot` (the undealt deck and the pool never
+leave the server — knowing what a column offers next is worth real points) and members
+are trimmed to `{userId, rsn}` so the payload doesn't carry every player's Discord id.
+The build is also the poll-on-read backstop: a live board drains the drop queue
+(`maybeProcessDinkDrops`) before loading, so a member refreshing the page pulls their
+own drop through even if the proxy's ping never arrived.
+
+Because nobody credits from this page there is no optimistic state: the server snapshot
+is the board, standings and run highlights are recomputed client-side from it, and the
+3-second version poll (`liveEvent`, paused mid-replay) keeps it honest. The viewer's own
+side, if they are seated, is called out in the header. Sign-in is required (`onboarded`
+guard) — the board is clan business, not a public scoreboard.
+
 ### Running a game
 
 1. Apply the schema once: `db/apply.sh --staging db/scripts/connect4.sql`.
@@ -368,7 +392,8 @@ drop is stamped `reverted`, an outcome it does not re-surface. It is audit-logge
    have ever touched the event.
 5. **Start**, which deals the deck and opens tracking.
 6. From there it runs itself. The tester can simulate a drop through the real pipeline,
-   credit a column by hand, and undo a piece.
+   credit a column by hand, and undo a piece. Give the players
+   `/events/<slug>/connect4` — that's the board they watch.
 
 ### Clan vs clan: who is on which side
 
@@ -459,9 +484,9 @@ that died half-way.
 - **A wrong RSN is a silent no-op.** Drops are matched to a site account by RSN, so a
   visitor who typos theirs will play a whole event that scores nothing. Worth a pass over
   the roster's RSNs before the start.
-- **No member page.** Everything is admin-only. The member view is the next pass, and
-  should use the instant-nav pattern (see [`PAGES.md`](PAGES.md)) with the deck stripped
-  by `redactSnapshot`.
+- **The member page is watch-only.** There is no manual claim path for a player whose
+  Dink is not set up — an admin credits those by hand from the tester. If that becomes a
+  bottleneck, Battleship's claim-with-screenshot queue is the pattern to borrow.
 - **Balance is unvalidated.** The scoring defaults are a first pass against unmeasured drop
   rates. All three dials are per-event and retunable mid-game.
 - **No Discord announcements.** Completing a connect four is the natural hook, in
