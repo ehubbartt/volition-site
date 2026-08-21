@@ -18,6 +18,7 @@ system works.
 | Signup forms | [`SIGNUPS.md`](SIGNUPS.md) | you need a list of people (and answers) before the real event exists |
 | Ranks (scoring, checks, gear claims, manual adjustments) | [`RANKS.md`](RANKS.md) | you touch the composite rank formula, /me rank check, rank-sim, manual gear claims, or the staff adjustment/grant escape hatch |
 | Dink auto-tracking | [`event-builder-and-dink-tracking.md`](event-builder-and-dink-tracking.md) | you work on the drop-tracking pipeline |
+| Live updates (proposal) | [`LIVE-UPDATES.md`](LIVE-UPDATES.md) | drops are credited late, or a board shows a tile somebody already won |
 | Staging deploy | [`DEPLOY-STAGING.md`](DEPLOY-STAGING.md) | you deploy or configure the staging app |
 | Outstanding ops | [`PENDING-OPS.md`](PENDING-OPS.md) | you're picking up the RLS lockdown / prod ship / migrations |
 
