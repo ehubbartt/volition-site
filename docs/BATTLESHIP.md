@@ -290,6 +290,10 @@ game reveals when something goes down.
 > `/events` list shows "Sign up by" rather than treating it as solo. Both are covered by
 > `e2e/battleship.spec.ts`.
 - `db/scripts/battleship.sql` — schema. Apply with `db/apply.sh --both`.
+- `db/scripts/battleship-vp-payout.sql` — post-event VP payout: 15/45/100 per tier-1/2/3
+  bomb earned, once per drop (`:x2` doubling twins excluded), credited to the bot's
+  `players.points`. Run-once guarded by a `structure.battleship.vp_payout` marker, which
+  doubles as the audit record (per-member amounts, unmatched members, orphaned bombs).
 - `scripts/battleship-sim.mjs` — the end-to-end simulation (`npm run sim:battleship`).
 
 ### Data model
