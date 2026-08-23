@@ -294,6 +294,9 @@ game reveals when something goes down.
   bomb earned, once per drop (`:x2` doubling twins excluded), credited to the bot's
   `players.points`. Run-once guarded by a `structure.battleship.vp_payout` marker, which
   doubles as the audit record (per-member amounts, unmatched members, orphaned bombs).
+  Run `battleship-vp-payout`'s read-only twin `battleship-vp-preview.sql` first — it
+  prints the exact per-member amounts the payout would land, so the numbers get eyeballed
+  before anything moves.
 - `scripts/battleship-sim.mjs` — the end-to-end simulation (`npm run sim:battleship`).
 
 ### Data model

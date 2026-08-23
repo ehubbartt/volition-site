@@ -39,34 +39,13 @@
 -- as the points update. The script aborts if that marker already exists, so running it
 -- twice cannot double-pay, and the marker doubles as the audit record of what was paid.
 --
--- ── PREFLIGHT: run this first, on its own. It changes nothing. ───────────────
+-- ── PREFLIGHT ────────────────────────────────────────────────────────────────
 --
---   select e.slug, e.status,
---          e.structure -> 'battleship' ->> 'phase'      as phase,
---          e.structure -> 'battleship' -> 'vp_payout'   as already_paid,   -- must be null
---          count(a.*)                                    as bomb_rows,
---          count(a.*) filter (where a.drop_key like '%:x2')       as x2_twins,
---          count(a.*) filter (where coalesce(a.source,'')='admin') as admin_grants,
---          count(a.*) filter (where a.earned_by is null)           as orphaned
---   from vs_events e
---   left join vs_battleship_arsenal a on a.event_id = e.id
---   where e.slug = 'battleship' and e.kind = 'battleship'
---   group by e.id;
---
---   -- The exact per-member amounts this script would pay:
---   select u.rsn, count(*) as drops,
---          sum(case a.tier when 1 then 15 when 2 then 45 when 3 then 100 end) as vp
---   from (
---     select distinct on (regexp_replace(a.drop_key, ':x2$', ''))
---            a.tier, a.earned_by
---     from vs_battleship_arsenal a
---     join vs_events e on e.id = a.event_id
---     where e.slug = 'battleship' and e.kind = 'battleship'
---       and a.drop_key not like '%:x2'
---     order by regexp_replace(a.drop_key, ':x2$', ''), a.earned_at
---   ) a
---   join vs_users u on u.id = a.earned_by
---   group by u.rsn order by vp desc;
+-- Run `db/scripts/battleship-vp-preview.sql` FIRST, on its own. It is read-only and
+-- prints exactly what this script would pay — member by member, with the total, the
+-- unmatched members and the orphaned-drop count — using the same drop rules and the
+-- same player matching. Only run this script once those numbers look right. If you
+-- toggle the admin-grants line below, toggle the matching line in the preview too.
 --
 -- ────────────────────────────────────────────────────────────────────────────
 
