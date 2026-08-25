@@ -59,12 +59,14 @@ grant goes through `grantPlayerVp` (players.points). Admin test boards carry
 **Personal-board lifecycle.** Locking starts tracking, and a locked board never expires —
 the owner keeps it as long as they want. Resetting (generating a replacement) wipes the
 board + its ledger (the UI confirms) and is gated by `RESET_COOLDOWN_DAYS` (30) behind
-`RESET_COOLDOWN_ENABLED` in `personalBoard.ts` — **currently `false`** (resets allowed
-anytime) as a migration window for boards that predate the newer tile kinds; flip it to
-`true` to require the wait, and the server gate + all page copy/buttons follow. VP farming
-is self-limiting: item tiles need drops the player is still missing, so completed content
-leaves the pool. The non-boss (Temple EHC) item pool excludes gilded and 3rd age pieces
-outright (`COSMETIC_EXCLUDE` in `personalBoard.ts`).
+`RESET_COOLDOWN_ENABLED` in `personalBoard.ts` — **currently `true`**, so a locked board
+can't be replaced for 30 days. It was briefly `false` as a migration window for boards that
+predate the newer tile kinds; re-enabled because resets-anytime let members farm the flat
+per-tile VP (finish one trivial tile, reset, repeat). VP farming is otherwise self-limiting:
+item tiles need drops the player is still missing, so completed content leaves the pool, and
+every skill tile is floored at `MIN_SKILL_TILE_HOURS` (1 EHP-hour, `$lib/ehp`) so even a
+difficulty-1 board can't roll a minutes-long XP goal. The non-boss (Temple EHC) item pool
+excludes gilded and 3rd age pieces outright (`COSMETIC_EXCLUDE` in `personalBoard.ts`).
 
 ### `vs_active_tiles` — the view (only interface the trackers read)
 One row per **(participant × not-yet-complete tile × trigger)**, expanding each tile's `triggers`

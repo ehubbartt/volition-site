@@ -66,12 +66,17 @@ export function formatXp(xp: number): string {
 	return `${Math.round(xp)} XP`;
 }
 
+// Every skill tile is worth at least this many EHP-hours. Even the easiest tile on the
+// lowest-difficulty board clears ~1 efficient hour of the skill, so a tile can never roll a
+// trivial XP goal (e.g. 5k Runecrafting) that could be farmed in minutes for the flat tile VP.
+export const MIN_SKILL_TILE_HOURS = 1;
+
 // Target efficient-hours for a skill tile, by the difficulty dial (1–10) and the tile's band
 // (so a board still runs easy→hard), with a little jitter for variety. The XP goal is then
 // hours × the skill's EHP rate, rounded. Both ends scale hard with difficulty (quadratic
-// ceiling; the floor fraction rises 12% → 48% of it) so hard boards can't roll trivial XP
-// goals — mirrors the item-tile EHB floor:
-//   d1:  ≈ 0.14h  → ≈ 1.2h      d5: ≈ 2.2h → ≈ 8h      d10: ≈ 12.2h → ≈ 25.5h
+// ceiling; the floor fraction rises 12% → 48% of it), and every tile is floored at
+// MIN_SKILL_TILE_HOURS so low-difficulty boards can't roll trivial XP goals:
+//   d1:  ≈ 1.0h  → ≈ 1.2h      d5: ≈ 2.2h → ≈ 8h      d10: ≈ 12.2h → ≈ 25.5h
 export function skillTileHours(difficulty: number, band: number, bands: number): number {
 	const d = Math.min(10, Math.max(1, difficulty));
 	const hi = 0.5 + 0.5 * d + 0.2 * d * d; // ceiling EHP-hours (d1 ≈ 1.2h, d5 ≈ 8h, d10 ≈ 25.5h)
@@ -79,5 +84,5 @@ export function skillTileHours(difficulty: number, band: number, bands: number):
 	const t = bands <= 1 ? 0.5 : band / (bands - 1);
 	const base = lo + (hi - lo) * t;
 	const jitter = 0.85 + Math.random() * 0.3; // ±15%
-	return Math.max(0.1, base * jitter);
+	return Math.max(MIN_SKILL_TILE_HOURS, base * jitter);
 }
