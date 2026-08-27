@@ -395,13 +395,13 @@
 	}
 
 	// ⓘ explainer per component: where the number comes from + how it's scored.
-	// Keys match rankScoring's ComponentKey. The CA percentages are the tier rewards
-	// (10/20/50/100/300/500 of 980) from rankScoring/combatAchievements.json — update
-	// them together if those rewards ever change.
+	// Keys match rankScoring's ComponentKey. The CA percentages are CUMULATIVE tier
+	// rewards (10/20/50/100/300/500 of 980) from rankScoring/combatAchievements.json —
+	// update them together if those rewards ever change.
 	const COMP_TIPS: Record<string, string> = {
 		gear: "Read from your TempleOSRS collection log: each set or piece in the clan's gear table is worth points — alternatives of an item count once, and multi-quantity pieces give partial credit. The bar is your gear points out of the table's total.",
 		ehb: "Efficient hours bossed, read from the clan's WiseOldMan group roster. The bar fills toward the configured EHB cap; hours past the cap don't add more score.",
-		ca: "Scores your in-game CA tier — points between tiers add nothing until the next tier unlocks. Tier shares: Hard 5%, Elite 10%, Master 31%, Grandmaster 51% (Easy + Medium 3%). Read via RuneLite's WikiSync plugin.",
+		ca: "Scores your in-game CA tier — points between tiers add nothing until the next tier unlocks. Where each tier puts this bar:\n• Hard — 8%\n• Elite — 18%\n• Master — 49%\n• Grandmaster — 100%\nRead via RuneLite's WikiSync plugin.",
 		time: "Months since you were added to the clan's WiseOldMan group. The bar fills toward the configured months cap.",
 		clog: 'Collection-log slots completed, read from your TempleOSRS profile. The bar fills toward the configured slots cap.',
 		level: 'Total level from your latest WiseOldMan snapshot. Only levels above the configured minimum score — the bar measures where you sit between that minimum and the cap.',

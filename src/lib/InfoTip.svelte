@@ -41,7 +41,8 @@
 		font-size: 0.78rem;
 		line-height: 1.45;
 		text-align: left;
-		white-space: normal;
+		/* pre-line so a tip can carry bullet lines (\n) — normal text is unaffected */
+		white-space: pre-line;
 		opacity: 0;
 		pointer-events: none;
 		transition: opacity 0.12s ease;
