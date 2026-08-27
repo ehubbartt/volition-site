@@ -90,14 +90,16 @@ a re-runnable diagnostic.
 
 ---
 
-## 3. Connect Four production go-live (order matters)
+## 3. Connect Four production go-live
 
-1. ☐ Apply `db/scripts/connect4.sql` to the **prod** database (idempotent).
-2. ☐ Merge `staging` → `main` (fast-forward as of this writing; prod deploys itself).
+1. ☑ Merge `staging` → `main` — done 2026-08-27 (fast-forward; prod deploys itself).
+2. ☐ Apply `db/scripts/connect4.sql` to the **prod** database (idempotent).
+   **Do this before creating any connect4 game on prod** — the deployed code is
+   harmless while no game exists, but a game created against the missing table
+   fails on every claim.
 3. ☐ Confirm `/admin/connect4` loads on prod, then create the game, curate the
-   pool, **Preview** the clan split, fix the flagged names, seat, start.
+   pool, **Preview** the clan split, fix the flagged names, seat, start. Members
+   watch at `/events/<slug>/connect4`.
 
-Do not create-and-start a connect4 game on prod between steps 1 and 2 being in the
-wrong order — claims would fail against the missing table. Everything else about
-the event (who can sign up, how sides are decided) is in
+Everything else about the event (who can sign up, how sides are decided) is in
 [`CONNECT4.md`](CONNECT4.md) § "Clan vs clan".
