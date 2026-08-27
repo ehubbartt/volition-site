@@ -401,7 +401,7 @@
 	const COMP_TIPS: Record<string, string> = {
 		gear: "Read from your TempleOSRS collection log: each set or piece in the clan's gear table is worth points — alternatives of an item count once, and multi-quantity pieces give partial credit. The bar is your gear points out of the table's total.",
 		ehb: "Efficient hours bossed, read from the clan's WiseOldMan group roster. The bar fills toward the configured EHB cap; hours past the cap don't add more score.",
-		ca: 'Scored on your in-game CA tier — the reward tiers you\'ve unlocked, exactly as the game grants them: any completed tasks add to your CA points, and crossing a tier\'s point threshold banks that tier\'s share. Points earned between thresholds add NOTHING until the next tier unlocks, so the bar jumps at each new tier and sits still in between. Per tier: Hard 5%, Elite 10%, Master 31%, Grandmaster 51% (Easy and Medium are the first 3%). Task completion is read from the RuneLite WikiSync plugin.',
+		ca: "Scores your in-game CA tier — points between tiers add nothing until the next tier unlocks. Tier shares: Hard 5%, Elite 10%, Master 31%, Grandmaster 51% (Easy + Medium 3%). Read via RuneLite's WikiSync plugin.",
 		time: "Months since you were added to the clan's WiseOldMan group. The bar fills toward the configured months cap.",
 		clog: 'Collection-log slots completed, read from your TempleOSRS profile. The bar fills toward the configured slots cap.',
 		level: 'Total level from your latest WiseOldMan snapshot. Only levels above the configured minimum score — the bar measures where you sit between that minimum and the cap.',
