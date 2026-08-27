@@ -395,13 +395,13 @@
 	}
 
 	// ⓘ explainer per component: where the number comes from + how it's scored.
-	// Keys match rankScoring's ComponentKey. The CA percentages are the tier-completion
-	// rewards (10/20/50/100/300/500 of 980) from rankScoring/combatAchievements.json —
-	// update them together if those rewards ever change.
+	// Keys match rankScoring's ComponentKey. The CA percentages are the tier rewards
+	// (10/20/50/100/300/500 of 980) from rankScoring/combatAchievements.json — update
+	// them together if those rewards ever change.
 	const COMP_TIPS: Record<string, string> = {
 		gear: "Read from your TempleOSRS collection log: each set or piece in the clan's gear table is worth points — alternatives of an item count once, and multi-quantity pieces give partial credit. The bar is your gear points out of the table's total.",
 		ehb: "Efficient hours bossed, read from the clan's WiseOldMan group roster. The bar fills toward the configured EHB cap; hours past the cap don't add more score.",
-		ca: 'Only fully-completed tiers score. Tasks done part-way into a tier add NOTHING until every task in it is finished — the bar jumps when you complete a whole tier and sits still in between. Each tier banks its share of the bar on completion: Elite 10%, Master 31%, Grandmaster 51% (Easy, Medium and Hard together make up the first 8%). Tiers complete in order, Easy first. Task completion is read from the RuneLite WikiSync plugin.',
+		ca: 'Scored on your in-game CA tier — the reward tiers you\'ve unlocked, exactly as the game grants them: any completed tasks add to your CA points, and crossing a tier\'s point threshold banks that tier\'s share. Points earned between thresholds add NOTHING until the next tier unlocks, so the bar jumps at each new tier and sits still in between. Per tier: Hard 5%, Elite 10%, Master 31%, Grandmaster 51% (Easy and Medium are the first 3%). Task completion is read from the RuneLite WikiSync plugin.',
 		time: "Months since you were added to the clan's WiseOldMan group. The bar fills toward the configured months cap.",
 		clog: 'Collection-log slots completed, read from your TempleOSRS profile. The bar fills toward the configured slots cap.',
 		level: 'Total level from your latest WiseOldMan snapshot. Only levels above the configured minimum score — the bar measures where you sit between that minimum and the cap.',
@@ -438,7 +438,7 @@
 				};
 			case 'ca':
 				return rank.wikisyncAvailable
-					? { text: 'No fully-completed tier yet — finish every task in a tier (Easy first) to bank its reward.' }
+					? { text: 'No CA tier unlocked yet — earn enough CA points to reach the Easy tier in-game and its reward banks here.' }
 					: {
 							text: "Couldn't read your combat achievements — install RuneLite's WikiSync plugin and log in once so your progress syncs, then re-check.",
 							href: 'https://runelite.net/plugin-hub/show/wikisync',
@@ -951,7 +951,7 @@
 					</div>
 					<div
 						class="ca-stat"
-						title="Total combat-achievement points as tracked in-game — each completed CA task awards points based on its tier. This is a different number from the rank score above, which only counts fully-completed tier rewards."
+						title="Total combat-achievement points as tracked in-game — each completed CA task awards points based on its tier. This is a different number from the rank score above, which only counts the tier rewards those points have unlocked."
 					>
 						<span class="ca-num">{num(rank.caDetail.wikiPoints)}</span>
 						<span class="ca-lbl">CA points</span>

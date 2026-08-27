@@ -295,7 +295,7 @@ export function buildRankAdvice(inputs: RankAdviceInputs, config: RankScoringCon
 				const rewardGain = caNext && CA_MAX_POINTS > 0 ? Math.min(1 - n, caNext.reward / CA_MAX_POINTS) : 0;
 				potential = Math.min(1, n + rewardGain);
 				advice = caNext
-					? `Finish the ${caNext.tier} CA tier (about ${caNext.pointsNeeded} more CA points) to bank its reward — partly-done tiers score nothing.`
+					? `Reach the ${caNext.tier} CA tier in-game (about ${caNext.pointsNeeded} more CA points, from any tasks) to bank its reward — points between tiers score nothing.`
 					: 'Every combat-achievement tier is banked.';
 				break;
 			}
