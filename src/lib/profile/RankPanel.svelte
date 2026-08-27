@@ -395,11 +395,13 @@
 	}
 
 	// ⓘ explainer per component: where the number comes from + how it's scored.
-	// Keys match rankScoring's ComponentKey.
+	// Keys match rankScoring's ComponentKey. The CA percentages are the tier-completion
+	// rewards (10/20/50/100/300/500 of 980) from rankScoring/combatAchievements.json —
+	// update them together if those rewards ever change.
 	const COMP_TIPS: Record<string, string> = {
 		gear: "Read from your TempleOSRS collection log: each set or piece in the clan's gear table is worth points — alternatives of an item count once, and multi-quantity pieces give partial credit. The bar is your gear points out of the table's total.",
 		ehb: "Efficient hours bossed, read from the clan's WiseOldMan group roster. The bar fills toward the configured EHB cap; hours past the cap don't add more score.",
-		ca: 'Scored on tier-completion rewards, not in-game CA points: fully finishing a tier (Easy → Grandmaster, in order) banks that tier\'s reward — partly-finished tiers count for nothing. The cap is all six tier rewards, so this bar only moves when you complete a whole tier. Task completion is read from the RuneLite WikiSync plugin.',
+		ca: 'Only fully-completed tiers score. Tasks done part-way into a tier add NOTHING until every task in it is finished — the bar jumps when you complete a whole tier and sits still in between. Each tier banks its share of the bar on completion: Elite 10%, Master 31%, Grandmaster 51% (Easy, Medium and Hard together make up the first 8%). Tiers complete in order, Easy first. Task completion is read from the RuneLite WikiSync plugin.',
 		time: "Months since you were added to the clan's WiseOldMan group. The bar fills toward the configured months cap.",
 		clog: 'Collection-log slots completed, read from your TempleOSRS profile. The bar fills toward the configured slots cap.',
 		level: 'Total level from your latest WiseOldMan snapshot. Only levels above the configured minimum score — the bar measures where you sit between that minimum and the cap.',
