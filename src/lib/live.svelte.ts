@@ -24,18 +24,23 @@ export function liveEvent(
 		intervalMs?: number;
 		paused?: () => boolean;
 		/** Version token computed with the page payload, so a change that lands between
-		 *  render and the first poll is still caught. Omitted: the first poll is baseline. */
-		initial?: string;
+		 *  render and the first poll is still caught. Pass a GETTER when the payload
+		 *  arrives asynchronously (instant-nav pages): it is consulted at baseline time —
+		 *  first unpaused tick, and again on an id change — not at init. Omitted, or
+		 *  returning undefined: the first poll is the baseline, and a change that landed
+		 *  before it is silently absorbed. */
+		initial?: string | (() => string | undefined);
 	}
 ): void {
 	if (!browser) return;
 
 	const base = opts.intervalMs ?? 3000;
 	const id = () => (typeof eventId === 'function' ? eventId() : eventId);
+	const initialOf = () => (typeof opts.initial === 'function' ? opts.initial() : opts.initial);
 
 	let delay = base;
 	let currentId: string | undefined;
-	let version: string | undefined = opts.initial;
+	let version: string | undefined = typeof opts.initial === 'string' ? opts.initial : undefined;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let inflight = false;
 	let stopped = false;
@@ -51,10 +56,13 @@ export function liveEvent(
 		if (document.hidden || opts.paused?.()) return schedule();
 		const target = id();
 		if (currentId === undefined) {
-			currentId = target; // first tick: opts.initial (if any) baselines this id
+			currentId = target; // first tick: the payload token (if any) baselines this id
+			if (version === undefined) version = initialOf();
 		} else if (target !== currentId) {
 			currentId = target;
-			version = undefined; // new event: re-baseline, don't fire on the id swap itself
+			// New event: re-baseline from ITS payload token, not from the next poll — a
+			// change landing between that payload and the first poll must still fire.
+			version = initialOf();
 		}
 		inflight = true;
 		try {

@@ -186,6 +186,10 @@
 	}
 	liveEvent(() => game?.id ?? '', {
 		onChange: refresh,
+		// The payload's own token baselines the poll (a getter, because the payload lands
+		// after init) — without it, a credit between render and the first poll became the
+		// baseline and the board sat stale until the NEXT change.
+		initial: () => (payload?.kind === 'ok' ? payload.live : undefined),
 		paused: () => !game || game.phase !== 'live' || playback.playing
 	});
 	onMount(() => {

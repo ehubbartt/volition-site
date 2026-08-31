@@ -115,7 +115,11 @@ test('a credit on the admin board reaches the open member board without a reload
 	);
 
 	// …and the MEMBER page picks it up on its own: version poll (3s) → refetch → the
-	// piece falls in. No reload, no interaction.
+	// piece falls in. No reload, no interaction. Hidden tabs deliberately don't poll
+	// (live.svelte.ts), and driving the admin page backgrounds this one in headless
+	// Chromium — bringing it forward is the real "player returns to the tab" path,
+	// which fires an immediate catch-up poll.
+	await member.bringToFront();
 	await expect(member.locator('.board-panel .osrs-titlebar')).toContainText(
 		`1 / ${DECK} claimed`,
 		{ timeout: 30_000 }
