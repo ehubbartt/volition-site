@@ -8,7 +8,6 @@
 	import WikiImage from '$lib/WikiImage.svelte';
 	import { itemImageUrl, monsterImageUrl } from '$lib/wikiImage';
 	import {
-		ROWS,
 		cellId,
 		cellLabel,
 		columnCounts,
@@ -161,7 +160,8 @@
 	 */
 	function creditOptimistically(col: number, side: number): string | null {
 		// Against the MERGED board, so a rapid second click stacks rather than colliding.
-		const row = landingRow(columnCounts(boardPieces), col);
+		const size = { cols: game.cols, rows: game.rows };
+		const row = landingRow(columnCounts(boardPieces, size), col, size);
 		if (row === null) return null;
 		const tile = liveTiles[col]?.tile;
 		const id = `pending:${++pendingSeq}`;
@@ -170,7 +170,7 @@
 			col,
 			row,
 			side: side as 1 | 2,
-			deck_idx: col * ROWS + row,
+			deck_idx: col * game.rows + row,
 			item_id: tile?.item_id ?? null,
 			item_name: tile?.item_name ?? null,
 			source: tile?.source ?? null,
@@ -306,6 +306,20 @@
 	let selectedOnly = $state(false);
 	let poolPicked = $state<Set<number>>(new Set());
 
+	/**
+	 * Remove a hand-added custom task. A ✕ inside the curation <label> can't be its own
+	 * <form> (forms don't nest), so this posts the action directly and refreshes.
+	 */
+	async function removeCustom(itemId: number) {
+		const body = new FormData();
+		body.set('itemId', String(itemId));
+		await fetch('?/removeCustom', { method: 'POST', body });
+		const next = new Set(poolPicked);
+		next.delete(itemId);
+		poolPicked = next;
+		await invalidateAll();
+	}
+
 	// What the event has actually SAVED. The ticks start from this — otherwise auto-fill
 	// (which saves straight away) leaves a list where nothing looks chosen, and the save
 	// button reads "Use these 0 tiles".
@@ -373,7 +387,11 @@
 		</div>
 		<div class="head-right">
 			<span class="osrs-badge">{game.phase}</span>
+			<span class="osrs-badge">{game.cols}×{game.rows}</span>
 			{#if game.test}<span class="osrs-badge test">test</span>{/if}
+			<a class="export" href="/admin/connect4/{game.slug}/export.csv" download title="The whole tile list as a spreadsheet">
+				⤓ Export CSV
+			</a>
 			<button type="button" onclick={refresh}>Refresh</button>
 			{#if refreshedAt}<span class="muted tiny">updated {refreshedAt}</span>{/if}
 		</div>
@@ -392,6 +410,8 @@
 		</p>
 	{/if}
 	{#if form?.pooled}<p class="ok">Tile pool saved — {form.pooled} tiles chosen.</p>{/if}
+	{#if form?.customAdded}<p class="ok">Added the custom task “{form.customAdded}” — tick it into the pool below.</p>{/if}
+	{#if form?.customRemoved}<p class="ok">Custom task removed.</p>{/if}
 	{#if form?.undone}
 		<p class="ok">
 			Removed the piece{typeof form.undone === 'string' ? ` at ${cellLabel(form.undone)}` : ''}.
@@ -465,33 +485,39 @@
 					</span>
 				</div>
 
-				{#if view === '3d'}
-					<Connect4Board3D
-						pieces={boardPieces}
-						live={liveTiles}
-						{claiming}
-						sideColors={game.sides.map((s) => s.color)}
-						{runCells}
-						revealed={playback.revealed}
-						falling={playback.falling}
-						{selected}
-						onselect={(c) => (selected = selected === c ? null : c)}
-						onhover={set3dHover}
-					/>
-				{:else}
-					<Connect4Board
-						pieces={boardPieces}
-						live={liveTiles}
-						{claiming}
-						sideColors={game.sides.map((s) => s.color)}
-						sideNames={game.sides.map((s) => s.name)}
-						{runCells}
-						revealed={playback.revealed}
-						falling={playback.falling}
-						{selected}
-						onselect={(c) => (selected = selected === c ? null : c)}
-					/>
-				{/if}
+				{#key game.id}
+					{#if view === '3d'}
+						<Connect4Board3D
+							pieces={boardPieces}
+							live={liveTiles}
+							cols={game.cols}
+							rows={game.rows}
+							{claiming}
+							sideColors={game.sides.map((s) => s.color)}
+							{runCells}
+							revealed={playback.revealed}
+							falling={playback.falling}
+							{selected}
+							onselect={(c) => (selected = selected === c ? null : c)}
+							onhover={set3dHover}
+						/>
+					{:else}
+						<Connect4Board
+							pieces={boardPieces}
+							live={liveTiles}
+							cols={game.cols}
+							rows={game.rows}
+							{claiming}
+							sideColors={game.sides.map((s) => s.color)}
+							sideNames={game.sides.map((s) => s.name)}
+							{runCells}
+							revealed={playback.revealed}
+							falling={playback.falling}
+							{selected}
+							onselect={(c) => (selected = selected === c ? null : c)}
+						/>
+					{/if}
+				{/key}
 
 				{#if selectedTile}
 					<div class="tile-detail">
@@ -574,6 +600,11 @@
 					<form method="POST" action="?/autoPool" use:enhance>
 						<button type="submit">Auto-fill {data.deckSize} across the difficulty range</button>
 					</form>
+					<form method="POST" action="?/randomPool" use:enhance>
+						<button type="submit" title="Same difficulty spread, different tiles every roll">
+							🎲 Random fill
+						</button>
+					</form>
 					<input placeholder="Filter items or bosses…" bind:value={poolFilter} />
 					<label class="tiny check">
 						<input type="checkbox" bind:checked={selectedOnly} /> chosen only
@@ -584,6 +615,16 @@
 					</span>
 				</div>
 
+				<!-- Anything the generated boss-drop list doesn't offer. Matched by NAME, so it
+				     must be exactly what Dink reports for the item. -->
+				<form method="POST" action="?/addCustom" class="row custom-row" use:enhance>
+					<input name="item_name" placeholder="Custom task — exact item name…" required />
+					<input name="source" placeholder="Boss / source (optional)" />
+					<input name="ehb" type="number" step="0.1" min="0" placeholder="EHB (opt.)" class="ehb-in" />
+					<button type="submit">＋ Add task</button>
+					<span class="muted tiny">Custom tasks match drops by item name and lead the list below.</span>
+				</form>
+
 				<form method="POST" action="?/setPool" use:enhance>
 					<!-- The selection travels as hidden inputs, NOT as the visible checkboxes:
 					     the list is filtered and capped, so submitting only what happens to be
@@ -593,7 +634,7 @@
 
 					<div class="candidates">
 						{#each shownCandidates.slice(0, 400) as c (c.item_id)}
-							<label class="cand" class:on={poolPicked.has(c.item_id)}>
+							<label class="cand" class:on={poolPicked.has(c.item_id)} class:custom={c.item_id < 0}>
 								<input
 									type="checkbox"
 									checked={poolPicked.has(c.item_id)}
@@ -601,7 +642,20 @@
 								/>
 								<WikiImage src={itemImageUrl(c.item_name)} alt="" size={22} />
 								<span class="cand-name">{c.item_name}</span>
-								<span class="muted tiny">{c.source} · {formatEhb(c.ehb)}</span>
+								<span class="muted tiny">
+									{#if c.item_id < 0}custom · {/if}{c.source ?? '—'}{#if c.ehb} · {formatEhb(c.ehb)}{/if}
+								</span>
+								{#if c.item_id < 0}
+									<button
+										type="button"
+										class="danger tiny cand-x"
+										title="Remove this custom task"
+										onclick={(e) => {
+											e.preventDefault();
+											removeCustom(c.item_id);
+										}}
+									>✕</button>
+								{/if}
 							</label>
 						{:else}
 							<p class="muted tiny pad">
@@ -1061,6 +1115,26 @@
 	}
 	.danger {
 		color: var(--danger);
+	}
+	.export {
+		font-size: 0.8rem;
+		color: var(--accent);
+	}
+	.custom-row input[name='item_name'] {
+		min-width: 16rem;
+	}
+	.ehb-in {
+		width: 6.5rem;
+	}
+	.cand.custom {
+		border-left: 3px solid var(--accent);
+	}
+	.cand-x {
+		border-image: none;
+		min-height: 0;
+		padding: 0 0.3rem;
+		background: none;
+		border: none;
 	}
 	.unsaved {
 		color: var(--yellow);

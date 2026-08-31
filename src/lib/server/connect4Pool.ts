@@ -87,6 +87,26 @@ export function autoSelect(candidates: PoolCandidate[], count = DECK_SIZE): Pool
 	return out;
 }
 
+/**
+ * The re-rollable cousin of autoSelect: the same equal difficulty bands, but a RANDOM
+ * pick from each instead of the middle — every roll is a different deck with the same
+ * overall difficulty curve. For admins who asked for "randomly select boss items";
+ * the deterministic spread stays the predictable default.
+ */
+export function randomSelect(candidates: PoolCandidate[], count = DECK_SIZE): PoolCandidate[] {
+	if (candidates.length <= count) return candidates.slice();
+	const out: PoolCandidate[] = [];
+	const band = candidates.length / count;
+	for (let i = 0; i < count; i++) {
+		// band > 1 here, so floor((i+1)·band) ≥ lo+1 and consecutive bands NEVER share an
+		// index — ceil() here once produced overlapping seams and a duplicate-item pool.
+		const lo = Math.floor(i * band);
+		const hi = Math.max(lo, Math.min(candidates.length - 1, Math.floor((i + 1) * band) - 1));
+		out.push(candidates[lo + Math.floor(Math.random() * (hi - lo + 1))]);
+	}
+	return out;
+}
+
 /** Strip a curated selection down to what actually gets stored on the event. */
 export function toTileRefs(picked: Pick<PoolCandidate, 'item_id' | 'item_name' | 'source' | 'ehb'>[]): TileRef[] {
 	return picked.map((p) => ({

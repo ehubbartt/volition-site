@@ -4,12 +4,14 @@ import { isAdmin } from '$lib/server/auth';
 import { logAudit } from '$lib/server/audit';
 import { fetchAllFiltered } from '$lib/server/db';
 import {
+	addCustomTile,
 	assignSides,
 	claimTile,
 	creditManual,
 	enrolMembers,
 	finishGame,
 	loadConnect4,
+	removeCustomTile,
 	reopenGame,
 	seatByClan,
 	setPool,
@@ -17,13 +19,20 @@ import {
 	startGame,
 	syncTrackedItems,
 	undoClaim,
-	updateScoring
+	updateScoring,
+	type Connect4Snapshot
 } from '$lib/server/connect4';
-import { autoSelect, poolCandidates, toTileRefs } from '$lib/server/connect4Pool';
+import {
+	autoSelect,
+	poolCandidates,
+	randomSelect,
+	toTileRefs,
+	type PoolCandidate
+} from '$lib/server/connect4Pool';
 import { simulateDinkDrop, maybeProcessDinkDrops } from '$lib/server/dinkDrops';
 import { liveVersion } from '$lib/server/liveVersion';
 import { SIGNUP_EVENT_KIND } from '$lib/events/signupForm';
-import { DECK_SIZE, isSide, type Side } from '$lib/connect4/rules';
+import { isSide, type Side } from '$lib/connect4/rules';
 
 /**
  * Events whose signups can seat this game. Signup forms are the normal case — the roster
@@ -76,8 +85,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const sideByUser = new Map<string, Side>();
 	for (const s of fresh.sides) for (const m of s.members) sideByUser.set(m.userId, s.side);
 
-	// Candidates are only needed while curating, and there are ~300 of them.
-	const candidates = fresh.phase === 'setup' ? await poolCandidates() : [];
+	// Candidates are only needed while curating, and there are ~300 of them. Hand-added
+	// custom tasks lead the list so they're never lost in the generated crowd.
+	const candidates = fresh.phase === 'setup' ? await allCandidates(fresh) : [];
 
 	return {
 		// Baseline for the page's live-updates poll, computed alongside the payload so a
@@ -100,9 +110,31 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		// list was collected on.
 		signupSources: await signupSources(fresh.id),
 		poolCount: fresh.pool.length,
-		deckSize: DECK_SIZE
+		deckSize: fresh.deckSize
 	};
 };
+
+/**
+ * The curation universe for this game: its hand-added custom tasks first (flagged by
+ * their negative ids), then the generated boss-drop candidates. Auto/random fill draws
+ * from this same list, sorted cheapest-first like poolCandidates.
+ */
+async function allCandidates(snap: Connect4Snapshot): Promise<PoolCandidate[]> {
+	const generated = await poolCandidates();
+	const custom: PoolCandidate[] = snap.custom.map((t) => ({
+		item_id: t.item_id,
+		item_name: t.item_name,
+		source: t.source,
+		ehb: t.ehb ?? 0,
+		mechanic: 'custom'
+	}));
+	return [...custom, ...generated];
+}
+
+/** Auto/random fill both draw from the ehb-sorted universe, customs included. */
+async function fillCandidates(snap: Connect4Snapshot): Promise<PoolCandidate[]> {
+	return (await allCandidates(snap)).sort((a, b) => a.ehb - b.ehb);
+}
 
 const sideOf = (form: FormData, key = 'side'): Side | null => {
 	const n = Number(form.get(key));
@@ -150,7 +182,7 @@ export const actions: Actions = {
 		if (!game) return fail(404, { error: 'No such game' });
 
 		const ids = new Set(form.getAll('itemId').map((v) => Number(v)));
-		const all = await poolCandidates();
+		const all = await allCandidates(game);
 		const chosen = all.filter((c) => ids.has(c.item_id));
 		const res = await setPool(game.id, toTileRefs(chosen));
 		return res.ok ? { pooled: chosen.length } : fail(400, { error: res.error });
@@ -160,8 +192,42 @@ export const actions: Actions = {
 		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
 		const game = await loadConnect4(params.slug);
 		if (!game) return fail(404, { error: 'No such game' });
-		const res = await setPool(game.id, toTileRefs(autoSelect(await poolCandidates(), DECK_SIZE)));
-		return res.ok ? { pooled: DECK_SIZE } : fail(400, { error: res.error });
+		const res = await setPool(game.id, toTileRefs(autoSelect(await fillCandidates(game), game.deckSize)));
+		return res.ok ? { pooled: game.deckSize } : fail(400, { error: res.error });
+	},
+
+	// The re-rollable fill: same difficulty spread, different tiles every click.
+	randomPool: async ({ locals, params }) => {
+		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
+		const game = await loadConnect4(params.slug);
+		if (!game) return fail(404, { error: 'No such game' });
+		const res = await setPool(game.id, toTileRefs(randomSelect(await fillCandidates(game), game.deckSize)));
+		return res.ok ? { pooled: game.deckSize } : fail(400, { error: res.error });
+	},
+
+	addCustom: async ({ request, locals, params }) => {
+		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
+		const form = await request.formData();
+		const game = await loadConnect4(params.slug);
+		if (!game) return fail(404, { error: 'No such game' });
+		const ehbRaw = String(form.get('ehb') ?? '').trim();
+		const res = await addCustomTile(game.id, {
+			item_name: String(form.get('item_name') ?? ''),
+			source: String(form.get('source') ?? '').trim() || null,
+			ehb: ehbRaw === '' ? null : Number(ehbRaw)
+		});
+		return res.ok
+			? { customAdded: res.value!.tile.item_name }
+			: fail(400, { error: res.error, custom: true });
+	},
+
+	removeCustom: async ({ request, locals, params }) => {
+		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
+		const form = await request.formData();
+		const game = await loadConnect4(params.slug);
+		if (!game) return fail(404, { error: 'No such game' });
+		const res = await removeCustomTile(game.id, Number(form.get('itemId')));
+		return res.ok ? { customRemoved: true } : fail(400, { error: res.error });
 	},
 
 	start: async ({ locals, params }) => {

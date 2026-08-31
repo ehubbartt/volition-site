@@ -42,9 +42,10 @@ create table if not exists vs_connect4_pieces (
 create index if not exists vs_connect4_pieces_event on vs_connect4_pieces (event_id);
 create index if not exists vs_connect4_pieces_order on vs_connect4_pieces (event_id, claimed_at);
 
--- A column can hold at most ROWS pieces and a deck slot is used once. Both follow from
--- the unique index above given the application only ever writes the derived landing row,
--- but the check keeps a hand-written INSERT honest.
+-- Boards are sized per game (structure.connect4.size) since sizes became configurable,
+-- so the exact 25×10 bounds and the deck_idx arithmetic moved into the application —
+-- the database can't know a given event's rows. What remains is what is true for every
+-- size. Re-running this file upgrades an older install's stricter constraint in place.
 alter table vs_connect4_pieces drop constraint if exists vs_connect4_pieces_bounds;
 alter table vs_connect4_pieces add constraint vs_connect4_pieces_bounds
-	check (col >= 0 and col < 25 and row >= 0 and row < 10 and deck_idx = col * 10 + row);
+	check (col >= 0 and row >= 0 and deck_idx >= 0);

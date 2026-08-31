@@ -19,16 +19,46 @@
 // row 0) and serialize to the string `"col,row"` — the identity the database's
 // unique (event_id, cell) index uses. Never build a cell id by hand; use cellId/parseCell.
 
-export const COLS = 25;
-export const ROWS = 10;
+/** The board's dimensions. Fixed per game at creation; the classic board is 25×10. */
+export interface BoardSize {
+	cols: number;
+	rows: number;
+}
+
+export const DEFAULT_SIZE: BoardSize = { cols: 25, rows: 10 };
+export const COLS = DEFAULT_SIZE.cols;
+export const ROWS = DEFAULT_SIZE.rows;
 /** One curated tile per cell: filling the board consumes the whole deck. */
 export const DECK_SIZE = COLS * ROWS;
+
+export const deckSizeOf = (s: BoardSize): number => s.cols * s.rows;
 
 export type Side = 1 | 2;
 export type CellId = string;
 export type Cell = { col: number; row: number };
 
-/** A boss-drop objective. `item_id` is the match key; `source` is the boss, for display. */
+/**
+ * Coerce an admin-supplied (or stored) size into something playable. The bounds are
+ * practical, not sacred: below them the game is over in minutes, above them the rail
+ * stops being readable and the candidate universe can't fill the deck anyway.
+ */
+export function clampSize(input?: { cols?: unknown; rows?: unknown } | null): BoardSize {
+	const n = (v: unknown, fallback: number, min: number, max: number) => {
+		const x = Math.round(Number(v));
+		return isFinite(x) ? Math.min(max, Math.max(min, x)) : fallback;
+	};
+	return {
+		cols: n(input?.cols, DEFAULT_SIZE.cols, 5, 40),
+		rows: n(input?.rows, DEFAULT_SIZE.rows, 4, 15)
+	};
+}
+
+/**
+ * A boss-drop objective. `item_id` is the match key; `source` is the boss, for display.
+ * A NEGATIVE item_id marks a hand-added custom task: it exists so the curation UI can
+ * key the tile, but it matches drops by NAME only (see matchesTile) and is projected to
+ * the allowlist with a null id.
+ */
 export interface TileRef {
 	item_id: number;
 	item_name: string;
@@ -89,18 +119,19 @@ export function cellId(col: number, row: number): CellId {
 	return `${col},${row}`;
 }
 
-export function parseCell(id: CellId): Cell | null {
+/** `size: null` skips the bounds check — for display paths that serve any board. */
+export function parseCell(id: CellId, size: BoardSize | null = DEFAULT_SIZE): Cell | null {
 	const m = /^(\d+),(\d+)$/.exec(id);
 	if (!m) return null;
 	const col = Number(m[1]);
 	const row = Number(m[2]);
-	if (col >= COLS || row >= ROWS) return null;
+	if (size && (col >= size.cols || row >= size.rows)) return null;
 	return { col, row };
 }
 
 /** Spreadsheet-style label for the UI ("A1", "Y10") — display only, never an identity. */
 export function cellLabel(id: CellId): string {
-	const c = parseCell(id);
+	const c = parseCell(id, null);
 	if (!c) return id;
 	return `${columnLabel(c.col)}${c.row + 1}`;
 }
@@ -119,38 +150,38 @@ export function columnLabel(col: number): string {
 // ── Gravity ─────────────────────────────────────────────────────────────────
 
 /** How many pieces each column holds, indexed by column. */
-export function columnCounts(pieces: Piece[]): number[] {
-	const counts = new Array<number>(COLS).fill(0);
+export function columnCounts(pieces: Piece[], size: BoardSize = DEFAULT_SIZE): number[] {
+	const counts = new Array<number>(size.cols).fill(0);
 	for (const p of pieces) {
-		if (p.col >= 0 && p.col < COLS) counts[p.col]++;
+		if (p.col >= 0 && p.col < size.cols) counts[p.col]++;
 	}
 	return counts;
 }
 
 /** The row a new piece would land on, or null if the column is full. */
-export function landingRow(counts: number[], col: number): number | null {
-	if (col < 0 || col >= COLS) return null;
+export function landingRow(counts: number[], col: number, size: BoardSize = DEFAULT_SIZE): number | null {
+	if (col < 0 || col >= size.cols) return null;
 	const n = counts[col] ?? 0;
-	return n >= ROWS ? null : n;
+	return n >= size.rows ? null : n;
 }
 
-export function boardFull(pieces: Piece[]): boolean {
-	return pieces.length >= DECK_SIZE;
+export function boardFull(pieces: Piece[], size: BoardSize = DEFAULT_SIZE): boolean {
+	return pieces.length >= deckSizeOf(size);
 }
 
 /** Columns that can still take a piece. */
-export function openColumns(counts: number[]): number[] {
+export function openColumns(counts: number[], size: BoardSize = DEFAULT_SIZE): number[] {
 	const out: number[] = [];
-	for (let c = 0; c < COLS; c++) if ((counts[c] ?? 0) < ROWS) out.push(c);
+	for (let c = 0; c < size.cols; c++) if ((counts[c] ?? 0) < size.rows) out.push(c);
 	return out;
 }
 
 // ── The deck ────────────────────────────────────────────────────────────────
 
 /** Which deck entry is live above a column that already holds `count` pieces. */
-export function liveDeckIdx(col: number, count: number): number | null {
-	if (col < 0 || col >= COLS || count >= ROWS) return null;
-	return col * ROWS + count;
+export function liveDeckIdx(col: number, count: number, size: BoardSize = DEFAULT_SIZE): number | null {
+	if (col < 0 || col >= size.cols || count >= size.rows) return null;
+	return col * size.rows + count;
 }
 
 export interface LiveTile {
@@ -164,23 +195,33 @@ export interface LiveTile {
  * filled up and retired. This is the ONLY definition of "what can be claimed right now";
  * the tracked-item rows handed to the Dink proxy are a projection of it, never a source.
  */
-export function liveTiles(deck: TileRef[], pieces: Piece[]): (LiveTile | null)[] {
-	const counts = columnCounts(pieces);
+export function liveTiles(
+	deck: TileRef[],
+	pieces: Piece[],
+	size: BoardSize = DEFAULT_SIZE
+): (LiveTile | null)[] {
+	const counts = columnCounts(pieces, size);
 	const out: (LiveTile | null)[] = [];
-	for (let col = 0; col < COLS; col++) {
-		const idx = liveDeckIdx(col, counts[col] ?? 0);
+	for (let col = 0; col < size.cols; col++) {
+		const idx = liveDeckIdx(col, counts[col] ?? 0, size);
 		const tile = idx === null ? undefined : deck[idx];
 		out.push(idx === null || !tile ? null : { col, deckIdx: idx, tile });
 	}
 	return out;
 }
 
-/** Does a drop satisfy a tile? Item id first, name as the fallback — matchTracked's rule. */
+/**
+ * Does a drop satisfy a tile? Item id first, name as the fallback — matchTracked's rule.
+ * A tile with a NEGATIVE item_id is a hand-added custom task whose id is synthetic, so
+ * it never id-matches — the name is its whole identity.
+ */
 export function matchesTile(
 	drop: { item_id?: number | null; item_name?: string | null },
 	tile: TileRef
 ): boolean {
-	if (drop.item_id != null && tile.item_id != null) return Number(drop.item_id) === Number(tile.item_id);
+	if (drop.item_id != null && tile.item_id != null && tile.item_id > 0) {
+		return Number(drop.item_id) === Number(tile.item_id);
+	}
 	const a = (drop.item_name ?? '').trim().toLowerCase();
 	const b = (tile.item_name ?? '').trim().toLowerCase();
 	return a.length > 0 && a === b;

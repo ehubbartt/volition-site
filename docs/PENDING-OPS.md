@@ -97,6 +97,11 @@ a re-runnable diagnostic.
    **Do this before creating any connect4 game on prod** — the deployed code is
    harmless while no game exists, but a game created against the missing table
    fails on every claim.
+   ☐ **Re-apply it to STAGING too**: the file now relaxes the pieces bounds
+   constraint for configurable board sizes, and staging still carries the strict
+   25×10 one — any game with rows ≠ 10 fails every claim until it's re-run.
+   (The session's Management API token expired, so this couldn't be done in-band:
+   `db/apply.sh --both db/scripts/connect4.sql` covers both.)
 3. ☐ Confirm `/admin/connect4` loads on prod, then create the game, curate the
    pool, **Preview** the clan split, fix the flagged names, seat, start. Members
    watch at `/events/<slug>/connect4`.

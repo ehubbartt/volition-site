@@ -25,6 +25,8 @@
 	let {
 		pieces = [],
 		live = [],
+		cols = COLS,
+		rows = ROWS,
 		claiming,
 		sideColors = ['#ef4444', '#eab308'],
 		sideNames = ['Red', 'Yellow'],
@@ -38,6 +40,9 @@
 	}: {
 		pieces: Piece[];
 		live: (LiveTile | null)[];
+		/** Board dimensions — per game since sizes became configurable. */
+		cols?: number;
+		rows?: number;
 		/** Columns whose objective is claimed but not yet replaced — see TileRail. */
 		claiming?: Set<number>;
 		sideColors?: string[];
@@ -60,9 +65,9 @@
 	const byCell = $derived(new Map(shown.map((p) => [cellId(p.col, p.row), p])));
 
 	// Top-down render order, so grid row 1 is the top of the board and row 0 is the floor.
-	const rowsTopDown = $derived(Array.from({ length: ROWS }, (_, i) => ROWS - 1 - i));
-	const cols = $derived(Array.from({ length: COLS }, (_, i) => i));
-	const colFull = $derived(cols.map((c) => shown.filter((p) => p.col === c).length >= ROWS));
+	const rowsTopDown = $derived(Array.from({ length: rows }, (_, i) => rows - 1 - i));
+	const colList = $derived(Array.from({ length: cols }, (_, i) => i));
+	const colFull = $derived(colList.map((c) => shown.filter((p) => p.col === c).length >= rows));
 
 	// Hover card, for BOTH the objectives on the rail and the pieces on the board.
 	// Anchored from the element's own rect so it reads next to the thing you pointed at
@@ -133,16 +138,16 @@
 
 <svelte:window onscroll={leave} />
 
-<div class="wrap" style="--n: {COLS}; --rows: {ROWS};">
+<div class="wrap" style="--n: {cols}; --rows: {rows};">
 	<TileRail {live} {claiming} {selected} {onselect} onhover={railHover} />
 
 	<div class="collabels" aria-hidden="true">
-		{#each cols as c (c)}<span class:full={colFull[c]}>{columnLabel(c)}</span>{/each}
+		{#each colList as c (c)}<span class:full={colFull[c]}>{columnLabel(c)}</span>{/each}
 	</div>
 
-	<div class="board" role="grid" aria-label="Connect Four board, {COLS} columns by {ROWS} rows">
+	<div class="board" role="grid" aria-label="Connect Four board, {cols} columns by {rows} rows">
 		{#each rowsTopDown as row (row)}
-			{#each cols as col (col)}
+			{#each colList as col (col)}
 				{@const id = cellId(col, row)}
 				{@const piece = byCell.get(id)}
 				<button
@@ -151,7 +156,7 @@
 					class:filled={!!piece}
 					class:in-run={runCells.has(id)}
 					class:newest={!!piece && falling === piece.id}
-					style={piece ? `--disc: ${sideColors[piece.side - 1] ?? '#888'}; --fall: ${ROWS - row};` : ''}
+					style={piece ? `--disc: ${sideColors[piece.side - 1] ?? '#888'}; --fall: ${rows - row};` : ''}
 					disabled={disabled || !oncolumn || colFull[col]}
 					aria-label={piece
 						? `${columnLabel(col)}${row + 1} — ${sideNames[piece.side - 1] ?? `side ${piece.side}`}${piece.item_name ? `, ${piece.item_name}` : ''}`

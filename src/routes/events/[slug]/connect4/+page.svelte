@@ -314,31 +314,37 @@
 						</span>
 					</div>
 
-					{#if view === '3d'}
-						<Connect4Board3D
-							{pieces}
-							live={game.live}
-							sideColors={game.sides.map((s) => s.color)}
-							{runCells}
-							revealed={playback.revealed}
-							falling={playback.falling}
-							{selected}
-							onselect={(c) => (selected = selected === c ? null : c)}
-							onhover={set3dHover}
-						/>
-					{:else}
-						<Connect4Board
-							{pieces}
-							live={game.live}
-							sideColors={game.sides.map((s) => s.color)}
-							sideNames={game.sides.map((s) => s.name)}
-							{runCells}
-							revealed={playback.revealed}
-							falling={playback.falling}
-							{selected}
-							onselect={(c) => (selected = selected === c ? null : c)}
-						/>
-					{/if}
+					{#key game.id}
+						{#if view === '3d'}
+							<Connect4Board3D
+								{pieces}
+								live={game.live}
+								cols={game.cols}
+								rows={game.rows}
+								sideColors={game.sides.map((s) => s.color)}
+								{runCells}
+								revealed={playback.revealed}
+								falling={playback.falling}
+								{selected}
+								onselect={(c) => (selected = selected === c ? null : c)}
+								onhover={set3dHover}
+							/>
+						{:else}
+							<Connect4Board
+								{pieces}
+								live={game.live}
+								cols={game.cols}
+								rows={game.rows}
+								sideColors={game.sides.map((s) => s.color)}
+								sideNames={game.sides.map((s) => s.name)}
+								{runCells}
+								revealed={playback.revealed}
+								falling={playback.falling}
+								{selected}
+								onselect={(c) => (selected = selected === c ? null : c)}
+							/>
+						{/if}
+					{/key}
 
 					{#if selectedTile}
 						<div class="tile-detail">

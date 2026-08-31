@@ -30,6 +30,8 @@
 	let {
 		pieces = [],
 		live = [],
+		cols = COLS,
+		rows = ROWS,
 		claiming,
 		sideColors = ['#ef4444', '#eab308'],
 		runCells = new Set<string>(),
@@ -42,6 +44,9 @@
 		pieces: Piece[];
 		/** The objective on offer above each column — rendered as the floating tokens. */
 		live: (LiveTile | null)[];
+		/** Board dimensions. Captured at init — remount (the pages {#key} by game) to change. */
+		cols?: number;
+		rows?: number;
 		/** Columns whose objective is claimed but not yet replaced — their slot stays empty. */
 		claiming?: Set<number>;
 		sideColors?: string[];
@@ -61,13 +66,20 @@
 	const shown = $derived(revealed === null ? pieces : pieces.slice(0, Math.max(0, revealed)));
 
 	// ── layout constants (world units; one cell is 1 unit) ────────────────────
+	// The whole scene is built once in onMount for a FIXED board — a game's size never
+	// changes, and the pages remount this component per game — so the dimensions are
+	// captured deliberately at init rather than made reactive.
+	// svelte-ignore state_referenced_locally
+	const NCOLS = cols;
+	// svelte-ignore state_referenced_locally
+	const NROWS = rows;
 	const CELL = 1;
 	const HOLE_R = 0.42;
 	const DISC_R = 0.4;
 	const DISC_D = 0.26;
 	const PAD = 0.55;
-	const W = COLS * CELL + PAD * 2;
-	const H = ROWS * CELL + PAD * 2;
+	const W = NCOLS * CELL + PAD * 2;
+	const H = NROWS * CELL + PAD * 2;
 	const FRAME_D = 0.42;
 
 	// The objective tokens hover in a band above the frame. TOKEN_GAP is measured from the
@@ -84,8 +96,8 @@
 
 	// Cell (col,row) → world x/y. Row 0 is the BOTTOM, which is also +y here, so the two
 	// coordinate systems agree without a flip anywhere else.
-	const wx = (col: number) => (col - (COLS - 1) / 2) * CELL;
-	const wy = (row: number) => (row - (ROWS - 1) / 2) * CELL;
+	const wx = (col: number) => (col - (NCOLS - 1) / 2) * CELL;
+	const wy = (row: number) => (row - (NROWS - 1) / 2) * CELL;
 
 	let host: HTMLDivElement | null = $state(null);
 	let webgl = $state<'ok' | 'software' | 'none'>('ok');
@@ -246,8 +258,8 @@
 		shape.lineTo(-hw, -hh + r);
 		shape.quadraticCurveTo(-hw, -hh, -hw + r, -hh);
 
-		for (let c = 0; c < COLS; c++) {
-			for (let rw = 0; rw < ROWS; rw++) {
+		for (let c = 0; c < NCOLS; c++) {
+			for (let rw = 0; rw < NROWS; rw++) {
 				const path = new THREE.Path();
 				path.absarc(wx(c), wy(rw), HOLE_R, 0, Math.PI * 2, true);
 				shape.holes.push(path);
@@ -285,7 +297,7 @@
 		body.rotateX(Math.PI / 2);
 		const faceGeo = new THREE.CircleGeometry(TOKEN_R * 0.97, 28);
 		const rim = new THREE.MeshStandardMaterial({ color: 0x8a6f3c, roughness: 0.5, metalness: 0.45 });
-		return Array.from({ length: COLS }, (_, col) => {
+		return Array.from({ length: NCOLS }, (_, col) => {
 			const mesh = new THREE.Mesh(body, rim);
 			mesh.position.set(wx(col), TOKEN_Y, 0.35);
 			mesh.userData.col = col;
@@ -309,7 +321,7 @@
 
 	/** Point each coin at the item its column is currently offering. */
 	function syncTokens() {
-		for (let col = 0; col < COLS; col++) {
+		for (let col = 0; col < NCOLS; col++) {
 			const mesh = tokens[col];
 			if (!mesh) continue;
 			// A claimed column has no coin until the server names the replacement: showing
@@ -382,7 +394,7 @@
 			const m = new THREE.InstancedMesh(
 				discGeo,
 				new THREE.MeshStandardMaterial({ color: new THREE.Color(hex), roughness: 0.35, metalness: 0.1 }),
-				COLS * ROWS
+				NCOLS * NROWS
 			);
 			m.count = 0;
 			m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -399,7 +411,7 @@
 			transparent: true,
 			opacity: 0.9
 		});
-		glowMesh = new THREE.InstancedMesh(new THREE.TorusGeometry(DISC_R * 0.96, 0.045, 8, 24), glowMat, COLS * ROWS);
+		glowMesh = new THREE.InstancedMesh(new THREE.TorusGeometry(DISC_R * 0.96, 0.045, 8, 24), glowMat, NCOLS * NROWS);
 		glowMesh.count = 0;
 		glowMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 		glowMesh.frustumCulled = false;
@@ -479,7 +491,7 @@
 		const HANDOFF = 0.35;
 		if (fall && fallingMesh) {
 			const t = Math.min(1, (performance.now() - fall.startedAt) / FALL_MS);
-			const entry = wy(ROWS - 1);
+			const entry = wy(NROWS - 1);
 			const coin = tokens[fall.col];
 
 			if (t < HANDOFF) {
@@ -526,7 +538,7 @@
 		// well under the 1-unit column spacing so neighbours never intersect.
 		if (!reduced()) {
 			const now = performance.now() / 1000;
-			for (let col = 0; col < COLS; col++) {
+			for (let col = 0; col < NCOLS; col++) {
 				const coin = tokens[col];
 				if (!coin?.visible || (fall && fall.col === col)) continue;
 				const phase = col * 0.7;
@@ -578,8 +590,8 @@
 		ray.setFromCamera(ndc, camera);
 		const hit = ray.intersectObject(pickPlane, false)[0];
 		if (!hit) return onhover(null);
-		const col = Math.round(hit.point.x / CELL + (COLS - 1) / 2);
-		const row = Math.round(hit.point.y / CELL + (ROWS - 1) / 2);
+		const col = Math.round(hit.point.x / CELL + (NCOLS - 1) / 2);
+		const row = Math.round(hit.point.y / CELL + (NROWS - 1) / 2);
 		const piece = shown.find((p) => p.col === col && p.row === row);
 		onhover(
 			piece
@@ -686,7 +698,7 @@
 		onpointercancel={onUp}
 		onpointerleave={() => onhover?.(null)}
 		role="img"
-		aria-label="Connect Four board, {COLS} columns by {ROWS} rows, 3D view"
+		aria-label="Connect Four board, {NCOLS} columns by {NROWS} rows, 3D view"
 	></div>
 	{#if ready}
 		<button type="button" class="reset" onclick={resetView}>Reset view</button>

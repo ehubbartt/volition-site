@@ -27,7 +27,9 @@ import {
 	DECK_SIZE,
 	ROWS,
 	cellId,
+	clampSize,
 	columnCounts,
+	deckSizeOf,
 	landingRow,
 	leaderOf,
 	liveTiles,
@@ -37,6 +39,7 @@ import {
 	seededRandom,
 	shuffleDeck,
 	standings as computeStandings,
+	type BoardSize,
 	type Connect4Scoring,
 	type LiveTile,
 	type Phase,
@@ -79,10 +82,17 @@ export interface Connect4Snapshot {
 	phase: Phase;
 	test: boolean;
 	scoring: Connect4Scoring;
+	/** Board dimensions, fixed at creation. Classic is 25×10. */
+	cols: number;
+	rows: number;
+	/** cols × rows — how many tiles the pool needs and the board can hold. */
+	deckSize: number;
 	startsAt: string | null;
 	endsAt: string | null;
-	/** The curated 250, in the admin's chosen order. Empty until the pool is set. */
+	/** The curated pool (one tile per cell), in the admin's chosen order. Empty until set. */
 	pool: TileRef[];
+	/** Hand-added custom tasks offered alongside the generated candidates (setup only). */
+	custom: TileRef[];
 	/** The dealt deck — admin-only; strip it before a member ever sees the snapshot. */
 	deck: TileRef[];
 	seed: number | null;
@@ -108,8 +118,12 @@ interface StructureC4 {
 	phase?: Phase;
 	test?: boolean;
 	scoring?: Connect4Scoring;
+	/** Board dimensions; absent on games created before sizes were configurable (25×10). */
+	size?: { cols: number; rows: number };
 	sides?: { side: Side; name: string; color: string; team_id: string | null }[];
 	pool?: TileRef[];
+	/** Hand-added custom tasks (negative synthetic item_id, name-matched). */
+	custom?: TileRef[];
 	deck?: TileRef[];
 	seed?: number | null;
 	winner?: Side | null;
@@ -250,6 +264,7 @@ async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
 	for (const p of pieces) p.by_rsn = p.by_user_id ? (usersById.get(p.by_user_id)?.rsn ?? null) : null;
 
 	const scoring = normalizeScoring(c4.scoring);
+	const size = clampSize(c4.size);
 	const deck = Array.isArray(c4.deck) ? c4.deck : [];
 	const phase: Phase = c4.phase ?? 'setup';
 
@@ -262,20 +277,27 @@ async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
 		phase,
 		test: c4.test ?? false,
 		scoring,
+		cols: size.cols,
+		rows: size.rows,
+		deckSize: deckSizeOf(size),
 		startsAt: ev.starts_at,
 		endsAt: ev.ends_at,
 		pool: Array.isArray(c4.pool) ? c4.pool : [],
+		custom: Array.isArray(c4.custom) ? c4.custom : [],
 		deck,
 		seed: c4.seed ?? null,
 		sides,
 		unassigned: signups.filter((s) => !s.team_id).map((s) => asMember(s.user_id)),
 		pieces,
-		live: deck.length ? liveTiles(deck, pieces) : new Array(COLS).fill(null),
+		live: deck.length ? liveTiles(deck, pieces, size) : new Array(size.cols).fill(null),
 		standings: computeStandings(pieces, scoring),
 		winner: c4.winner ?? null,
-		full: pieces.length >= DECK_SIZE
+		full: pieces.length >= deckSizeOf(size)
 	};
 }
+
+/** The snapshot's board size, for the rules helpers. */
+const sizeOf = (snap: Connect4Snapshot): BoardSize => ({ cols: snap.cols, rows: snap.rows });
 
 /**
  * What a non-admin may see. The board, the tiles on offer and the scores are all public —
@@ -284,7 +306,7 @@ async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
  */
 export function redactSnapshot(snap: Connect4Snapshot, isAdmin: boolean): Connect4Snapshot {
 	if (isAdmin) return snap;
-	return { ...snap, deck: [], pool: [] };
+	return { ...snap, deck: [], pool: [], custom: [] };
 }
 
 // ── Create & configure ──────────────────────────────────────────────────────
@@ -296,6 +318,9 @@ export async function createConnect4(input: {
 	ownerUserId: string;
 	scoring?: Partial<Connect4Scoring>;
 	sideNames?: [string, string];
+	/** Board dimensions — clamped to sane bounds; omitted = the classic 25×10. */
+	cols?: number;
+	rows?: number;
 	test?: boolean;
 }): Promise<Result<{ id: string; slug: string }>> {
 	const sb = db();
@@ -305,7 +330,9 @@ export async function createConnect4(input: {
 		phase: 'setup',
 		test: input.test ?? false,
 		scoring: normalizeScoring(input.scoring),
+		size: clampSize({ cols: input.cols, rows: input.rows }),
 		pool: [],
+		custom: [],
 		deck: [],
 		seed: null,
 		winner: null
@@ -354,14 +381,62 @@ export async function setPool(eventId: string, tiles: TileRef[]): Promise<Result
 	const snap = await loadConnect4ById(eventId);
 	if (!snap) return errResult('No such game');
 	if (snap.phase !== 'setup') return errResult('The pool is locked once the game starts');
-	if (tiles.length !== DECK_SIZE) {
-		return errResult(`Pick exactly ${DECK_SIZE} tiles — ${tiles.length} selected`);
+	if (tiles.length !== snap.deckSize) {
+		return errResult(`Pick exactly ${snap.deckSize} tiles — ${tiles.length} selected`);
 	}
 	const ids = new Set(tiles.map((t) => t.item_id));
 	if (ids.size !== tiles.length) return errResult('The same item is in the pool twice');
 
 	const res = await patchStructure(eventId, { pool: tiles });
 	return res.ok ? okResult({ count: tiles.length }) : errResult(res.error);
+}
+
+/**
+ * Hand-add a custom task to the game's candidate list — anything the generated boss-drop
+ * universe doesn't offer. It matches drops by NAME (the synthetic negative id exists only
+ * so list UIs can key it), so the name must be exactly what Dink reports for the item.
+ * Setup only; the tile still has to be ticked into the pool like any other candidate.
+ */
+export async function addCustomTile(
+	eventId: string,
+	input: { item_name: string; source?: string | null; ehb?: number | null }
+): Promise<Result<{ tile: TileRef }>> {
+	const snap = await loadConnect4ById(eventId);
+	if (!snap) return errResult('No such game');
+	if (snap.phase !== 'setup') return errResult('Custom tasks are added during setup');
+
+	const name = input.item_name.trim();
+	if (!name) return errResult('Give the task an item name');
+	const clash = [...snap.custom, ...snap.pool].some(
+		(t) => t.item_name.trim().toLowerCase() === name.toLowerCase()
+	);
+	if (clash) return errResult('A tile with that item name already exists');
+
+	const ehb = Number(input.ehb);
+	const tile: TileRef = {
+		// Unique within the game and always negative — see matchesTile.
+		item_id: Math.min(0, ...snap.custom.map((t) => t.item_id)) - 1,
+		item_name: name,
+		source: input.source?.trim() || null,
+		...(isFinite(ehb) && ehb > 0 ? { ehb } : {})
+	};
+	const res = await patchStructure(eventId, { custom: [...snap.custom, tile] });
+	return res.ok ? okResult({ tile }) : errResult(res.error);
+}
+
+/** Remove a hand-added task (setup only). It also leaves the pool if it was ticked in. */
+export async function removeCustomTile(eventId: string, itemId: number): Promise<Result> {
+	const snap = await loadConnect4ById(eventId);
+	if (!snap) return errResult('No such game');
+	if (snap.phase !== 'setup') return errResult('Custom tasks are edited during setup');
+	const custom = snap.custom.filter((t) => t.item_id !== itemId);
+	if (custom.length === snap.custom.length) return errResult('No such custom task');
+	const pool = snap.pool.filter((t) => t.item_id !== itemId);
+	const res = await patchStructure(eventId, {
+		custom,
+		...(pool.length !== snap.pool.length ? { pool } : {})
+	});
+	return res.ok ? okResult() : errResult(res.error);
 }
 
 export async function updateScoring(eventId: string, scoring: Partial<Connect4Scoring>): Promise<Result> {
@@ -570,7 +645,7 @@ export async function startGame(eventId: string, seed?: number): Promise<Result<
 	const snap = await loadConnect4ById(eventId);
 	if (!snap) return errResult('No such game');
 	if (snap.phase !== 'setup') return errResult('This game has already started');
-	if (snap.pool.length !== DECK_SIZE) return errResult(`Curate ${DECK_SIZE} tiles first`);
+	if (snap.pool.length !== snap.deckSize) return errResult(`Curate ${snap.deckSize} tiles first`);
 	const anyMembers = snap.sides.some((s) => s.members.length > 0);
 	if (!anyMembers) return errResult('Put at least one member on a side first');
 
@@ -799,8 +874,9 @@ export async function claimTile(input: {
 	const already = pieces.find((p) => p.drop_key === input.dropKey);
 	if (already) return duplicateOf(already);
 
+	const size = sizeOf(snap);
 	for (let attempt = 0; attempt < 4; attempt++) {
-		const live = liveTiles(deck, pieces);
+		const live = liveTiles(deck, pieces, size);
 
 		// Which column does this claim land in?
 		let target: LiveTile | null = null;
@@ -825,7 +901,7 @@ export async function claimTile(input: {
 			}
 		}
 
-		const row = landingRow(columnCounts(pieces), target.col);
+		const row = landingRow(columnCounts(pieces, size), target.col, size);
 		if (row === null) return { status: 'no_tile', error: 'That column is full' };
 
 		const { error } = await sb.from('vs_connect4_pieces').insert({
@@ -862,7 +938,7 @@ export async function claimTile(input: {
 			// moved to a different item, the race is simply lost.
 			pieces = await readPieces(input.eventId);
 			if (input.col != null) continue;
-			const nowLive = liveTiles(deck, pieces);
+			const nowLive = liveTiles(deck, pieces, size);
 			const stillMatches = nowLive.some(
 				(l) => !!l && matchesTile({ item_id: input.itemId, item_name: input.itemName }, l.tile)
 			);
@@ -879,12 +955,12 @@ export async function claimTile(input: {
 			computeRuns(after, scoring),
 			cell
 		).filter((r) => r.side === input.side);
-		const nextLive = liveTiles(deck, after);
+		const nextLive = liveTiles(deck, after, size);
 
 		await syncTrackedItems(input.eventId, { ...snap, pieces: after, live: nextLive });
 
 		let finished = false;
-		if (after.length >= DECK_SIZE) {
+		if (after.length >= snap.deckSize) {
 			finished = true;
 			await patchStructure(input.eventId, { phase: 'finished', winner: leaderOf(after, scoring) });
 			await sb.from('vs_events').update({ ends_at: new Date().toISOString() }).eq('id', input.eventId);
@@ -945,13 +1021,15 @@ export async function syncTrackedItems(
 	if (!snap) return errResult('No such game');
 	const sb = db();
 
-	// A game that isn't running should track nothing at all.
-	const wanted = new Map<string, { item_id: number; item_name: string; source_name: string | null }>();
+	// A game that isn't running should track nothing at all. A custom task's synthetic
+	// (negative) item_id never leaves the structure: it is projected as NULL so the
+	// consumer and the proxy match it by name, the same rule as matchesTile.
+	const wanted = new Map<string, { item_id: number | null; item_name: string; source_name: string | null }>();
 	if (snap.phase === 'live') {
 		for (const l of snap.live) {
 			if (!l) continue;
 			wanted.set(`col:${l.col}`, {
-				item_id: l.tile.item_id,
+				item_id: l.tile.item_id > 0 ? l.tile.item_id : null,
 				item_name: l.tile.item_name,
 				source_name: l.tile.source ?? null
 			});
@@ -965,13 +1043,17 @@ export async function syncTrackedItems(
 	if (error) return errResult(error.message);
 	const existing = (existingRows ?? []) as { id: string; tile_id: string; item_id: number | null; item_name: string }[];
 
+	// Null-safe compare: a custom tile's stored id is NULL, and Number(null) is 0 — a
+	// naive compare would churn every custom row on every sync.
+	const sameId = (a: number | null | undefined, b: number | null) =>
+		(a == null ? null : Number(a)) === b;
 	const stale = existing.filter((r) => {
 		const want = wanted.get(r.tile_id);
-		return !want || Number(r.item_id) !== want.item_id;
+		return !want || !sameId(r.item_id, want.item_id) || r.item_name !== want.item_name;
 	});
 	const fresh = [...wanted.entries()].filter(([tileId, want]) => {
 		const row = existing.find((r) => r.tile_id === tileId);
-		return !row || Number(row.item_id) !== want.item_id;
+		return !row || !sameId(row.item_id, want.item_id) || row.item_name !== want.item_name;
 	});
 
 	if (stale.length) {
@@ -1021,8 +1103,9 @@ export async function undoClaim(input: { eventId: string; pieceId: string }): Pr
 	const piece = rowToPiece(row as Record<string, unknown>);
 
 	const pieces = await readPieces(input.eventId);
-	const counts = columnCounts(pieces);
-	if (piece.row !== (counts[piece.col] ?? 0) - 1) {
+	// Counted directly rather than via columnCounts, which would need the board size.
+	const inColumn = pieces.filter((p) => p.col === piece.col).length;
+	if (piece.row !== inColumn - 1) {
 		return errResult('Only the top piece of a column can be removed');
 	}
 
@@ -1041,7 +1124,7 @@ export async function undoClaim(input: { eventId: string; pieceId: string }): Pr
 
 	// A finished game becomes unfinished if the board is no longer full.
 	const snap = await loadConnect4ById(input.eventId);
-	if (snap && snap.phase === 'finished' && snap.pieces.length < DECK_SIZE) {
+	if (snap && snap.phase === 'finished' && snap.pieces.length < snap.deckSize) {
 		await patchStructure(input.eventId, { phase: 'live', winner: null });
 		await sb.from('vs_events').update({ ends_at: null }).eq('id', input.eventId);
 	}
@@ -1085,6 +1168,7 @@ export interface Connect4ListRow {
 	phase: Phase;
 	test: boolean;
 	pieces: number;
+	deckSize: number;
 	createdAt: string | null;
 }
 
@@ -1123,6 +1207,7 @@ export async function listConnect4Games(): Promise<Connect4ListRow[]> {
 			status: r.status,
 			phase: c4.phase ?? 'setup',
 			test: c4.test ?? false,
+			deckSize: deckSizeOf(clampSize(c4.size)),
 			pieces: byEvent.get(r.id) ?? 0,
 			createdAt: r.created_at ?? null
 		};

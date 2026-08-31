@@ -1,8 +1,8 @@
 # Connect Four — ruleset & implementation
 
-A clan-vs-clan event where the board game **is** the bingo. One shared **25×10** board;
-above each of the 25 columns sits a boss drop. The first team to get that drop claims the
-column — their piece falls to the lowest empty row, exactly like the real game, and a new
+A clan-vs-clan event where the board game **is** the bingo. One shared board (sized per
+game; classically **25×10**); above each column sits a boss drop. The first team to get
+that drop claims the column — their piece falls to the lowest empty row, exactly like the real game, and a new
 tile drops into the slot above. Connect four in a row to score, and keep going: longer
 lines pay more.
 
@@ -24,24 +24,27 @@ pipeline this hangs off.
 
 | Phase | What happens | How it ends |
 |---|---|---|
-| `setup` | Curate the 250 tiles, put members on sides. | An admin starts the game, which deals the deck. |
+| `setup` | Curate the pool (one tile per cell), put members on sides. | An admin starts the game, which deals the deck. |
 | `live` | Drops claim tiles; pieces fall; lines score. | The board fills, or an admin ends it. |
 | `finished` | Standings are final. | An admin may reopen it. |
 
 ### The board and the deck
 
-25 columns × 10 rows = **250 cells, and exactly 250 curated tiles**. Filling the board
-consumes the whole deck.
+The board's size is **per game**, chosen at creation (5–40 columns × 4–15 rows,
+`structure.connect4.size`; the classic board is 25×10). cols × rows cells means exactly
+that many curated tiles — filling the board consumes the whole deck. Older games with no
+stored size are 25×10.
 
 The deck is **dealt once, up front**: at start the curated pool is shuffled with a stored
-seed, and column `c` owns the slice `[c*10, c*10+10)`. The tile on offer above a column is
-therefore `deck[c*10 + piecesInColumn(c)]` — a derivation, not a draw. This is what makes
-"a new tile randomly replaces the completed one" work with **no draw-time race to lose**,
-and it means the whole board is a pure function of the piece log. After ten pieces a
-column retires and offers nothing.
+seed, and column `c` owns the slice `[c*rows, c*rows+rows)`. The tile on offer above a
+column is therefore `deck[c*rows + piecesInColumn(c)]` — a derivation, not a draw. This is
+what makes "a new tile randomly replaces the completed one" work with **no draw-time race
+to lose**, and it means the whole board is a pure function of the piece log. Once a column
+fills it retires and offers nothing.
 
-Tiles are **shared**: both clans chase the same 25. (The design leaves room for per-team
-tiles later — the deck lives in `structure`, and every claim already carries its side.)
+Tiles are **shared**: both clans chase the same objectives, one per column. (The design
+leaves room for per-team tiles later — the deck lives in `structure`, and every claim
+already carries its side.)
 
 ### Scoring
 
@@ -123,7 +126,9 @@ counts, whether it arrived through Dink or an admin's manual credit:
   `enrolMembers`, `assignSides`, `startGame`, `claimTile`, `creditManual`, `undoClaim`,
   `syncTrackedItems`, `finishGame`).
 - `src/lib/server/connect4Pool.ts` — the candidate generator (boss drops from
-  `itemEhb.json` priced by `bestEhbSource`) and the auto-fill.
+  `itemEhb.json` priced by `bestEhbSource`), the deterministic auto-fill and the
+  re-rollable random fill.
+- `[slug]/export.csv/+server.ts` — the admin CSV export of the whole tile list.
 - `src/routes/admin/connect4/` — game list + creation; `[slug]/` is the tester.
 - `src/routes/events/[slug]/connect4/` — the member board (below), fed by
   `src/lib/server/connect4Page.ts` via `/api/connect4/[slug]`.
@@ -398,8 +403,15 @@ guard) — the board is clan business, not a public scoreboard.
 2. `/admin/connect4` → **New game**. Set the scoring and the side names. Leave **test**
    ticked until it's the real thing — a test game refuses real Dink drops outright, so a
    staged board can never swallow a live drop.
-3. **Curate 250 tiles.** *Auto-fill* spreads them across the difficulty range as a starting
-   point; the filter and the checkboxes do the rest.
+3. **Curate the pool** (one tile per cell). *Auto-fill* spreads them across the difficulty
+   range deterministically; *Random fill* keeps the same spread but rolls different tiles
+   every click. The filter and the checkboxes do the rest, and **custom tasks** — anything
+   the generated boss-drop list doesn't offer — are added by hand above the list. A custom
+   task matches drops by its **exact item name** (its synthetic negative id exists only for
+   the UI), is projected to the allowlist with a null id, and leads the candidate list.
+   **⤓ Export CSV** in the titlebar downloads the whole tile list for a spreadsheet
+   overview — the pool during setup, and per-cell status (claimed/on offer/buried, with
+   claimant and time) once live.
 4. **Put members on sides.** Filter, tick, and send them to a side — one statement for the
    whole batch. This both signs them up and seats them, so it works whether or not they
    have ever touched the event.
