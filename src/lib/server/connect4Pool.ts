@@ -107,12 +107,19 @@ export function randomSelect(candidates: PoolCandidate[], count = DECK_SIZE): Po
 	return out;
 }
 
-/** Strip a curated selection down to what actually gets stored on the event. */
-export function toTileRefs(picked: Pick<PoolCandidate, 'item_id' | 'item_name' | 'source' | 'ehb'>[]): TileRef[] {
+/**
+ * Strip a curated selection down to what actually gets stored on the event — keeping a
+ * custom tile's group members and quantity, which ride through curation untouched.
+ */
+export function toTileRefs(
+	picked: Pick<PoolCandidate, 'item_id' | 'item_name' | 'source' | 'ehb' | 'any_of' | 'qty'>[]
+): TileRef[] {
 	return picked.map((p) => ({
 		item_id: p.item_id,
 		item_name: p.item_name,
 		source: p.source ?? null,
-		ehb: p.ehb
+		ehb: p.ehb,
+		...(p.any_of?.length ? { any_of: p.any_of } : {}),
+		...(p.qty && p.qty > 1 ? { qty: p.qty } : {})
 	}));
 }

@@ -336,7 +336,8 @@
 			const faceMesh = mesh.userData.face as THREE.Mesh | undefined;
 			const mat = faceMesh?.material as THREE.MeshStandardMaterial | undefined;
 			if (!mat) continue;
-			const tex = tokenTexture(slot.tile.item_name);
+			// A group tile's display name isn't an item — draw its first member's icon.
+			const tex = tokenTexture(slot.tile.any_of?.[0]?.item_name ?? slot.tile.item_name);
 			if (mat.map !== tex) {
 				mat.map = tex;
 				mat.needsUpdate = true;

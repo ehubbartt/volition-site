@@ -129,6 +129,10 @@
 			itemName: info.slot.tile.item_name,
 			source: info.slot.tile.source,
 			ehb: info.slot.tile.ehb,
+			anyOf: info.slot.tile.any_of?.map((m) => m.item_name) ?? null,
+			qty: info.slot.tile.qty ?? null,
+			progress: info.slot.progress ?? null,
+			sideNames,
 			where: `column ${columnLabel(info.slot.col)}`,
 			x: info.x,
 			y: info.y

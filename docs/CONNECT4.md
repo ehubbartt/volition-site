@@ -46,6 +46,25 @@ Tiles are **shared**: both clans chase the same objectives, one per column. (The
 leaves room for per-team tiles later — the deck lives in `structure`, and every claim
 already carries its side.)
 
+Two optional tile shapes on top of the plain single item:
+
+- **Group tiles** (`any_of`) — "Any CoX purple": a drop of ANY listed item claims the
+  tile, and the tile's name is just a label. Built from the custom-task form (pick a
+  source for its whole priced drop table, and/or type a list); every member is projected
+  into the Dink allowlist, and the qualifying list shows on the hover card, the detail
+  strip and the CSV. A group tile's icon is its first member's.
+- **Quantity tiles** (`qty`) — "×3": one side needs that many qualifying drops, and the
+  FIRST side to its Nth drop claims the tile. Per-side progress lives in
+  `vs_connect4_progress` — one row per qualifying drop, `unique (event_id, drop_key)`
+  exactly like the pieces, so the reconcile pass can re-run a counted drop forever and
+  it stays one drop; the Nth drop claims the piece with the same drop key. Progress
+  drops are stamped `partial` in /admin/dink-drops. Set the ×N in the curation list
+  (a number input on every ticked tile) or on the custom-task form. An admin's manual
+  column credit claims a qty tile OUTRIGHT — crediting means the tile is decided, not
+  one more drop toward it — and an undo leaves banked progress standing, so the next
+  qualifying drop re-claims it; clear `vs_connect4_progress` rows by hand if the undo
+  was meant to reset the race.
+
 ### Scoring
 
 All three dials are per-event and **retunable mid-game**, because standings are recomputed
@@ -146,6 +165,7 @@ winner. Teams reuse `vs_teams` + `vs_event_signups.team_id` like every other eve
 | Table | The guarantee |
 |---|---|
 | `vs_connect4_pieces` | `unique (event_id, col, row)` **is** the "first team to the tile claims it" rule. `unique (event_id, drop_key)` **is** what makes intake safe against the reconcile pass. |
+| `vs_connect4_progress` | Per-side drops banked toward a QUANTITY tile, keyed to the deck slot. Same `unique (event_id, drop_key)` guard as the pieces. |
 
 Everything else — the board, the live tiles, the standings, the winner — is derived from
 those rows on every read. There is nothing to keep in sync, which is why `undoClaim` needs

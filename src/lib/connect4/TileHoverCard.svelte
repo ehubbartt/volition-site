@@ -22,6 +22,13 @@
 		sideColor?: string | null;
 		byRsn?: string | null;
 		via?: string | null;
+		/** Group tile: the qualifying items — any of them claims it. */
+		anyOf?: string[] | null;
+		/** Quantity tile: drops one side needs, and where both sides stand. */
+		qty?: number | null;
+		progress?: { 1: number; 2: number } | null;
+		/** Side names for the progress line (defaults to Red/Yellow). */
+		sideNames?: string[] | null;
 		x: number;
 		y: number;
 	}
@@ -84,14 +91,33 @@
 			</div>
 		{/if}
 		{#if info.ehb}<div class="hc-row">{formatEhb(info.ehb)} to obtain</div>{/if}
+		{#if info.qty && info.qty > 1}
+			<div class="hc-row">
+				<strong>first side to {info.qty} drops</strong>
+				{#if info.progress}
+					· {info.sideNames?.[0] ?? 'Red'} {info.progress[1]}/{info.qty},
+					{info.sideNames?.[1] ?? 'Yellow'} {info.progress[2]}/{info.qty}
+				{/if}
+			</div>
+		{/if}
+		{#if info.anyOf?.length}
+			<div class="hc-anyof">
+				<span class="hc-anyof-head">any of these claims it:</span>
+				<ul>
+					{#each info.anyOf as name (name)}<li>{name}</li>{/each}
+				</ul>
+			</div>
+		{/if}
 		{#if info.byRsn}<div class="hc-row">by <strong>{info.byRsn}</strong></div>{/if}
 		{#if info.via}<div class="hc-via">{info.via}</div>{/if}
 	</div>
 
 	<div class="hc-links">
-		<a href={wikiPageUrl(info.itemName)} target="_blank" rel="noreferrer noopener">
-			{info.itemName} wiki ↗
-		</a>
+		{#if !info.anyOf?.length}
+			<a href={wikiPageUrl(info.itemName)} target="_blank" rel="noreferrer noopener">
+				{info.itemName} wiki ↗
+			</a>
+		{/if}
 		{#if info.source}
 			<a href={wikiPageUrl(info.source)} target="_blank" rel="noreferrer noopener">
 				{info.source} wiki ↗
@@ -157,6 +183,15 @@
 	}
 	.hc-via {
 		opacity: 0.75;
+		font-style: italic;
+	}
+	.hc-anyof ul {
+		margin: 0.1rem 0 0;
+		padding-left: 1rem;
+		max-height: 9rem;
+		overflow-y: auto;
+	}
+	.hc-anyof-head {
 		font-style: italic;
 	}
 	.hc-links {

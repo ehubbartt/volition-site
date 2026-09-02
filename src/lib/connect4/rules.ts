@@ -53,11 +53,23 @@ export function clampSize(input?: { cols?: unknown; rows?: unknown } | null): Bo
 	};
 }
 
+/** One qualifying item of a GROUP tile. A null id matches by name alone. */
+export interface GroupItem {
+	item_id: number | null;
+	item_name: string;
+}
+
 /**
  * A boss-drop objective. `item_id` is the match key; `source` is the boss, for display.
  * A NEGATIVE item_id marks a hand-added custom task: it exists so the curation UI can
  * key the tile, but it matches drops by NAME only (see matchesTile) and is projected to
  * the allowlist with a null id.
+ *
+ * Two optional shapes on top of the plain single-item tile:
+ *  - `any_of` — a GROUP tile ("Any CoX purple"): a drop of ANY listed item qualifies,
+ *    and `item_name` is just the display name.
+ *  - `qty`   — a QUANTITY tile: one side needs `qty` qualifying drops to claim it;
+ *    the first side to its Nth drop wins (per-side progress in vs_connect4_progress).
  */
 export interface TileRef {
 	item_id: number;
@@ -65,6 +77,14 @@ export interface TileRef {
 	source: string | null;
 	/** Efficient hours to obtain — the difficulty weight the pool is curated by. */
 	ehb?: number;
+	any_of?: GroupItem[];
+	qty?: number;
+}
+
+/** The drops one side needs to claim a tile — 1 unless the tile says otherwise. */
+export function tileQty(tile: Pick<TileRef, 'qty'>): number {
+	const n = Math.round(Number(tile.qty));
+	return isFinite(n) && n > 1 ? Math.min(99, n) : 1;
 }
 
 /** One claimed cell. The extras past col/row/side/deck_idx are display only. */
@@ -188,6 +208,8 @@ export interface LiveTile {
 	col: number;
 	deckIdx: number;
 	tile: TileRef;
+	/** Per-side drops banked toward a QUANTITY tile — attached by the server store. */
+	progress?: { 1: number; 2: number };
 }
 
 /**
@@ -210,21 +232,30 @@ export function liveTiles(
 	return out;
 }
 
+function matchesOne(
+	drop: { item_id?: number | null; item_name?: string | null },
+	item: { item_id: number | null; item_name: string }
+): boolean {
+	if (drop.item_id != null && item.item_id != null && item.item_id > 0) {
+		return Number(drop.item_id) === Number(item.item_id);
+	}
+	const a = (drop.item_name ?? '').trim().toLowerCase();
+	const b = (item.item_name ?? '').trim().toLowerCase();
+	return a.length > 0 && a === b;
+}
+
 /**
  * Does a drop satisfy a tile? Item id first, name as the fallback — matchTracked's rule.
  * A tile with a NEGATIVE item_id is a hand-added custom task whose id is synthetic, so
- * it never id-matches — the name is its whole identity.
+ * it never id-matches — the name is its whole identity. A GROUP tile is satisfied by a
+ * drop of ANY of its `any_of` items; its own display name is not a match key.
  */
 export function matchesTile(
 	drop: { item_id?: number | null; item_name?: string | null },
 	tile: TileRef
 ): boolean {
-	if (drop.item_id != null && tile.item_id != null && tile.item_id > 0) {
-		return Number(drop.item_id) === Number(tile.item_id);
-	}
-	const a = (drop.item_name ?? '').trim().toLowerCase();
-	const b = (tile.item_name ?? '').trim().toLowerCase();
-	return a.length > 0 && a === b;
+	if (tile.any_of?.length) return tile.any_of.some((m) => matchesOne(drop, m));
+	return matchesOne(drop, tile);
 }
 
 /** Fisher–Yates against a caller-supplied RNG, so a seeded deal is reproducible. */

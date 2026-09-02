@@ -282,6 +282,10 @@
 			itemName: h.tile.tile.item_name,
 			source: h.tile.tile.source,
 			ehb: h.tile.tile.ehb,
+			anyOf: h.tile.tile.any_of?.map((m) => m.item_name) ?? null,
+			qty: h.tile.tile.qty ?? null,
+			progress: h.tile.progress ?? null,
+			sideNames: game.sides.map((s) => s.name),
 			where: `column ${columnLabel(h.tile.col)}`,
 			x: h.x,
 			y: h.y
@@ -324,6 +328,8 @@
 	// (which saves straight away) leaves a list where nothing looks chosen, and the save
 	// button reads "Use these 0 tiles".
 	const savedIds = $derived(new Set(game.pool.map((t) => t.item_id)));
+	// Saved per-tile quantities, so a re-save doesn't quietly reset ×N tiles to ×1.
+	const savedQty = $derived(new Map(game.pool.map((t) => [t.item_id, t.qty ?? 1])));
 	let handledPool = '';
 	$effect(() => {
 		const key = [...savedIds].sort((a, b) => a - b).join(',');
@@ -410,7 +416,11 @@
 		</p>
 	{/if}
 	{#if form?.pooled}<p class="ok">Tile pool saved — {form.pooled} tiles chosen.</p>{/if}
-	{#if form?.customAdded}<p class="ok">Added the custom task “{form.customAdded}” — tick it into the pool below.</p>{/if}
+	{#if form?.customAdded}
+		<p class="ok">
+			Added the custom task “{form.customAdded}”{#if form.customMembers} ({form.customMembers} qualifying items){/if} — tick it into the pool below.
+		</p>
+	{/if}
 	{#if form?.customRemoved}<p class="ok">Custom task removed.</p>{/if}
 	{#if form?.undone}
 		<p class="ok">
@@ -521,7 +531,11 @@
 
 				{#if selectedTile}
 					<div class="tile-detail">
-						<WikiImage src={itemImageUrl(selectedTile.tile.item_name)} alt="" size={40} />
+						<WikiImage
+							src={itemImageUrl(selectedTile.tile.any_of?.[0]?.item_name ?? selectedTile.tile.item_name)}
+							alt=""
+							size={40}
+						/>
 						<div>
 							<strong>{columnLabel(selectedTile.col)} — {selectedTile.tile.item_name}</strong>
 							<div class="muted tiny">
@@ -530,7 +544,19 @@
 									{selectedTile.tile.source}
 								{/if}
 								{#if selectedTile.tile.ehb} · {formatEhb(selectedTile.tile.ehb)} to obtain{/if}
+								{#if selectedTile.tile.qty && selectedTile.tile.qty > 1}
+									· first side to {selectedTile.tile.qty} drops
+									{#if selectedTile.progress}
+										({game.sides[0]?.name} {selectedTile.progress[1]}/{selectedTile.tile.qty},
+										{game.sides[1]?.name} {selectedTile.progress[2]}/{selectedTile.tile.qty})
+									{/if}
+								{/if}
 							</div>
+							{#if selectedTile.tile.any_of?.length}
+								<div class="muted tiny">
+									any of: {selectedTile.tile.any_of.map((m) => m.item_name).join(', ')}
+								</div>
+							{/if}
 						</div>
 						{#if game.phase === 'live'}
 							<form
@@ -615,14 +641,36 @@
 					</span>
 				</div>
 
-				<!-- Anything the generated boss-drop list doesn't offer. Matched by NAME, so it
-				     must be exactly what Dink reports for the item. -->
-				<form method="POST" action="?/addCustom" class="row custom-row" use:enhance>
-					<input name="item_name" placeholder="Custom task — exact item name…" required />
-					<input name="source" placeholder="Boss / source (optional)" />
-					<input name="ehb" type="number" step="0.1" min="0" placeholder="EHB (opt.)" class="ehb-in" />
-					<button type="submit">＋ Add task</button>
-					<span class="muted tiny">Custom tasks match drops by item name and lead the list below.</span>
+				<!-- Anything the generated boss-drop list doesn't offer. A plain custom is
+				     matched by NAME (exactly what Dink reports); pick a source or list items
+				     to make a GROUP tile ("Any CoX purple") that any of them satisfies. -->
+				<form method="POST" action="?/addCustom" class="custom-form" use:enhance>
+					<div class="row">
+						<input name="item_name" placeholder="Task name — exact item, or a label like “Any CoX purple”" required />
+						<input name="source" placeholder="Boss / source (display)" />
+						<input name="ehb" type="number" step="0.1" min="0" placeholder="EHB (opt.)" class="ehb-in" />
+						<label class="tiny qty-label" title="Drops one side needs to claim the tile">
+							×<input name="qty" type="number" min="1" max="99" value="1" class="qty-in" />
+						</label>
+						<button type="submit">＋ Add task</button>
+					</div>
+					<div class="row">
+						<label class="tiny">
+							any drop from
+							<select name="any_of_source">
+								<option value="">— (single item)</option>
+								{#each data.groupSources as src (src)}<option value={src}>{src}</option>{/each}
+							</select>
+						</label>
+						<input
+							name="any_of_items"
+							class="grow"
+							placeholder="…and/or qualifying items, comma-separated (Dex scroll, Arcane prayer scroll, …)"
+						/>
+						<span class="muted tiny">
+							Group tiles are claimed by any listed item; ×N needs N qualifying drops by one side.
+						</span>
+					</div>
 				</form>
 
 				<form method="POST" action="?/setPool" use:enhance>
@@ -640,11 +688,22 @@
 									checked={poolPicked.has(c.item_id)}
 									onchange={() => togglePool(c.item_id)}
 								/>
-								<WikiImage src={itemImageUrl(c.item_name)} alt="" size={22} />
+								<WikiImage src={itemImageUrl(c.any_of?.[0]?.item_name ?? c.item_name)} alt="" size={22} />
 								<span class="cand-name">{c.item_name}</span>
-								<span class="muted tiny">
-									{#if c.item_id < 0}custom · {/if}{c.source ?? '—'}{#if c.ehb} · {formatEhb(c.ehb)}{/if}
+								<span class="muted tiny" title={c.any_of?.map((m) => m.item_name).join(', ')}>
+									{#if c.item_id < 0}custom · {/if}{#if c.any_of?.length}any of {c.any_of.length} · {/if}{c.source ?? '—'}{#if c.ehb} · {formatEhb(c.ehb)}{/if}
 								</span>
+								{#if poolPicked.has(c.item_id)}
+									<input
+										type="number"
+										class="qty-in cand-qty"
+										name="qty_{c.item_id}"
+										min="1"
+										max="99"
+										value={savedQty.get(c.item_id) ?? (c.qty && c.qty > 1 ? c.qty : 1)}
+										title="Drops one side needs to claim this tile"
+									/>
+								{/if}
 								{#if c.item_id < 0}
 									<button
 										type="button"
@@ -1120,11 +1179,33 @@
 		font-size: 0.8rem;
 		color: var(--accent);
 	}
-	.custom-row input[name='item_name'] {
+	.custom-form {
+		display: grid;
+		gap: 0.4rem;
+		margin: 0.5rem 0;
+	}
+	.custom-form input[name='item_name'] {
+		min-width: 18rem;
+	}
+	.custom-form .grow {
+		flex: 1;
 		min-width: 16rem;
 	}
 	.ehb-in {
 		width: 6.5rem;
+	}
+	.qty-label {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.15rem;
+	}
+	.qty-in {
+		width: 3.6rem;
+		min-height: 0;
+		padding: 0.15rem 0.3rem;
+	}
+	.cand-qty {
+		margin-left: auto;
 	}
 	.cand.custom {
 		border-left: 3px solid var(--accent);

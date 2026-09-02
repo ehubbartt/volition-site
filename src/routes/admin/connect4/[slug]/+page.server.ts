@@ -109,6 +109,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		// Rosters a clan-vs-clan game can be seated from — normally the signup form the
 		// list was collected on.
 		signupSources: await signupSources(fresh.id),
+		// Distinct drop sources, for the "any drop from…" group-tile builder.
+		groupSources:
+			fresh.phase === 'setup'
+				? [...new Set(candidates.map((c) => c.source).filter((s): s is string => !!s))].sort()
+				: [],
 		poolCount: fresh.pool.length,
 		deckSize: fresh.deckSize
 	};
@@ -121,10 +126,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
  */
 async function allCandidates(snap: Connect4Snapshot): Promise<PoolCandidate[]> {
 	const generated = await poolCandidates();
+	// Spread keeps a custom's any_of group and qty riding through curation.
 	const custom: PoolCandidate[] = snap.custom.map((t) => ({
-		item_id: t.item_id,
-		item_name: t.item_name,
-		source: t.source,
+		...t,
 		ehb: t.ehb ?? 0,
 		mechanic: 'custom'
 	}));
@@ -184,7 +188,13 @@ export const actions: Actions = {
 		const ids = new Set(form.getAll('itemId').map((v) => Number(v)));
 		const all = await allCandidates(game);
 		const chosen = all.filter((c) => ids.has(c.item_id));
-		const res = await setPool(game.id, toTileRefs(chosen));
+		// Per-tile quantity from the curation inputs (qty_<itemId>); 1 or blank = plain.
+		const tiles = toTileRefs(chosen).map((t) => {
+			const n = Math.round(Number(form.get(`qty_${t.item_id}`)));
+			const { qty: _drop, ...bare } = t;
+			return isFinite(n) && n > 1 ? { ...bare, qty: Math.min(99, n) } : bare;
+		});
+		const res = await setPool(game.id, tiles);
 		return res.ok ? { pooled: chosen.length } : fail(400, { error: res.error });
 	},
 
@@ -211,13 +221,38 @@ export const actions: Actions = {
 		const game = await loadConnect4(params.slug);
 		if (!game) return fail(404, { error: 'No such game' });
 		const ehbRaw = String(form.get('ehb') ?? '').trim();
+
+		// Group members, either way the form offers them: every unique drop of a source
+		// ("any CoX purple" = the whole Chambers of Xeric drop table we price), and/or a
+		// hand-typed comma/newline list. Names found among the generated candidates take
+		// that item's real id (id-matching); unknown names match by name alone.
+		const cands = await poolCandidates({ includePets: true, includeJars: true, includeCosmetics: true });
+		const anyOf: { item_id: number | null; item_name: string }[] = [];
+		const groupSource = String(form.get('any_of_source') ?? '').trim();
+		if (groupSource) {
+			for (const c of cands) {
+				if ((c.source ?? '').toLowerCase() === groupSource.toLowerCase()) {
+					anyOf.push({ item_id: c.item_id, item_name: c.item_name });
+				}
+			}
+			if (!anyOf.length) return fail(400, { error: `No priced drops found for "${groupSource}"`, custom: true });
+		}
+		for (const raw of String(form.get('any_of_items') ?? '').split(/[,\n]/)) {
+			const name = raw.trim();
+			if (!name) continue;
+			const known = cands.find((c) => c.item_name.toLowerCase() === name.toLowerCase());
+			anyOf.push({ item_id: known?.item_id ?? null, item_name: known?.item_name ?? name });
+		}
+
 		const res = await addCustomTile(game.id, {
 			item_name: String(form.get('item_name') ?? ''),
-			source: String(form.get('source') ?? '').trim() || null,
-			ehb: ehbRaw === '' ? null : Number(ehbRaw)
+			source: String(form.get('source') ?? '').trim() || (groupSource || null),
+			ehb: ehbRaw === '' ? null : Number(ehbRaw),
+			qty: Number(form.get('qty')) || null,
+			any_of: anyOf.length ? anyOf : null
 		});
 		return res.ok
-			? { customAdded: res.value!.tile.item_name }
+			? { customAdded: res.value!.tile.item_name, customMembers: res.value!.tile.any_of?.length ?? 0 }
 			: fail(400, { error: res.error, custom: true });
 	},
 

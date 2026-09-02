@@ -39,6 +39,7 @@ import {
 	seededRandom,
 	shuffleDeck,
 	standings as computeStandings,
+	tileQty,
 	type BoardSize,
 	type Connect4Scoring,
 	type LiveTile,
@@ -268,6 +269,29 @@ async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
 	const deck = Array.isArray(c4.deck) ? c4.deck : [];
 	const phase: Phase = c4.phase ?? 'setup';
 
+	// Per-side progress toward quantity tiles, attached to the live slots. One extra
+	// query, and only for games that actually deal a qty tile.
+	const live = deck.length ? liveTiles(deck, pieces, size) : new Array(size.cols).fill(null);
+	if (deck.some((t) => tileQty(t) > 1)) {
+		const idxs = live.filter((l): l is LiveTile => !!l && tileQty(l.tile) > 1).map((l) => l.deckIdx);
+		if (idxs.length) {
+			const { data: prog } = await sb
+				.from('vs_connect4_progress')
+				.select('deck_idx, side')
+				.eq('event_id', ev.id)
+				.in('deck_idx', idxs);
+			const counts = new Map<number, { 1: number; 2: number }>();
+			for (const r of (prog ?? []) as { deck_idx: number; side: Side }[]) {
+				const c = counts.get(r.deck_idx) ?? { 1: 0, 2: 0 };
+				c[r.side] += 1;
+				counts.set(r.deck_idx, c);
+			}
+			for (const l of live) {
+				if (l && tileQty(l.tile) > 1) l.progress = counts.get(l.deckIdx) ?? { 1: 0, 2: 0 };
+			}
+		}
+	}
+
 	return {
 		id: ev.id,
 		slug: ev.slug,
@@ -289,7 +313,7 @@ async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
 		sides,
 		unassigned: signups.filter((s) => !s.team_id).map((s) => asMember(s.user_id)),
 		pieces,
-		live: deck.length ? liveTiles(deck, pieces, size) : new Array(size.cols).fill(null),
+		live,
 		standings: computeStandings(pieces, scoring),
 		winner: c4.winner ?? null,
 		full: pieces.length >= deckSizeOf(size)
@@ -393,32 +417,56 @@ export async function setPool(eventId: string, tiles: TileRef[]): Promise<Result
 
 /**
  * Hand-add a custom task to the game's candidate list — anything the generated boss-drop
- * universe doesn't offer. It matches drops by NAME (the synthetic negative id exists only
- * so list UIs can key it), so the name must be exactly what Dink reports for the item.
- * Setup only; the tile still has to be ticked into the pool like any other candidate.
+ * universe doesn't offer. A plain custom matches drops by NAME (the synthetic negative id
+ * exists only so list UIs can key it), so the name must be exactly what Dink reports for
+ * the item. With `any_of`, the name is just the DISPLAY name ("Any CoX purple") and any
+ * listed item qualifies; with `qty`, one side needs that many qualifying drops. Setup
+ * only; the tile still has to be ticked into the pool like any other candidate.
  */
 export async function addCustomTile(
 	eventId: string,
-	input: { item_name: string; source?: string | null; ehb?: number | null }
+	input: {
+		item_name: string;
+		source?: string | null;
+		ehb?: number | null;
+		qty?: number | null;
+		any_of?: { item_id: number | null; item_name: string }[] | null;
+	}
 ): Promise<Result<{ tile: TileRef }>> {
 	const snap = await loadConnect4ById(eventId);
 	if (!snap) return errResult('No such game');
 	if (snap.phase !== 'setup') return errResult('Custom tasks are added during setup');
 
 	const name = input.item_name.trim();
-	if (!name) return errResult('Give the task an item name');
+	if (!name) return errResult('Give the task a name');
 	const clash = [...snap.custom, ...snap.pool].some(
 		(t) => t.item_name.trim().toLowerCase() === name.toLowerCase()
 	);
-	if (clash) return errResult('A tile with that item name already exists');
+	if (clash) return errResult('A tile with that name already exists');
+
+	// Group members: trimmed, deduped case-insensitively, bounded so a paste of a whole
+	// drop table doesn't turn one tile into a hundred allowlist rows.
+	const seen = new Set<string>();
+	const anyOf = (input.any_of ?? [])
+		.map((m) => ({ item_id: m.item_id, item_name: m.item_name.trim() }))
+		.filter((m) => {
+			const k = m.item_name.toLowerCase();
+			if (!m.item_name || seen.has(k)) return false;
+			seen.add(k);
+			return true;
+		})
+		.slice(0, 30);
 
 	const ehb = Number(input.ehb);
+	const qty = Math.round(Number(input.qty));
 	const tile: TileRef = {
 		// Unique within the game and always negative — see matchesTile.
 		item_id: Math.min(0, ...snap.custom.map((t) => t.item_id)) - 1,
 		item_name: name,
 		source: input.source?.trim() || null,
-		...(isFinite(ehb) && ehb > 0 ? { ehb } : {})
+		...(isFinite(ehb) && ehb > 0 ? { ehb } : {}),
+		...(anyOf.length ? { any_of: anyOf } : {}),
+		...(isFinite(qty) && qty > 1 ? { qty: Math.min(99, qty) } : {})
 	};
 	const res = await patchStructure(eventId, { custom: [...snap.custom, tile] });
 	return res.ok ? okResult({ tile }) : errResult(res.error);
@@ -681,6 +729,8 @@ export type ClaimStatus =
 	| 'timing'
 	| 'not_live'
 	| 'blocked'
+	/** Counted toward a quantity tile — the side is not at its N yet. Terminal per drop. */
+	| 'progress'
 	| 'error';
 
 export interface ClaimReport {
@@ -697,6 +747,9 @@ export interface ClaimReport {
 	newRuns?: Run[];
 	standings?: SideStanding[];
 	finished?: boolean;
+	/** For quantity tiles: this side's banked drops and the tile's requirement. */
+	have?: number;
+	need?: number;
 }
 
 function isDropKeyConflict(err: { message?: string; details?: string | null }): boolean {
@@ -875,6 +928,9 @@ export async function claimTile(input: {
 	if (already) return duplicateOf(already);
 
 	const size = sizeOf(snap);
+	// Whether THIS invocation already banked its progress row — a cell-conflict retry
+	// must not re-insert the same drop_key and mistake itself for a duplicate.
+	let banked = false;
 	for (let attempt = 0; attempt < 4; attempt++) {
 		const live = liveTiles(deck, pieces, size);
 
@@ -899,6 +955,44 @@ export async function claimTile(input: {
 				if (winner) return { status: 'raced', error: 'Another player claimed that tile first' };
 				return { status: 'no_tile' };
 			}
+		}
+
+		// QUANTITY tile, drop-driven claim: bank this drop toward the side's count and
+		// only let the side's Nth drop through to the piece insert below. An explicit-col
+		// claim (creditManual / admin) skips this — an admin crediting a column means the
+		// tile is decided, not one more drop toward it. The progress row shares the
+		// piece's unique (event_id, drop_key) guard, so the reconcile pass can re-run a
+		// counted drop forever and it stays one drop.
+		const need = tileQty(target.tile);
+		if (input.col == null && need > 1) {
+			if (!banked) {
+				const { error: pErr } = await sb.from('vs_connect4_progress').insert({
+					event_id: input.eventId,
+					deck_idx: target.deckIdx,
+					side: input.side,
+					by_user_id: input.byUserId ?? null,
+					item_name: input.itemName ?? null,
+					drop_key: input.dropKey
+				});
+				if (pErr) {
+					if ((pErr as { code?: string }).code !== '23505') return { status: 'error', error: pErr.message };
+					// Counted on an earlier run (and if it had completed the tile, the piece
+					// guard above would already have answered 'duplicate').
+					return { status: 'duplicate', col: target.col };
+				}
+				banked = true;
+			}
+			const { count } = await sb
+				.from('vs_connect4_progress')
+				.select('id', { count: 'exact', head: true })
+				.eq('event_id', input.eventId)
+				.eq('deck_idx', target.deckIdx)
+				.eq('side', input.side);
+			const have = count ?? 1;
+			if (have < need) {
+				return { status: 'progress', col: target.col, side: input.side, tile: target.tile, have, need };
+			}
+			// The Nth drop falls through and claims the piece with the same drop_key.
 		}
 
 		const row = landingRow(columnCounts(pieces, size), target.col, size);
@@ -1023,16 +1117,33 @@ export async function syncTrackedItems(
 
 	// A game that isn't running should track nothing at all. A custom task's synthetic
 	// (negative) item_id never leaves the structure: it is projected as NULL so the
-	// consumer and the proxy match it by name, the same rule as matchesTile.
-	const wanted = new Map<string, { item_id: number | null; item_name: string; source_name: string | null }>();
+	// consumer and the proxy match it by name, the same rule as matchesTile. A GROUP
+	// tile projects one row PER QUALIFYING ITEM (all sharing the column's tile_id), so
+	// every member reaches the proxy's allowlist and the consumer's matcher.
+	interface Want {
+		tile_id: string;
+		item_id: number | null;
+		item_name: string;
+		source_name: string | null;
+		required_qty: number;
+	}
+	const wanted = new Map<string, Want>();
 	if (snap.phase === 'live') {
 		for (const l of snap.live) {
 			if (!l) continue;
-			wanted.set(`col:${l.col}`, {
-				item_id: l.tile.item_id > 0 ? l.tile.item_id : null,
-				item_name: l.tile.item_name,
-				source_name: l.tile.source ?? null
-			});
+			const members = l.tile.any_of?.length
+				? l.tile.any_of
+				: [{ item_id: l.tile.item_id, item_name: l.tile.item_name }];
+			for (const m of members) {
+				const id = m.item_id != null && m.item_id > 0 ? Number(m.item_id) : null;
+				wanted.set(`col:${l.col}|${id ?? ''}|${m.item_name.toLowerCase()}`, {
+					tile_id: `col:${l.col}`,
+					item_id: id,
+					item_name: m.item_name,
+					source_name: l.tile.source ?? null,
+					required_qty: tileQty(l.tile)
+				});
+			}
 		}
 	}
 
@@ -1043,18 +1154,13 @@ export async function syncTrackedItems(
 	if (error) return errResult(error.message);
 	const existing = (existingRows ?? []) as { id: string; tile_id: string; item_id: number | null; item_name: string }[];
 
-	// Null-safe compare: a custom tile's stored id is NULL, and Number(null) is 0 — a
-	// naive compare would churn every custom row on every sync.
-	const sameId = (a: number | null | undefined, b: number | null) =>
-		(a == null ? null : Number(a)) === b;
-	const stale = existing.filter((r) => {
-		const want = wanted.get(r.tile_id);
-		return !want || !sameId(r.item_id, want.item_id) || r.item_name !== want.item_name;
-	});
-	const fresh = [...wanted.entries()].filter(([tileId, want]) => {
-		const row = existing.find((r) => r.tile_id === tileId);
-		return !row || !sameId(row.item_id, want.item_id) || row.item_name !== want.item_name;
-	});
+	// Keyed on (tile_id, item_id, item_name) — null-safe, since a custom tile's stored id
+	// is NULL and Number(null) is 0.
+	const keyOf = (tileId: string, itemId: number | null | undefined, name: string) =>
+		`${tileId}|${itemId == null ? '' : Number(itemId)}|${name.toLowerCase()}`;
+	const have = new Set(existing.map((r) => keyOf(r.tile_id, r.item_id, r.item_name)));
+	const stale = existing.filter((r) => !wanted.has(keyOf(r.tile_id, r.item_id, r.item_name)));
+	const fresh = [...wanted.entries()].filter(([key]) => !have.has(key)).map(([, w]) => w);
 
 	if (stale.length) {
 		const { error: dErr } = await sb
@@ -1065,12 +1171,12 @@ export async function syncTrackedItems(
 	}
 	if (fresh.length) {
 		const { error: iErr } = await sb.from('vs_event_tracked_items').insert(
-			fresh.map(([tileId, want]) => ({
+			fresh.map((want) => ({
 				event_id: eventId,
-				tile_id: tileId,
+				tile_id: want.tile_id,
 				item_id: want.item_id,
 				item_name: want.item_name,
-				required_qty: 1,
+				required_qty: want.required_qty,
 				match_type: 'loot',
 				source_name: want.source_name
 			}))
@@ -1223,6 +1329,7 @@ export async function deleteConnect4(eventId: string): Promise<Result> {
 	// The drops that credited this game go with it — the FK would only null event_id,
 	// leaving orphaned "credited" rows in /admin/dink-drops after every e2e/sim run.
 	await sb.from('vs_dink_drops').delete().eq('event_id', eventId);
+	await sb.from('vs_connect4_progress').delete().eq('event_id', eventId);
 	await sb.from('vs_event_tracked_items').delete().eq('event_id', eventId);
 	await sb.from('vs_connect4_pieces').delete().eq('event_id', eventId);
 	await sb.from('vs_event_signups').delete().eq('event_id', eventId);

@@ -30,27 +30,42 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 	const game = await loadConnect4(params.slug);
 	if (!game) throw error(404, 'No such game');
 
+	const anyOfCell = (t: { any_of?: { item_name: string }[] }): string =>
+		t.any_of?.map((m) => m.item_name).join('; ') ?? '';
+	const qtyCell = (t: { qty?: number }): number => (t.qty && t.qty > 1 ? t.qty : 1);
+
 	const rows: string[] = [];
 	if (game.phase === 'setup') {
-		rows.push(line(['#', 'Item', 'Boss / source', 'EHB', 'Kind']));
+		rows.push(line(['#', 'Item', 'Boss / source', 'EHB', 'Qty', 'Qualifying items', 'Kind']));
 		game.pool.forEach((t, i) => {
-			rows.push(line([i + 1, t.item_name, t.source, ehbCell(t.ehb), t.item_id < 0 ? 'custom' : 'generated']));
+			rows.push(
+				line([i + 1, t.item_name, t.source, ehbCell(t.ehb), qtyCell(t), anyOfCell(t), t.item_id < 0 ? 'custom' : 'generated'])
+			);
 		});
 		// An uncurated game still exports its custom tasks so nothing typed in is lost.
 		if (!game.pool.length) {
-			for (const t of game.custom) rows.push(line(['', t.item_name, t.source, ehbCell(t.ehb), 'custom']));
+			for (const t of game.custom) {
+				rows.push(line(['', t.item_name, t.source, ehbCell(t.ehb), qtyCell(t), anyOfCell(t), 'custom']));
+			}
 		}
 	} else {
 		const byCell = new Map(game.pieces.map((p) => [cellId(p.col, p.row), p]));
 		const nameOf = (side: number) => game.sides[side - 1]?.name ?? `side ${side}`;
-		rows.push(line(['Cell', 'Column', 'Item', 'Boss / source', 'EHB', 'Status', 'Claimed by', 'Side', 'Claimed at']));
+		rows.push(
+			line(['Cell', 'Column', 'Item', 'Boss / source', 'EHB', 'Qty', 'Qualifying items', 'Status', 'Progress', 'Claimed by', 'Side', 'Claimed at'])
+		);
 		for (let col = 0; col < game.cols; col++) {
-			const liveIdx = game.live[col]?.deckIdx ?? null;
+			const slot = game.live[col] ?? null;
 			for (let row = 0; row < game.rows; row++) {
 				const t = game.deck[col * game.rows + row];
 				if (!t) continue;
 				const p = byCell.get(cellId(col, row));
-				const status = p ? 'claimed' : liveIdx === col * game.rows + row ? 'ON OFFER' : 'buried';
+				const onOffer = slot?.deckIdx === col * game.rows + row;
+				const status = p ? 'claimed' : onOffer ? 'ON OFFER' : 'buried';
+				const progress =
+					onOffer && slot?.progress
+						? `${nameOf(1)} ${slot.progress[1]}/${qtyCell(t)} · ${nameOf(2)} ${slot.progress[2]}/${qtyCell(t)}`
+						: '';
 				rows.push(
 					line([
 						cellLabel(cellId(col, row)),
@@ -58,7 +73,10 @@ export const GET: RequestHandler = async ({ locals, params }) => {
 						t.item_name,
 						t.source,
 						ehbCell(t.ehb),
+						qtyCell(t),
+						anyOfCell(t),
 						status,
+						progress,
 						p?.by_rsn ?? '',
 						p ? nameOf(p.side) : '',
 						p?.claimed_at ?? ''

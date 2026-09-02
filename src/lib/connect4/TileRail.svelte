@@ -55,8 +55,11 @@
 		>
 			{#if slot}
 				<span class="disc">
-					<WikiImage src={itemImageUrl(slot.tile.item_name)} alt="" size={28} />
+					<WikiImage src={itemImageUrl(slot.tile.any_of?.[0]?.item_name ?? slot.tile.item_name)} alt="" size={28} />
 				</span>
+				{#if slot.tile.qty && slot.tile.qty > 1}
+					<span class="qty-badge" aria-hidden="true">×{slot.tile.qty}</span>
+				{/if}
 				{#if claiming?.has(col)}<span class="dealing" aria-hidden="true"></span>{/if}
 			{:else}
 				<span class="done">✓</span>
@@ -164,5 +167,18 @@
 	.done {
 		color: var(--success);
 		font-size: 0.9rem;
+	}
+	/* Quantity marker, tucked in the corner so a 45px card stays an icon. */
+	.qty-badge {
+		position: absolute;
+		right: 1px;
+		bottom: 1px;
+		font-size: 0.6rem;
+		line-height: 1;
+		padding: 0 0.15rem;
+		border-radius: 3px;
+		background: rgba(0, 0, 0, 0.65);
+		color: var(--yellow, #eab308);
+		pointer-events: none;
 	}
 </style>

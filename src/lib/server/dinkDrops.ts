@@ -540,6 +540,10 @@ export async function processDinkDrops(
 				return 'raced';
 			case 'duplicate':
 				return 'duplicate';
+			// Banked toward a quantity tile — reuses the collect-N vocabulary, and like a
+			// bingo partial it is terminal per drop (the progress row is the memory).
+			case 'progress':
+				return 'partial';
 			case 'timing':
 				return 'timing';
 			case 'error':
