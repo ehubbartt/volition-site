@@ -432,6 +432,9 @@ guard) — the board is clan business, not a public scoreboard.
    filter row (stored per game) sets min/max EHB and toggles pets and jars; it shapes
    what the list OFFERS and what the fills draw from, and never
    invalidates already-ticked tiles (saving validates against the unfiltered universe).
+   The full filtered list renders with no cap, and the search box matches EVERY boss
+   that drops an item, not just the displayed cheapest source — filtering by a boss name
+   is its complete drop table (shared drops show a "+N" marker; hover lists the rest).
    *Auto-fill* spreads across the difficulty range deterministically; *Random fill* keeps
    the spread but rolls different tiles every click. Every ticked tile gets two labelled
    fields: **drops** (the first side to land that many qualifying drops claims the tile;

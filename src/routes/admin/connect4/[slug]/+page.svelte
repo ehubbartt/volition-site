@@ -383,7 +383,13 @@
 			if (selectedOnly && !poolPicked.has(c.item_id)) return false;
 			if (!poolFilter) return true;
 			const q = poolFilter.toLowerCase();
-			return c.item_name.toLowerCase().includes(q) || (c.source ?? '').toLowerCase().includes(q);
+			return (
+				c.item_name.toLowerCase().includes(q) ||
+				(c.source ?? '').toLowerCase().includes(q) ||
+				// Every boss that drops the item, so "mad angel" also finds the shared
+				// rare-table items whose cheapest source is some other boss.
+				(c.sources ?? []).some((s: string) => s.toLowerCase().includes(q))
+			);
 		})
 	);
 	function togglePool(id: number) {
@@ -699,9 +705,6 @@
 				<p class="muted tiny">
 					One tile per cell, dealt into a shuffled deck at start. <strong>Quickest path:</strong>
 					hit a fill button, then use the filter box to find and swap anything you don't like.
-					Ticked tiles show two small fields: <strong>drops</strong> — how many of that drop a
-					side needs to claim the tile — and <strong>copies</strong> — how many cells on the
-					board get that tile. Leave both at 1 for a normal first-drop-wins tile.
 				</p>
 				<div class="row">
 					<form method="POST" action="?/autoPool" use:enhance>
@@ -779,17 +782,25 @@
 
 				<form method="POST" action="?/setPool" use:enhance>
 					<!-- The selection travels as hidden inputs, NOT as the visible checkboxes:
-					     the list is filtered and capped, so submitting only what happens to be
-					     on screen would quietly drop every chosen tile scrolled or filtered out
-					     of view. -->
+					     the list is filterable, so submitting only what happens to be on screen
+					     would quietly drop every chosen tile filtered out of view. -->
 					{#each [...poolPicked] as id (id)}
 						<input type="hidden" name="itemId" value={id} />
 						<input type="hidden" name="qty_{id}" value={poolQty.get(id) ?? 1} />
 						<input type="hidden" name="copies_{id}" value={poolCopies.get(id) ?? 1} />
 					{/each}
 
+					<p class="muted tiny knob-legend">
+						Each ticked tile has two fields — <strong>drops</strong>: the first side to land
+						that many of the drop claims the tile (1 = first drop wins) ·
+						<strong>copies</strong>: puts the tile in that many board cells, each claimed
+						separately. Leave both at 1 for a normal tile.
+					</p>
+
 					<div class="candidates">
-						{#each shownCandidates.slice(0, 400) as c (c.item_id)}
+						<!-- The whole filtered universe renders — no cap, so "everything this boss
+						     drops" is really everything. Small enough (~350 items) to be cheap. -->
+						{#each shownCandidates as c (c.item_id)}
 							<label class="cand" class:on={poolPicked.has(c.item_id)} class:custom={c.item_id < 0}>
 								<input
 									type="checkbox"
@@ -798,8 +809,14 @@
 								/>
 								<WikiImage src={itemImageUrl(c.any_of?.[0]?.item_name ?? c.item_name)} alt="" size={22} />
 								<span class="cand-name">{c.item_name}</span>
-								<span class="muted tiny" title={c.any_of?.map((m) => m.item_name).join(', ')}>
-									{#if c.item_id < 0}custom · {/if}{#if c.any_of?.length}any of {c.any_of.length} · {/if}{c.source ?? '—'}{#if c.ehb} · {formatEhb(c.ehb)}{/if}
+								<span
+									class="muted tiny"
+									title={c.any_of?.map((m: { item_name: string }) => m.item_name).join(', ') ??
+										((c.sources?.length ?? 0) > 1
+											? `Also drops from: ${c.sources!.join(', ')}`
+											: undefined)}
+								>
+									{#if c.item_id < 0}custom · {/if}{#if c.any_of?.length}any of {c.any_of.length} · {/if}{c.source ?? '—'}{#if (c.sources?.length ?? 0) > 1}&nbsp;+{c.sources!.length - 1}{/if}{#if c.ehb} · {formatEhb(c.ehb)}{/if}
 								</span>
 								{#if poolPicked.has(c.item_id)}
 									<span class="knobs">
@@ -1405,6 +1422,15 @@
 	}
 	.knobs .qty-in {
 		width: 3rem;
+	}
+	.knob-legend {
+		margin: 0.5rem 0 0.25rem;
+	}
+	.knob-legend strong {
+		text-transform: uppercase;
+		font-size: 0.7rem;
+		letter-spacing: 0.05em;
+		color: var(--heading);
 	}
 	.cand.custom {
 		border-left: 3px solid var(--accent);

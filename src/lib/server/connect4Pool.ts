@@ -25,6 +25,10 @@ export interface PoolCandidate extends TileRef {
 	ehb: number;
 	/** The mechanic behind the cheapest source — 'kill', 'toa', 'cox'… for display. */
 	mechanic: string;
+	/** EVERY boss that drops the item, when there is more than the displayed cheapest —
+	 *  so filtering by a boss's name surfaces its whole drop table, not just the items
+	 *  it happens to be the cheapest source for. */
+	sources?: string[];
 }
 
 export interface PoolOptions {
@@ -98,7 +102,8 @@ export async function poolCandidates(opts: PoolOptions = {}): Promise<PoolCandid
 			item_name: item.name,
 			source: best.src?.s ?? null,
 			ehb: best.ehb,
-			mechanic: best.src?.t ?? 'kill'
+			mechanic: best.src?.t ?? 'kill',
+			...(item.sources.length > 1 ? { sources: item.sources.map((s) => s.s) } : {})
 		});
 	}
 	return out.sort((a, b) => a.ehb - b.ehb);
