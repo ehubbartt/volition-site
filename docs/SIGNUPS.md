@@ -53,6 +53,9 @@ per-event pages.
 
 The member payload carries the **count and the names only** — it never fetches anyone's
 answers, so the private half cannot leak through a page that has no business holding it.
+Each name is tagged with the clan allegiance test (`clanMemberIds` — present in the bot's
+`players` table = Volition), and the "Who's in" panel splits into **Volition** and
+**Visitors** whenever both camps have signed up; a members-only signup stays one flat list.
 
 **Answers are keyed by question id, never by label.** An admin renaming "hours" to "hours
 per week" would otherwise orphan every answer already given. Ids are minted once by
