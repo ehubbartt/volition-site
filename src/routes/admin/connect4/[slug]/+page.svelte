@@ -1251,9 +1251,15 @@
 	}
 	.cand-name {
 		flex: 1;
+		/* Never let the labelled knobs squeeze the item name to nothing — the row
+		   wraps and the knobs take their own line instead. */
+		min-width: 8rem;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.cand {
+		flex-wrap: wrap;
 	}
 	.pill {
 		font-size: 0.7rem;
@@ -1396,6 +1402,9 @@
 		font-size: 0.6rem;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
+	}
+	.knobs .qty-in {
+		width: 3rem;
 	}
 	.cand.custom {
 		border-left: 3px solid var(--accent);
