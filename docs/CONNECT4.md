@@ -427,16 +427,17 @@ guard) — the board is clan business, not a public scoreboard.
    only (~340 items in `itemEhb.json`; regenerate with `node db/scripts/build_item_ehb.mjs`
    after game updates — new bosses need a kills/hr entry in its `KILL_RATES`). Clue-casket
    rewards are deliberately excluded: their tables are hundreds of generic cosmetics. A
-   250-cell board therefore leans on **copies**, **×N quantities**, group tiles and custom
-   tasks for headroom, not on a bigger generated list. The **Generate**
-   filter row (stored per game) sets min/max EHB and toggles pets, jars and
-   3rd age/gilded; it shapes what the list OFFERS and what the fills draw from, and never
+   250-cell board therefore leans on **copies**, **drops-needed quantities**, group tiles
+   and custom tasks for headroom, not on a bigger generated list. The **Generate**
+   filter row (stored per game) sets min/max EHB and toggles pets and jars; it shapes
+   what the list OFFERS and what the fills draw from, and never
    invalidates already-ticked tiles (saving validates against the unfiltered universe).
    *Auto-fill* spreads across the difficulty range deterministically; *Random fill* keeps
-   the spread but rolls different tiles every click. Every ticked tile gets two knobs:
-   **×N** (drops one side needs to claim it) and **⧉N copies** (the same tile in N deck
-   slots, each copy its own race — extra drops while copies remain stay `no_tile` and can
-   credit later, never `raced`). **Custom tasks** — anything the generated list doesn't
+   the spread but rolls different tiles every click. Every ticked tile gets two labelled
+   fields: **drops** (the first side to land that many qualifying drops claims the tile;
+   1 = first drop wins) and **copies** (the same tile in N deck slots, each copy its own
+   race — extra drops while copies remain stay `no_tile` and can credit later, never
+   `raced`). **Custom tasks** — anything the generated list doesn't
    offer — are added by hand above the list: matched by **exact item name** (synthetic
    negative id is UI-only), projected to the allowlist with a null id, listed first. Pick
    several sources in the group builder (ctrl-click) for tiles like "any raids purple" —

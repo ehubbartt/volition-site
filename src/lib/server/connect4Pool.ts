@@ -18,8 +18,7 @@ import { DECK_SIZE, type TileRef } from '$lib/connect4/rules';
 
 const ITEM_EHB = itemEhbData as ItemEhb[];
 
-// Cosmetics nobody grinds on purpose, and jars, which are a coin-flip on a rare table.
-const COSMETIC_EXCLUDE = /3rd age|gilded/i;
+// Jars are a coin-flip on a rare table, so they hide behind a toggle.
 const JAR_EXCLUDE = /\bjar\b/i;
 
 export interface PoolCandidate extends TileRef {
@@ -35,7 +34,6 @@ export interface PoolOptions {
 	maxEhb?: number;
 	includePets?: boolean;
 	includeJars?: boolean;
-	includeCosmetics?: boolean;
 }
 
 /**
@@ -48,7 +46,6 @@ export interface StoredPoolOpts {
 	max_ehb: number | null;
 	pets: boolean;
 	jars: boolean;
-	cosmetics: boolean;
 }
 
 export function normalizePoolOpts(raw?: Partial<StoredPoolOpts> | null): StoredPoolOpts {
@@ -60,8 +57,7 @@ export function normalizePoolOpts(raw?: Partial<StoredPoolOpts> | null): StoredP
 		min_ehb: num(raw?.min_ehb) ?? 0,
 		max_ehb: num(raw?.max_ehb),
 		pets: raw?.pets === true,
-		jars: raw?.jars === true,
-		cosmetics: raw?.cosmetics === true
+		jars: raw?.jars === true
 	};
 }
 
@@ -69,15 +65,13 @@ export const toPoolOptions = (o: StoredPoolOpts): PoolOptions => ({
 	minEhb: o.min_ehb || undefined,
 	maxEhb: o.max_ehb ?? undefined,
 	includePets: o.pets,
-	includeJars: o.jars,
-	includeCosmetics: o.cosmetics
+	includeJars: o.jars
 });
 
 /** Everything, unfiltered — what setPool validates against so filters never eat ticks. */
 export const ALL_POOL_OPTIONS: PoolOptions = {
 	includePets: true,
-	includeJars: true,
-	includeCosmetics: true
+	includeJars: true
 };
 
 /**
@@ -96,7 +90,6 @@ export async function poolCandidates(opts: PoolOptions = {}): Promise<PoolCandid
 		if (excluded.has(item.id)) continue;
 		if (!opts.includePets && isPetItem(item.name)) continue;
 		if (!opts.includeJars && JAR_EXCLUDE.test(item.name)) continue;
-		if (!opts.includeCosmetics && COSMETIC_EXCLUDE.test(item.name)) continue;
 		const best = bestEhbSource(item, undefined, overrides);
 		if (!best || !isFinite(best.ehb) || best.ehb <= 0) continue;
 		if (best.ehb < min || best.ehb > max) continue;

@@ -238,8 +238,7 @@ export const actions: Actions = {
 			min_ehb: Number(form.get('min_ehb')) || 0,
 			max_ehb: Number(form.get('max_ehb')) || null,
 			pets: form.get('pets') === 'on',
-			jars: form.get('jars') === 'on',
-			cosmetics: form.get('cosmetics') === 'on'
+			jars: form.get('jars') === 'on'
 		});
 		return res.ok ? { optsSaved: true } : fail(400, { error: res.error });
 	},

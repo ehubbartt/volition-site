@@ -699,7 +699,9 @@
 				<p class="muted tiny">
 					One tile per cell, dealt into a shuffled deck at start. <strong>Quickest path:</strong>
 					hit a fill button, then use the filter box to find and swap anything you don't like.
-					Ticked tiles carry two knobs — ×N (drops one side needs) and ⧉N (copies in the deck).
+					Ticked tiles show two small fields: <strong>drops</strong> — how many of that drop a
+					side needs to claim the tile — and <strong>copies</strong> — how many cells on the
+					board get that tile. Leave both at 1 for a normal first-drop-wins tile.
 				</p>
 				<div class="row">
 					<form method="POST" action="?/autoPool" use:enhance>
@@ -724,7 +726,7 @@
 				     Stored on the game; tightening these never invalidates already-ticked
 				     tiles, because saving validates against the unfiltered universe. -->
 				<details class="fold">
-					<summary>Generator filters — min/max EHB, pets, jars, cosmetics</summary>
+					<summary>Generator filters — min/max EHB, pets, jars</summary>
 					<form method="POST" action="?/poolOpts" class="row filters" use:enhance>
 					<span class="muted tiny">Generate:</span>
 					<label class="tiny">min EHB
@@ -735,7 +737,6 @@
 					</label>
 					<label class="tiny check"><input type="checkbox" name="pets" checked={game.poolOpts.pets} /> pets</label>
 					<label class="tiny check"><input type="checkbox" name="jars" checked={game.poolOpts.jars} /> jars</label>
-					<label class="tiny check"><input type="checkbox" name="cosmetics" checked={game.poolOpts.cosmetics} /> 3rd age & gilded</label>
 					<button type="submit">Apply filters</button>
 					<span class="muted tiny">{data.candidates.length} candidates offered</span>
 					</form>
@@ -745,14 +746,14 @@
 				     NAME (exactly what Dink reports); pick sources or list items to make a
 				     GROUP tile ("Any CoX purple") that any of them satisfies. -->
 				<details class="fold">
-					<summary>＋ Custom & group tiles — “any raids purple”, off-list items, ×N tasks</summary>
+					<summary>＋ Custom & group tiles — “any raids purple”, off-list items, multi-drop tasks</summary>
 					<form method="POST" action="?/addCustom" class="custom-form" use:enhance>
 					<div class="row">
 						<input name="item_name" placeholder="Task name — exact item, or a label like “Any CoX purple”" required />
 						<input name="source" placeholder="Boss / source (display)" />
 						<input name="ehb" type="number" step="0.1" min="0" placeholder="EHB (opt.)" class="ehb-in" />
-						<label class="tiny qty-label" title="Drops one side needs to claim the tile">
-							×<input name="qty" type="number" min="1" max="99" value="1" class="qty-in" />
+						<label class="tiny qty-label" title="The first side to land this many qualifying drops claims the tile. 1 = first drop wins.">
+							drops needed <input name="qty" type="number" min="1" max="99" value="1" class="qty-in" />
 						</label>
 						<button type="submit">＋ Add task</button>
 					</div>
@@ -769,7 +770,8 @@
 							placeholder="…and/or qualifying items, comma-separated (Dex scroll, Arcane prayer scroll, …)"
 						/>
 						<span class="muted tiny">
-							Group tiles are claimed by any listed item; ×N needs N qualifying drops by one side.
+							Group tiles are claimed by any listed item; “drops needed” above N means the
+							first side to land N qualifying drops takes the tile.
 						</span>
 					</div>
 					</form>
@@ -800,23 +802,29 @@
 									{#if c.item_id < 0}custom · {/if}{#if c.any_of?.length}any of {c.any_of.length} · {/if}{c.source ?? '—'}{#if c.ehb} · {formatEhb(c.ehb)}{/if}
 								</span>
 								{#if poolPicked.has(c.item_id)}
-									<span class="knobs" title="× drops one side needs per tile · ⧉ copies of this tile in the deck">
-										×<input
-											type="number"
-											class="qty-in"
-											min="1"
-											max="99"
-											value={poolQty.get(c.item_id) ?? (c.qty && c.qty > 1 ? c.qty : 1)}
-											oninput={(e) => (poolQty = setKnob(poolQty, c.item_id, Number(e.currentTarget.value), 99))}
-										/>
-										⧉<input
-											type="number"
-											class="qty-in"
-											min="1"
-											max="20"
-											value={poolCopies.get(c.item_id) ?? 1}
-											oninput={(e) => (poolCopies = setKnob(poolCopies, c.item_id, Number(e.currentTarget.value), 20))}
-										/>
+									<span class="knobs">
+										<label class="knob" title="Drops needed — the first side to land this many qualifying drops claims the tile. 1 = first drop wins.">
+											<span class="k-lab">drops</span>
+											<input
+												type="number"
+												class="qty-in"
+												min="1"
+												max="99"
+												value={poolQty.get(c.item_id) ?? (c.qty && c.qty > 1 ? c.qty : 1)}
+												oninput={(e) => (poolQty = setKnob(poolQty, c.item_id, Number(e.currentTarget.value), 99))}
+											/>
+										</label>
+										<label class="knob" title="Copies — put this tile in that many cells of the board; each copy is claimed separately.">
+											<span class="k-lab">copies</span>
+											<input
+												type="number"
+												class="qty-in"
+												min="1"
+												max="20"
+												value={poolCopies.get(c.item_id) ?? 1}
+												oninput={(e) => (poolCopies = setKnob(poolCopies, c.item_id, Number(e.currentTarget.value), 20))}
+											/>
+										</label>
 									</span>
 								{/if}
 								{#if c.item_id < 0}
@@ -1374,9 +1382,20 @@
 		margin-left: auto;
 		display: inline-flex;
 		align-items: center;
-		gap: 0.1rem;
+		gap: 0.5rem;
 		font-size: 0.75rem;
 		color: var(--muted);
+	}
+	.knob {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		cursor: help;
+	}
+	.k-lab {
+		font-size: 0.6rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
 	}
 	.cand.custom {
 		border-left: 3px solid var(--accent);
