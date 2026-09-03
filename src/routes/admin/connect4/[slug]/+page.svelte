@@ -324,23 +324,59 @@
 		await invalidateAll();
 	}
 
-	// What the event has actually SAVED. The ticks start from this — otherwise auto-fill
-	// (which saves straight away) leaves a list where nothing looks chosen, and the save
-	// button reads "Use these 0 tiles".
+	// Per-tile knobs, editable in the list: qty = drops one side needs to claim ONE tile;
+	// copies = how many deck slots the tile occupies (each copy its own race). Kept as
+	// state — the visible inputs only exist for rows on screen, so uncontrolled fields
+	// would silently reset a knob the moment its row was filtered out of view; hidden
+	// inputs below submit the maps for EVERY ticked tile instead.
+	let poolQty = $state<Map<number, number>>(new Map());
+	let poolCopies = $state<Map<number, number>>(new Map());
+	const setKnob = (map: Map<number, number>, id: number, v: number, max: number) => {
+		const next = new Map(map);
+		next.set(id, Math.min(max, Math.max(1, Math.round(v) || 1)));
+		return next;
+	};
+
+	// What the event has actually SAVED. The ticks (and knobs) start from this —
+	// otherwise auto-fill (which saves straight away) leaves a list where nothing looks
+	// chosen, and the save button reads "Use these 0 tiles". Copies are how often an
+	// item repeats in the saved pool.
 	const savedIds = $derived(new Set(game.pool.map((t) => t.item_id)));
-	// Saved per-tile quantities, so a re-save doesn't quietly reset ×N tiles to ×1.
-	const savedQty = $derived(new Map(game.pool.map((t) => [t.item_id, t.qty ?? 1])));
 	let handledPool = '';
 	$effect(() => {
-		const key = [...savedIds].sort((a, b) => a - b).join(',');
+		const key = game.pool.map((t) => `${t.item_id}:${t.qty ?? 1}`).join(',');
 		if (key === handledPool) return;
 		handledPool = key;
 		poolPicked = new Set(savedIds);
+		const qty = new Map<number, number>();
+		const copies = new Map<number, number>();
+		for (const t of game.pool) {
+			qty.set(t.item_id, t.qty ?? 1);
+			copies.set(t.item_id, (copies.get(t.item_id) ?? 0) + 1);
+		}
+		poolQty = qty;
+		poolCopies = copies;
 	});
-	// Whether the ticks differ from what is saved, so the button can say which it is.
-	const poolDirty = $derived(
-		poolPicked.size !== savedIds.size || [...poolPicked].some((id) => !savedIds.has(id))
+
+	/** Deck slots the current selection fills — copies included. */
+	const pickedTotal = $derived(
+		[...poolPicked].reduce((sum, id) => sum + (poolCopies.get(id) ?? 1), 0)
 	);
+	// Whether the selection differs from what is saved (ticks, quantities or copies).
+	const poolDirty = $derived.by(() => {
+		const saved = new Map<number, { q: number; c: number }>();
+		for (const t of game.pool) {
+			const cur = saved.get(t.item_id);
+			saved.set(t.item_id, { q: t.qty ?? 1, c: (cur?.c ?? 0) + 1 });
+		}
+		if (saved.size !== poolPicked.size) return true;
+		for (const id of poolPicked) {
+			const s = saved.get(id);
+			if (!s) return true;
+			if ((poolQty.get(id) ?? 1) !== s.q || (poolCopies.get(id) ?? 1) !== s.c) return true;
+		}
+		return false;
+	});
 
 	const shownCandidates = $derived(
 		data.candidates.filter((c) => {
@@ -422,6 +458,7 @@
 		</p>
 	{/if}
 	{#if form?.customRemoved}<p class="ok">Custom task removed.</p>{/if}
+	{#if form?.optsSaved}<p class="ok">Generator filters saved.</p>{/if}
 	{#if form?.undone}
 		<p class="ok">
 			Removed the piece{typeof form.undone === 'string' ? ` at ${cellLabel(form.undone)}` : ''}.
@@ -636,14 +673,33 @@
 						<input type="checkbox" bind:checked={selectedOnly} /> chosen only
 					</label>
 					<span class="muted tiny">
-						{poolPicked.size} ticked
+						{pickedTotal} ticked
 						{#if poolDirty}<strong class="unsaved">· unsaved</strong>{/if}
 					</span>
 				</div>
 
-				<!-- Anything the generated boss-drop list doesn't offer. A plain custom is
-				     matched by NAME (exactly what Dink reports); pick a source or list items
-				     to make a GROUP tile ("Any CoX purple") that any of them satisfies. -->
+				<!-- What the generator OFFERS below (and what auto/random fill draws from).
+				     Stored on the game; tightening these never invalidates already-ticked
+				     tiles, because saving validates against the unfiltered universe. -->
+				<form method="POST" action="?/poolOpts" class="row filters" use:enhance>
+					<span class="muted tiny">Generate:</span>
+					<label class="tiny">min EHB
+						<input name="min_ehb" type="number" step="0.1" min="0" value={game.poolOpts.min_ehb || ''} placeholder="0" class="ehb-in" />
+					</label>
+					<label class="tiny">max EHB
+						<input name="max_ehb" type="number" step="0.1" min="0" value={game.poolOpts.max_ehb ?? ''} placeholder="∞" class="ehb-in" />
+					</label>
+					<label class="tiny check"><input type="checkbox" name="clues" checked={game.poolOpts.clues} /> clue rewards</label>
+					<label class="tiny check"><input type="checkbox" name="pets" checked={game.poolOpts.pets} /> pets</label>
+					<label class="tiny check"><input type="checkbox" name="jars" checked={game.poolOpts.jars} /> jars</label>
+					<label class="tiny check"><input type="checkbox" name="cosmetics" checked={game.poolOpts.cosmetics} /> 3rd age & gilded</label>
+					<button type="submit">Apply filters</button>
+					<span class="muted tiny">{data.candidates.length} candidates offered</span>
+				</form>
+
+				<!-- Anything the generated list doesn't offer. A plain custom is matched by
+				     NAME (exactly what Dink reports); pick sources or list items to make a
+				     GROUP tile ("Any CoX purple") that any of them satisfies. -->
 				<form method="POST" action="?/addCustom" class="custom-form" use:enhance>
 					<div class="row">
 						<input name="item_name" placeholder="Task name — exact item, or a label like “Any CoX purple”" required />
@@ -656,9 +712,8 @@
 					</div>
 					<div class="row">
 						<label class="tiny">
-							any drop from
-							<select name="any_of_source">
-								<option value="">— (single item)</option>
+							any drop from — ctrl-click several (all three raid chests = “any raids purple”)
+							<select name="any_of_source" multiple size="5">
 								{#each data.groupSources as src (src)}<option value={src}>{src}</option>{/each}
 							</select>
 						</label>
@@ -678,7 +733,11 @@
 					     the list is filtered and capped, so submitting only what happens to be
 					     on screen would quietly drop every chosen tile scrolled or filtered out
 					     of view. -->
-					{#each [...poolPicked] as id (id)}<input type="hidden" name="itemId" value={id} />{/each}
+					{#each [...poolPicked] as id (id)}
+						<input type="hidden" name="itemId" value={id} />
+						<input type="hidden" name="qty_{id}" value={poolQty.get(id) ?? 1} />
+						<input type="hidden" name="copies_{id}" value={poolCopies.get(id) ?? 1} />
+					{/each}
 
 					<div class="candidates">
 						{#each shownCandidates.slice(0, 400) as c (c.item_id)}
@@ -694,15 +753,24 @@
 									{#if c.item_id < 0}custom · {/if}{#if c.any_of?.length}any of {c.any_of.length} · {/if}{c.source ?? '—'}{#if c.ehb} · {formatEhb(c.ehb)}{/if}
 								</span>
 								{#if poolPicked.has(c.item_id)}
-									<input
-										type="number"
-										class="qty-in cand-qty"
-										name="qty_{c.item_id}"
-										min="1"
-										max="99"
-										value={savedQty.get(c.item_id) ?? (c.qty && c.qty > 1 ? c.qty : 1)}
-										title="Drops one side needs to claim this tile"
-									/>
+									<span class="knobs" title="× drops one side needs per tile · ⧉ copies of this tile in the deck">
+										×<input
+											type="number"
+											class="qty-in"
+											min="1"
+											max="99"
+											value={poolQty.get(c.item_id) ?? (c.qty && c.qty > 1 ? c.qty : 1)}
+											oninput={(e) => (poolQty = setKnob(poolQty, c.item_id, Number(e.currentTarget.value), 99))}
+										/>
+										⧉<input
+											type="number"
+											class="qty-in"
+											min="1"
+											max="20"
+											value={poolCopies.get(c.item_id) ?? 1}
+											oninput={(e) => (poolCopies = setKnob(poolCopies, c.item_id, Number(e.currentTarget.value), 20))}
+										/>
+									</span>
 								{/if}
 								{#if c.item_id < 0}
 									<button
@@ -725,18 +793,18 @@
 					{#if shownCandidates.length > 400}
 						<p class="muted tiny">Showing the first 400 of {shownCandidates.length} — filter to narrow.</p>
 					{/if}
-					<button type="submit" disabled={poolPicked.size !== data.deckSize || !poolDirty}>
-						{#if !poolDirty && poolPicked.size === data.deckSize}
+					<button type="submit" disabled={pickedTotal !== data.deckSize || !poolDirty}>
+						{#if !poolDirty && pickedTotal === data.deckSize}
 							Saved — {data.deckSize} tiles ready
 						{:else}
-							Save these {poolPicked.size} tiles
+							Save these {pickedTotal} tiles
 						{/if}
 					</button>
-					{#if poolPicked.size !== data.deckSize}
+					{#if pickedTotal !== data.deckSize}
 						<span class="muted tiny">
-							{poolPicked.size < data.deckSize
-								? `${data.deckSize - poolPicked.size} more to pick`
-								: `${poolPicked.size - data.deckSize} too many`}
+							{pickedTotal < data.deckSize
+								? `${data.deckSize - pickedTotal} more to pick`
+								: `${pickedTotal - data.deckSize} too many`}
 						</span>
 					{/if}
 				</form>
@@ -1204,8 +1272,13 @@
 		min-height: 0;
 		padding: 0.15rem 0.3rem;
 	}
-	.cand-qty {
+	.knobs {
 		margin-left: auto;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.1rem;
+		font-size: 0.75rem;
+		color: var(--muted);
 	}
 	.cand.custom {
 		border-left: 3px solid var(--accent);

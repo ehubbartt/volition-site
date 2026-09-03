@@ -40,7 +40,13 @@ const KILL_RATES = {
 	'the leviathan': 27, 'the royal titans': 55, 'the whisperer': 21,
 	'thermonuclear smoke devil': 100, 'tzkal-zuk': 1, 'tztok-jad': 2.2, 'vardorvis': 37,
 	'venenatis': 80, "vet'ion": 39, 'vorkath': 34, 'yama': 18, 'zulrah': 42,
-	'reward chest (the gauntlet) (regular)': 10, 'reward chest (the gauntlet) (corrupted)': 7.2
+	'reward chest (the gauntlet) (regular)': 10, 'reward chest (the gauntlet) (corrupted)': 7.2,
+	// Clue caskets, priced as caskets OPENED per hour while actively clue-hunting that
+	// tier (stack-and-run numbers, not while-you-slay trickle). They ride the 'kill'
+	// mechanic — expected caskets ÷ caskets/hr — so nothing downstream changes. The
+	// dataset's tier variants ("(Standard)"/"(Entrana)") match via the qualifier strip.
+	'reward casket (beginner)': 12, 'reward casket (easy)': 10, 'reward casket (medium)': 8,
+	'reward casket (hard)': 5, 'reward casket (elite)': 3, 'reward casket (master)': 2
 };
 
 // Doom of Mokhaiotl per-floor, per-kill rates (from the Delve calculator). Columns:

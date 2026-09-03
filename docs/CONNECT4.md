@@ -423,12 +423,21 @@ guard) — the board is clan business, not a public scoreboard.
 2. `/admin/connect4` → **New game**. Set the scoring and the side names. Leave **test**
    ticked until it's the real thing — a test game refuses real Dink drops outright, so a
    staged board can never swallow a live drop.
-3. **Curate the pool** (one tile per cell). *Auto-fill* spreads them across the difficulty
-   range deterministically; *Random fill* keeps the same spread but rolls different tiles
-   every click. The filter and the checkboxes do the rest, and **custom tasks** — anything
-   the generated boss-drop list doesn't offer — are added by hand above the list. A custom
-   task matches drops by its **exact item name** (its synthetic negative id exists only for
-   the UI), is projected to the allowlist with a null id, and leads the candidate list.
+3. **Curate the pool** (one tile per cell). The generator offers ~850 candidates by
+   default — boss drops plus clue-casket rewards (the tiers are priced as caskets/hour in
+   `itemEhb.json`; regenerate with `node db/scripts/build_item_ehb.mjs`). The **Generate**
+   filter row (stored per game) sets min/max EHB and toggles clue rewards, pets, jars and
+   3rd age/gilded; it shapes what the list OFFERS and what the fills draw from, and never
+   invalidates already-ticked tiles (saving validates against the unfiltered universe).
+   *Auto-fill* spreads across the difficulty range deterministically; *Random fill* keeps
+   the spread but rolls different tiles every click. Every ticked tile gets two knobs:
+   **×N** (drops one side needs to claim it) and **⧉N copies** (the same tile in N deck
+   slots, each copy its own race — extra drops while copies remain stay `no_tile` and can
+   credit later, never `raced`). **Custom tasks** — anything the generated list doesn't
+   offer — are added by hand above the list: matched by **exact item name** (synthetic
+   negative id is UI-only), projected to the allowlist with a null id, listed first. Pick
+   several sources in the group builder (ctrl-click) for tiles like "any raids purple" —
+   all four raid chests at once.
    **⤓ Export CSV** in the titlebar downloads the whole tile list for a spreadsheet
    overview — the pool during setup, and per-cell status (claimed/on offer/buried, with
    claimant and time) once live.

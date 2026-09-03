@@ -36,7 +36,56 @@ export interface PoolOptions {
 	includePets?: boolean;
 	includeJars?: boolean;
 	includeCosmetics?: boolean;
+	/** Clue-casket rewards (the tiers are priced as caskets/hour in itemEhb). */
+	includeClues?: boolean;
 }
+
+/**
+ * The per-game generator filters, as stored in structure.connect4.pool_opts. They shape
+ * what the curation list OFFERS (and what auto/random fill draws from) — never what a
+ * saved pool may contain, so tightening them cannot invalidate ticked tiles.
+ */
+export interface StoredPoolOpts {
+	min_ehb: number;
+	max_ehb: number | null;
+	pets: boolean;
+	jars: boolean;
+	cosmetics: boolean;
+	clues: boolean;
+}
+
+export function normalizePoolOpts(raw?: Partial<StoredPoolOpts> | null): StoredPoolOpts {
+	const num = (v: unknown): number | null => {
+		const n = Number(v);
+		return isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+	};
+	return {
+		min_ehb: num(raw?.min_ehb) ?? 0,
+		max_ehb: num(raw?.max_ehb),
+		pets: raw?.pets === true,
+		jars: raw?.jars === true,
+		cosmetics: raw?.cosmetics === true,
+		// Clue rewards default ON — they are the bulk of the candidate universe.
+		clues: raw?.clues !== false
+	};
+}
+
+export const toPoolOptions = (o: StoredPoolOpts): PoolOptions => ({
+	minEhb: o.min_ehb || undefined,
+	maxEhb: o.max_ehb ?? undefined,
+	includePets: o.pets,
+	includeJars: o.jars,
+	includeCosmetics: o.cosmetics,
+	includeClues: o.clues
+});
+
+/** Everything, unfiltered — what setPool validates against so filters never eat ticks. */
+export const ALL_POOL_OPTIONS: PoolOptions = {
+	includePets: true,
+	includeJars: true,
+	includeCosmetics: true,
+	includeClues: true
+};
 
 /**
  * Every boss drop worth putting on a board, cheapest first. Admin EHB overrides and the
@@ -58,6 +107,9 @@ export async function poolCandidates(opts: PoolOptions = {}): Promise<PoolCandid
 		const best = bestEhbSource(item, undefined, overrides);
 		if (!best || !isFinite(best.ehb) || best.ehb <= 0) continue;
 		if (best.ehb < min || best.ehb > max) continue;
+		// Clue rewards ride the casket tiers; an item whose CHEAPEST source is a casket is
+		// a clue reward for filtering purposes (a boss drop with a clue fallback stays).
+		if (!opts.includeClues && /reward casket/i.test(best.src?.s ?? '')) continue;
 		out.push({
 			item_id: item.id,
 			item_name: item.name,

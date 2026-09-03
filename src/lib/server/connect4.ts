@@ -21,6 +21,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { clanMemberIds } from './clan';
+import { normalizePoolOpts, type StoredPoolOpts } from './connect4Pool';
 import { db, fetchAllFiltered } from './db';
 import {
 	COLS,
@@ -94,6 +95,8 @@ export interface Connect4Snapshot {
 	pool: TileRef[];
 	/** Hand-added custom tasks offered alongside the generated candidates (setup only). */
 	custom: TileRef[];
+	/** Generator filters, normalized (setup-time knobs; never constrain a saved pool). */
+	poolOpts: StoredPoolOpts;
 	/** The dealt deck — admin-only; strip it before a member ever sees the snapshot. */
 	deck: TileRef[];
 	seed: number | null;
@@ -121,6 +124,8 @@ interface StructureC4 {
 	scoring?: Connect4Scoring;
 	/** Board dimensions; absent on games created before sizes were configurable (25×10). */
 	size?: { cols: number; rows: number };
+	/** Generator filters for the curation list and auto/random fill (see connect4Pool). */
+	pool_opts?: Partial<StoredPoolOpts>;
 	sides?: { side: Side; name: string; color: string; team_id: string | null }[];
 	pool?: TileRef[];
 	/** Hand-added custom tasks (negative synthetic item_id, name-matched). */
@@ -308,6 +313,7 @@ async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
 		endsAt: ev.ends_at,
 		pool: Array.isArray(c4.pool) ? c4.pool : [],
 		custom: Array.isArray(c4.custom) ? c4.custom : [],
+		poolOpts: normalizePoolOpts(c4.pool_opts),
 		deck,
 		seed: c4.seed ?? null,
 		sides,
@@ -408,8 +414,9 @@ export async function setPool(eventId: string, tiles: TileRef[]): Promise<Result
 	if (tiles.length !== snap.deckSize) {
 		return errResult(`Pick exactly ${snap.deckSize} tiles — ${tiles.length} selected`);
 	}
-	const ids = new Set(tiles.map((t) => t.item_id));
-	if (ids.size !== tiles.length) return errResult('The same item is in the pool twice');
+	// Repeats are legal ON PURPOSE: a tile's "copies" put the same item in several deck
+	// slots, each its own race. Everything downstream already counts copies (racedOutBy,
+	// per-slot progress); the old same-item-twice guard predates them.
 
 	const res = await patchStructure(eventId, { pool: tiles });
 	return res.ok ? okResult({ count: tiles.length }) : errResult(res.error);
@@ -445,7 +452,8 @@ export async function addCustomTile(
 	if (clash) return errResult('A tile with that name already exists');
 
 	// Group members: trimmed, deduped case-insensitively, bounded so a paste of a whole
-	// drop table doesn't turn one tile into a hundred allowlist rows.
+	// item database doesn't turn one tile into hundreds of allowlist rows. 60 covers
+	// "any purple from any raid" (all three raid chests together) with room to spare.
 	const seen = new Set<string>();
 	const anyOf = (input.any_of ?? [])
 		.map((m) => ({ item_id: m.item_id, item_name: m.item_name.trim() }))
@@ -455,7 +463,7 @@ export async function addCustomTile(
 			seen.add(k);
 			return true;
 		})
-		.slice(0, 30);
+		.slice(0, 60);
 
 	const ehb = Number(input.ehb);
 	const qty = Math.round(Number(input.qty));
@@ -470,6 +478,19 @@ export async function addCustomTile(
 	};
 	const res = await patchStructure(eventId, { custom: [...snap.custom, tile] });
 	return res.ok ? okResult({ tile }) : errResult(res.error);
+}
+
+/** Save the generator filters (setup only — they only shape what the list offers). */
+export async function setPoolOptions(
+	eventId: string,
+	opts: Partial<StoredPoolOpts>
+): Promise<Result<{ opts: StoredPoolOpts }>> {
+	const snap = await loadConnect4ById(eventId);
+	if (!snap) return errResult('No such game');
+	if (snap.phase !== 'setup') return errResult('Filters only matter during setup');
+	const normalized = normalizePoolOpts(opts);
+	const res = await patchStructure(eventId, { pool_opts: normalized });
+	return res.ok ? okResult({ opts: normalized }) : errResult(res.error);
 }
 
 /** Remove a hand-added task (setup only). It also leaves the pool if it was ticked in. */
