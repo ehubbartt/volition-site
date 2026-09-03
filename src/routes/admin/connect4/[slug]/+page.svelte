@@ -724,7 +724,7 @@
 				     Stored on the game; tightening these never invalidates already-ticked
 				     tiles, because saving validates against the unfiltered universe. -->
 				<details class="fold">
-					<summary>Generator filters — min/max EHB, clue rewards, pets, jars, cosmetics</summary>
+					<summary>Generator filters — min/max EHB, pets, jars, cosmetics</summary>
 					<form method="POST" action="?/poolOpts" class="row filters" use:enhance>
 					<span class="muted tiny">Generate:</span>
 					<label class="tiny">min EHB
@@ -733,7 +733,6 @@
 					<label class="tiny">max EHB
 						<input name="max_ehb" type="number" step="0.1" min="0" value={game.poolOpts.max_ehb ?? ''} placeholder="∞" class="ehb-in" />
 					</label>
-					<label class="tiny check"><input type="checkbox" name="clues" checked={game.poolOpts.clues} /> clue rewards</label>
 					<label class="tiny check"><input type="checkbox" name="pets" checked={game.poolOpts.pets} /> pets</label>
 					<label class="tiny check"><input type="checkbox" name="jars" checked={game.poolOpts.jars} /> jars</label>
 					<label class="tiny check"><input type="checkbox" name="cosmetics" checked={game.poolOpts.cosmetics} /> 3rd age & gilded</label>

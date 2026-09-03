@@ -36,8 +36,6 @@ export interface PoolOptions {
 	includePets?: boolean;
 	includeJars?: boolean;
 	includeCosmetics?: boolean;
-	/** Clue-casket rewards (the tiers are priced as caskets/hour in itemEhb). */
-	includeClues?: boolean;
 }
 
 /**
@@ -51,7 +49,6 @@ export interface StoredPoolOpts {
 	pets: boolean;
 	jars: boolean;
 	cosmetics: boolean;
-	clues: boolean;
 }
 
 export function normalizePoolOpts(raw?: Partial<StoredPoolOpts> | null): StoredPoolOpts {
@@ -64,9 +61,7 @@ export function normalizePoolOpts(raw?: Partial<StoredPoolOpts> | null): StoredP
 		max_ehb: num(raw?.max_ehb),
 		pets: raw?.pets === true,
 		jars: raw?.jars === true,
-		cosmetics: raw?.cosmetics === true,
-		// Clue rewards default ON — they are the bulk of the candidate universe.
-		clues: raw?.clues !== false
+		cosmetics: raw?.cosmetics === true
 	};
 }
 
@@ -75,16 +70,14 @@ export const toPoolOptions = (o: StoredPoolOpts): PoolOptions => ({
 	maxEhb: o.max_ehb ?? undefined,
 	includePets: o.pets,
 	includeJars: o.jars,
-	includeCosmetics: o.cosmetics,
-	includeClues: o.clues
+	includeCosmetics: o.cosmetics
 });
 
 /** Everything, unfiltered — what setPool validates against so filters never eat ticks. */
 export const ALL_POOL_OPTIONS: PoolOptions = {
 	includePets: true,
 	includeJars: true,
-	includeCosmetics: true,
-	includeClues: true
+	includeCosmetics: true
 };
 
 /**
@@ -107,9 +100,6 @@ export async function poolCandidates(opts: PoolOptions = {}): Promise<PoolCandid
 		const best = bestEhbSource(item, undefined, overrides);
 		if (!best || !isFinite(best.ehb) || best.ehb <= 0) continue;
 		if (best.ehb < min || best.ehb > max) continue;
-		// Clue rewards ride the casket tiers; an item whose CHEAPEST source is a casket is
-		// a clue reward for filtering purposes (a boss drop with a clue fallback stays).
-		if (!opts.includeClues && /reward casket/i.test(best.src?.s ?? '')) continue;
 		out.push({
 			item_id: item.id,
 			item_name: item.name,

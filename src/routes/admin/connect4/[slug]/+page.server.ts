@@ -239,8 +239,7 @@ export const actions: Actions = {
 			max_ehb: Number(form.get('max_ehb')) || null,
 			pets: form.get('pets') === 'on',
 			jars: form.get('jars') === 'on',
-			cosmetics: form.get('cosmetics') === 'on',
-			clues: form.get('clues') === 'on'
+			cosmetics: form.get('cosmetics') === 'on'
 		});
 		return res.ok ? { optsSaved: true } : fail(400, { error: res.error });
 	},

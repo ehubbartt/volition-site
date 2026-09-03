@@ -423,10 +423,13 @@ guard) — the board is clan business, not a public scoreboard.
 2. `/admin/connect4` → **New game**. Set the scoring and the side names. Leave **test**
    ticked until it's the real thing — a test game refuses real Dink drops outright, so a
    staged board can never swallow a live drop.
-3. **Curate the pool** (one tile per cell). The generator offers ~850 candidates by
-   default — boss drops plus clue-casket rewards (the tiers are priced as caskets/hour in
-   `itemEhb.json`; regenerate with `node db/scripts/build_item_ehb.mjs`). The **Generate**
-   filter row (stored per game) sets min/max EHB and toggles clue rewards, pets, jars and
+3. **Curate the pool** (one tile per cell). The generator offers boss and raid drops
+   only (~340 items in `itemEhb.json`; regenerate with `node db/scripts/build_item_ehb.mjs`
+   after game updates — new bosses need a kills/hr entry in its `KILL_RATES`). Clue-casket
+   rewards are deliberately excluded: their tables are hundreds of generic cosmetics. A
+   250-cell board therefore leans on **copies**, **×N quantities**, group tiles and custom
+   tasks for headroom, not on a bigger generated list. The **Generate**
+   filter row (stored per game) sets min/max EHB and toggles pets, jars and
    3rd age/gilded; it shapes what the list OFFERS and what the fills draw from, and never
    invalidates already-ticked tiles (saving validates against the unfiltered universe).
    *Auto-fill* spreads across the difficulty range deterministically; *Random fill* keeps

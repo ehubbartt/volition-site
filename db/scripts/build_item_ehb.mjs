@@ -33,20 +33,18 @@ const KILL_RATES = {
 	'dagannoth supreme': 100, 'deranged archaeologist': 95, 'duke sucellus': 37,
 	'general graardor': 31, 'giant mole': 97, 'grotesque guardians': 34, 'hespori': 50,
 	'kalphite queen': 37, 'king black dragon': 75, 'kraken': 90, "kree'arra": 30,
-	"k'ril tsutsaroth": 32, 'lunar chest': 18, 'mimic': 50, 'nex': 20, 'the nightmare': 11,
+	"k'ril tsutsaroth": 32, 'lunar chest': 18, 'mad angel': 60, 'maggot king': 30,
+	'mimic': 50, 'nex': 20, 'the nightmare': 11,
 	'obor': 12, 'phantom muspah': 27, "phosani's nightmare": 9.3, 'sarachnis': 67, 'scorpia': 80,
 	'scurrius': 60, 'shellbane gryphon': 95, 'skotizo': 38, 'sol heredit': 2.7,
 	'rewards chest (fortis colosseum)': 2.7, 'spindel': 50, 'the hueycoatl': 20,
 	'the leviathan': 27, 'the royal titans': 55, 'the whisperer': 21,
 	'thermonuclear smoke devil': 100, 'tzkal-zuk': 1, 'tztok-jad': 2.2, 'vardorvis': 37,
 	'venenatis': 80, "vet'ion": 39, 'vorkath': 34, 'yama': 18, 'zulrah': 42,
-	'reward chest (the gauntlet) (regular)': 10, 'reward chest (the gauntlet) (corrupted)': 7.2,
-	// Clue caskets, priced as caskets OPENED per hour while actively clue-hunting that
-	// tier (stack-and-run numbers, not while-you-slay trickle). They ride the 'kill'
-	// mechanic — expected caskets ÷ caskets/hr — so nothing downstream changes. The
-	// dataset's tier variants ("(Standard)"/"(Entrana)") match via the qualifier strip.
-	'reward casket (beginner)': 12, 'reward casket (easy)': 10, 'reward casket (medium)': 8,
-	'reward casket (hard)': 5, 'reward casket (elite)': 3, 'reward casket (master)': 2
+	'reward chest (the gauntlet) (regular)': 10, 'reward chest (the gauntlet) (corrupted)': 7.2
+	// Clue caskets deliberately absent: their reward tables are hundreds of generic
+	// cosmetics (every "(t)"/"(g)"/heraldic variant), which drowned the Connect Four tile
+	// generator in non-boss items. Boss and raid drops only.
 };
 
 // Doom of Mokhaiotl per-floor, per-kill rates (from the Delve calculator). Columns:
