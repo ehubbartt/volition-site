@@ -466,6 +466,48 @@
 	{/if}
 	{#if form?.resynced}<p class="ok">Allowlist resynced ({form.resynced.added} added, {form.resynced.removed} removed).</p>{/if}
 
+	<!-- ── the setup path, spelled out ───────────────────────────────────── -->
+	{#if game.phase === 'setup'}
+		<section class="osrs-panel">
+			<div class="osrs-titlebar">Three steps to a running game</div>
+			<div class="pad steps">
+				<a class="step" class:done={data.poolCount === data.deckSize} href="#pool">
+					<span class="step-n">{data.poolCount === data.deckSize ? '✓' : '1'}</span>
+					<span>
+						<strong>Choose the tiles</strong>
+						<span class="muted tiny">
+							{data.poolCount} / {data.deckSize} chosen — quickest: 🎲 Random fill below, then
+							swap out what you don't like.
+						</span>
+					</span>
+				</a>
+				<a class="step" class:done={members.length > 0} href="#teams">
+					<span class="step-n">{members.length > 0 ? '✓' : '2'}</span>
+					<span>
+						<strong>Seat the players</strong>
+						<span class="muted tiny">
+							{members.length
+								? `${members.length} seated`
+								: 'One click: “Seat everyone from…” splits a clan-vs-clan roster for you.'}
+						</span>
+					</span>
+				</a>
+				<div class="step">
+					<span class="step-n">3</span>
+					<span>
+						<strong>Start</strong>
+						<span class="muted tiny">Deals the deck and opens Dink tracking.</span>
+						<form method="POST" action="?/start" use:enhance>
+							<button type="submit" disabled={data.poolCount !== data.deckSize || !members.length}>
+								Deal the deck and start
+							</button>
+						</form>
+					</span>
+				</div>
+			</div>
+		</section>
+	{/if}
+
 	<!-- ── standings ─────────────────────────────────────────────────────── -->
 	<section class="scores">
 		{#each game.sides as side, i (side.side)}
@@ -493,8 +535,7 @@
 		<div class="pad">
 			{#if game.phase === 'setup'}
 				<p class="muted">
-					The board opens when the game starts. Curate {data.deckSize} tiles and put at least one
-					member on a side first.
+					The board opens when the game starts — follow the three steps above.
 				</p>
 			{:else}
 				<div class="playbar">
@@ -652,12 +693,13 @@
 
 	<!-- ── setup: the tile pool ──────────────────────────────────────────── -->
 	{#if game.phase === 'setup'}
-		<section class="osrs-panel">
-			<div class="osrs-titlebar">Tile pool — {data.poolCount} / {data.deckSize} chosen</div>
+		<section class="osrs-panel" id="pool">
+			<div class="osrs-titlebar">Step 1 · Tile pool — {data.poolCount} / {data.deckSize} chosen</div>
 			<div class="pad">
 				<p class="muted tiny">
-					One curated tile per cell of the board. They're dealt into a shuffled deck when the game
-					starts: each column gets its own slice, and claiming the tile on top reveals the next one.
+					One tile per cell, dealt into a shuffled deck at start. <strong>Quickest path:</strong>
+					hit a fill button, then use the filter box to find and swap anything you don't like.
+					Ticked tiles carry two knobs — ×N (drops one side needs) and ⧉N (copies in the deck).
 				</p>
 				<div class="row">
 					<form method="POST" action="?/autoPool" use:enhance>
@@ -681,7 +723,9 @@
 				<!-- What the generator OFFERS below (and what auto/random fill draws from).
 				     Stored on the game; tightening these never invalidates already-ticked
 				     tiles, because saving validates against the unfiltered universe. -->
-				<form method="POST" action="?/poolOpts" class="row filters" use:enhance>
+				<details class="fold">
+					<summary>Generator filters — min/max EHB, clue rewards, pets, jars, cosmetics</summary>
+					<form method="POST" action="?/poolOpts" class="row filters" use:enhance>
 					<span class="muted tiny">Generate:</span>
 					<label class="tiny">min EHB
 						<input name="min_ehb" type="number" step="0.1" min="0" value={game.poolOpts.min_ehb || ''} placeholder="0" class="ehb-in" />
@@ -695,12 +739,15 @@
 					<label class="tiny check"><input type="checkbox" name="cosmetics" checked={game.poolOpts.cosmetics} /> 3rd age & gilded</label>
 					<button type="submit">Apply filters</button>
 					<span class="muted tiny">{data.candidates.length} candidates offered</span>
-				</form>
+					</form>
+				</details>
 
 				<!-- Anything the generated list doesn't offer. A plain custom is matched by
 				     NAME (exactly what Dink reports); pick sources or list items to make a
 				     GROUP tile ("Any CoX purple") that any of them satisfies. -->
-				<form method="POST" action="?/addCustom" class="custom-form" use:enhance>
+				<details class="fold">
+					<summary>＋ Custom & group tiles — “any raids purple”, off-list items, ×N tasks</summary>
+					<form method="POST" action="?/addCustom" class="custom-form" use:enhance>
 					<div class="row">
 						<input name="item_name" placeholder="Task name — exact item, or a label like “Any CoX purple”" required />
 						<input name="source" placeholder="Boss / source (display)" />
@@ -726,7 +773,8 @@
 							Group tiles are claimed by any listed item; ×N needs N qualifying drops by one side.
 						</span>
 					</div>
-				</form>
+					</form>
+				</details>
 
 				<form method="POST" action="?/setPool" use:enhance>
 					<!-- The selection travels as hidden inputs, NOT as the visible checkboxes:
@@ -813,8 +861,8 @@
 	{/if}
 
 	<!-- ── teams ─────────────────────────────────────────────────────────── -->
-	<section class="osrs-panel">
-		<div class="osrs-titlebar">Teams</div>
+	<section class="osrs-panel" id="teams">
+		<div class="osrs-titlebar">{game.phase === 'setup' ? 'Step 2 · Teams' : 'Teams'}</div>
 		<div class="pad">
 			<!-- CLAN VS CLAN: no draft, the sides were decided before anyone signed up. -->
 			<form method="POST" action="?/seatByClan" use:enhance class="seat">
@@ -917,14 +965,10 @@
 	</section>
 
 	<!-- ── running the game ──────────────────────────────────────────────── -->
+	{#if game.phase !== 'setup'}
 	<section class="osrs-panel">
 		<div class="osrs-titlebar">Run the game</div>
 		<div class="pad row wrap">
-			{#if game.phase === 'setup'}
-				<form method="POST" action="?/start" use:enhance>
-					<button type="submit">Deal the deck and start</button>
-				</form>
-			{/if}
 			{#if game.phase === 'live'}
 				<form method="POST" action="?/simulate" use:enhance class="inline">
 					<label class="tiny">
@@ -958,10 +1002,11 @@
 			<label class="tiny check"><input type="checkbox" bind:checked={polling} /> auto-refresh</label>
 		</div>
 	</section>
+	{/if}
 
 	<!-- ── scoring ───────────────────────────────────────────────────────── -->
 	<section class="osrs-panel">
-		<div class="osrs-titlebar">Scoring</div>
+		<div class="osrs-titlebar">Scoring — optional, retunable any time (even mid-game)</div>
 		<form method="POST" action="?/scoring" use:enhance class="pad grid">
 			<p class="wide muted tiny">
 				Changing these re-scores the whole board immediately — the standings are always recomputed
@@ -1271,6 +1316,60 @@
 		width: 3.6rem;
 		min-height: 0;
 		padding: 0.15rem 0.3rem;
+	}
+	.steps {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+		gap: 0.75rem;
+	}
+	.step {
+		display: flex;
+		gap: 0.6rem;
+		align-items: flex-start;
+		padding: 0.6rem 0.7rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--surface-alt);
+		color: inherit;
+		text-decoration: none;
+	}
+	.step.done {
+		border-color: var(--success);
+	}
+	.step.done .step-n {
+		background: var(--success);
+		color: #000;
+	}
+	.step-n {
+		flex: none;
+		width: 1.5rem;
+		height: 1.5rem;
+		border-radius: 50%;
+		background: var(--accent);
+		color: #000;
+		font-weight: 700;
+		display: grid;
+		place-items: center;
+	}
+	.step > span:last-child {
+		display: grid;
+		gap: 0.25rem;
+	}
+	.fold {
+		margin: 0.5rem 0;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 0.35rem 0.6rem;
+		background: var(--surface-alt);
+	}
+	.fold > summary {
+		cursor: pointer;
+		font-size: 0.82rem;
+		color: var(--muted);
+	}
+	.fold[open] > summary {
+		color: var(--heading);
+		margin-bottom: 0.4rem;
 	}
 	.knobs {
 		margin-left: auto;
