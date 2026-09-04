@@ -31,6 +31,8 @@ const KILL_RATES = {
 	'cerberus': 54, 'chaos elemental': 48, 'chaos fanatic': 80, 'commander zilyana': 30,
 	'corporeal beast': 10, 'crazy archaeologist': 95, 'dagannoth prime': 100, 'dagannoth rex': 100,
 	'dagannoth supreme': 100, 'deranged archaeologist': 95, 'duke sucellus': 37,
+	// The Royal Titans' drops are listed under the individual twins, not the duo name.
+	'eldric the ice king': 55, 'branda the fire queen': 55,
 	'general graardor': 31, 'giant mole': 97, 'grotesque guardians': 34, 'hespori': 50,
 	'kalphite queen': 37, 'king black dragon': 75, 'kraken': 90, "kree'arra": 30,
 	"k'ril tsutsaroth": 32, 'lunar chest': 18, 'mad angel': 60, 'maggot king': 30,
@@ -99,7 +101,9 @@ function classify(src) {
 	if (n === 'monumental chest (normal mode)') return { t: 'tobn', r: 3.2 };
 	if (n === 'monumental chest (hard mode)') return { t: 'tobh', r: 3 };
 	if (n.startsWith('chest (tombs of amascut)')) return { t: 'toa', r: n.includes('expert') ? 3 : 3.7 };
-	if (n === 'doom of mokhaiotl') return { t: 'doom' };
+	// Doom's uniques are listed per floor ("Delve level 2" … "Delve level 9+"); the
+	// per-floor rates are inlined in DOOM_FLOORS, so any floor row maps to the same tag.
+	if (n === 'doom of mokhaiotl' || /^delve level \d/.test(n)) return { t: 'doom' };
 	if (KILL_RATES[n] != null) return { t: 'kill', r: KILL_RATES[n] };
 	const stripped = n.replace(/\s*\([^()]*\)\s*$/, '').trim(); // "Yama (Contract)" already excluded
 	if (stripped !== n && KILL_RATES[stripped] != null) return { t: 'kill', r: KILL_RATES[stripped] };
