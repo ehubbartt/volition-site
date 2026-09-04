@@ -492,6 +492,10 @@ Costs two queries regardless of size: a 135-person roster splits in ~290ms.
 npm run sim:connect4                  # the full game, against staging
 npm run sim:connect4 -- --quick       # skip filling all 250 cells
 npm run sim:connect4 -- --seed 7 --keep
+npm run drill:connect4                # every notable path through the REAL Dink consumer:
+                                      #   mixed Volition/visitor roster, group + qty +
+                                      #   copies tiles, manual credits, race/undo/guards,
+                                      #   delete-cleans-everything — 49 checks, self-cleaning
 npm run demo:connect4                 # leaves a playable board behind
 npm run demo:connect4 -- --phase setup --slug c4-setup-demo
 npm run demo:connect4 -- --delete
