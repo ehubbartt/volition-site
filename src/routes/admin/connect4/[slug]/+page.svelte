@@ -398,6 +398,10 @@
 		else next.add(id);
 		poolPicked = next;
 	}
+	// Drops multiplier for a ticked tile — its EFFECTIVE difficulty is ehb × drops, and
+	// the list shows that live so setting drops to 2 visibly doubles the hours.
+	const pickedQtyOf = (c: { item_id: number }) =>
+		poolPicked.has(c.item_id) ? (poolQty.get(c.item_id) ?? 1) : 1;
 	// Untick everything (knobs too) to start the pick over. Client-side only — the saved
 	// pool is untouched until Save, and a reload brings the saved selection back.
 	function clearPool() {
@@ -807,9 +811,10 @@
 
 					<p class="muted tiny knob-legend">
 						Each ticked tile has two fields — <strong>drops</strong>: the first side to land
-						that many of the drop claims the tile (1 = first drop wins) ·
-						<strong>copies</strong>: puts the tile in that many board cells, each claimed
-						separately. Leave both at 1 for a normal tile.
+						that many of the drop claims the tile (1 = first drop wins; the tile's effective
+						hours multiply to match, shown in yellow) · <strong>copies</strong>: puts the tile
+						in that many board cells, each claimed separately. Leave both at 1 for a normal
+						tile.
 					</p>
 
 					<div class="candidates">
@@ -831,7 +836,7 @@
 											? `Also drops from: ${c.sources!.join(', ')}`
 											: undefined)}
 								>
-									{#if c.item_id < 0}custom · {/if}{#if c.any_of?.length}any of {c.any_of.length} · {/if}{c.source ?? '—'}{#if (c.sources?.length ?? 0) > 1}&nbsp;+{c.sources!.length - 1}{/if}{#if c.ehb} · {formatEhb(c.ehb)}{/if}
+									{#if c.item_id < 0}custom · {/if}{#if c.any_of?.length}any of {c.any_of.length} · {/if}{c.source ?? '—'}{#if (c.sources?.length ?? 0) > 1}&nbsp;+{c.sources!.length - 1}{/if}{#if c.ehb} · {formatEhb(c.ehb)}{#if pickedQtyOf(c) > 1}<strong class="eff-ehb" title="Effective difficulty with the drops knob: {formatEhb(c.ehb)} × {pickedQtyOf(c)} drops"> → {formatEhb(c.ehb * pickedQtyOf(c))}</strong>{/if}{/if}
 								</span>
 								{#if poolPicked.has(c.item_id)}
 									<span class="knobs">
@@ -1446,6 +1451,10 @@
 	}
 	.clear-all:hover {
 		color: var(--danger);
+	}
+	.eff-ehb {
+		color: var(--yellow);
+		font-weight: 600;
 	}
 	.knob-legend {
 		margin: 0.5rem 0 0.25rem;

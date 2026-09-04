@@ -25,9 +25,8 @@ import {
 } from '$lib/server/connect4';
 import {
 	ALL_POOL_OPTIONS,
-	autoSelect,
 	poolCandidates,
-	randomSelect,
+	smartSelect,
 	toPoolOptions,
 	toTileRefs,
 	type PoolCandidate,
@@ -146,6 +145,10 @@ async function fillCandidates(snap: Connect4Snapshot): Promise<PoolCandidate[]> 
 	return (await allCandidates(snap)).sort((a, b) => a.ehb - b.ehb);
 }
 
+const fillShortfall = (got: number, need: number) =>
+	`Only ${got} of ${need} cells can be filled — even stretching every offered tile to ` +
+	`20 copies and ×N drops. Loosen the generator filters, add custom tiles, or shrink the board.`;
+
 const sideOf = (form: FormData, key = 'side'): Side | null => {
 	const n = Number(form.get(key));
 	return isSide(n) ? n : null;
@@ -215,7 +218,13 @@ export const actions: Actions = {
 		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
 		const game = await loadConnect4(params.slug);
 		if (!game) return fail(404, { error: 'No such game' });
-		const res = await setPool(game.id, toTileRefs(autoSelect(await fillCandidates(game), game.deckSize)));
+		const picked = smartSelect(await fillCandidates(game), game.deckSize, {
+			maxEhb: game.poolOpts.max_ehb
+		});
+		if (picked.length < game.deckSize) {
+			return fail(400, { error: fillShortfall(picked.length, game.deckSize) });
+		}
+		const res = await setPool(game.id, toTileRefs(picked));
 		return res.ok ? { pooled: game.deckSize } : fail(400, { error: res.error });
 	},
 
@@ -224,7 +233,14 @@ export const actions: Actions = {
 		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
 		const game = await loadConnect4(params.slug);
 		if (!game) return fail(404, { error: 'No such game' });
-		const res = await setPool(game.id, toTileRefs(randomSelect(await fillCandidates(game), game.deckSize)));
+		const picked = smartSelect(await fillCandidates(game), game.deckSize, {
+			maxEhb: game.poolOpts.max_ehb,
+			random: true
+		});
+		if (picked.length < game.deckSize) {
+			return fail(400, { error: fillShortfall(picked.length, game.deckSize) });
+		}
+		const res = await setPool(game.id, toTileRefs(picked));
 		return res.ok ? { pooled: game.deckSize } : fail(400, { error: res.error });
 	},
 

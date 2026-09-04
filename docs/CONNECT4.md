@@ -436,7 +436,13 @@ guard) — the board is clan business, not a public scoreboard.
    that drops an item, not just the displayed cheapest source — filtering by a boss name
    is its complete drop table (shared drops show a "+N" marker; hover lists the rest).
    *Auto-fill* spreads across the difficulty range deterministically; *Random fill* keeps
-   the spread but rolls different tiles every click. Every ticked tile gets two labelled
+   the spread but rolls different tiles every click. When the filtered list offers fewer
+   items than the board has cells, both fills switch to `smartSelect`: the shortfall is
+   manufactured from ×N-drops variants (a tile needing N drops is priced at N× its EHB,
+   and the chooser shows that effective value live, in yellow) and copies (≤20 per item,
+   one drops value per item), keeping the effective difficulty evenly spread and never
+   past the max-EHB filter. A board bigger than even that can fill fails with a plain
+   message instead of a short pool. Every ticked tile gets two labelled
    fields: **drops** (the first side to land that many qualifying drops claims the tile;
    1 = first drop wins) and **copies** (the same tile in N deck slots, each copy its own
    race — extra drops while copies remain stay `no_tile` and can credit later, never

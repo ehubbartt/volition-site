@@ -148,6 +148,73 @@ export function randomSelect(candidates: PoolCandidate[], count = DECK_SIZE): Po
 }
 
 /**
+ * The fill that always fills. With enough distinct candidates it IS autoSelect /
+ * randomSelect; with fewer candidates than board cells it manufactures the shortfall
+ * from ×N-drops variants (a tile needing N drops is effectively N× its EHB) and copies,
+ * keeping the effective difficulty (ehb × drops) evenly spread across the offered
+ * range. One drops value per item — every copy of an item shares its knob — and at
+ * most 20 copies of any item, mirroring the UI caps.
+ */
+export function smartSelect(
+	candidates: PoolCandidate[],
+	count = DECK_SIZE,
+	opts: { maxEhb?: number | null; random?: boolean } = {}
+): PoolCandidate[] {
+	if (!candidates.length) return [];
+	if (candidates.length >= count)
+		return opts.random ? randomSelect(candidates, count) : autoSelect(candidates, count);
+
+	const sorted = [...candidates].sort((a, b) => a.ehb - b.ehb);
+	// Never manufacture past the max-EHB filter; with no max, past the dearest real tile.
+	const hi = opts.maxEhb ?? sorted[sorted.length - 1].ehb;
+	type Variant = { c: PoolCandidate; q: number; eff: number };
+	const virtual: Variant[] = [];
+	for (const c of sorted) {
+		if (c.qty && c.qty > 1) {
+			// A custom task with its own ×N keeps it — its EHB already describes the task.
+			virtual.push({ c, q: c.qty, eff: c.ehb });
+			continue;
+		}
+		for (let q = 1; q <= 9; q++) {
+			const eff = c.ehb * q;
+			if (q > 1 && eff > hi) break;
+			virtual.push({ c, q, eff });
+		}
+	}
+	virtual.sort((a, b) => a.eff - b.eff);
+
+	const qtyOf = new Map<number, number>();
+	const copiesOf = new Map<number, number>();
+	const usable = (v: Variant) =>
+		(qtyOf.get(v.c.item_id) ?? v.q) === v.q && (copiesOf.get(v.c.item_id) ?? 0) < 20;
+	const picks: Variant[] = [];
+	const band = virtual.length / count;
+	for (let i = 0; i < count; i++) {
+		const lo = Math.floor(i * band);
+		const hiIdx = Math.max(lo, Math.min(virtual.length - 1, Math.ceil((i + 1) * band) - 1));
+		const start = opts.random
+			? lo + Math.floor(Math.random() * (hiIdx - lo + 1))
+			: Math.min(hiIdx, Math.floor(i * band + band / 2));
+		// Prefer the band; walk outward through the whole list if its entries clash with
+		// an item's already-chosen drops value or copies cap.
+		let pick: Variant | null = null;
+		for (let d = 0; d < virtual.length && !pick; d++) {
+			for (const j of [start + d, start - d]) {
+				if (j >= 0 && j < virtual.length && usable(virtual[j])) {
+					pick = virtual[j];
+					break;
+				}
+			}
+		}
+		if (!pick) break; // 20 copies of everything and still short — genuinely impossible
+		qtyOf.set(pick.c.item_id, pick.q);
+		copiesOf.set(pick.c.item_id, (copiesOf.get(pick.c.item_id) ?? 0) + 1);
+		picks.push(pick);
+	}
+	return picks.map((v) => ({ ...v.c, ...(v.q > 1 ? { qty: v.q } : { qty: undefined }) }));
+}
+
+/**
  * Strip a curated selection down to what actually gets stored on the event — keeping a
  * custom tile's group members and quantity, which ride through curation untouched.
  */
