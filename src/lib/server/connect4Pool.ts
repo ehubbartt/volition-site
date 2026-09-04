@@ -164,54 +164,54 @@ export function smartSelect(
 	if (candidates.length >= count)
 		return opts.random ? randomSelect(candidates, count) : autoSelect(candidates, count);
 
+	// Copies spread EVENLY across the items first — every copy of an item shares one
+	// drops knob, so piling 20 copies on one item while its neighbours get 1 is never
+	// the right shape. Custom tasks stay at a single copy (an admin's hand-written task
+	// duplicating itself five times is a surprise, not a fill).
 	const sorted = [...candidates].sort((a, b) => a.ehb - b.ehb);
-	// Never manufacture past the max-EHB filter; with no max, past the dearest real tile.
-	const hi = opts.maxEhb ?? sorted[sorted.length - 1].ehb;
-	type Variant = { c: PoolCandidate; q: number; eff: number };
-	const virtual: Variant[] = [];
-	for (const c of sorted) {
-		if (c.qty && c.qty > 1) {
-			// A custom task with its own ×N keeps it — its EHB already describes the task.
-			virtual.push({ c, q: c.qty, eff: c.ehb });
-			continue;
-		}
-		for (let q = 1; q <= 9; q++) {
-			const eff = c.ehb * q;
-			if (q > 1 && eff > hi) break;
-			virtual.push({ c, q, eff });
-		}
+	const capOf = (c: PoolCandidate) => (c.item_id < 0 ? 1 : 20);
+	const copiesOf = new Map<number, number>(sorted.map((c) => [c.item_id, 1]));
+	let assigned = sorted.length;
+	// Round-robin the shortfall in stride order (a fixed stride for auto so the result
+	// is stable; a random offset for the re-roll), skipping items at their cap.
+	const offset = opts.random ? Math.floor(Math.random() * sorted.length) : 0;
+	for (let hop = 0; assigned < count; hop++) {
+		if (hop > count * 25) break; // every item capped — genuinely impossible
+		const c = sorted[(hop + offset) % sorted.length];
+		if ((copiesOf.get(c.item_id) ?? 0) >= capOf(c)) continue;
+		copiesOf.set(c.item_id, (copiesOf.get(c.item_id) ?? 0) + 1);
+		assigned++;
 	}
-	virtual.sort((a, b) => a.eff - b.eff);
 
-	const qtyOf = new Map<number, number>();
-	const copiesOf = new Map<number, number>();
-	const usable = (v: Variant) =>
-		(qtyOf.get(v.c.item_id) ?? v.q) === v.q && (copiesOf.get(v.c.item_id) ?? 0) < 20;
-	const picks: Variant[] = [];
-	const band = virtual.length / count;
-	for (let i = 0; i < count; i++) {
-		const lo = Math.floor(i * band);
-		const hiIdx = Math.max(lo, Math.min(virtual.length - 1, Math.ceil((i + 1) * band) - 1));
-		const start = opts.random
-			? lo + Math.floor(Math.random() * (hiIdx - lo + 1))
-			: Math.min(hiIdx, Math.floor(i * band + band / 2));
-		// Prefer the band; walk outward through the whole list if its entries clash with
-		// an item's already-chosen drops value or copies cap.
-		let pick: Variant | null = null;
-		for (let d = 0; d < virtual.length && !pick; d++) {
-			for (const j of [start + d, start - d]) {
-				if (j >= 0 && j < virtual.length && usable(virtual[j])) {
-					pick = virtual[j];
-					break;
-				}
-			}
-		}
-		if (!pick) break; // 20 copies of everything and still short — genuinely impossible
-		qtyOf.set(pick.c.item_id, pick.q);
-		copiesOf.set(pick.c.item_id, (copiesOf.get(pick.c.item_id) ?? 0) + 1);
-		picks.push(pick);
+	// Then the drops knob PLACES each item's stack in the difficulty range: targets are
+	// spread geometrically from the cheapest offered tile to the max-EHB filter (or the
+	// dearest offered tile), walked in step with the ascending items, and each item takes
+	// the drops value that lands its effective hours (ehb × drops) nearest its targets —
+	// so duplicated cheap items climb to cover the middle instead of stacking at the
+	// bottom. One drops value per item, never past the cap.
+	const lo = Math.max(0.01, sorted[0].ehb);
+	const hi = Math.max(lo, opts.maxEhb ?? sorted[sorted.length - 1].ehb);
+	const targets: number[] = [];
+	for (let j = 0; j < assigned; j++) {
+		targets.push(lo * Math.pow(hi / lo, assigned === 1 ? 0 : j / (assigned - 1)));
 	}
-	return picks.map((v) => ({ ...v.c, ...(v.q > 1 ? { qty: v.q } : { qty: undefined }) }));
+	const out: PoolCandidate[] = [];
+	let cursor = 0;
+	for (const c of sorted) {
+		const copies = copiesOf.get(c.item_id) ?? 1;
+		let q = 1;
+		if (!(c.qty && c.qty > 1) && c.item_id > 0 && c.ehb > 0) {
+			const t = targets[Math.min(assigned - 1, cursor + Math.floor(copies / 2))];
+			q = Math.max(1, Math.min(9, Math.round(t / c.ehb)));
+			if (opts.random && q > 1 && Math.random() < 0.34) q += Math.random() < 0.5 ? -1 : 1;
+			q = Math.max(1, Math.min(9, q));
+			while (q > 1 && c.ehb * q > hi) q--;
+		}
+		cursor += copies;
+		const qty = c.qty && c.qty > 1 ? c.qty : q > 1 ? q : undefined;
+		for (let k = 0; k < copies; k++) out.push({ ...c, qty });
+	}
+	return out;
 }
 
 /**
