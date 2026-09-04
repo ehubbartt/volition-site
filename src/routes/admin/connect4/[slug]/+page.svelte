@@ -398,6 +398,13 @@
 		else next.add(id);
 		poolPicked = next;
 	}
+	// Untick everything (knobs too) to start the pick over. Client-side only — the saved
+	// pool is untouched until Save, and a reload brings the saved selection back.
+	function clearPool() {
+		poolPicked = new Set();
+		poolQty = new Map();
+		poolCopies = new Map();
+	}
 
 	// A shared race-y board goes stale the moment the other clan gets a drop, so unlike
 	// Battleship (where an auto-reload would throw away an armed bomb) this page stays
@@ -723,6 +730,14 @@
 						{pickedTotal} ticked
 						{#if poolDirty}<strong class="unsaved">· unsaved</strong>{/if}
 					</span>
+					{#if poolPicked.size}
+						<button
+							type="button"
+							class="clear-all"
+							title="Untick every selected tile (nothing is saved until you hit Save — reload to get the saved selection back)"
+							onclick={clearPool}
+						>✕ Clear all</button>
+					{/if}
 				</div>
 
 				<!-- What the generator OFFERS below (and what auto/random fill draws from).
@@ -1422,6 +1437,15 @@
 	}
 	.knobs .qty-in {
 		width: 3rem;
+	}
+	.clear-all {
+		min-height: 0;
+		padding: 0.15rem 0.5rem;
+		font-size: 0.75rem;
+		color: var(--muted);
+	}
+	.clear-all:hover {
+		color: var(--danger);
 	}
 	.knob-legend {
 		margin: 0.5rem 0 0.25rem;
