@@ -85,13 +85,19 @@ const clueTarget = (difficulty: number): number =>
 export const RESET_COOLDOWN_DAYS = 30;
 export const RESET_COOLDOWN_ENABLED = true;
 const RESET_COOLDOWN_MS = RESET_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+// The cooldown clock runs from the LATER of the board's lock time and this anchor (the date the
+// cooldown was re-enabled). Without it, a board locked more than 30 days ago would be instantly
+// resettable — one free reset for exactly the members who'd been farming. Anchoring makes those
+// boards wait a full 30 days from here instead. It self-expires: once this date is >30 days past,
+// every live board's lock time is already the later value, so the anchor stops mattering.
+const RESET_COOLDOWN_ANCHOR_MS = new Date('2026-09-07T00:00:00Z').getTime();
 
 // When a locked board can be reset. Null while it's a draft — or always, while the
 // cooldown is disabled (callers read null as "resettable now").
 export function boardResettableAt(lockedAt: string | null): string | null {
-	return RESET_COOLDOWN_ENABLED && lockedAt
-		? new Date(new Date(lockedAt).getTime() + RESET_COOLDOWN_MS).toISOString()
-		: null;
+	if (!RESET_COOLDOWN_ENABLED || !lockedAt) return null;
+	const from = Math.max(new Date(lockedAt).getTime(), RESET_COOLDOWN_ANCHOR_MS);
+	return new Date(from + RESET_COOLDOWN_MS).toISOString();
 }
 
 export const MIN_SIZE = 3;
