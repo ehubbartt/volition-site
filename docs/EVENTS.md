@@ -60,9 +60,12 @@ grant goes through `grantPlayerVp` (players.points). Admin test boards carry
 the owner keeps it as long as they want. Resetting (generating a replacement) wipes the
 board + its ledger (the UI confirms) and is gated by `RESET_COOLDOWN_DAYS` (30) behind
 `RESET_COOLDOWN_ENABLED` in `personalBoard.ts` — **currently `true`**, so a locked board
-can't be replaced for 30 days. It was briefly `false` as a migration window for boards that
-predate the newer tile kinds; re-enabled because resets-anytime let members farm the flat
-per-tile VP (finish one trivial tile, reset, repeat). VP farming is otherwise self-limiting:
+can't be replaced for 30 days. The clock runs from the later of the board's `locked_at` and
+`RESET_COOLDOWN_ANCHOR_MS` (the date the cooldown was re-enabled), so boards locked long
+before that don't get one free instant reset; the anchor self-expires once it's >30 days past.
+It was briefly `false` as a migration window for boards that predate the newer tile kinds;
+re-enabled because resets-anytime let members farm the flat per-tile VP (finish one trivial
+tile, reset, repeat). VP farming is otherwise self-limiting:
 item tiles need drops the player is still missing, so completed content leaves the pool, and
 every skill tile is floored at `MIN_SKILL_TILE_HOURS` (1 EHP-hour, `$lib/ehp`) so even a
 difficulty-1 board can't roll a minutes-long XP goal. The non-boss (Temple EHC) item pool
