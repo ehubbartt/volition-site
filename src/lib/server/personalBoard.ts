@@ -78,11 +78,12 @@ const clueTarget = (difficulty: number): number =>
 	Math.min(7, Math.max(3, 2 + Math.round(difficulty / 2)));
 
 // ── Reset cooldown ─────────────────────────────────────────────────────────────
-// How long after locking before the owner may reset for a new board. TEMPORARILY
-// DISABLED (resets allowed anytime) so members whose boards predate the newer tile
-// kinds/pools can rebuild; flip RESET_COOLDOWN_ENABLED to true to require the wait.
+// How long after locking before the owner may reset for a new board. Enabled: a locked
+// board can't be replaced until the wait elapses, which stops the reset-farm loop (complete
+// one easy tile for its flat VP, reset for a fresh easy board, repeat). Was briefly disabled
+// during the tile-kind migration so members could rebuild; that window is over.
 export const RESET_COOLDOWN_DAYS = 30;
-export const RESET_COOLDOWN_ENABLED = false;
+export const RESET_COOLDOWN_ENABLED = true;
 const RESET_COOLDOWN_MS = RESET_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
 
 // When a locked board can be reset. Null while it's a draft — or always, while the
