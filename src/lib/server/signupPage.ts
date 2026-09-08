@@ -8,6 +8,7 @@
 
 import type { SessionUser } from './auth';
 import { isAdmin } from './auth';
+import { clanMemberIds } from './clan';
 import { db, fetchAllFiltered } from './db';
 import { loadMySignup, loadSignupEvent, signupWindow, type SignupEventRow } from './signupForm';
 import type { SignupAnswers } from '$lib/events/signupForm';
@@ -21,7 +22,9 @@ export type SignupPageResult =
 			mine: { id: string; answers: SignupAnswers } | null;
 			isAdmin: boolean;
 			signedUpCount: number;
-			names: string[];
+			/** Signup order, each name tagged with the clan allegiance test — the page
+			 *  splits "Who's in" into Volition and visitors when both are present. */
+			names: { rsn: string; volition: boolean }[];
 	  };
 
 export async function buildSignupPage(
@@ -47,7 +50,7 @@ export async function buildSignupPage(
 		fetchAllFiltered((f, t) =>
 			db()
 				.from('vs_event_signups')
-				.select('vs_users(rsn)')
+				.select('vs_users(id, discord_id, rsn)')
 				.eq('event_id', event.id)
 				.order('joined_at', { ascending: true })
 				.range(f, t)
@@ -56,8 +59,14 @@ export async function buildSignupPage(
 
 	// PostgREST types an embedded one-to-one as an array; it is a single row here.
 	const rows = ((roster.data ?? []) as unknown as {
-		vs_users: { rsn: string | null } | null;
+		vs_users: { id: string; discord_id: string | null; rsn: string | null } | null;
 	}[]);
+	const users = rows
+		.map((r) => r.vs_users)
+		.filter((u): u is { id: string; discord_id: string | null; rsn: string | null } => !!u?.rsn);
+	// Which of them are Volition (in the bot's players table) — for a clan-vs-clan
+	// signup the page shows the two camps separately. Two reads total, whole roster.
+	const volition = await clanMemberIds(users);
 	return {
 		kind: 'ok',
 		event,
@@ -68,6 +77,6 @@ export async function buildSignupPage(
 		// makes the next person sign up. The ANSWERS are not: availability is personal, and
 		// a public list of who can play least is a way to be picked last in front of everyone.
 		signedUpCount: rows.length,
-		names: rows.map((r) => r.vs_users?.rsn ?? null).filter((n): n is string => !!n)
+		names: users.map((u) => ({ rsn: u.rsn as string, volition: volition.has(u.id) }))
 	};
 }

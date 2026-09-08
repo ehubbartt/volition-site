@@ -1,8 +1,8 @@
 # Connect Four — ruleset & implementation
 
-A clan-vs-clan event where the board game **is** the bingo. One shared **25×10** board;
-above each of the 25 columns sits a boss drop. The first team to get that drop claims the
-column — their piece falls to the lowest empty row, exactly like the real game, and a new
+A clan-vs-clan event where the board game **is** the bingo. One shared board (sized per
+game; classically **25×10**); above each column sits a boss drop. The first team to get
+that drop claims the column — their piece falls to the lowest empty row, exactly like the real game, and a new
 tile drops into the slot above. Connect four in a row to score, and keep going: longer
 lines pay more.
 
@@ -24,24 +24,46 @@ pipeline this hangs off.
 
 | Phase | What happens | How it ends |
 |---|---|---|
-| `setup` | Curate the 250 tiles, put members on sides. | An admin starts the game, which deals the deck. |
+| `setup` | Curate the pool (one tile per cell), put members on sides. | An admin starts the game, which deals the deck. |
 | `live` | Drops claim tiles; pieces fall; lines score. | The board fills, or an admin ends it. |
 | `finished` | Standings are final. | An admin may reopen it. |
 
 ### The board and the deck
 
-25 columns × 10 rows = **250 cells, and exactly 250 curated tiles**. Filling the board
-consumes the whole deck.
+The board's size is **per game**, chosen at creation (5–40 columns × 4–15 rows,
+`structure.connect4.size`; the classic board is 25×10). cols × rows cells means exactly
+that many curated tiles — filling the board consumes the whole deck. Older games with no
+stored size are 25×10.
 
 The deck is **dealt once, up front**: at start the curated pool is shuffled with a stored
-seed, and column `c` owns the slice `[c*10, c*10+10)`. The tile on offer above a column is
-therefore `deck[c*10 + piecesInColumn(c)]` — a derivation, not a draw. This is what makes
-"a new tile randomly replaces the completed one" work with **no draw-time race to lose**,
-and it means the whole board is a pure function of the piece log. After ten pieces a
-column retires and offers nothing.
+seed, and column `c` owns the slice `[c*rows, c*rows+rows)`. The tile on offer above a
+column is therefore `deck[c*rows + piecesInColumn(c)]` — a derivation, not a draw. This is
+what makes "a new tile randomly replaces the completed one" work with **no draw-time race
+to lose**, and it means the whole board is a pure function of the piece log. Once a column
+fills it retires and offers nothing.
 
-Tiles are **shared**: both clans chase the same 25. (The design leaves room for per-team
-tiles later — the deck lives in `structure`, and every claim already carries its side.)
+Tiles are **shared**: both clans chase the same objectives, one per column. (The design
+leaves room for per-team tiles later — the deck lives in `structure`, and every claim
+already carries its side.)
+
+Two optional tile shapes on top of the plain single item:
+
+- **Group tiles** (`any_of`) — "Any CoX purple": a drop of ANY listed item claims the
+  tile, and the tile's name is just a label. Built from the custom-task form (pick a
+  source for its whole priced drop table, and/or type a list); every member is projected
+  into the Dink allowlist, and the qualifying list shows on the hover card, the detail
+  strip and the CSV. A group tile's icon is its first member's.
+- **Quantity tiles** (`qty`) — "×3": one side needs that many qualifying drops, and the
+  FIRST side to its Nth drop claims the tile. Per-side progress lives in
+  `vs_connect4_progress` — one row per qualifying drop, `unique (event_id, drop_key)`
+  exactly like the pieces, so the reconcile pass can re-run a counted drop forever and
+  it stays one drop; the Nth drop claims the piece with the same drop key. Progress
+  drops are stamped `partial` in /admin/dink-drops. Set the ×N in the curation list
+  (a number input on every ticked tile) or on the custom-task form. An admin's manual
+  column credit claims a qty tile OUTRIGHT — crediting means the tile is decided, not
+  one more drop toward it — and an undo leaves banked progress standing, so the next
+  qualifying drop re-claims it; clear `vs_connect4_progress` rows by hand if the undo
+  was meant to reset the race.
 
 ### Scoring
 
@@ -123,7 +145,9 @@ counts, whether it arrived through Dink or an admin's manual credit:
   `enrolMembers`, `assignSides`, `startGame`, `claimTile`, `creditManual`, `undoClaim`,
   `syncTrackedItems`, `finishGame`).
 - `src/lib/server/connect4Pool.ts` — the candidate generator (boss drops from
-  `itemEhb.json` priced by `bestEhbSource`) and the auto-fill.
+  `itemEhb.json` priced by `bestEhbSource`), the deterministic auto-fill and the
+  re-rollable random fill.
+- `[slug]/export.csv/+server.ts` — the admin CSV export of the whole tile list.
 - `src/routes/admin/connect4/` — game list + creation; `[slug]/` is the tester.
 - `src/routes/events/[slug]/connect4/` — the member board (below), fed by
   `src/lib/server/connect4Page.ts` via `/api/connect4/[slug]`.
@@ -141,6 +165,7 @@ winner. Teams reuse `vs_teams` + `vs_event_signups.team_id` like every other eve
 | Table | The guarantee |
 |---|---|
 | `vs_connect4_pieces` | `unique (event_id, col, row)` **is** the "first team to the tile claims it" rule. `unique (event_id, drop_key)` **is** what makes intake safe against the reconcile pass. |
+| `vs_connect4_progress` | Per-side drops banked toward a QUANTITY tile, keyed to the deck slot. Same `unique (event_id, drop_key)` guard as the pieces. |
 
 Everything else — the board, the live tiles, the standings, the winner — is derived from
 those rows on every read. There is nothing to keep in sync, which is why `undoClaim` needs
@@ -398,8 +423,37 @@ guard) — the board is clan business, not a public scoreboard.
 2. `/admin/connect4` → **New game**. Set the scoring and the side names. Leave **test**
    ticked until it's the real thing — a test game refuses real Dink drops outright, so a
    staged board can never swallow a live drop.
-3. **Curate 250 tiles.** *Auto-fill* spreads them across the difficulty range as a starting
-   point; the filter and the checkboxes do the rest.
+3. **Curate the pool** (one tile per cell). The generator offers boss and raid drops
+   only (~340 items in `itemEhb.json`; regenerate with `node db/scripts/build_item_ehb.mjs`
+   after game updates — new bosses need a kills/hr entry in its `KILL_RATES`). Clue-casket
+   rewards are deliberately excluded: their tables are hundreds of generic cosmetics. A
+   250-cell board therefore leans on **copies**, **drops-needed quantities**, group tiles
+   and custom tasks for headroom, not on a bigger generated list. The **Generate**
+   filter row (stored per game) sets min/max EHB and toggles pets and jars; it shapes
+   what the list OFFERS and what the fills draw from, and never
+   invalidates already-ticked tiles (saving validates against the unfiltered universe).
+   The full filtered list renders with no cap, and the search box matches EVERY boss
+   that drops an item, not just the displayed cheapest source — filtering by a boss name
+   is its complete drop table (shared drops show a "+N" marker; hover lists the rest).
+   *Auto-fill* spreads across the difficulty range deterministically; *Random fill* keeps
+   the spread but rolls different tiles every click. When the filtered list offers fewer
+   items than the board has cells, both fills switch to `smartSelect`: the shortfall is
+   manufactured from ×N-drops variants (a tile needing N drops is priced at N× its EHB,
+   and the chooser shows that effective value live, in yellow) and copies (≤20 per item,
+   one drops value per item), keeping the effective difficulty evenly spread and never
+   past the max-EHB filter. A board bigger than even that can fill fails with a plain
+   message instead of a short pool. Every ticked tile gets two labelled
+   fields: **drops** (the first side to land that many qualifying drops claims the tile;
+   1 = first drop wins) and **copies** (the same tile in N deck slots, each copy its own
+   race — extra drops while copies remain stay `no_tile` and can credit later, never
+   `raced`). **Custom tasks** — anything the generated list doesn't
+   offer — are added by hand above the list: matched by **exact item name** (synthetic
+   negative id is UI-only), projected to the allowlist with a null id, listed first. Pick
+   several sources in the group builder (ctrl-click) for tiles like "any raids purple" —
+   all four raid chests at once.
+   **⤓ Export CSV** in the titlebar downloads the whole tile list for a spreadsheet
+   overview — the pool during setup, and per-cell status (claimed/on offer/buried, with
+   claimant and time) once live.
 4. **Put members on sides.** Filter, tick, and send them to a side — one statement for the
    whole batch. This both signs them up and seats them, so it works whether or not they
    have ever touched the event.
@@ -444,6 +498,10 @@ Costs two queries regardless of size: a 135-person roster splits in ~290ms.
 npm run sim:connect4                  # the full game, against staging
 npm run sim:connect4 -- --quick       # skip filling all 250 cells
 npm run sim:connect4 -- --seed 7 --keep
+npm run drill:connect4                # every notable path through the REAL Dink consumer:
+                                      #   mixed Volition/visitor roster, group + qty +
+                                      #   copies tiles, manual credits, race/undo/guards,
+                                      #   delete-cleans-everything — 49 checks, self-cleaning
 npm run demo:connect4                 # leaves a playable board behind
 npm run demo:connect4 -- --phase setup --slug c4-setup-demo
 npm run demo:connect4 -- --delete

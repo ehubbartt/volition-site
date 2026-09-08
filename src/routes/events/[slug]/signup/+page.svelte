@@ -24,6 +24,9 @@
 	const canEdit = $derived(win.open && (!signedUp || !!ev?.form.allowEdits));
 	const count = $derived(payload?.kind === 'ok' ? payload.signedUpCount : 0);
 	const names = $derived(payload?.kind === 'ok' ? payload.names : []);
+	// The two camps. A members-only signup has no visitors and renders one flat list.
+	const volitionNames = $derived(names.filter((n) => n.volition).map((n) => n.rsn));
+	const visitorNames = $derived(names.filter((n) => !n.volition).map((n) => n.rsn));
 	const viewerIsAdmin = $derived(payload?.kind === 'ok' && payload.isAdmin);
 
 	const fieldErrors = $derived<Record<string, string>>(
@@ -176,9 +179,26 @@
 	{#if names.length}
 		<section class="osrs-panel">
 			<h2 class="osrs-titlebar">Who's in ({names.length})</h2>
-			<ul class="names">
-				{#each names as n, i (`${n}-${i}`)}<li>{n}</li>{/each}
-			</ul>
+			{#if visitorNames.length && volitionNames.length}
+				<div class="camps">
+					<div class="camp">
+						<h3>Volition ({volitionNames.length})</h3>
+						<ul class="names">
+							{#each volitionNames as n, i (`${n}-${i}`)}<li>{n}</li>{/each}
+						</ul>
+					</div>
+					<div class="camp">
+						<h3>Visitors ({visitorNames.length})</h3>
+						<ul class="names">
+							{#each visitorNames as n, i (`${n}-${i}`)}<li>{n}</li>{/each}
+						</ul>
+					</div>
+				</div>
+			{:else}
+				<ul class="names">
+					{#each names as n, i (`${n.rsn}-${i}`)}<li>{n.rsn}</li>{/each}
+				</ul>
+			{/if}
 		</section>
 	{/if}
 </div>
@@ -227,4 +247,13 @@
 
 	.names { list-style: none; margin: 0; padding: 0; columns: 3; font-size: 0.85rem; }
 	@media (max-width: 640px) { .names { columns: 2; } }
+
+	.camps { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+	.camp h3 { font-family: var(--font-heading); font-size: 0.9rem; color: var(--heading);
+	           margin: 0 0 0.4rem; text-shadow: var(--ts); }
+	.camp .names { columns: 2; }
+	@media (max-width: 640px) {
+		.camps { grid-template-columns: 1fr; }
+		.camp .names { columns: 2; }
+	}
 </style>

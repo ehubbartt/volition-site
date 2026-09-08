@@ -44,6 +44,9 @@ export const actions: Actions = {
 			name,
 			description: String(form.get('description') ?? '').trim() || null,
 			ownerUserId: locals.user.id,
+			// Board size — createConnect4 clamps to its sane bounds.
+			cols: num('cols', 25),
+			rows: num('rows', 10),
 			sideNames: [
 				String(form.get('side1') ?? '').trim() || 'Red',
 				String(form.get('side2') ?? '').trim() || 'Yellow'

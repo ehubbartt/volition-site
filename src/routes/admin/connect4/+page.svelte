@@ -8,8 +8,9 @@
 <div class="page">
 	<h1>Connect Four</h1>
 	<p class="lead">
-		A shared 25×10 board. Both clans chase the same 25 boss drops; the first team to get one
-		claims that column and a piece falls into place. Connect four (or more) to score.
+		A shared board (classically 25×10). Both clans chase the same objectives — one per
+		column; the first team to get one claims it and a piece falls into place. Connect four
+		(or more) to score.
 	</p>
 
 	{#if form?.error}<p class="err">{form.error}</p>{/if}
@@ -32,7 +33,7 @@
 								{#if g.test}<span class="osrs-badge">test</span>{/if}
 							</td>
 							<td>{g.phase}</td>
-							<td>{g.pieces} / 250</td>
+							<td>{g.pieces} / {g.deckSize}</td>
 							<td class="right">
 								{#if g.test}
 									<form method="POST" action="?/remove" use:enhance>
@@ -60,15 +61,27 @@
 			<label>Side 2 name <input name="side2" value="Yellow" /></label>
 
 			<p class="wide sub">
-				Scoring — retunable later, and applied to the whole board when you change it.
-				Set <em>points per tile</em> to 0 to score connect-fours only.
+				Board size — fixed once created. The pool needs one tile per cell, so a bigger
+				board needs more candidates (add custom tasks if the generated list runs short).
 			</p>
-			<label>Points per tile <input name="tile_points" type="number" value={data.defaults.tile_points} /></label>
-			<label>Connect 4 <input name="line_4" type="number" value={data.defaults.line_points[0].points} /></label>
-			<label>Run of 5 <input name="line_5" type="number" value={data.defaults.line_points[1].points} /></label>
-			<label>Run of 6 <input name="line_6" type="number" value={data.defaults.line_points[2].points} /></label>
-			<label>Run of 7 <input name="line_7" type="number" value={data.defaults.line_points[3].points} /></label>
-			<label>Each cell past 7 <input name="extra_per_cell" type="number" value={data.defaults.extra_per_cell} /></label>
+			<label>Columns (5–40) <input name="cols" type="number" min="5" max="40" value="25" /></label>
+			<label>Rows (4–15) <input name="rows" type="number" min="4" max="15" value="10" /></label>
+
+			<details class="wide fold">
+				<summary>Scoring — the defaults are fine, and every dial is retunable later (even mid-game)</summary>
+				<div class="grid">
+					<p class="wide sub">
+						Applied to the whole board whenever changed. Set <em>points per tile</em> to 0 to
+						score connect-fours only.
+					</p>
+					<label>Points per tile <input name="tile_points" type="number" value={data.defaults.tile_points} /></label>
+					<label>Connect 4 <input name="line_4" type="number" value={data.defaults.line_points[0].points} /></label>
+					<label>Run of 5 <input name="line_5" type="number" value={data.defaults.line_points[1].points} /></label>
+					<label>Run of 6 <input name="line_6" type="number" value={data.defaults.line_points[2].points} /></label>
+					<label>Run of 7 <input name="line_7" type="number" value={data.defaults.line_points[3].points} /></label>
+					<label>Each cell past 7 <input name="extra_per_cell" type="number" value={data.defaults.extra_per_cell} /></label>
+				</div>
+			</details>
 
 			<label class="check wide">
 				<input type="checkbox" name="test" checked /> Test game — deletable, and it refuses real Dink drops
@@ -119,6 +132,21 @@
 		margin: 0.4rem 0 0;
 		color: var(--muted);
 		font-size: 0.85rem;
+	}
+	.fold {
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 0.4rem 0.6rem;
+		background: var(--surface-alt);
+	}
+	.fold > summary {
+		cursor: pointer;
+		font-size: 0.85rem;
+		color: var(--muted);
+	}
+	.fold[open] > summary {
+		color: var(--heading);
+		margin-bottom: 0.4rem;
 	}
 	.right {
 		text-align: right;

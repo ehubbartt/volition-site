@@ -45,7 +45,10 @@
   initial })`: polls the token, fires `onChange` only when it moves, pauses on hidden tabs
   (immediate poll on return), backs off ×2 to 30s on errors, and re-baselines if the page
   navigates to a different event without a remount. `initial` is the token computed with
-  the page payload, so a change landing between render and first poll is still caught.
+  the page payload, so a change landing between render and first poll is still caught —
+  pass a GETTER on instant-nav pages whose payload arrives after init (it is consulted at
+  baseline time, and again on an id change). Skipping it makes the first poll the
+  baseline, which silently absorbs any change that landed before it.
 - **First consumer:** the admin Connect Four board — the old 10s blind `invalidateAll`
   interval is now a 3s version poll that refetches only on change, behind the same
   auto-refresh checkbox and replay guard. Manual claims, undo and simulated drops move the
@@ -232,7 +235,7 @@ export function liveEvent(eventId: string | (() => string), opts: {
   onChange: () => void | Promise<void>;
   intervalMs?: number;   // default 3000
   paused?: () => boolean;
-  initial?: string;      // token computed with the page payload (baseline)
+  initial?: string | (() => string | undefined); // payload token (getter for async payloads)
 }): void
 ```
 

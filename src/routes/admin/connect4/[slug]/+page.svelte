@@ -8,7 +8,6 @@
 	import WikiImage from '$lib/WikiImage.svelte';
 	import { itemImageUrl, monsterImageUrl } from '$lib/wikiImage';
 	import {
-		ROWS,
 		cellId,
 		cellLabel,
 		columnCounts,
@@ -161,7 +160,8 @@
 	 */
 	function creditOptimistically(col: number, side: number): string | null {
 		// Against the MERGED board, so a rapid second click stacks rather than colliding.
-		const row = landingRow(columnCounts(boardPieces), col);
+		const size = { cols: game.cols, rows: game.rows };
+		const row = landingRow(columnCounts(boardPieces, size), col, size);
 		if (row === null) return null;
 		const tile = liveTiles[col]?.tile;
 		const id = `pending:${++pendingSeq}`;
@@ -170,7 +170,7 @@
 			col,
 			row,
 			side: side as 1 | 2,
-			deck_idx: col * ROWS + row,
+			deck_idx: col * game.rows + row,
 			item_id: tile?.item_id ?? null,
 			item_name: tile?.item_name ?? null,
 			source: tile?.source ?? null,
@@ -282,6 +282,10 @@
 			itemName: h.tile.tile.item_name,
 			source: h.tile.tile.source,
 			ehb: h.tile.tile.ehb,
+			anyOf: h.tile.tile.any_of?.map((m) => m.item_name) ?? null,
+			qty: h.tile.tile.qty ?? null,
+			progress: h.tile.progress ?? null,
+			sideNames: game.sides.map((s) => s.name),
 			where: `column ${columnLabel(h.tile.col)}`,
 			x: h.x,
 			y: h.y
@@ -306,28 +310,86 @@
 	let selectedOnly = $state(false);
 	let poolPicked = $state<Set<number>>(new Set());
 
-	// What the event has actually SAVED. The ticks start from this — otherwise auto-fill
-	// (which saves straight away) leaves a list where nothing looks chosen, and the save
-	// button reads "Use these 0 tiles".
+	/**
+	 * Remove a hand-added custom task. A ✕ inside the curation <label> can't be its own
+	 * <form> (forms don't nest), so this posts the action directly and refreshes.
+	 */
+	async function removeCustom(itemId: number) {
+		const body = new FormData();
+		body.set('itemId', String(itemId));
+		await fetch('?/removeCustom', { method: 'POST', body });
+		const next = new Set(poolPicked);
+		next.delete(itemId);
+		poolPicked = next;
+		await invalidateAll();
+	}
+
+	// Per-tile knobs, editable in the list: qty = drops one side needs to claim ONE tile;
+	// copies = how many deck slots the tile occupies (each copy its own race). Kept as
+	// state — the visible inputs only exist for rows on screen, so uncontrolled fields
+	// would silently reset a knob the moment its row was filtered out of view; hidden
+	// inputs below submit the maps for EVERY ticked tile instead.
+	let poolQty = $state<Map<number, number>>(new Map());
+	let poolCopies = $state<Map<number, number>>(new Map());
+	const setKnob = (map: Map<number, number>, id: number, v: number, max: number) => {
+		const next = new Map(map);
+		next.set(id, Math.min(max, Math.max(1, Math.round(v) || 1)));
+		return next;
+	};
+
+	// What the event has actually SAVED. The ticks (and knobs) start from this —
+	// otherwise auto-fill (which saves straight away) leaves a list where nothing looks
+	// chosen, and the save button reads "Use these 0 tiles". Copies are how often an
+	// item repeats in the saved pool.
 	const savedIds = $derived(new Set(game.pool.map((t) => t.item_id)));
 	let handledPool = '';
 	$effect(() => {
-		const key = [...savedIds].sort((a, b) => a - b).join(',');
+		const key = game.pool.map((t) => `${t.item_id}:${t.qty ?? 1}`).join(',');
 		if (key === handledPool) return;
 		handledPool = key;
 		poolPicked = new Set(savedIds);
+		const qty = new Map<number, number>();
+		const copies = new Map<number, number>();
+		for (const t of game.pool) {
+			qty.set(t.item_id, t.qty ?? 1);
+			copies.set(t.item_id, (copies.get(t.item_id) ?? 0) + 1);
+		}
+		poolQty = qty;
+		poolCopies = copies;
 	});
-	// Whether the ticks differ from what is saved, so the button can say which it is.
-	const poolDirty = $derived(
-		poolPicked.size !== savedIds.size || [...poolPicked].some((id) => !savedIds.has(id))
+
+	/** Deck slots the current selection fills — copies included. */
+	const pickedTotal = $derived(
+		[...poolPicked].reduce((sum, id) => sum + (poolCopies.get(id) ?? 1), 0)
 	);
+	// Whether the selection differs from what is saved (ticks, quantities or copies).
+	const poolDirty = $derived.by(() => {
+		const saved = new Map<number, { q: number; c: number }>();
+		for (const t of game.pool) {
+			const cur = saved.get(t.item_id);
+			saved.set(t.item_id, { q: t.qty ?? 1, c: (cur?.c ?? 0) + 1 });
+		}
+		if (saved.size !== poolPicked.size) return true;
+		for (const id of poolPicked) {
+			const s = saved.get(id);
+			if (!s) return true;
+			if ((poolQty.get(id) ?? 1) !== s.q || (poolCopies.get(id) ?? 1) !== s.c) return true;
+		}
+		return false;
+	});
 
 	const shownCandidates = $derived(
 		data.candidates.filter((c) => {
 			if (selectedOnly && !poolPicked.has(c.item_id)) return false;
 			if (!poolFilter) return true;
 			const q = poolFilter.toLowerCase();
-			return c.item_name.toLowerCase().includes(q) || (c.source ?? '').toLowerCase().includes(q);
+			return (
+				c.item_name.toLowerCase().includes(q) ||
+				(c.source ?? '').toLowerCase().includes(q) ||
+				// Every boss that drops the item, so "mad angel" also finds the shared
+				// rare-table items whose cheapest source is some other boss.
+				(c.sources ?? []).some((s: string) => s.toLowerCase().includes(q))
+			);
 		})
 	);
 	function togglePool(id: number) {
@@ -335,6 +397,17 @@
 		if (next.has(id)) next.delete(id);
 		else next.add(id);
 		poolPicked = next;
+	}
+	// Drops multiplier for a ticked tile — its EFFECTIVE difficulty is ehb × drops, and
+	// the list shows that live so setting drops to 2 visibly doubles the hours.
+	const pickedQtyOf = (c: { item_id: number }) =>
+		poolPicked.has(c.item_id) ? (poolQty.get(c.item_id) ?? 1) : 1;
+	// Untick everything (knobs too) to start the pick over. Client-side only — the saved
+	// pool is untouched until Save, and a reload brings the saved selection back.
+	function clearPool() {
+		poolPicked = new Set();
+		poolQty = new Map();
+		poolCopies = new Map();
 	}
 
 	// A shared race-y board goes stale the moment the other clan gets a drop, so unlike
@@ -373,7 +446,11 @@
 		</div>
 		<div class="head-right">
 			<span class="osrs-badge">{game.phase}</span>
+			<span class="osrs-badge">{game.cols}×{game.rows}</span>
 			{#if game.test}<span class="osrs-badge test">test</span>{/if}
+			<a class="export" href="/admin/connect4/{game.slug}/export.csv" download title="The whole tile list as a spreadsheet">
+				⤓ Export CSV
+			</a>
 			<button type="button" onclick={refresh}>Refresh</button>
 			{#if refreshedAt}<span class="muted tiny">updated {refreshedAt}</span>{/if}
 		</div>
@@ -392,12 +469,61 @@
 		</p>
 	{/if}
 	{#if form?.pooled}<p class="ok">Tile pool saved — {form.pooled} tiles chosen.</p>{/if}
+	{#if form?.customAdded}
+		<p class="ok">
+			Added the custom task “{form.customAdded}”{#if form.customMembers} ({form.customMembers} qualifying items){/if} — tick it into the pool below.
+		</p>
+	{/if}
+	{#if form?.customRemoved}<p class="ok">Custom task removed.</p>{/if}
+	{#if form?.optsSaved}<p class="ok">Generator filters saved.</p>{/if}
 	{#if form?.undone}
 		<p class="ok">
 			Removed the piece{typeof form.undone === 'string' ? ` at ${cellLabel(form.undone)}` : ''}.
 		</p>
 	{/if}
 	{#if form?.resynced}<p class="ok">Allowlist resynced ({form.resynced.added} added, {form.resynced.removed} removed).</p>{/if}
+
+	<!-- ── the setup path, spelled out ───────────────────────────────────── -->
+	{#if game.phase === 'setup'}
+		<section class="osrs-panel">
+			<div class="osrs-titlebar">Three steps to a running game</div>
+			<div class="pad steps">
+				<a class="step" class:done={data.poolCount === data.deckSize} href="#pool">
+					<span class="step-n">{data.poolCount === data.deckSize ? '✓' : '1'}</span>
+					<span>
+						<strong>Choose the tiles</strong>
+						<span class="muted tiny">
+							{data.poolCount} / {data.deckSize} chosen — quickest: 🎲 Random fill below, then
+							swap out what you don't like.
+						</span>
+					</span>
+				</a>
+				<a class="step" class:done={members.length > 0} href="#teams">
+					<span class="step-n">{members.length > 0 ? '✓' : '2'}</span>
+					<span>
+						<strong>Seat the players</strong>
+						<span class="muted tiny">
+							{members.length
+								? `${members.length} seated`
+								: 'One click: “Seat everyone from…” splits a clan-vs-clan roster for you.'}
+						</span>
+					</span>
+				</a>
+				<div class="step">
+					<span class="step-n">3</span>
+					<span>
+						<strong>Start</strong>
+						<span class="muted tiny">Deals the deck and opens Dink tracking.</span>
+						<form method="POST" action="?/start" use:enhance>
+							<button type="submit" disabled={data.poolCount !== data.deckSize || !members.length}>
+								Deal the deck and start
+							</button>
+						</form>
+					</span>
+				</div>
+			</div>
+		</section>
+	{/if}
 
 	<!-- ── standings ─────────────────────────────────────────────────────── -->
 	<section class="scores">
@@ -426,8 +552,7 @@
 		<div class="pad">
 			{#if game.phase === 'setup'}
 				<p class="muted">
-					The board opens when the game starts. Curate {data.deckSize} tiles and put at least one
-					member on a side first.
+					The board opens when the game starts — follow the three steps above.
 				</p>
 			{:else}
 				<div class="playbar">
@@ -465,37 +590,47 @@
 					</span>
 				</div>
 
-				{#if view === '3d'}
-					<Connect4Board3D
-						pieces={boardPieces}
-						live={liveTiles}
-						{claiming}
-						sideColors={game.sides.map((s) => s.color)}
-						{runCells}
-						revealed={playback.revealed}
-						falling={playback.falling}
-						{selected}
-						onselect={(c) => (selected = selected === c ? null : c)}
-						onhover={set3dHover}
-					/>
-				{:else}
-					<Connect4Board
-						pieces={boardPieces}
-						live={liveTiles}
-						{claiming}
-						sideColors={game.sides.map((s) => s.color)}
-						sideNames={game.sides.map((s) => s.name)}
-						{runCells}
-						revealed={playback.revealed}
-						falling={playback.falling}
-						{selected}
-						onselect={(c) => (selected = selected === c ? null : c)}
-					/>
-				{/if}
+				{#key game.id}
+					{#if view === '3d'}
+						<Connect4Board3D
+							pieces={boardPieces}
+							live={liveTiles}
+							cols={game.cols}
+							rows={game.rows}
+							{claiming}
+							sideColors={game.sides.map((s) => s.color)}
+							{runCells}
+							revealed={playback.revealed}
+							falling={playback.falling}
+							{selected}
+							onselect={(c) => (selected = selected === c ? null : c)}
+							onhover={set3dHover}
+						/>
+					{:else}
+						<Connect4Board
+							pieces={boardPieces}
+							live={liveTiles}
+							cols={game.cols}
+							rows={game.rows}
+							{claiming}
+							sideColors={game.sides.map((s) => s.color)}
+							sideNames={game.sides.map((s) => s.name)}
+							{runCells}
+							revealed={playback.revealed}
+							falling={playback.falling}
+							{selected}
+							onselect={(c) => (selected = selected === c ? null : c)}
+						/>
+					{/if}
+				{/key}
 
 				{#if selectedTile}
 					<div class="tile-detail">
-						<WikiImage src={itemImageUrl(selectedTile.tile.item_name)} alt="" size={40} />
+						<WikiImage
+							src={itemImageUrl(selectedTile.tile.any_of?.[0]?.item_name ?? selectedTile.tile.item_name)}
+							alt=""
+							size={40}
+						/>
 						<div>
 							<strong>{columnLabel(selectedTile.col)} — {selectedTile.tile.item_name}</strong>
 							<div class="muted tiny">
@@ -504,7 +639,19 @@
 									{selectedTile.tile.source}
 								{/if}
 								{#if selectedTile.tile.ehb} · {formatEhb(selectedTile.tile.ehb)} to obtain{/if}
+								{#if selectedTile.tile.qty && selectedTile.tile.qty > 1}
+									· first side to {selectedTile.tile.qty} drops
+									{#if selectedTile.progress}
+										({game.sides[0]?.name} {selectedTile.progress[1]}/{selectedTile.tile.qty},
+										{game.sides[1]?.name} {selectedTile.progress[2]}/{selectedTile.tile.qty})
+									{/if}
+								{/if}
 							</div>
+							{#if selectedTile.tile.any_of?.length}
+								<div class="muted tiny">
+									any of: {selectedTile.tile.any_of.map((m) => m.item_name).join(', ')}
+								</div>
+							{/if}
 						</div>
 						{#if game.phase === 'live'}
 							<form
@@ -563,45 +710,171 @@
 
 	<!-- ── setup: the tile pool ──────────────────────────────────────────── -->
 	{#if game.phase === 'setup'}
-		<section class="osrs-panel">
-			<div class="osrs-titlebar">Tile pool — {data.poolCount} / {data.deckSize} chosen</div>
+		<section class="osrs-panel" id="pool">
+			<div class="osrs-titlebar">Step 1 · Tile pool — {data.poolCount} / {data.deckSize} chosen</div>
 			<div class="pad">
 				<p class="muted tiny">
-					One curated tile per cell of the board. They're dealt into a shuffled deck when the game
-					starts: each column gets its own slice, and claiming the tile on top reveals the next one.
+					One tile per cell, dealt into a shuffled deck at start. <strong>Quickest path:</strong>
+					hit a fill button, then use the filter box to find and swap anything you don't like.
 				</p>
 				<div class="row">
 					<form method="POST" action="?/autoPool" use:enhance>
 						<button type="submit">Auto-fill {data.deckSize} across the difficulty range</button>
+					</form>
+					<form method="POST" action="?/randomPool" use:enhance>
+						<button type="submit" title="Same difficulty spread, different tiles every roll">
+							🎲 Random fill
+						</button>
 					</form>
 					<input placeholder="Filter items or bosses…" bind:value={poolFilter} />
 					<label class="tiny check">
 						<input type="checkbox" bind:checked={selectedOnly} /> chosen only
 					</label>
 					<span class="muted tiny">
-						{poolPicked.size} ticked
+						{pickedTotal} ticked
 						{#if poolDirty}<strong class="unsaved">· unsaved</strong>{/if}
 					</span>
+					{#if poolPicked.size}
+						<button
+							type="button"
+							class="clear-all"
+							title="Untick every selected tile (nothing is saved until you hit Save — reload to get the saved selection back)"
+							onclick={clearPool}
+						>✕ Clear all</button>
+					{/if}
 				</div>
+
+				<!-- What the generator OFFERS below (and what auto/random fill draws from).
+				     Stored on the game; tightening these never invalidates already-ticked
+				     tiles, because saving validates against the unfiltered universe. -->
+				<details class="fold">
+					<summary>Generator filters — min/max EHB, pets, jars</summary>
+					<form method="POST" action="?/poolOpts" class="row filters" use:enhance>
+					<span class="muted tiny">Generate:</span>
+					<label class="tiny">min EHB
+						<input name="min_ehb" type="number" step="0.1" min="0" value={game.poolOpts.min_ehb || ''} placeholder="0" class="ehb-in" />
+					</label>
+					<label class="tiny">max EHB
+						<input name="max_ehb" type="number" step="0.1" min="0" value={game.poolOpts.max_ehb ?? ''} placeholder="∞" class="ehb-in" />
+					</label>
+					<label class="tiny check"><input type="checkbox" name="pets" checked={game.poolOpts.pets} /> pets</label>
+					<label class="tiny check"><input type="checkbox" name="jars" checked={game.poolOpts.jars} /> jars</label>
+					<button type="submit">Apply filters</button>
+					<span class="muted tiny">{data.candidates.length} candidates offered</span>
+					</form>
+				</details>
+
+				<!-- Anything the generated list doesn't offer. A plain custom is matched by
+				     NAME (exactly what Dink reports); pick sources or list items to make a
+				     GROUP tile ("Any CoX purple") that any of them satisfies. -->
+				<details class="fold">
+					<summary>＋ Custom & group tiles — “any raids purple”, off-list items, multi-drop tasks</summary>
+					<form method="POST" action="?/addCustom" class="custom-form" use:enhance>
+					<div class="row">
+						<input name="item_name" placeholder="Task name — exact item, or a label like “Any CoX purple”" required />
+						<input name="source" placeholder="Boss / source (display)" />
+						<input name="ehb" type="number" step="0.1" min="0" placeholder="EHB (opt.)" class="ehb-in" />
+						<label class="tiny qty-label" title="The first side to land this many qualifying drops claims the tile. 1 = first drop wins.">
+							drops needed <input name="qty" type="number" min="1" max="99" value="1" class="qty-in" />
+						</label>
+						<button type="submit">＋ Add task</button>
+					</div>
+					<div class="row">
+						<label class="tiny">
+							any drop from — ctrl-click several (all three raid chests = “any raids purple”)
+							<select name="any_of_source" multiple size="5">
+								{#each data.groupSources as src (src)}<option value={src}>{src}</option>{/each}
+							</select>
+						</label>
+						<input
+							name="any_of_items"
+							class="grow"
+							placeholder="…and/or qualifying items, comma-separated (Dex scroll, Arcane prayer scroll, …)"
+						/>
+						<span class="muted tiny">
+							Group tiles are claimed by any listed item; “drops needed” above N means the
+							first side to land N qualifying drops takes the tile.
+						</span>
+					</div>
+					</form>
+				</details>
 
 				<form method="POST" action="?/setPool" use:enhance>
 					<!-- The selection travels as hidden inputs, NOT as the visible checkboxes:
-					     the list is filtered and capped, so submitting only what happens to be
-					     on screen would quietly drop every chosen tile scrolled or filtered out
-					     of view. -->
-					{#each [...poolPicked] as id (id)}<input type="hidden" name="itemId" value={id} />{/each}
+					     the list is filterable, so submitting only what happens to be on screen
+					     would quietly drop every chosen tile filtered out of view. -->
+					{#each [...poolPicked] as id (id)}
+						<input type="hidden" name="itemId" value={id} />
+						<input type="hidden" name="qty_{id}" value={poolQty.get(id) ?? 1} />
+						<input type="hidden" name="copies_{id}" value={poolCopies.get(id) ?? 1} />
+					{/each}
+
+					<p class="muted tiny knob-legend">
+						Each ticked tile has two fields — <strong>drops</strong>: the first side to land
+						that many of the drop claims the tile (1 = first drop wins; the tile's effective
+						hours multiply to match, shown in yellow) · <strong>copies</strong>: puts the tile
+						in that many board cells, each claimed separately. Leave both at 1 for a normal
+						tile.
+					</p>
 
 					<div class="candidates">
-						{#each shownCandidates.slice(0, 400) as c (c.item_id)}
-							<label class="cand" class:on={poolPicked.has(c.item_id)}>
+						<!-- The whole filtered universe renders — no cap, so "everything this boss
+						     drops" is really everything. Small enough (~350 items) to be cheap. -->
+						{#each shownCandidates as c (c.item_id)}
+							<label class="cand" class:on={poolPicked.has(c.item_id)} class:custom={c.item_id < 0}>
 								<input
 									type="checkbox"
 									checked={poolPicked.has(c.item_id)}
 									onchange={() => togglePool(c.item_id)}
 								/>
-								<WikiImage src={itemImageUrl(c.item_name)} alt="" size={22} />
+								<WikiImage src={itemImageUrl(c.any_of?.[0]?.item_name ?? c.item_name)} alt="" size={22} />
 								<span class="cand-name">{c.item_name}</span>
-								<span class="muted tiny">{c.source} · {formatEhb(c.ehb)}</span>
+								<span
+									class="muted tiny"
+									title={c.any_of?.map((m: { item_name: string }) => m.item_name).join(', ') ??
+										((c.sources?.length ?? 0) > 1
+											? `Also drops from: ${c.sources!.join(', ')}`
+											: undefined)}
+								>
+									{#if c.item_id < 0}custom · {/if}{#if c.any_of?.length}any of {c.any_of.length} · {/if}{c.source ?? '—'}{#if (c.sources?.length ?? 0) > 1}&nbsp;+{c.sources!.length - 1}{/if}{#if c.ehb} · {formatEhb(c.ehb)}{#if pickedQtyOf(c) > 1}<strong class="eff-ehb" title="Effective difficulty with the drops knob: {formatEhb(c.ehb)} × {pickedQtyOf(c)} drops"> → {formatEhb(c.ehb * pickedQtyOf(c))}</strong>{/if}{/if}
+								</span>
+								{#if poolPicked.has(c.item_id)}
+									<span class="knobs">
+										<label class="knob" title="Drops needed — the first side to land this many qualifying drops claims the tile. 1 = first drop wins.">
+											<span class="k-lab">drops</span>
+											<input
+												type="number"
+												class="qty-in"
+												min="1"
+												max="99"
+												value={poolQty.get(c.item_id) ?? (c.qty && c.qty > 1 ? c.qty : 1)}
+												oninput={(e) => (poolQty = setKnob(poolQty, c.item_id, Number(e.currentTarget.value), 99))}
+											/>
+										</label>
+										<label class="knob" title="Copies — put this tile in that many cells of the board; each copy is claimed separately.">
+											<span class="k-lab">copies</span>
+											<input
+												type="number"
+												class="qty-in"
+												min="1"
+												max="20"
+												value={poolCopies.get(c.item_id) ?? 1}
+												oninput={(e) => (poolCopies = setKnob(poolCopies, c.item_id, Number(e.currentTarget.value), 20))}
+											/>
+										</label>
+									</span>
+								{/if}
+								{#if c.item_id < 0}
+									<button
+										type="button"
+										class="danger tiny cand-x"
+										title="Remove this custom task"
+										onclick={(e) => {
+											e.preventDefault();
+											removeCustom(c.item_id);
+										}}
+									>✕</button>
+								{/if}
 							</label>
 						{:else}
 							<p class="muted tiny pad">
@@ -612,18 +885,18 @@
 					{#if shownCandidates.length > 400}
 						<p class="muted tiny">Showing the first 400 of {shownCandidates.length} — filter to narrow.</p>
 					{/if}
-					<button type="submit" disabled={poolPicked.size !== data.deckSize || !poolDirty}>
-						{#if !poolDirty && poolPicked.size === data.deckSize}
+					<button type="submit" disabled={pickedTotal !== data.deckSize || !poolDirty}>
+						{#if !poolDirty && pickedTotal === data.deckSize}
 							Saved — {data.deckSize} tiles ready
 						{:else}
-							Save these {poolPicked.size} tiles
+							Save these {pickedTotal} tiles
 						{/if}
 					</button>
-					{#if poolPicked.size !== data.deckSize}
+					{#if pickedTotal !== data.deckSize}
 						<span class="muted tiny">
-							{poolPicked.size < data.deckSize
-								? `${data.deckSize - poolPicked.size} more to pick`
-								: `${poolPicked.size - data.deckSize} too many`}
+							{pickedTotal < data.deckSize
+								? `${data.deckSize - pickedTotal} more to pick`
+								: `${pickedTotal - data.deckSize} too many`}
 						</span>
 					{/if}
 				</form>
@@ -632,8 +905,8 @@
 	{/if}
 
 	<!-- ── teams ─────────────────────────────────────────────────────────── -->
-	<section class="osrs-panel">
-		<div class="osrs-titlebar">Teams</div>
+	<section class="osrs-panel" id="teams">
+		<div class="osrs-titlebar">{game.phase === 'setup' ? 'Step 2 · Teams' : 'Teams'}</div>
 		<div class="pad">
 			<!-- CLAN VS CLAN: no draft, the sides were decided before anyone signed up. -->
 			<form method="POST" action="?/seatByClan" use:enhance class="seat">
@@ -736,14 +1009,10 @@
 	</section>
 
 	<!-- ── running the game ──────────────────────────────────────────────── -->
+	{#if game.phase !== 'setup'}
 	<section class="osrs-panel">
 		<div class="osrs-titlebar">Run the game</div>
 		<div class="pad row wrap">
-			{#if game.phase === 'setup'}
-				<form method="POST" action="?/start" use:enhance>
-					<button type="submit">Deal the deck and start</button>
-				</form>
-			{/if}
 			{#if game.phase === 'live'}
 				<form method="POST" action="?/simulate" use:enhance class="inline">
 					<label class="tiny">
@@ -777,10 +1046,11 @@
 			<label class="tiny check"><input type="checkbox" bind:checked={polling} /> auto-refresh</label>
 		</div>
 	</section>
+	{/if}
 
 	<!-- ── scoring ───────────────────────────────────────────────────────── -->
 	<section class="osrs-panel">
-		<div class="osrs-titlebar">Scoring</div>
+		<div class="osrs-titlebar">Scoring — optional, retunable any time (even mid-game)</div>
 		<form method="POST" action="?/scoring" use:enhance class="pad grid">
 			<p class="wide muted tiny">
 				Changing these re-scores the whole board immediately — the standings are always recomputed
@@ -1018,9 +1288,15 @@
 	}
 	.cand-name {
 		flex: 1;
+		/* Never let the labelled knobs squeeze the item name to nothing — the row
+		   wraps and the knobs take their own line instead. */
+		min-width: 8rem;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.cand {
+		flex-wrap: wrap;
 	}
 	.pill {
 		font-size: 0.7rem;
@@ -1061,6 +1337,143 @@
 	}
 	.danger {
 		color: var(--danger);
+	}
+	.export {
+		font-size: 0.8rem;
+		color: var(--accent);
+	}
+	.custom-form {
+		display: grid;
+		gap: 0.4rem;
+		margin: 0.5rem 0;
+	}
+	.custom-form input[name='item_name'] {
+		min-width: 18rem;
+	}
+	.custom-form .grow {
+		flex: 1;
+		min-width: 16rem;
+	}
+	.ehb-in {
+		width: 6.5rem;
+	}
+	.qty-label {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.15rem;
+	}
+	.qty-in {
+		width: 3.6rem;
+		min-height: 0;
+		padding: 0.15rem 0.3rem;
+	}
+	.steps {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+		gap: 0.75rem;
+	}
+	.step {
+		display: flex;
+		gap: 0.6rem;
+		align-items: flex-start;
+		padding: 0.6rem 0.7rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--surface-alt);
+		color: inherit;
+		text-decoration: none;
+	}
+	.step.done {
+		border-color: var(--success);
+	}
+	.step.done .step-n {
+		background: var(--success);
+		color: #000;
+	}
+	.step-n {
+		flex: none;
+		width: 1.5rem;
+		height: 1.5rem;
+		border-radius: 50%;
+		background: var(--accent);
+		color: #000;
+		font-weight: 700;
+		display: grid;
+		place-items: center;
+	}
+	.step > span:last-child {
+		display: grid;
+		gap: 0.25rem;
+	}
+	.fold {
+		margin: 0.5rem 0;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 0.35rem 0.6rem;
+		background: var(--surface-alt);
+	}
+	.fold > summary {
+		cursor: pointer;
+		font-size: 0.82rem;
+		color: var(--muted);
+	}
+	.fold[open] > summary {
+		color: var(--heading);
+		margin-bottom: 0.4rem;
+	}
+	.knobs {
+		margin-left: auto;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.75rem;
+		color: var(--muted);
+	}
+	.knob {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		cursor: help;
+	}
+	.k-lab {
+		font-size: 0.6rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+	.knobs .qty-in {
+		width: 3rem;
+	}
+	.clear-all {
+		min-height: 0;
+		padding: 0.15rem 0.5rem;
+		font-size: 0.75rem;
+		color: var(--muted);
+	}
+	.clear-all:hover {
+		color: var(--danger);
+	}
+	.eff-ehb {
+		color: var(--yellow);
+		font-weight: 600;
+	}
+	.knob-legend {
+		margin: 0.5rem 0 0.25rem;
+	}
+	.knob-legend strong {
+		text-transform: uppercase;
+		font-size: 0.7rem;
+		letter-spacing: 0.05em;
+		color: var(--heading);
+	}
+	.cand.custom {
+		border-left: 3px solid var(--accent);
+	}
+	.cand-x {
+		border-image: none;
+		min-height: 0;
+		padding: 0 0.3rem;
+		background: none;
+		border: none;
 	}
 	.unsaved {
 		color: var(--yellow);

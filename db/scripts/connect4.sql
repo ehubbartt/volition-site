@@ -42,9 +42,34 @@ create table if not exists vs_connect4_pieces (
 create index if not exists vs_connect4_pieces_event on vs_connect4_pieces (event_id);
 create index if not exists vs_connect4_pieces_order on vs_connect4_pieces (event_id, claimed_at);
 
--- A column can hold at most ROWS pieces and a deck slot is used once. Both follow from
--- the unique index above given the application only ever writes the derived landing row,
--- but the check keeps a hand-written INSERT honest.
+-- Boards are sized per game (structure.connect4.size) since sizes became configurable,
+-- so the exact 25×10 bounds and the deck_idx arithmetic moved into the application —
+-- the database can't know a given event's rows. What remains is what is true for every
+-- size. Re-running this file upgrades an older install's stricter constraint in place.
 alter table vs_connect4_pieces drop constraint if exists vs_connect4_pieces_bounds;
 alter table vs_connect4_pieces add constraint vs_connect4_pieces_bounds
-	check (col >= 0 and col < 25 and row >= 0 and row < 10 and deck_idx = col * 10 + row);
+	check (col >= 0 and row >= 0 and deck_idx >= 0);
+
+-- ---------------------------------------------------------------------------
+-- Per-side progress toward QUANTITY tiles (tile.qty > 1): one row per qualifying
+-- drop, "first side to its Nth drop claims the tile". Same guard as the pieces:
+-- unique (event_id, drop_key) is what makes the reconcile pass's re-runs count a
+-- drop once, ever, no matter how many times it drains. Rows are keyed to the DECK
+-- SLOT (deck_idx), not the item, so the same item in two slots races separately.
+-- The Nth drop inserts its progress row and then claims the piece with the SAME
+-- drop_key; both tables' guards hold independently. Progress for a slot the other
+-- side claimed is left in place and simply never consulted again.
+-- ---------------------------------------------------------------------------
+create table if not exists vs_connect4_progress (
+	id          uuid primary key default gen_random_uuid(),
+	event_id    uuid not null references vs_events (id) on delete cascade,
+	deck_idx    int  not null check (deck_idx >= 0),
+	side        int  not null check (side in (1, 2)),
+	by_user_id  uuid references vs_users (id) on delete set null,
+	item_name   text,
+	drop_key    text not null,
+	created_at  timestamptz not null default now(),
+	unique (event_id, drop_key)
+);
+create index if not exists vs_connect4_progress_slot
+	on vs_connect4_progress (event_id, deck_idx, side);

@@ -1,10 +1,5 @@
 import type { SessionUser } from '$lib/server/auth';
-import {
-	DECK_SIZE,
-	loadConnect4,
-	redactSnapshot,
-	type Connect4Snapshot
-} from '$lib/server/connect4';
+import { loadConnect4, redactSnapshot, type Connect4Snapshot } from '$lib/server/connect4';
 import { maybeProcessDinkDrops } from '$lib/server/dinkDrops';
 import { liveVersion } from '$lib/server/liveVersion';
 import type { Connect4Scoring, LiveTile, Piece, Side } from '$lib/connect4/rules';
@@ -34,6 +29,8 @@ export interface Connect4View {
 	phase: Connect4Snapshot['phase'];
 	test: boolean;
 	scoring: Connect4Scoring;
+	cols: number;
+	rows: number;
 	startsAt: string | null;
 	endsAt: string | null;
 	sides: Connect4ViewSide[];
@@ -83,6 +80,8 @@ export async function buildConnect4Page(
 			phase: r.phase,
 			test: r.test,
 			scoring: r.scoring,
+			cols: r.cols,
+			rows: r.rows,
 			startsAt: r.startsAt,
 			endsAt: r.endsAt,
 			sides: r.sides.map((s) => ({
@@ -95,7 +94,7 @@ export async function buildConnect4Page(
 			live: r.live,
 			winner: r.winner,
 			full: r.full,
-			deckSize: DECK_SIZE,
+			deckSize: r.deckSize,
 			viewerSide
 		}
 	};

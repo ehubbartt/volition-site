@@ -169,6 +169,10 @@
 			itemName: h.tile.tile.item_name,
 			source: h.tile.tile.source,
 			ehb: h.tile.tile.ehb,
+			anyOf: h.tile.tile.any_of?.map((m) => m.item_name) ?? null,
+			qty: h.tile.tile.qty ?? null,
+			progress: h.tile.progress ?? null,
+			sideNames: game.sides.map((s) => s.name),
 			where: `column ${columnLabel(h.tile.col)}`,
 			x: h.x,
 			y: h.y
@@ -186,6 +190,10 @@
 	}
 	liveEvent(() => game?.id ?? '', {
 		onChange: refresh,
+		// The payload's own token baselines the poll (a getter, because the payload lands
+		// after init) — without it, a credit between render and the first poll became the
+		// baseline and the board sat stale until the NEXT change.
+		initial: () => (payload?.kind === 'ok' ? payload.live : undefined),
 		paused: () => !game || game.phase !== 'live' || playback.playing
 	});
 	onMount(() => {
@@ -314,35 +322,45 @@
 						</span>
 					</div>
 
-					{#if view === '3d'}
-						<Connect4Board3D
-							{pieces}
-							live={game.live}
-							sideColors={game.sides.map((s) => s.color)}
-							{runCells}
-							revealed={playback.revealed}
-							falling={playback.falling}
-							{selected}
-							onselect={(c) => (selected = selected === c ? null : c)}
-							onhover={set3dHover}
-						/>
-					{:else}
-						<Connect4Board
-							{pieces}
-							live={game.live}
-							sideColors={game.sides.map((s) => s.color)}
-							sideNames={game.sides.map((s) => s.name)}
-							{runCells}
-							revealed={playback.revealed}
-							falling={playback.falling}
-							{selected}
-							onselect={(c) => (selected = selected === c ? null : c)}
-						/>
-					{/if}
+					{#key game.id}
+						{#if view === '3d'}
+							<Connect4Board3D
+								{pieces}
+								live={game.live}
+								cols={game.cols}
+								rows={game.rows}
+								sideColors={game.sides.map((s) => s.color)}
+								{runCells}
+								revealed={playback.revealed}
+								falling={playback.falling}
+								{selected}
+								onselect={(c) => (selected = selected === c ? null : c)}
+								onhover={set3dHover}
+							/>
+						{:else}
+							<Connect4Board
+								{pieces}
+								live={game.live}
+								cols={game.cols}
+								rows={game.rows}
+								sideColors={game.sides.map((s) => s.color)}
+								sideNames={game.sides.map((s) => s.name)}
+								{runCells}
+								revealed={playback.revealed}
+								falling={playback.falling}
+								{selected}
+								onselect={(c) => (selected = selected === c ? null : c)}
+							/>
+						{/if}
+					{/key}
 
 					{#if selectedTile}
 						<div class="tile-detail">
-							<WikiImage src={itemImageUrl(selectedTile.tile.item_name)} alt="" size={40} />
+							<WikiImage
+								src={itemImageUrl(selectedTile.tile.any_of?.[0]?.item_name ?? selectedTile.tile.item_name)}
+								alt=""
+								size={40}
+							/>
 							<div>
 								<strong>{columnLabel(selectedTile.col)} — {selectedTile.tile.item_name}</strong>
 								<div class="muted tiny">
@@ -351,7 +369,19 @@
 										{selectedTile.tile.source}
 									{/if}
 									{#if selectedTile.tile.ehb} · {formatEhb(selectedTile.tile.ehb)} to obtain{/if}
+									{#if selectedTile.tile.qty && selectedTile.tile.qty > 1}
+										· first side to {selectedTile.tile.qty} drops
+										{#if selectedTile.progress}
+											({game.sides[0]?.name} {selectedTile.progress[1]}/{selectedTile.tile.qty},
+											{game.sides[1]?.name} {selectedTile.progress[2]}/{selectedTile.tile.qty})
+										{/if}
+									{/if}
 								</div>
+								{#if selectedTile.tile.any_of?.length}
+									<div class="muted tiny">
+										any of: {selectedTile.tile.any_of.map((m) => m.item_name).join(', ')}
+									</div>
+								{/if}
 							</div>
 						</div>
 					{:else if game.phase === 'live'}
