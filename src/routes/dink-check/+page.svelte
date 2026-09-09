@@ -23,21 +23,19 @@
 		import: false
 	});
 
-	// ── Multi-server mode ─────────────────────────────────────────────────────
-	// Members whose Dink also posts to OTHER Discord servers get a different config
-	// from the proxy: instead of a 1 gp loot threshold (which fires their other
-	// webhooks on every drop), it whitelists exactly their active tracked items.
-	// Trade-off: the whitelist only refreshes when Dink reloads the config, so they
-	// must toggle the plugin off/on whenever their board or event tiles change.
-	let multi = $state(false);
-	let savingMulti = $state(false);
-	let multiForm = $state<HTMLFormElement>();
-	$effect(() => {
-		multi = data.multiServer;
-	});
-	// The 'reset' step only applies to the standard flow — multi-server members keep
-	// their own settings.
-	const activeStepIds = $derived(STEP_IDS.filter((id) => !(multi && id === 'reset')));
+	// ── Delivery choice ───────────────────────────────────────────────────────
+	// Two independent answers (see db/scripts/dink_modes_and_relays.sql):
+	//   forwardClan — are they one of ours? A visiting clan's player is tracked for the
+	//                 event and never appears in the Volition Discord.
+	//   mode        — what happens to any OTHER Discord their Dink feeds. Importing our
+	//                 config REPLACES their webhooks; the question is what they do next.
+	const mode = $derived(data.mode);
+	const forwardClan = $derived(data.forwardClan);
+	const relays = $derived(data.relays);
+
+	// The 'reset' step only applies when our config is taking over cleanly. A
+	// multi-server member is deliberately keeping their own settings around it.
+	const activeStepIds = $derived(STEP_IDS.filter((id) => !(mode === 'multi_server' && id === 'reset')));
 	const doneCount = $derived(activeStepIds.filter((id) => steps[id]).length);
 	const setupComplete = $derived(doneCount === activeStepIds.length);
 
@@ -135,6 +133,78 @@
 
 <svelte:head><title>Dink setup &amp; test · Volition</title></svelte:head>
 
+{#snippet relayManager()}
+	<!-- The member's own Discord channels, which the proxy posts to on their behalf.
+	     URLs are write-only from the page's point of view: what comes back is masked,
+	     because anyone holding a webhook URL can post to that channel. -->
+	<div class="relays">
+		<h4 class="q">Your servers</h4>
+		<p class="muted small">
+			Paste a webhook from each channel you want fed. In Discord: <strong>Edit Channel →
+			Integrations → Webhooks → New Webhook → Copy Webhook URL</strong>. You need
+			<em>Manage Webhooks</em> in that server. We never show a URL back to you once it's
+			saved, and it's only ever used to post your own notifications.
+		</p>
+
+		{#if relays.length}
+			<ul class="relay-list">
+				{#each relays as r (r.id)}
+					<li class="relay">
+						<form method="POST" action="?/updateRelay" use:enhance class="relay-row">
+							<input type="hidden" name="id" value={r.id} />
+							<div class="relay-id">
+								<strong>{r.label || 'Unnamed server'}</strong>
+								<code class="muted small">{r.urlMasked}</code>
+							</div>
+							<label class="tiny">
+								min value
+								<input name="min_value" type="number" min="0" step="1000" value={r.minValue} />
+							</label>
+							<div class="relay-types">
+								{#each data.relayTypes as t (t)}
+									<label class="tiny check">
+										<input type="checkbox" name="types" value={t} checked={r.types.includes(t)} />
+										{t.toLowerCase()}
+									</label>
+								{/each}
+							</div>
+							<label class="tiny check">
+								<input type="checkbox" name="enabled" value="true" checked={r.enabled} />
+								on
+							</label>
+							<button type="submit" class="small-btn">Save</button>
+						</form>
+						<form method="POST" action="?/removeRelay" use:enhance>
+							<input type="hidden" name="id" value={r.id} />
+							<button type="submit" class="small-btn danger">Remove</button>
+						</form>
+					</li>
+				{/each}
+			</ul>
+		{:else}
+			<p class="muted small">No servers registered yet — nothing is being posted on your behalf.</p>
+		{/if}
+
+		<form method="POST" action="?/addRelay" use:enhance class="relay-add">
+			<input name="label" placeholder="What is it? (e.g. My clan's drops channel)" />
+			<input name="url" placeholder="https://discord.com/api/webhooks/…" required />
+			<label class="tiny">
+				min value
+				<input name="min_value" type="number" min="0" step="1000" value="3000000" />
+			</label>
+			<div class="relay-types">
+				{#each data.relayTypes as t (t)}
+					<label class="tiny check">
+						<input type="checkbox" name="types" value={t} checked={t === 'LOOT'} />
+						{t.toLowerCase()}
+					</label>
+				{/each}
+			</div>
+			<button type="submit">Add server</button>
+		</form>
+	</div>
+{/snippet}
+
 {#snippet urlBlock()}
 	{#if configUrl}
 		<div class="url-row">
@@ -171,46 +241,91 @@
 			<span class="muted small">{doneCount}/{activeStepIds.length} steps done</span>
 		</div>
 
-		<form
-			class="multi-toggle"
-			method="POST"
-			action="?/setMultiServer"
-			bind:this={multiForm}
-			use:enhance={() => {
-				savingMulti = true;
-				return async ({ update }) => {
-					await update({ reset: false });
-					savingMulti = false;
-				};
-			}}
-		>
-			<input type="hidden" name="multi" value={multi ? 'false' : 'true'} />
-			<label>
-				<input
-					type="checkbox"
-					checked={multi}
-					disabled={savingMulti}
-					onchange={() => multiForm?.requestSubmit()}
-				/>
-				<span>I use Dink with <strong>multiple Discord servers</strong></span>
-			</label>
-			{#if multi}
-				<div class="multi-note">
-					<p>
-						You'll get a different config: your own webhooks and settings stay, and instead of
-						dropping your loot threshold to 1 gp (which would spam your other servers with every
-						drop), it <strong>whitelists exactly the items on your active boards and events</strong>.
-						Everything else keeps respecting your normal threshold.
-					</p>
-					<p>
-						<strong>The one rule:</strong> whenever you get a <strong>new board or new tiles</strong>
-						(a fresh personal bingo, joining an event), toggle the Dink plugin off and back on so it
-						loads the updated whitelist — new tiles won't track until you do. And when a whitelisted
-						item drops, your other servers will see that one notification too.
-					</p>
-				</div>
-			{/if}
-		</form>
+		<!-- ── Which setup do you need? ──────────────────────────────────
+		     Two questions, saved independently so answering one never resets the
+		     other. Both are radio-cards that submit on change — a wizard, not a
+		     form you have to remember to save. -->
+		<div class="chooser">
+			<h4 class="q">First — are you in Volition?</h4>
+			<form method="POST" action="?/setAudience" use:enhance class="picks">
+				<label class="pick" class:on={forwardClan}>
+					<input type="radio" name="forward_clan" value="true" checked={forwardClan}
+						onchange={(e) => e.currentTarget.form?.requestSubmit()} />
+					<span class="pick-t">I'm in Volition</span>
+					<span class="pick-d">Your drops credit event tiles and your big ones show up in our Discord feed, same as everyone else.</span>
+				</label>
+				<label class="pick" class:on={!forwardClan}>
+					<input type="radio" name="forward_clan" value="false" checked={!forwardClan}
+						onchange={(e) => e.currentTarget.form?.requestSubmit()} />
+					<span class="pick-t">I'm visiting from another clan</span>
+					<span class="pick-d">Event tracking only. <strong>Nothing you do is ever posted to the Volition Discord</strong> — not your drops, not your deaths, not your pets.</span>
+				</label>
+			</form>
+			<p class="muted small detect">
+				{#if data.inVolition}
+					We found your name on the clan roster, so this is set to "in Volition" — change it if that's wrong.
+				{:else}
+					We couldn't find your name on the clan roster, so this is set to "visiting". If you've
+					just joined Volition and aren't on it yet, switch it over.
+				{/if}
+			</p>
+
+			<h4 class="q">Does your Dink also post to another Discord?</h4>
+			<p class="muted small">
+				Worth knowing before you choose: pasting our config URL <strong>replaces the webhooks
+				already in your Dink</strong>. You can add your own back afterwards — and what you pick
+				here decides whether that's a good idea.
+			</p>
+			<form method="POST" action="?/setMode" use:enhance class="picks">
+				<label class="pick" class:on={mode === 'standard'}>
+					<input type="radio" name="mode" value="standard" checked={mode === 'standard'}
+						onchange={(e) => e.currentTarget.form?.requestSubmit()} />
+					<span class="pick-t">No — just Volition <em>(simplest)</em></span>
+					<span class="pick-d">
+						Our config takes over and posts only to us. Every drop reaches the tracker
+						(1&nbsp;gp threshold), so tiles credit instantly and you never touch Dink again.
+					</span>
+					<span class="pick-warn">
+						⚠ If you later paste your own server's webhook back into Dink while on this
+						setting, <strong>it will fire on literally every drop you get</strong> — a rune
+						dagger, three bones, everything. Pick one of the two below instead.
+					</span>
+				</label>
+
+				<label class="pick" class:on={mode === 'relay'}>
+					<input type="radio" name="mode" value="relay" checked={mode === 'relay'}
+						onchange={(e) => e.currentTarget.form?.requestSubmit()} />
+					<span class="pick-t">Yes — let Volition post to them for me <em>(recommended)</em></span>
+					<span class="pick-d">
+						Leave your own webhooks out of Dink and register those channels below instead.
+						We post to them on your behalf, and you set a minimum value and which
+						notifications each one gets. You keep the 1&nbsp;gp tracking, nothing to toggle,
+						and your other servers only see what you actually want them to.
+					</span>
+				</label>
+
+				<label class="pick" class:on={mode === 'multi_server'}>
+					<input type="radio" name="mode" value="multi_server" checked={mode === 'multi_server'}
+						onchange={(e) => e.currentTarget.form?.requestSubmit()} />
+					<span class="pick-t">Yes — I'll add my own webhooks back myself</span>
+					<span class="pick-d">
+						Because those webhooks would fire on every drop at 1&nbsp;gp, this raises your loot
+						threshold to 3M and whitelists exactly the items on your active boards and events
+						instead. Everything else respects your normal threshold.
+					</span>
+					<span class="pick-warn">
+						The catch: whenever you get <strong>new tiles</strong> — a fresh personal bingo,
+						joining an event — toggle the Dink plugin off and on so it loads the updated
+						whitelist. New tiles won't track until you do. And your other servers will see a
+						notification when a whitelisted item drops.
+					</span>
+				</label>
+			</form>
+		</div>
+
+		{#if mode === 'relay'}
+			{@render relayManager()}
+		{/if}
 
 		{#if setupComplete}
 			<p class="ok-note">
@@ -227,9 +342,9 @@
 				<code>::dinkexport</code> in the game chat — Dink copies your full current settings —
 				and paste that somewhere safe. You can restore it any time, so guests joining us for
 				an event can go right back to their own setup afterwards.
-				{#if !multi}
-					And if those settings feed <strong>other Discord servers</strong>, tick the
-					multi-server box above before you continue.
+				{#if mode === 'standard'}
+					And if those settings feed <strong>other Discord servers</strong>, change your
+					answer above before you continue — the "just Volition" setting will spam them.
 				{/if}
 			</p>
 
@@ -246,7 +361,7 @@
 					{/if}
 				</li>
 
-				{#if !multi}
+				{#if mode !== 'multi_server'}
 					<li class="step" class:done={steps.reset}>
 						<label class="step-head">
 							<input type="checkbox" checked={steps.reset} onchange={(e) => setStep('reset', e.currentTarget.checked)} />
@@ -308,9 +423,9 @@
 								test items — is loaded:
 							</p>
 							<img class="guide-img" src="/dink-guide/config-imported.png" alt="Dink chat message: Success: Updated config settings from import" loading="lazy" />
-							{#if multi}
+							{#if mode === 'multi_server'}
 								<p class="warn small">
-									Multi-server config: make this toggle a habit — repeat it whenever you get a new
+									Whitelist setup: make this toggle a habit — repeat it whenever you get a new
 									board or new event tiles, so the updated item whitelist loads.
 								</p>
 							{/if}
@@ -370,9 +485,9 @@
 		</div>
 
 		<p class="muted small event-note">
-			{#if multi}
+			{#if mode === 'multi_server'}
 				Almost hands-off: drops are matched on our side, but you're on the
-				<strong>multi-server config</strong> — toggle the Dink plugin off and on whenever you get a
+				<strong>whitelist setup</strong> — toggle the Dink plugin off and on whenever you get a
 				new board or new event tiles, so your item whitelist stays current.
 			{:else}
 				That's it — you never need to touch Dink again. Event items are matched on our side, so
@@ -426,20 +541,35 @@
 
 	/* ── setup wizard ── */
 	.setup-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.8rem; }
-	.multi-toggle {
-		margin: 0.2rem 0 0.9rem; padding: 0.6rem 0.8rem;
-		background: var(--surface-alt); border: 1px solid var(--border);
-		border-radius: var(--radius); font-size: 0.92rem;
+	.chooser { display: grid; gap: 0.5rem; margin: 0.75rem 0; }
+	.q { font-family: var(--font-heading); font-size: 0.95rem; margin: 0.5rem 0 0; }
+	.picks { display: grid; gap: 0.5rem; }
+	.pick {
+		display: grid;
+		gap: 0.2rem;
+		padding: 0.6rem 0.7rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		cursor: pointer;
+		background: var(--surface-alt);
 	}
-	.multi-toggle label { display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; }
-	.multi-toggle input[type='checkbox'] {
-		width: 1.1rem; height: 1.1rem; margin-top: 0.15rem; min-height: 0;
-		accent-color: var(--accent); flex-shrink: 0; cursor: pointer;
-	}
-	.multi-note { margin: 0.6rem 0 0.1rem 1.7rem; font-size: 0.88rem; color: var(--muted); }
-	.multi-note p { margin: 0 0 0.45rem; }
-	.multi-note p:last-child { margin-bottom: 0; }
-	.multi-note strong { color: var(--text); }
+	.pick.on { border-color: var(--accent); background: var(--accent-soft); }
+	.pick input { margin-right: 0.4rem; }
+	.pick-t { font-family: var(--font-heading); font-size: 0.9rem; }
+	.pick-t em { color: var(--muted); font-size: 0.8rem; }
+	.pick-d, .pick-warn { font-size: 0.82rem; color: var(--muted); }
+	.pick-warn { color: var(--yellow); }
+	.detect { margin: 0; }
+	.relays { display: grid; gap: 0.5rem; margin: 0.5rem 0 0.75rem; }
+	.relay-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+	.relay { display: flex; gap: 0.5rem; align-items: flex-start; flex-wrap: wrap; }
+	.relay-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; flex: 1; }
+	.relay-id { display: grid; min-width: 12rem; }
+	.relay-types { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+	.relay-add { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+	.relay-add input[name='url'] { min-width: 20rem; flex: 1; }
+	.small-btn { min-height: 0; padding: 0.15rem 0.5rem; font-size: 0.78rem; }
+	.small-btn.danger { color: var(--danger); }
 	.backup-note {
 		margin: 0.2rem 0 0.9rem; padding: 0.6rem 0.8rem; font-size: 0.9rem;
 		background: var(--accent-soft); border: 1px solid var(--accent);

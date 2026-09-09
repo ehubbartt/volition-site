@@ -5,9 +5,17 @@ import {
 	getOrCreateToken,
 	rotateToken,
 	configUrlFor,
-	getMultiServer,
-	setMultiServer
+	getDelivery,
+	setDelivery,
+	listRelays,
+	addRelay,
+	removeRelay,
+	updateRelay,
+	isDinkMode,
+	RELAY_TYPES,
+	type DinkDelivery
 } from '$lib/server/dinkTokens';
+import { isClanMember } from '$lib/server/clan';
 import { pinSelfTest, clearSelfTestPin } from '$lib/server/dinkAllowlist';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -73,22 +81,34 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// Discord /dink command would hand out — keyed by Discord id.
 	let configUrl: string | null = null;
 	let proxyConfigured = true;
-	let multiServer = false;
+	let delivery: DinkDelivery = { mode: 'standard', forwardClan: true };
+	let relays: Awaited<ReturnType<typeof listRelays>> = [];
 	try {
 		const { token } = await getOrCreateToken(locals.user.discord_id);
 		configUrl = configUrlFor(token);
 		proxyConfigured = configUrl !== null;
-		multiServer = await getMultiServer(locals.user.discord_id);
+		delivery = await getDelivery(locals.user.discord_id);
+		relays = await listRelays(locals.user.discord_id);
 	} catch (e) {
 		console.warn('[dink-check] token mint failed:', e instanceof Error ? e.message : e);
 		proxyConfigured = false;
 	}
 
+	// Is this account in the clan? Answered from the bot's players table, the same test
+	// the clan-vs-clan seating uses — so the wizard can PRE-SELECT the right branch
+	// instead of making a visiting player self-identify. It stays overridable: a member
+	// who joined an hour ago may not be in the table yet.
+	const inVolition = await isClanMember(locals.user);
+
 	return {
 		rsn,
 		configUrl,
 		proxyConfigured,
-		multiServer,
+		mode: delivery.mode,
+		forwardClan: delivery.forwardClan,
+		relays,
+		inVolition,
+		relayTypes: RELAY_TYPES,
 		windowMinutes: WINDOW_MS / 60000,
 		// The self-test is available whenever the member has a config URL to test with — the
 		// pin mechanism itself is always on (no event to be open/closed).
@@ -118,18 +138,83 @@ export const actions: Actions = {
 		}
 	},
 
-	// Flip the member between the standard config (minLootValue 1 — zero maintenance)
-	// and the multi-server config (high threshold + tracked-item whitelist — safe for
-	// people whose Dink also feeds other Discord servers). Served by the proxy per
-	// token; Dink picks the change up on its next config load (plugin toggle).
-	setMultiServer: async ({ locals, request }) => {
+	// Pick the delivery mode. The proxy reads it per token and serves the matching
+	// config; Dink picks the change up on its next config load (plugin toggle).
+	setMode: async ({ locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
-		const on = (await request.formData()).get('multi') === 'true';
+		const form = await request.formData();
+		const raw = form.get('mode');
+		if (!isDinkMode(raw)) return fail(400, { error: 'Unknown mode' });
+		// Absent means "leave it as it is" — the two questions are saved by separate
+		// forms, so neither may clobber the other's answer.
+		const fc = form.get('forward_clan');
 		try {
-			await setMultiServer(locals.user.discord_id, on);
-			return { multiSaved: true, multiServer: on };
+			const current = await getDelivery(locals.user.discord_id);
+			await setDelivery(locals.user.discord_id, {
+				mode: raw,
+				forwardClan: fc == null ? current.forwardClan : fc === 'true'
+			});
+			return { modeSaved: true, mode: raw };
 		} catch (e) {
 			return fail(500, { error: e instanceof Error ? e.message : 'Could not save the setting' });
+		}
+	},
+
+	// Question one of the wizard: member or visiting clan. Kept separate from the mode
+	// so answering it never silently resets the delivery strategy.
+	setAudience: async ({ locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		const forwardClan = (await request.formData()).get('forward_clan') === 'true';
+		try {
+			const current = await getDelivery(locals.user.discord_id);
+			await setDelivery(locals.user.discord_id, { mode: current.mode, forwardClan });
+			return { audienceSaved: true, forwardClan };
+		} catch (e) {
+			return fail(500, { error: e instanceof Error ? e.message : 'Could not save the setting' });
+		}
+	},
+
+	// Register one of the member's OWN Discord webhooks for the proxy to relay to.
+	// The URL is validated as a Discord webhook before it is stored (SSRF guard) and
+	// is never rendered back to the page in full.
+	addRelay: async ({ locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		const form = await request.formData();
+		const res = await addRelay(locals.user.discord_id, {
+			url: String(form.get('url') ?? ''),
+			label: String(form.get('label') ?? ''),
+			minValue: Number(form.get('min_value') ?? 3000000),
+			types: form.getAll('types').map(String)
+		});
+		return res.ok ? { relayAdded: true } : fail(400, { error: res.error });
+	},
+
+	updateRelay: async ({ locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		const form = await request.formData();
+		const id = String(form.get('id') ?? '');
+		if (!id) return fail(400, { error: 'Which destination?' });
+		try {
+			await updateRelay(locals.user.discord_id, id, {
+				minValue: Number(form.get('min_value') ?? 0),
+				types: form.getAll('types').map(String),
+				enabled: form.get('enabled') !== 'false'
+			});
+			return { relaySaved: true };
+		} catch (e) {
+			return fail(500, { error: e instanceof Error ? e.message : 'Could not save it' });
+		}
+	},
+
+	removeRelay: async ({ locals, request }) => {
+		if (!locals.user) throw redirect(303, '/');
+		const id = String((await request.formData()).get('id') ?? '');
+		if (!id) return fail(400, { error: 'Which destination?' });
+		try {
+			await removeRelay(locals.user.discord_id, id);
+			return { relayRemoved: true };
+		} catch (e) {
+			return fail(500, { error: e instanceof Error ? e.message : 'Could not remove it' });
 		}
 	}
 };

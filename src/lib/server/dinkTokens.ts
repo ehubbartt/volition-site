@@ -77,14 +77,192 @@ export async function revokeTokensFor(discordId: string): Promise<void> {
 // multi-server flag rides along so rotating never silently flips a member back to
 // the min-value-1 config.
 export async function rotateToken(discordId: string): Promise<string> {
-	const multi = await getMultiServer(discordId);
+	const { mode, forwardClan } = await getDelivery(discordId);
 	await revokeTokensFor(discordId);
 	const token = mintTokenString();
-	const { error } = await db()
-		.from('dink_tokens')
-		.insert({ token, discord_id: discordId, multi_server: multi });
+	const { error } = await db().from('dink_tokens').insert({
+		token,
+		discord_id: discordId,
+		mode,
+		forward_clan: forwardClan,
+		multi_server: mode === 'multi_server'
+	});
 	if (error) throw new Error(`rotate dink token: ${error.message}`);
 	return token;
+}
+
+// ── Delivery modes ───────────────────────────────────────────────────────────
+// See db/scripts/dink_modes_and_relays.sql for what each one means and why. `mode`
+// is the authority; the legacy `multi_server` boolean is kept in sync so the proxy's
+// existing path and the Discord bot keep working through a rollout.
+
+export type DinkMode = 'standard' | 'multi_server' | 'relay';
+
+export const DINK_MODES: DinkMode[] = ['standard', 'multi_server', 'relay'];
+
+export const isDinkMode = (v: unknown): v is DinkMode =>
+	typeof v === 'string' && (DINK_MODES as string[]).includes(v);
+
+/** How a member's Dink is wired: the threshold strategy, and who we post for them. */
+export interface DinkDelivery {
+	mode: DinkMode;
+	/** False for a visiting clan's player: tracked for events, never in our feed. */
+	forwardClan: boolean;
+}
+
+export async function getDelivery(discordId: string): Promise<DinkDelivery> {
+	const { data } = await db()
+		.from('dink_tokens')
+		.select('mode, forward_clan, multi_server')
+		.eq('discord_id', discordId)
+		.is('revoked_at', null)
+		.limit(1)
+		.maybeSingle();
+	const row = data as {
+		mode: string | null;
+		forward_clan: boolean | null;
+		multi_server: boolean | null;
+	} | null;
+	return {
+		// A row written before the mode column existed still knows one thing about itself.
+		mode: row && isDinkMode(row.mode) ? row.mode : row?.multi_server === true ? 'multi_server' : 'standard',
+		forwardClan: row?.forward_clan !== false
+	};
+}
+
+export async function setDelivery(discordId: string, d: DinkDelivery): Promise<void> {
+	const { error } = await db()
+		.from('dink_tokens')
+		.update({
+			mode: d.mode,
+			forward_clan: d.forwardClan,
+			multi_server: d.mode === 'multi_server'
+		})
+		.eq('discord_id', discordId)
+		.is('revoked_at', null);
+	if (error) throw new Error(`set dink delivery: ${error.message}`);
+}
+
+// ── Relay destinations ───────────────────────────────────────────────────────
+// A member's own Discord webhooks, which the proxy posts to on their behalf so they
+// can keep the low threshold without their other servers seeing every 1gp drop.
+
+export const RELAY_TYPES = ['LOOT', 'COLLECTION', 'PET', 'DEATH'] as const;
+export type RelayType = (typeof RELAY_TYPES)[number];
+
+export interface DinkRelay {
+	id: string;
+	label: string | null;
+	/** Masked for display — the full URL never leaves the server. */
+	urlMasked: string;
+	minValue: number;
+	types: RelayType[];
+	enabled: boolean;
+}
+
+/**
+ * A Discord webhook and nothing else. This is an SSRF guard as much as a typo check:
+ * the proxy will POST whatever is stored here, so "is this a Discord webhook" has to
+ * be answered before it lands in the table (which enforces the same shape again).
+ */
+const DISCORD_WEBHOOK_RE =
+	/^https:\/\/(canary\.|ptb\.)?discord(app)?\.com\/api\/webhooks\/[0-9]+\/[A-Za-z0-9_-]+$/;
+
+export const isDiscordWebhook = (url: string): boolean => DISCORD_WEBHOOK_RE.test(url.trim());
+
+/** Enough to recognise which destination this is, never enough to post to it. */
+function maskWebhook(url: string): string {
+	const m = /\/api\/webhooks\/([0-9]+)\//.exec(url);
+	return m ? `…/webhooks/${m[1]}/••••••••` : '…/webhooks/••••••••';
+}
+
+const normalizeTypes = (raw: unknown): RelayType[] => {
+	const list = Array.isArray(raw) ? raw : [];
+	const picked = RELAY_TYPES.filter((t) => list.includes(t));
+	// A destination that accepts nothing would silently never fire; default it to loot.
+	return picked.length ? picked : ['LOOT'];
+};
+
+export async function listRelays(discordId: string): Promise<DinkRelay[]> {
+	const { data } = await db()
+		.from('vs_dink_relays')
+		.select('id, label, url, min_value, types, enabled')
+		.eq('discord_id', discordId)
+		.order('created_at', { ascending: true });
+	return ((data ?? []) as {
+		id: string;
+		label: string | null;
+		url: string;
+		min_value: number | string;
+		types: string[] | null;
+		enabled: boolean;
+	}[]).map((r) => ({
+		id: r.id,
+		label: r.label,
+		urlMasked: maskWebhook(r.url),
+		minValue: Number(r.min_value) || 0,
+		types: normalizeTypes(r.types),
+		enabled: r.enabled
+	}));
+}
+
+export async function addRelay(
+	discordId: string,
+	input: { url: string; label?: string | null; minValue?: number; types?: string[] }
+): Promise<{ ok: true } | { ok: false; error: string }> {
+	const url = input.url.trim();
+	if (!url) return { ok: false, error: 'Paste the webhook URL' };
+	if (!isDiscordWebhook(url)) {
+		return {
+			ok: false,
+			error:
+				'That is not a Discord webhook URL. It should look like ' +
+				'https://discord.com/api/webhooks/<id>/<token> — copy it from the channel’s ' +
+				'Edit Channel → Integrations → Webhooks screen.'
+		};
+	}
+	const minValue = Math.max(0, Math.round(Number(input.minValue) || 0));
+	const { error } = await db().from('vs_dink_relays').insert({
+		discord_id: discordId,
+		label: (input.label ?? '').trim() || null,
+		url,
+		min_value: minValue,
+		types: normalizeTypes(input.types)
+	});
+	if (error) {
+		// 23505 = the (discord_id, url) unique index.
+		if (error.code === '23505') return { ok: false, error: 'That webhook is already registered' };
+		return { ok: false, error: error.message };
+	}
+	return { ok: true };
+}
+
+export async function updateRelay(
+	discordId: string,
+	id: string,
+	patch: { minValue?: number; types?: string[]; enabled?: boolean; label?: string | null }
+): Promise<void> {
+	const row: Record<string, unknown> = {};
+	if (patch.minValue != null) row.min_value = Math.max(0, Math.round(Number(patch.minValue) || 0));
+	if (patch.types) row.types = normalizeTypes(patch.types);
+	if (patch.enabled != null) row.enabled = patch.enabled;
+	if (patch.label !== undefined) row.label = (patch.label ?? '').trim() || null;
+	if (!Object.keys(row).length) return;
+	const { error } = await db()
+		.from('vs_dink_relays')
+		.update(row)
+		.eq('discord_id', discordId)
+		.eq('id', id);
+	if (error) throw new Error(`update dink relay: ${error.message}`);
+}
+
+export async function removeRelay(discordId: string, id: string): Promise<void> {
+	const { error } = await db()
+		.from('vs_dink_relays')
+		.delete()
+		.eq('discord_id', discordId)
+		.eq('id', id);
+	if (error) throw new Error(`remove dink relay: ${error.message}`);
 }
 
 // ── Multi-server mode ────────────────────────────────────────────────────────
