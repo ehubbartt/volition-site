@@ -38,7 +38,14 @@
 	// Scores and the run highlight are recomputed client-side from the pieces on show —
 	// the rules module is pure and client-safe, and deriving them here means a freshly
 	// polled piece lights its four-in-a-row the same instant it lands.
-	const standings = $derived(game ? computeStandings(pieces, game.scoring) : []);
+	// Awards are not pieces, so they must be handed to the scorer separately.
+	const bonusTotals = $derived(
+		(game?.bonus ?? []).reduce<Record<number, number>>((acc, b) => {
+			acc[b.side] = (acc[b.side] ?? 0) + b.points;
+			return acc;
+		}, {})
+	);
+	const standings = $derived(game ? computeStandings(pieces, game.scoring, bonusTotals) : []);
 	const runCells = $derived(runCellSet(standings.flatMap((s) => s.runs)));
 
 	// ── playback ──────────────────────────────────────────────────────────────
@@ -264,7 +271,8 @@
 					<div class="total">{st?.total.toLocaleString() ?? 0}</div>
 					<div class="muted tiny">
 						{st?.tiles ?? 0} tiles ({st?.tilePoints.toLocaleString() ?? 0}) · lines
-						{st?.linePoints.toLocaleString() ?? 0}
+						{st?.linePoints.toLocaleString() ?? 0}{#if st?.bonusPoints} · bonus
+							{st.bonusPoints.toLocaleString()}{/if}
 						{#if (st?.longest ?? 0) >= 4} · longest {st?.longest} in a row{/if}
 					</div>
 				</div>

@@ -32,6 +32,24 @@ async function countAndLatest(table: string, eventId: string, tsColumn: string):
 	return `${count ?? 0}:${latest}`;
 }
 
+/**
+ * `countAndLatest` for a table that may not exist yet. Schema here is hand-applied
+ * (db/scripts/*.sql), so code routinely reaches an environment a beat before its DDL
+ * does — and a throw in here freezes the token for the whole event, which would stop
+ * every board auto-updating. A table we cannot read simply contributes nothing.
+ */
+async function countAndLatestOptional(
+	table: string,
+	eventId: string,
+	tsColumn: string
+): Promise<string> {
+	try {
+		return await countAndLatest(table, eventId, tsColumn);
+	} catch {
+		return '-';
+	}
+}
+
 async function computeVersion(eventId: string): Promise<string> {
 	// Selecting the jsonb phase path (rather than `structure`) keeps connect4's undealt
 	// 250-entry deck out of the read; on other kinds the alias is just null.
@@ -44,8 +62,15 @@ async function computeVersion(eventId: string): Promise<string> {
 	const row = ev as { kind: string; status: string | null; phase: string | null };
 	const head = `${row.kind}:${row.status ?? ''}`;
 	switch (row.kind) {
-		case 'connect4':
-			return `${head}:${row.phase ?? ''}:${await countAndLatest('vs_connect4_pieces', eventId, 'claimed_at')}`;
+		case 'connect4': {
+			// Bonus awards move a side's total without placing a piece, so the piece
+			// count alone would leave every open board showing a stale score.
+			const [pieces, bonus] = await Promise.all([
+				countAndLatest('vs_connect4_pieces', eventId, 'claimed_at'),
+				countAndLatestOptional('vs_connect4_bonus', eventId, 'created_at')
+			]);
+			return `${head}:${row.phase ?? ''}:${pieces}:${bonus}`;
+		}
 		case 'battleship':
 			return `${head}:${await countAndLatest('vs_battleship_shots', eventId, 'fired_at')}`;
 		case 'bingo': {

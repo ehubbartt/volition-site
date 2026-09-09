@@ -118,6 +118,13 @@ export interface Connect4Scoring {
 	line_points: LineReward[];
 	/** Paid per cell beyond the longest configured run, so the table needs no upper end. */
 	extra_per_cell: number;
+	/**
+	 * Default award for a hand-recorded pet (see `vs_connect4_bonus`). Only PRE-FILLS the
+	 * admin's form — each award stores the points it was actually given, so retuning this
+	 * never restates a side's already-banked bonuses the way retuning the board scoring
+	 * re-scores the whole board.
+	 */
+	pet_points: number;
 }
 
 export const DEFAULT_SCORING: Connect4Scoring = {
@@ -128,7 +135,8 @@ export const DEFAULT_SCORING: Connect4Scoring = {
 		{ len: 6, points: 500 },
 		{ len: 7, points: 900 }
 	],
-	extra_per_cell: 400
+	extra_per_cell: 400,
+	pet_points: 25
 };
 
 export type Phase = 'setup' | 'live' | 'finished';
@@ -369,35 +377,51 @@ export interface SideStanding {
 	tiles: number;
 	tilePoints: number;
 	linePoints: number;
+	/** Hand-recorded awards (pets) — beside the board, not on it. Already-banked totals. */
+	bonusPoints: number;
 	total: number;
 	runs: Run[];
 	/** Longest run this side holds, 0 if none. */
 	longest: number;
 }
 
-export function sideStanding(pieces: Piece[], side: Side, s: Connect4Scoring): SideStanding {
+/** Points a side has banked outside the board, keyed by side. */
+export type BonusTotals = Partial<Record<Side, number>>;
+
+export function sideStanding(
+	pieces: Piece[],
+	side: Side,
+	s: Connect4Scoring,
+	bonus: BonusTotals = {}
+): SideStanding {
 	const mine = pieces.filter((p) => p.side === side);
 	const runs = findRuns(pieces, minScoringLen(s)).filter((r) => r.side === side);
 	const tilePoints = mine.length * (s.tile_points || 0);
 	const linePoints = runs.reduce((sum, r) => sum + pointsFor(r.len, s), 0);
+	const bonusPoints = Math.round(Number(bonus[side]) || 0);
 	return {
 		side,
 		tiles: mine.length,
 		tilePoints,
 		linePoints,
-		total: tilePoints + linePoints,
+		bonusPoints,
+		total: tilePoints + linePoints + bonusPoints,
 		runs,
 		longest: runs.reduce((m, r) => Math.max(m, r.len), 0)
 	};
 }
 
-export function standings(pieces: Piece[], s: Connect4Scoring): SideStanding[] {
-	return [sideStanding(pieces, 1, s), sideStanding(pieces, 2, s)];
+export function standings(
+	pieces: Piece[],
+	s: Connect4Scoring,
+	bonus: BonusTotals = {}
+): SideStanding[] {
+	return [sideStanding(pieces, 1, s, bonus), sideStanding(pieces, 2, s, bonus)];
 }
 
 /** Who is ahead. `null` on a tie — a drawn game is a real outcome, not a missing one. */
-export function leaderOf(pieces: Piece[], s: Connect4Scoring): Side | null {
-	const [a, b] = standings(pieces, s);
+export function leaderOf(pieces: Piece[], s: Connect4Scoring, bonus: BonusTotals = {}): Side | null {
+	const [a, b] = standings(pieces, s, bonus);
 	if (a.total === b.total) return null;
 	return a.total > b.total ? 1 : 2;
 }
@@ -422,6 +446,7 @@ export function normalizeScoring(input: Partial<Connect4Scoring> | null | undefi
 	return {
 		tile_points: Math.max(0, Math.round(Number(src.tile_points ?? DEFAULT_SCORING.tile_points) || 0)),
 		line_points: [...byLen.values()].sort((a, b) => a.len - b.len),
-		extra_per_cell: Math.max(0, Math.round(Number(src.extra_per_cell ?? DEFAULT_SCORING.extra_per_cell) || 0))
+		extra_per_cell: Math.max(0, Math.round(Number(src.extra_per_cell ?? DEFAULT_SCORING.extra_per_cell) || 0)),
+		pet_points: Math.max(0, Math.round(Number(src.pet_points ?? DEFAULT_SCORING.pet_points) || 0))
 	};
 }

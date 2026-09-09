@@ -4,6 +4,7 @@ import { isAdmin } from '$lib/server/auth';
 import { logAudit } from '$lib/server/audit';
 import { fetchAllFiltered } from '$lib/server/db';
 import {
+	addBonus,
 	addCustomTile,
 	assignSides,
 	claimTile,
@@ -11,6 +12,7 @@ import {
 	enrolMembers,
 	finishGame,
 	loadConnect4,
+	removeBonus,
 	removeCustomTile,
 	setPoolOptions,
 	reopenGame,
@@ -335,7 +337,8 @@ export const actions: Actions = {
 				len,
 				points: num(`line_${len}`, game.scoring.line_points[i]?.points ?? 0)
 			})),
-			extra_per_cell: num('extra_per_cell', game.scoring.extra_per_cell)
+			extra_per_cell: num('extra_per_cell', game.scoring.extra_per_cell),
+			pet_points: num('pet_points', game.scoring.pet_points)
 		});
 		return res.ok ? { scored: true } : fail(400, { error: res.error });
 	},
@@ -350,6 +353,57 @@ export const actions: Actions = {
 			String(form.get('side2') ?? '').trim() || game.sides[1].name
 		]);
 		return res.ok ? { renamed: true } : fail(400, { error: res.error });
+	},
+
+	// Points beside the board: a pet (or anything else worth a few points that isn't a
+	// tile). Records an award; never touches the deck or the board.
+	awardBonus: async (event) => {
+		const { request, locals, params } = event;
+		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
+		const form = await request.formData();
+		const game = await loadConnect4(params.slug);
+		if (!game) return fail(404, { error: 'No such game' });
+		const side = sideOf(form);
+		if (side === null) return fail(400, { error: 'Pick a side' });
+
+		const rawPoints = String(form.get('points') ?? '').trim();
+		const points = rawPoints === '' ? game.scoring.pet_points : Number(rawPoints);
+		const userId = String(form.get('userId') ?? '').trim();
+
+		const res = await addBonus({
+			eventId: game.id,
+			side,
+			points,
+			kind: String(form.get('kind') ?? 'pet'),
+			itemName: String(form.get('item_name') ?? ''),
+			byUserId: userId || null,
+			note: String(form.get('note') ?? ''),
+			awardedBy: locals.user.id
+		});
+		if (!res.ok) return fail(400, { error: res.error });
+		await logAudit(event, 200, {
+			action: 'connect4.bonus.add',
+			event: game.slug,
+			side,
+			points,
+			item: String(form.get('item_name') ?? '') || null
+		});
+		return { bonusAwarded: { side, points } };
+	},
+
+	revokeBonus: async (event) => {
+		const { request, locals, params } = event;
+		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
+		const form = await request.formData();
+		const game = await loadConnect4(params.slug);
+		if (!game) return fail(404, { error: 'No such game' });
+		const id = String(form.get('id') ?? '');
+		if (!id) return fail(400, { error: 'Which award?' });
+
+		const res = await removeBonus(game.id, id);
+		if (!res.ok) return fail(400, { error: res.error });
+		await logAudit(event, 200, { action: 'connect4.bonus.remove', event: game.slug, bonus: id });
+		return { bonusRevoked: true };
 	},
 
 	credit: async (event) => {

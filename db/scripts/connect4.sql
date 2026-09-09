@@ -73,3 +73,35 @@ create table if not exists vs_connect4_progress (
 );
 create index if not exists vs_connect4_progress_slot
 	on vs_connect4_progress (event_id, deck_idx, side);
+
+-- ---------------------------------------------------------------------------
+-- BONUS awards: points that sit beside the board rather than on it. A pet is the
+-- motivating case — pets are filtered out of the tile generator on purpose, but a
+-- clan getting one during the event should still be worth something — so an admin
+-- records it by hand and the side's total goes up without a piece being placed.
+--
+-- The awarded `points` are STORED per row, not recomputed from the scoring config
+-- like tile and line points are. An award is a ledger entry: retuning the default
+-- later must not silently restate what a side was already told it had banked.
+--
+-- `drop_key` is nullable and unique per event, which in Postgres lets any number of
+-- hand-entered rows coexist (NULLs never conflict) while leaving the same
+-- idempotency guard the pieces table uses available if pet awards are ever
+-- automated from Dink.
+-- ---------------------------------------------------------------------------
+create table if not exists vs_connect4_bonus (
+	id          uuid primary key default gen_random_uuid(),
+	event_id    uuid not null references vs_events (id) on delete cascade,
+	side        int  not null check (side in (1, 2)),
+	points      int  not null,
+	kind        text not null default 'pet',
+	item_name   text,
+	by_user_id  uuid references vs_users (id) on delete set null,
+	note        text,
+	awarded_by  uuid references vs_users (id) on delete set null,
+	drop_key    text,
+	created_at  timestamptz not null default now(),
+	unique (event_id, drop_key)
+);
+create index if not exists vs_connect4_bonus_event
+	on vs_connect4_bonus (event_id, created_at desc);

@@ -1,5 +1,10 @@
 import type { SessionUser } from '$lib/server/auth';
-import { loadConnect4, redactSnapshot, type Connect4Snapshot } from '$lib/server/connect4';
+import {
+	loadConnect4,
+	redactSnapshot,
+	type BonusAward,
+	type Connect4Snapshot
+} from '$lib/server/connect4';
 import { maybeProcessDinkDrops } from '$lib/server/dinkDrops';
 import { liveVersion } from '$lib/server/liveVersion';
 import type { Connect4Scoring, LiveTile, Piece, Side } from '$lib/connect4/rules';
@@ -36,6 +41,8 @@ export interface Connect4View {
 	sides: Connect4ViewSide[];
 	pieces: Piece[];
 	live: (LiveTile | null)[];
+	/** Awards beside the board — scores are public, so members see these too. */
+	bonus: BonusAward[];
 	winner: Side | null;
 	full: boolean;
 	deckSize: number;
@@ -92,6 +99,7 @@ export async function buildConnect4Page(
 			})),
 			pieces: r.pieces,
 			live: r.live,
+			bonus: r.bonus,
 			winner: r.winner,
 			full: r.full,
 			deckSize: r.deckSize,

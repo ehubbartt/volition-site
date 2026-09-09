@@ -89,7 +89,15 @@
 	// completed did not light up — and the score did not move — until the round trip landed
 	// or you reloaded. The rules module is pure and client-safe, so the same functions the
 	// server scores with run here on every piece the board is showing.
-	const standings = $derived(computeStandings(boardPieces, game.scoring));
+	// Bonus awards live outside the piece log, so they have to be handed in explicitly —
+	// the merged board alone would show a total missing every pet.
+	const bonusTotals = $derived(
+		game.bonus.reduce<Record<number, number>>((acc, b) => {
+			acc[b.side] = (acc[b.side] ?? 0) + b.points;
+			return acc;
+		}, {})
+	);
+	const standings = $derived(computeStandings(boardPieces, game.scoring, bonusTotals));
 	const runCells = $derived(runCellSet(standings.flatMap((s) => s.runs)));
 
 	// Drop pending claims the server has now told us about. Kept out of the derived above so
@@ -538,6 +546,7 @@
 				<div class="total">{st.total.toLocaleString()}</div>
 				<div class="muted tiny">
 					{st.tiles} tiles ({st.tilePoints.toLocaleString()}) · lines {st.linePoints.toLocaleString()}
+					{#if st.bonusPoints} · bonus {st.bonusPoints.toLocaleString()}{/if}
 					{#if st.longest >= 4} · longest {st.longest} in a row{/if}
 				</div>
 			</div>
@@ -1062,9 +1071,75 @@
 				<label>Run of {len} <input name="line_{len}" type="number" value={game.scoring.line_points[i]?.points ?? 0} /></label>
 			{/each}
 			<label>Each cell past 7 <input name="extra_per_cell" type="number" value={game.scoring.extra_per_cell} /></label>
+			<label title="Only pre-fills the pet award form below; awards already given keep their own value.">
+				Default pet bonus <input name="pet_points" type="number" value={game.scoring.pet_points} />
+			</label>
 			<div class="wide"><button type="submit">Save scoring</button></div>
 		</form>
 	</section>
+
+	<!-- ── bonus awards ──────────────────────────────────────────────────── -->
+	{#if game.phase !== 'setup'}
+	<section class="osrs-panel">
+		<div class="osrs-titlebar">Pet bonuses — {game.bonus.length} awarded</div>
+		<div class="pad">
+			<p class="muted tiny">
+				Points beside the board, for things that aren't tiles — a pet is the usual case.
+				Nothing is dealt and no cell is used; the side's total simply goes up. Each award
+				keeps the points it was given, so changing the default in Scoring above never
+				restates what a side already banked.
+			</p>
+			<form method="POST" action="?/awardBonus" use:enhance class="row wrap bonus-form">
+				<label class="tiny">
+					side
+					<select name="side">
+						{#each game.sides as s (s.side)}<option value={s.side}>{s.name}</option>{/each}
+					</select>
+				</label>
+				<label class="tiny">
+					who got it
+					<select name="userId">
+						<option value="">— not recorded —</option>
+						{#each members as m (m.userId)}<option value={m.userId}>{m.rsn}</option>{/each}
+					</select>
+				</label>
+				<input name="item_name" placeholder="Pet (e.g. Olmlet)" />
+				<label class="tiny">
+					points
+					<input name="points" type="number" value={game.scoring.pet_points} class="pts-in" />
+				</label>
+				<button type="submit">Award</button>
+			</form>
+
+			{#if game.bonus.length}
+				<div class="table-wrap">
+				<table class="osrs-table">
+					<thead>
+						<tr><th>What</th><th>Side</th><th>Who</th><th class="right">Points</th><th>When</th><th></th></tr>
+					</thead>
+					<tbody>
+						{#each game.bonus as b (b.id)}
+							<tr>
+								<td>{b.itemName ?? b.kind}</td>
+								<td>{game.sides[b.side - 1]?.name ?? b.side}</td>
+								<td>{b.byRsn ?? '—'}</td>
+								<td class="right">{b.points.toLocaleString()}</td>
+								<td class="muted tiny">{new Date(b.createdAt).toLocaleString()}</td>
+								<td class="right">
+									<form method="POST" action="?/revokeBonus" use:enhance>
+										<input type="hidden" name="id" value={b.id} />
+										<button class="danger tiny" type="submit">Remove</button>
+									</form>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+				</div>
+			{/if}
+		</div>
+	</section>
+	{/if}
 
 	<!-- ── the log ───────────────────────────────────────────────────────── -->
 	{#if game.pieces.length}
@@ -1451,6 +1526,12 @@
 	}
 	.clear-all:hover {
 		color: var(--danger);
+	}
+	.bonus-form {
+		margin-bottom: 0.6rem;
+	}
+	.pts-in {
+		width: 5rem;
 	}
 	.eff-ehb {
 		color: var(--yellow);

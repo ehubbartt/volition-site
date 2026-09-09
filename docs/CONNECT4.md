@@ -13,8 +13,10 @@ the implementation. See also [`EVENTS.md`](EVENTS.md) for the shared events spin
 [`event-builder-and-dink-tracking.md`](event-builder-and-dink-tracking.md) for the drop
 pipeline this hangs off.
 
-> **Status: staging-only.** The schema is applied to staging alone. Games are driven from
-> `/admin/connect4`; members watch (read-only) at `/events/[slug]/connect4`.
+> **Status: live on prod** (merged 2026-09-08; `connect4.sql` applied to both databases
+> 2026-09-09). Games are driven from `/admin/connect4`; members watch (read-only) at
+> `/events/[slug]/connect4`. Note that `connect4.sql` gained the `vs_connect4_bonus`
+> table after that — re-run the file wherever pet bonuses are wanted.
 
 ---
 
@@ -76,6 +78,7 @@ migration and no drift.
 | `tile_points` | 10 | Paid per tile claimed. **Set to 0 to score connect-fours only.** |
 | `line_points` | 4→100, 5→250, 6→500, 7→900 | What a run of that length pays. |
 | `extra_per_cell` | 400 | Paid per cell beyond the longest configured run. |
+| `pet_points` | 25 | Default for a hand-recorded **pet bonus**. Only pre-fills the award form — see below. |
 
 **A maximal run scores once, at its current length.** A run of six contains three
 overlapping windows of four; counting those separately would pay three times for one line.
@@ -87,6 +90,27 @@ puts it back to 100 just as cleanly.
 
 **A cross counts twice.** Two runs meeting at a cell are different directions, and a cross
 is genuinely two lines.
+
+#### Bonus awards (pets)
+
+Points that sit **beside** the board rather than on it. Pets are filtered out of the tile
+generator on purpose, but a clan landing one during the event should still be worth
+something — so an admin records it by hand in the *Pet bonuses* panel and the side's total
+goes up. Nothing is dealt, no cell is consumed, the board is untouched.
+
+Two things follow from that, and they are the opposite of how the dials above behave:
+
+* **An award stores the points it was given.** Retuning `pet_points` later changes what the
+  form pre-fills, never what a side already banked. Tile and line points are recomputed
+  from the piece log on every read; an award is a ledger entry, and restating one after a
+  clan has been told its score would be a bug, not a feature.
+* **Bonus points decide the winner.** `leaderOf` takes the same per-side totals the
+  standings do, so a side ahead on pets wins on pets — at the automatic end-of-board finish
+  and at a manual *End the game* alike.
+
+Awards can be given while the game is `live` **or** `finished`, so a pet that lands minutes
+before the end can still be honoured after the last piece falls. Removing one is a plain
+delete; the standings recompute like everything else.
 
 ### Tracking
 
@@ -160,12 +184,13 @@ The container is a **`vs_events` row** (`kind='connect4'`). `structure.connect4`
 phase, the scoring config, the sides, the curated pool, the dealt deck, the seed and the
 winner. Teams reuse `vs_teams` + `vs_event_signups.team_id` like every other event.
 
-**One table**, because only one thing here needs a guarantee the application cannot make:
+**Three tables**, each holding a guarantee the application cannot make for itself:
 
 | Table | The guarantee |
 |---|---|
 | `vs_connect4_pieces` | `unique (event_id, col, row)` **is** the "first team to the tile claims it" rule. `unique (event_id, drop_key)` **is** what makes intake safe against the reconcile pass. |
 | `vs_connect4_progress` | Per-side drops banked toward a QUANTITY tile, keyed to the deck slot. Same `unique (event_id, drop_key)` guard as the pieces. |
+| `vs_connect4_bonus` | Points awarded beside the board (pets). `points` is stored, not derived — see *Bonus awards*. `drop_key` is nullable and unique per event, so hand-entered rows never collide (NULLs don't conflict) while the guard stays available if pet awards are ever automated. |
 
 Everything else — the board, the live tiles, the standings, the winner — is derived from
 those rows on every read. There is nothing to keep in sync, which is why `undoClaim` needs

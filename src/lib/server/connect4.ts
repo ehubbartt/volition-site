@@ -39,8 +39,10 @@ import {
 	runsThrough,
 	seededRandom,
 	shuffleDeck,
+	isSide,
 	standings as computeStandings,
 	tileQty,
+	type BonusTotals,
 	type BoardSize,
 	type Connect4Scoring,
 	type LiveTile,
@@ -75,6 +77,24 @@ export interface SideMember {
 	discordId: string | null;
 }
 
+/**
+ * A points award that sits BESIDE the board: an admin records a pet (or anything else
+ * worth a few points that isn't a tile) and the side's total moves without a piece
+ * being placed. `points` is what was actually awarded and is stored, not recomputed —
+ * see the note in db/scripts/connect4.sql.
+ */
+export interface BonusAward {
+	id: string;
+	side: Side;
+	points: number;
+	kind: string;
+	itemName: string | null;
+	byUserId: string | null;
+	byRsn: string | null;
+	note: string | null;
+	createdAt: string;
+}
+
 export interface Connect4Snapshot {
 	id: string;
 	slug: string;
@@ -105,6 +125,8 @@ export interface Connect4Snapshot {
 	unassigned: SideMember[];
 	pieces: Piece[];
 	live: (LiveTile | null)[];
+	/** Hand-recorded awards (pets) that add to a side's total without touching the board. */
+	bonus: BonusAward[];
 	standings: SideStanding[];
 	winner: Side | null;
 	/** True once every cell is claimed — the game has run out of board. */
@@ -224,13 +246,49 @@ interface EventRow {
 	ends_at: string | null;
 }
 
+interface BonusRow {
+	id: string;
+	side: number;
+	points: number;
+	kind: string | null;
+	item_name: string | null;
+	by_user_id: string | null;
+	note: string | null;
+	created_at: string;
+}
+
+async function readBonus(eventId: string): Promise<BonusRow[]> {
+	const { data } = await db()
+		.from('vs_connect4_bonus')
+		.select('id, side, points, kind, item_name, by_user_id, note, created_at')
+		.eq('event_id', eventId)
+		.order('created_at', { ascending: false });
+	return (data ?? []) as BonusRow[];
+}
+
+/** Fold award rows into the per-side totals the rules add to each standing. */
+function bonusTotals(rows: { side: number; points: number }[]): BonusTotals {
+	const out: BonusTotals = {};
+	for (const r of rows) {
+		if (!isSide(r.side)) continue;
+		out[r.side] = (out[r.side] ?? 0) + (Number(r.points) || 0);
+	}
+	return out;
+}
+
+/** The per-side bonus totals for an event, for paths that don't hold a snapshot. */
+async function bonusTotalsFor(eventId: string): Promise<BonusTotals> {
+	return bonusTotals(await readBonus(eventId));
+}
+
 async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
 	const sb = db();
 	const c4 = readStructure(ev.structure);
 
-	const [{ data: signupRows }, pieces] = await Promise.all([
+	const [{ data: signupRows }, pieces, bonusRows] = await Promise.all([
 		sb.from('vs_event_signups').select('user_id, team_id').eq('event_id', ev.id),
-		readPieces(ev.id)
+		readPieces(ev.id),
+		readBonus(ev.id)
 	]);
 	const signups = (signupRows ?? []) as { user_id: string; team_id: string | null }[];
 
@@ -320,7 +378,18 @@ async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
 		unassigned: signups.filter((s) => !s.team_id).map((s) => asMember(s.user_id)),
 		pieces,
 		live,
-		standings: computeStandings(pieces, scoring),
+		bonus: bonusRows.map((b) => ({
+			id: b.id,
+			side: (isSide(b.side) ? b.side : 1) as Side,
+			points: Number(b.points) || 0,
+			kind: b.kind ?? 'pet',
+			itemName: b.item_name,
+			byUserId: b.by_user_id,
+			byRsn: b.by_user_id ? (usersById.get(b.by_user_id)?.rsn ?? null) : null,
+			note: b.note,
+			createdAt: b.created_at
+		})),
+		standings: computeStandings(pieces, scoring, bonusTotals(bonusRows)),
 		winner: c4.winner ?? null,
 		full: pieces.length >= deckSizeOf(size)
 	};
@@ -1074,10 +1143,17 @@ export async function claimTile(input: {
 
 		await syncTrackedItems(input.eventId, { ...snap, pieces: after, live: nextLive });
 
+		// Bonus awards count toward the total, so they decide the winner too — read them
+		// once for both the auto-finish verdict and the report's standings.
+		const bonus = await bonusTotalsFor(input.eventId);
+
 		let finished = false;
 		if (after.length >= snap.deckSize) {
 			finished = true;
-			await patchStructure(input.eventId, { phase: 'finished', winner: leaderOf(after, scoring) });
+			await patchStructure(input.eventId, {
+				phase: 'finished',
+				winner: leaderOf(after, scoring, bonus)
+			});
 			await sb.from('vs_events').update({ ends_at: new Date().toISOString() }).eq('id', input.eventId);
 		}
 
@@ -1090,7 +1166,7 @@ export async function claimTile(input: {
 			tile: target.tile,
 			replacement: nextLive[target.col]?.tile ?? null,
 			newRuns: runs,
-			standings: computeStandings(after, scoring),
+			standings: computeStandings(after, scoring, bonus),
 			finished
 		};
 	}
@@ -1265,7 +1341,7 @@ export async function finishGame(eventId: string): Promise<Result<{ winner: Side
 	const snap = await loadConnect4ById(eventId);
 	if (!snap) return errResult('No such game');
 	if (snap.phase === 'setup') return errResult('This game has not started');
-	const winner = leaderOf(snap.pieces, snap.scoring);
+	const winner = leaderOf(snap.pieces, snap.scoring, bonusTotals(snap.bonus));
 	const res = await patchStructure(eventId, { phase: 'finished', winner });
 	if (!res.ok) return errResult(res.error);
 	await db().from('vs_events').update({ ends_at: new Date().toISOString() }).eq('id', eventId);
@@ -1342,6 +1418,78 @@ export async function listConnect4Games(): Promise<Connect4ListRow[]> {
 }
 
 /** Test games only — a real event is never deleted from a button. */
+/**
+ * Record a bonus award (a pet, by default). Deliberately NOT a claim: nothing is dealt,
+ * no cell is consumed and the board is untouched — only the side's total moves. Allowed
+ * while the game is live or finished, so a pet that lands minutes before the end can
+ * still be honoured after the final piece.
+ */
+export async function addBonus(input: {
+	eventId: string;
+	side: Side;
+	points: number;
+	kind?: string;
+	itemName?: string | null;
+	byUserId?: string | null;
+	note?: string | null;
+	awardedBy?: string | null;
+}): Promise<Result<{ id: string }>> {
+	const snap = await loadConnect4ById(input.eventId);
+	if (!snap) return errResult('No such game');
+	if (snap.phase === 'setup') return errResult('Start the game before awarding bonus points');
+	if (!isSide(input.side)) return errResult('Pick a side');
+	const points = Math.round(Number(input.points));
+	if (!isFinite(points) || points === 0) return errResult('Give the award a non-zero point value');
+	if (Math.abs(points) > 100_000) return errResult('That is not a bonus, that is a rewrite');
+
+	const name = (input.itemName ?? '').trim();
+	const { data, error } = await db()
+		.from('vs_connect4_bonus')
+		.insert({
+			event_id: input.eventId,
+			side: input.side,
+			points,
+			kind: (input.kind ?? 'pet').trim() || 'pet',
+			item_name: name || null,
+			by_user_id: input.byUserId || null,
+			note: (input.note ?? '').trim() || null,
+			awarded_by: input.awardedBy || null
+		})
+		.select('id')
+		.single();
+	if (error) return errResult(error.message);
+	await restateWinner(snap);
+	return okResult({ id: (data as { id: string }).id });
+}
+
+/** Take an award back. Scoped to the event so a stale id can't reach another game's row. */
+export async function removeBonus(eventId: string, bonusId: string): Promise<Result> {
+	const snap = await loadConnect4ById(eventId);
+	if (!snap) return errResult('No such game');
+	const { error } = await db()
+		.from('vs_connect4_bonus')
+		.delete()
+		.eq('event_id', eventId)
+		.eq('id', bonusId);
+	if (error) return errResult(error.message);
+	await restateWinner(snap);
+	return okResult();
+}
+
+/**
+ * A FINISHED game stores its winner, decided once when it ended — but a bonus award moves
+ * the totals, and a pet recorded after the last piece fell can genuinely change who won.
+ * Re-decide from the awards as they stand now. No-op while the game is still live, where
+ * the winner is not written down yet.
+ */
+async function restateWinner(snap: Connect4Snapshot): Promise<void> {
+	if (snap.phase !== 'finished') return;
+	const fresh = await loadConnect4ById(snap.id);
+	if (!fresh) return;
+	const winner = leaderOf(fresh.pieces, fresh.scoring, bonusTotals(fresh.bonus));
+	if (winner !== fresh.winner) await patchStructure(snap.id, { winner });
+}
+
 export async function deleteConnect4(eventId: string): Promise<Result> {
 	const snap = await loadConnect4ById(eventId);
 	if (!snap) return errResult('No such game');
@@ -1351,6 +1499,7 @@ export async function deleteConnect4(eventId: string): Promise<Result> {
 	// leaving orphaned "credited" rows in /admin/dink-drops after every e2e/sim run.
 	await sb.from('vs_dink_drops').delete().eq('event_id', eventId);
 	await sb.from('vs_connect4_progress').delete().eq('event_id', eventId);
+	await sb.from('vs_connect4_bonus').delete().eq('event_id', eventId);
 	await sb.from('vs_event_tracked_items').delete().eq('event_id', eventId);
 	await sb.from('vs_connect4_pieces').delete().eq('event_id', eventId);
 	await sb.from('vs_event_signups').delete().eq('event_id', eventId);
