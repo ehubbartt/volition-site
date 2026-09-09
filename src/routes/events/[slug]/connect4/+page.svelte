@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import BoardAckModal from '$lib/board/BoardAckModal.svelte';
+	import {
+		saveDraftFiles,
+		loadDraftFiles,
+		clearDraftFiles,
+		sweepExpiredDrafts
+	} from '$lib/board/draftStore';
 	import type { PageData, ActionData } from './$types';
 	import { invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
@@ -31,6 +37,60 @@
 
 	// Set while a claim submission is in flight, so the button can say so.
 	let submitting = $state(false);
+
+	// ── Staged proof, kept across closing the tile ────────────────────────────
+	// The reason this is not a bare <input type=file>: you screenshot the drop, then carry
+	// on playing, then come back to submit. Staged images live in IndexedDB keyed by
+	// column (via draftStore, the same store the DuoWolf board uses), so dropping one in
+	// and clicking away does not lose it — reopen the column and it is still there.
+	let staged = $state<{ file: File; url: string }[]>([]);
+	let fileInput = $state<HTMLInputElement>();
+	let dragging = $state(false);
+	/** How many of a multi-drop tile's requirement this proof covers. */
+	let quantity = $state(1);
+
+	const draftKey = (col: number) => `c4:${game?.id ?? ''}:${col}`;
+
+	function addFiles(list: FileList | File[] | null) {
+		const incoming = Array.from(list ?? []).filter((f) => f.type.startsWith('image/'));
+		if (!incoming.length) return;
+		staged = [...staged, ...incoming.map((f) => ({ file: f, url: URL.createObjectURL(f) }))];
+		persist();
+	}
+	function removeStaged(i: number) {
+		const gone = staged[i];
+		if (gone) URL.revokeObjectURL(gone.url);
+		staged = staged.filter((_, n) => n !== i);
+		persist();
+	}
+	function persist() {
+		if (selected === null || !game) return;
+		void saveDraftFiles(draftKey(selected), staged.map((s) => s.file));
+	}
+	function clearStaged() {
+		for (const s of staged) URL.revokeObjectURL(s.url);
+		staged = [];
+		if (fileInput) fileInput.value = '';
+		if (selected !== null && game) void clearDraftFiles(draftKey(selected));
+	}
+
+	// Restore whatever was staged for the column being opened.
+	$effect(() => {
+		const col = selected;
+		const id = game?.id;
+		if (col === null || !id) return;
+		let cancelled = false;
+		void sweepExpiredDrafts();
+		(async () => {
+			const files = await loadDraftFiles(`c4:${id}:${col}`);
+			if (cancelled) return;
+			for (const s of staged) URL.revokeObjectURL(s.url);
+			staged = files.map((f) => ({ file: f, url: URL.createObjectURL(f) }));
+		})();
+		return () => {
+			cancelled = true;
+		};
+	});
 
 	/** "4m ago" — the waiting room cares about recency, not wall-clock time. */
 	function ago(iso: string): string {
@@ -447,26 +507,107 @@
 								action="?/submitClaim"
 								enctype="multipart/form-data"
 								class="claim-form"
-								use:enhance={() => {
+								use:enhance={({ formData }) => {
 									submitting = true;
-									return async ({ update }) => {
-										await update({ reset: true });
+									// The staged files are the submission — the visible input is only
+									// one way to add them, and after a reopen they came from IndexedDB
+									// rather than a picker, so the input itself may be empty.
+									formData.delete('proof');
+									for (const st of staged) formData.append('proof', st.file);
+									return async ({ update, result }) => {
+										if (result.type === 'success') clearStaged();
+										await update({ reset: false });
 										submitting = false;
 									};
 								}}
 							>
 								<input type="hidden" name="col" value={selectedTile.col} />
-								<label class="claim-file">
-									<span>Screenshot of the drop</span>
-									<input type="file" name="proof" accept="image/*" multiple required />
-								</label>
-								<button type="submit" disabled={submitting}>
-									{submitting ? 'Sending…' : 'Submit this drop for review'}
-								</button>
-								<p class="muted tiny">
-									Make sure the shot shows <strong>the in-game time</strong> as well as the drop —
-									an admin checks it landed after this tile went up.
-								</p>
+
+								<!-- Drop zone. Staged images survive closing the tile, so you can
+								     screenshot the drop now and submit when you are done playing. -->
+								<div
+									class="dropzone"
+									class:over={dragging}
+									role="button"
+									tabindex="0"
+									ondragover={(e) => {
+										e.preventDefault();
+										dragging = true;
+									}}
+									ondragleave={() => (dragging = false)}
+									ondrop={(e) => {
+										e.preventDefault();
+										dragging = false;
+										addFiles(e.dataTransfer?.files ?? null);
+									}}
+									onclick={() => fileInput?.click()}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') fileInput?.click();
+									}}
+								>
+									{#if staged.length}
+										<div class="thumbs">
+											{#each staged as st, i (st.url)}
+												<div class="thumb">
+													<img src={st.url} alt="Staged proof {i + 1}" />
+													<button
+														type="button"
+														class="thumb-x"
+														title="Remove"
+														onclick={(e) => {
+															e.stopPropagation();
+															removeStaged(i);
+														}}>✕</button>
+												</div>
+											{/each}
+										</div>
+										<p class="muted tiny">
+											Saved on this device — you can close this and come back to it.
+										</p>
+									{:else}
+										<p class="muted tiny">
+											Drop a screenshot here, or click to pick one. Make sure the
+											<strong>in-game clock</strong> is visible — an admin checks the drop
+											landed after this tile went up.
+										</p>
+									{/if}
+								</div>
+								<input
+									bind:this={fileInput}
+									type="file"
+									name="proof"
+									accept="image/*"
+									multiple
+									class="hidden-input"
+									onchange={(e) => addFiles(e.currentTarget.files)}
+								/>
+
+								{#if (selectedTile.tile.qty ?? 1) > 1}
+									<!-- Multi-drop tiles are the thing people misread: one proof does not
+									     finish a "×N" tile unless it shows N of them. Say the count. -->
+									<label class="qty-pick">
+										<span>
+											This tile needs <strong>{selectedTile.tile.qty}</strong> drops. How many
+											does this screenshot cover?
+										</span>
+										<input
+											name="quantity"
+											type="number"
+											min="1"
+											max={selectedTile.tile.qty}
+											bind:value={quantity}
+										/>
+									</label>
+								{/if}
+
+								<div class="claim-actions">
+									<button type="submit" disabled={submitting || !staged.length}>
+										{submitting ? 'Sending…' : 'Submit this drop for review'}
+									</button>
+									{#if staged.length}
+										<button type="button" class="link-ish" onclick={clearStaged}>Clear</button>
+									{/if}
+								</div>
 							</form>
 							{#if form?.error}<p class="err tiny">{form.error}</p>{/if}
 							{#if form?.submitted}
@@ -752,7 +893,6 @@
 		border-radius: var(--radius);
 		background: var(--surface-alt);
 	}
-	.claim-file { display: grid; gap: 0.2rem; font-size: 0.8rem; color: var(--muted); }
 	.claim-form p { margin: 0; }
 	.err { color: var(--danger); }
 	.ok { color: var(--success); }
@@ -775,4 +915,45 @@
 		flex: none;
 	}
 	.redo { flex-basis: 100%; font-size: 0.82rem; }
+	.dropzone {
+		border: 1px dashed var(--border);
+		border-radius: var(--radius);
+		padding: 0.6rem;
+		cursor: pointer;
+		background: var(--surface);
+	}
+	.dropzone.over { border-color: var(--accent); background: var(--accent-soft); }
+	.dropzone p { margin: 0; }
+	.hidden-input { display: none; }
+	.thumbs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.35rem; }
+	.thumb { position: relative; }
+	.thumb img {
+		width: 4.5rem;
+		height: 4.5rem;
+		object-fit: cover;
+		border-radius: 3px;
+		border: 1px solid var(--border);
+	}
+	.thumb-x {
+		position: absolute;
+		top: -0.35rem;
+		right: -0.35rem;
+		min-height: 0;
+		padding: 0 0.3rem;
+		font-size: 0.7rem;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		color: var(--danger);
+	}
+	.qty-pick { display: grid; gap: 0.2rem; font-size: 0.82rem; color: var(--muted); }
+	.qty-pick input { width: 5rem; }
+	.claim-actions { display: flex; gap: 0.5rem; align-items: center; }
+	.link-ish {
+		background: none;
+		border: none;
+		color: var(--muted);
+		font-size: 0.8rem;
+		cursor: pointer;
+	}
 </style>

@@ -44,11 +44,20 @@ export const actions: Actions = {
 		// target_id carries the column AND the deck slot it was on offer for. The slot is
 		// what makes a stale submission detectable: if the column moves on before an admin
 		// reviews, the row still says which tile was actually being claimed.
+		// How many of a ×N tile's requirement this one proof covers. People misread
+		// multi-drop tiles and send a single drop, so the form asks outright and the
+		// number rides along to the reviewer (the queue already sums approved quantities).
+		const need = Math.max(1, Number(slot.tile.qty ?? 1));
+		const claimed = Math.min(need, Math.max(1, Number(form.get('quantity')) || 1));
+
 		const result = await createSubmission({
 			eventId: game.id,
 			userId: locals.user.id,
 			targetId: `c4:${col}:${slot.deckIdx}`,
-			targetLabel: `${slot.tile.item_name} — column ${columnLabel(col)}`,
+			targetLabel:
+				`${slot.tile.item_name} — column ${columnLabel(col)}` +
+				(need > 1 ? ` (covers ${claimed} of ${need})` : ''),
+			quantity: claimed,
 			files
 		});
 		if (!result.ok) return fail(400, { error: result.error });
