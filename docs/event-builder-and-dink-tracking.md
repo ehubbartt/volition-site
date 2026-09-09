@@ -254,26 +254,44 @@ and a revoke/rotate takes effect within the cache TTL.
 > Site env: set `PROXY_BASE_URL` (e.g. `https://dink-proxy.<account>.workers.dev`) so
 > the site can show the full config URL. Without it, members fall back to `/dink`.
 
-### Multi-server members (two config variants)
+### Delivery modes, and visiting players
 
-The proxy serves **two variants** of the config, picked per token:
+Pasting our config URL **replaces the webhooks already in a player's Dink** — the
+template sets `discordWebhook` along with the per-notifier ones. They can add their own
+back afterwards, and whether that is a good idea is exactly what `/dink-check` asks.
 
-- **Standard** — the admin template as-is (today `minLootValue: 1`, so every drop
-  reaches the proxy and members never touch Dink after setup).
-- **Multi-server** — for members whose Dink also posts to **other Discord servers**:
-  a 1 gp threshold would fire their other webhooks on every drop. Their config keeps
-  a floored `minLootValue` (≥ 3,000,000 regardless of the admin template) and relies
-  on the injected **tracked-item allowlist** instead. Trade-offs, explained in their
-  setup flow on `/dink-check`: they must **toggle the Dink plugin off/on whenever
-  their boards/tiles change** (the allowlist only refreshes when Dink reloads the
-  config), and their other servers still see notifications for the whitelisted items
-  when they drop.
+Two independent answers, stored as `dink_tokens.mode` and `dink_tokens.forward_clan`
+(`db/scripts/dink_modes_and_relays.sql`). They are deliberately not one enum: a visiting
+clan's player may well want their own clan's channel fed while staying out of ours.
 
-The flag is `dink_tokens.multi_server` (`db/scripts/dink_tokens_multi_server.sql`),
-set by the "I use Dink with multiple Discord servers" checkbox on `/dink-check`
-(`?/setMultiServer`), carried across token rotations by the site, and read by the
-proxy in the same query it already uses to validate tokens. Multi-server members
-skip the "reset Dink's settings" setup step.
+| `mode` | Config served | For |
+|---|---|---|
+| `standard` | admin template as-is (today `minLootValue: 1`) | They left our config alone. Only we get posted to; every drop reaches the tracker; nothing to maintain. |
+| `multi_server` | `minLootValue` floored to 3,000,000 + injected tracked-item allowlist | They re-added their **own** webhooks to Dink, which a 1 gp threshold would fire on every drop. Costs them a plugin toggle whenever their tiles change, or new tiles never track. |
+| `relay` | admin template as-is (1 gp) | They left their own webhooks out of Dink and registered those channels with us instead (`vs_dink_relays`). The proxy posts on their behalf. Best of both: perfect tracking, nothing to toggle, other servers stay quiet. |
+
+`forward_clan = false` marks a **visiting player**: their drops are recorded for the
+event and relayed to their own destinations, but nothing of theirs is ever forwarded to
+the Volition Discord. The gate sits after the tracking write and before the clan
+forward, so tracking is unaffected.
+
+#### The relay
+
+`vs_dink_relays` holds a member's own Discord webhooks, each with a `min_value` and a
+`types` set from the proxy's `FORWARD_TYPES`. The proxy fans out to them in `handleHook`
+**before** the clan feed trims the payload, because a destination's floor is its own
+business and may be lower than ours; loot is judged per stack, exactly like the clan feed.
+
+Two things about the URLs, both deliberate:
+
+* **They are validated as Discord webhooks twice** — in `dinkTokens.ts` and again by a
+  `CHECK` constraint on the table. The proxy POSTs whatever is stored there, so this is
+  an SSRF guard, not a typo check.
+* **They are secrets.** The page only ever renders a masked form, and the proxy never
+  logs a URL, not even on a failed post — only the status code.
+
+Relayed posts are JSON only, with Dink's `attachment://` embed references stripped, so a
+relayed drop shows its text and item icons but not the screenshot.
 
 ---
 

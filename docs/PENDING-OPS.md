@@ -90,6 +90,22 @@ a re-runnable diagnostic.
 
 ---
 
+## 3. Dink delivery modes + the relay
+
+1. ☐ Apply `db/scripts/dink_modes_and_relays.sql` to **both** databases. Adds
+   `dink_tokens.mode` / `.forward_clan` and the `vs_dink_relays` table. Until it
+   lands, `/dink-check` falls back to the old single-choice behaviour (the reads
+   degrade to defaults) and the proxy treats every token as `standard` +
+   `forward_clan`, i.e. exactly today's behaviour.
+2. ☐ Deploy the **proxy** (`dink-proxy`): the mode-aware config, the visitor gate and
+   the relay fan-out all live there. Note the proxy's `drop-drain-ping` branch is
+   still unmerged — see section 1 — so decide whether these ship together.
+3. ☐ Smoke-test each shape on staging once the SQL is applied: a visitor token's drop
+   is recorded but absent from the clan feed; a relay destination receives a post at
+   its own floor; a `multi_server` token still gets the 3M floor.
+
+---
+
 ## 3. Connect Four production go-live
 
 1. ☑ Merge `staging` → `main` — 2026-08-27 (fast-forward) and again 2026-09-08
