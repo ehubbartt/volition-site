@@ -354,9 +354,12 @@ test('four in a row scores, glows, and moves the standings', async () => {
 
 test('a simulated drop goes through the real Dink pipeline', async () => {
 	const before = await pieceCount();
-	await page.locator('select[name="userId"]').selectOption({ index: 0 });
+	// Scoped to the simulate form: the page has a second user picker (the pet-bonus
+	// award form), so a bare select[name="userId"] matches two controls.
+	const sim = page.locator('form[action="?/simulate"]');
+	await sim.locator('select[name="userId"]').selectOption({ index: 0 });
 	// Any column with a live tile; the select only lists those.
-	await page.locator('select[name="col"]').selectOption({ index: 6 });
+	await sim.locator('select[name="col"]').selectOption({ index: 6 });
 	await page.getByRole('button', { name: 'Send it through the real pipeline' }).click();
 
 	// The count is however many queued drops the consumer drained, which is 1 on a clean
