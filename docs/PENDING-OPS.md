@@ -98,8 +98,12 @@ a re-runnable diagnostic.
    degrade to defaults) and the proxy treats every token as `standard` +
    `forward_clan`, i.e. exactly today's behaviour.
 2. ☐ Deploy the **proxy** (`dink-proxy`): the mode-aware config, the visitor gate and
-   the relay fan-out all live there. Note the proxy's `drop-drain-ping` branch is
-   still unmerged — see section 1 — so decide whether these ship together.
+   the relay fan-out all live on branch **`dink-delivery-modes`** (one commit off
+   `master`). CI deploys `master`, so it needs merging.
+   **There are now two unmerged proxy branches**, and they are independent —
+   `dink-delivery-modes` (this) and `drop-drain-ping` (section 1, still not merged;
+   `master` has no drain ping). Merging either alone is fine; decide whether to
+   ship them together or one at a time.
 3. ☐ Smoke-test each shape on staging once the SQL is applied: a visitor token's drop
    is recorded but absent from the clan feed; a relay destination receives a post at
    its own floor; a `multi_server` token still gets the 3M floor.
