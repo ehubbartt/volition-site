@@ -143,6 +143,25 @@ try {
 	check('col 2 opens on copy 1', snap.live[2]?.tile.item_name === copyTile.item_name, snap.live[2]?.tile.item_name);
 	check('col 3 opens on the manual-only task', snap.live[3]?.tile.item_name === man.value.tile.item_name, snap.live[3]?.tile.item_name);
 
+	// This drill exercises the DINK pipeline. Connect Four currently runs on manual
+	// proof (DINK_AUTO_TRACKING is false in connect4.ts), so a live game projects
+	// nothing into the allowlist and every drop below would correctly find no tile.
+	// Say so and stop, rather than print a screen of failures that are right.
+	const { data: tracked } = await sb
+		.from('vs_event_tracked_items')
+		.select('id')
+		.eq('event_id', eventId)
+		.limit(1);
+	if (!tracked || tracked.length === 0) {
+		console.log('\n  ⏸  Dink auto-tracking is OFF for Connect Four (DINK_AUTO_TRACKING).');
+		console.log('     This drill only covers the Dink path, so there is nothing to test.');
+		console.log('     Manual claims and the review flow: npm run drill:connect4:review');
+		await c4.deleteConnect4(eventId);
+		eventId = null;
+		await server.close();
+		process.exit(0);
+	}
+
 	// ── helpers ──────────────────────────────────────────────────────────────
 	const reload = async () => (snap = await c4.loadConnect4(SLUG));
 	/** The freshest dink-drop row for an rsn+item, to read the consumer's verdict. */

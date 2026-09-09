@@ -13,8 +13,9 @@
 import { createServer } from 'vite';
 
 const SLUG = `drill-review-${Date.now().toString(36)}`;
-const COLS = 4;
-const ROWS = 3;
+// clampSize's floor is 5x4 — asking for less silently gets you this anyway.
+const COLS = 5;
+const ROWS = 4;
 
 let pass = 0;
 const failures = [];
@@ -66,6 +67,8 @@ try {
 
 	// A submission places a PENDING piece. We stand in for the form here — the route
 	// action does exactly this after createSubmission.
+	// submission_id is a real uuid column, so the stand-in ids have to be real uuids.
+	const SUB = { one: crypto.randomUUID(), oneB: crypto.randomUUID(), two: crypto.randomUUID() };
 	const submit = async (col, side, userId, subId) =>
 		c4.claimTile({
 			eventId, side, col, dropKey: `manual:submission:${subId}`,
@@ -74,8 +77,8 @@ try {
 
 	step(2, 'Submitting holds the tile immediately, unconfirmed');
 	const tile0 = snap.live[0].tile.item_name;
-	const s1 = await submit(0, 1, red.id, 'sub-1');
-	check('the piece lands on submit', s1.status === 'claimed', s1.status);
+	const s1 = await submit(0, 1, red.id, SUB.one);
+	check('the piece lands on submit', s1.status === 'claimed', `${s1.status} ${s1.error ?? ''}`);
 	await reload();
 	const p1 = snap.pieces.find((p) => p.col === 0);
 	check('and it is pending, not confirmed', p1?.status === 'pending', p1?.status);
@@ -86,21 +89,21 @@ try {
 	await reload();
 	const beforePartial = snap.pieces.length;
 	check('no board change from a partial rejection', snap.pieces.length === beforePartial);
-	const ok2 = await c4.repointPendingPiece(eventId, 0, red.id, 'sub-1b');
+	const ok2 = await c4.repointPendingPiece(eventId, 0, red.id, SUB.oneB);
 	check('a resubmission re-points the piece they already hold', ok2 === true);
 	await reload();
 	check('still exactly one piece in that column', snap.pieces.filter((p) => p.col === 0).length === 1);
 
 	step(4, 'A second player stacks on top of the first');
-	const s2 = await submit(0, 2, yellow.id, 'sub-2');
-	check('second claim lands above the first', s2.status === 'claimed' && s2.row === 1, `${s2.status} row=${s2.row}`);
+	const s2 = await submit(0, 2, yellow.id, SUB.two);
+	check('second claim lands above the first', s2.status === 'claimed' && s2.row === 1, `${s2.status} ${s2.error ?? ''} row=${s2.row}`);
 	await reload();
 	const stacked = snap.pieces.filter((p) => p.col === 0).sort((a, b) => a.row - b.row);
 	const bottomTile = stacked[0].deck_idx;
 	const topTile = stacked[1].deck_idx;
 
 	step(5, 'Full rejection of the BOTTOM piece removes it and shifts the column');
-	const rej = await c4.rejectPieceFully(eventId, 'sub-1b');
+	const rej = await c4.rejectPieceFully(eventId, SUB.oneB);
 	check('rejection succeeded', rej.ok, rej.ok ? '' : rej.error);
 	await reload();
 	const after = snap.pieces.filter((p) => p.col === 0);

@@ -215,12 +215,19 @@ function rowToPiece(r: Record<string, unknown>): Piece {
 }
 
 async function readPieces(eventId: string): Promise<Piece[]> {
-	const { data } = await db()
-		.from('vs_connect4_pieces')
-		.select('*')
-		.eq('event_id', eventId)
-		.order('claimed_at', { ascending: true });
-	return ((data ?? []) as Record<string, unknown>[]).map(rowToPiece);
+	// PAGED. The board IS this list — a truncated read would silently show a partial
+	// board and mis-score it, which is exactly the shape of limit bug that bit the
+	// DuoWolf progress. A 40x15 board is 600 pieces, comfortably under any default cap
+	// today; paging costs an extra request only when it is actually needed.
+	const { data } = await fetchAllFiltered<Record<string, unknown>>((from, to) =>
+		db()
+			.from('vs_connect4_pieces')
+			.select('*')
+			.eq('event_id', eventId)
+			.order('claimed_at', { ascending: true })
+			.range(from, to)
+	);
+	return (data ?? []).map(rowToPiece);
 }
 
 // ── Load ────────────────────────────────────────────────────────────────────
@@ -274,12 +281,18 @@ interface BonusRow {
 }
 
 async function readBonus(eventId: string): Promise<BonusRow[]> {
-	const { data } = await db()
-		.from('vs_connect4_bonus')
-		.select('id, side, points, kind, item_name, by_user_id, note, created_at')
-		.eq('event_id', eventId)
-		.order('created_at', { ascending: false });
-	return (data ?? []) as BonusRow[];
+	// PAGED: awards are hand-entered so the count is small in practice, but nothing
+	// bounds it the way the board bounds pieces, and a truncated read would quietly
+	// under-report a side's total.
+	const { data } = await fetchAllFiltered<BonusRow>((from, to) =>
+		db()
+			.from('vs_connect4_bonus')
+			.select('id, side, points, kind, item_name, by_user_id, note, created_at')
+			.eq('event_id', eventId)
+			.order('created_at', { ascending: false })
+			.range(from, to)
+	);
+	return data ?? [];
 }
 
 /** Fold award rows into the per-side totals the rules add to each standing. */
@@ -302,11 +315,15 @@ async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
 	const c4 = readStructure(ev.structure);
 
 	const [{ data: signupRows }, pieces, bonusRows] = await Promise.all([
-		sb.from('vs_event_signups').select('user_id, team_id').eq('event_id', ev.id),
+		// PAGED: 120v120 is 240 rows today, but a truncated roster would drop players
+		// off their side — they would silently stop being able to claim.
+		fetchAllFiltered<{ user_id: string; team_id: string | null }>((from, to) =>
+			sb.from('vs_event_signups').select('user_id, team_id').eq('event_id', ev.id).range(from, to)
+		),
 		readPieces(ev.id),
 		readBonus(ev.id)
 	]);
-	const signups = (signupRows ?? []) as { user_id: string; team_id: string | null }[];
+	const signups = signupRows ?? [];
 
 	// One roster read so every member carries an RSN for display.
 	const userIds = [...new Set(signups.map((s) => s.user_id))];
@@ -1666,6 +1683,9 @@ export async function deleteConnect4(eventId: string): Promise<Result> {
 	await sb.from('vs_dink_drops').delete().eq('event_id', eventId);
 	await sb.from('vs_connect4_progress').delete().eq('event_id', eventId);
 	await sb.from('vs_connect4_bonus').delete().eq('event_id', eventId);
+	// Claim submissions reference the event too. Without this the FK blocks the delete
+	// and a test game can never be cleaned up once anyone has submitted for it.
+	await sb.from('vs_submissions').delete().eq('event_id', eventId);
 	await sb.from('vs_event_tracked_items').delete().eq('event_id', eventId);
 	await sb.from('vs_connect4_pieces').delete().eq('event_id', eventId);
 	await sb.from('vs_event_signups').delete().eq('event_id', eventId);
