@@ -95,20 +95,16 @@ a re-runnable diagnostic.
 1. ☑ Merge `staging` → `main` — 2026-08-27 (fast-forward) and again 2026-09-08
    (a merge commit this time: `main` had picked up the personal-bingo PRs #77
    and #78 independently). Prod deploys itself off `main`.
-2. ☐ **Apply `db/scripts/connect4.sql` to the PROD database** (idempotent) — the
-   last gate before the event runs. Check it with
-   `select to_regclass('public.vs_connect4_progress');` — `null` means not applied.
-   Curating a tile pool works without it; **starting a game and crediting drops
-   does not**, because two things break:
-   * quantity ("drops needed") tiles have nowhere to bank progress — the
-     `vs_connect4_progress` table is missing; and
-   * any board that is not exactly 25×10 fails **every** claim — the old bounds
-     constraint hardcodes `deck_idx = col * 10 + row`.
-   Not touching the drops knob is no longer a way to dodge this: smart fill
-   manufactures ×N-drops tiles by itself whenever the filtered candidate list is
-   smaller than the board.
-   ☑ **STAGING** re-applied and proven — `npm run drill:connect4` claims on 6×4
-   and 12×6 boards and credits quantity tiles.
+2. ☑ **Apply `db/scripts/connect4.sql`** — PROD applied 2026-09-09 (per the
+   maintainer); STAGING applied and proven by `npm run drill:connect4` (claims on
+   6×4 and 12×6 boards, quantity tiles credited).
+   Confirm any time with `select to_regclass('public.vs_connect4_progress');` —
+   `null` would mean it never landed. What it fixes, if a future database ever
+   misses it: quantity ("drops needed") tiles have nowhere to bank progress, and
+   any board that is not exactly 25×10 fails **every** claim (the old bounds
+   constraint hardcoded `deck_idx = col * 10 + row`). Not touching the drops knob
+   is no way to dodge it — smart fill manufactures ×N-drops tiles by itself
+   whenever the filtered candidate list is smaller than the board.
 3. ☐ Confirm `/admin/connect4` loads on prod, then create the game, curate the
    pool, **Preview** the clan split, fix the flagged names, seat, start. Members
    watch at `/events/<slug>/connect4`.
