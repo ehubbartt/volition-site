@@ -6,6 +6,7 @@ import { fetchAllFiltered } from '$lib/server/db';
 import {
 	addBonus,
 	addCustomTile,
+	importPool,
 	assignSides,
 	claimTile,
 	creditManual,
@@ -34,6 +35,7 @@ import {
 	type PoolCandidate,
 	type PoolOptions
 } from '$lib/server/connect4Pool';
+import { parseTileCsv, toPoolAndCustom } from '$lib/server/connect4Import';
 import { simulateDinkDrop, maybeProcessDinkDrops } from '$lib/server/dinkDrops';
 import { liveVersion } from '$lib/server/liveVersion';
 import { SIGNUP_EVENT_KIND } from '$lib/events/signupForm';
@@ -244,6 +246,32 @@ export const actions: Actions = {
 		}
 		const res = await setPool(game.id, toTileRefs(picked));
 		return res.ok ? { pooled: game.deckSize } : fail(400, { error: res.error });
+	},
+
+	// Replace the whole tile list from a planning CSV. The event's 600 cells are curated
+	// in a spreadsheet, so this is the realistic way to get them onto a board.
+	importTiles: async ({ request, locals, params }) => {
+		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
+		const form = await request.formData();
+		const game = await loadConnect4(params.slug);
+		if (!game) return fail(404, { error: 'No such game' });
+
+		// Either a picked file or pasted text — admins do both.
+		const file = form.get('csv');
+		const pasted = String(form.get('csv_text') ?? '');
+		const text = file instanceof File && file.size > 0 ? await file.text() : pasted;
+		if (!text.trim()) return fail(400, { error: 'Pick a CSV file or paste the rows' });
+
+		const report = parseTileCsv(text);
+		if (report.errors.length) return fail(400, { error: report.errors.join(' · ') });
+
+		const { custom, pool } = toPoolAndCustom(report.tiles);
+		const res = await importPool(game.id, custom, pool);
+		if (!res.ok) return fail(400, { error: res.error, importWarnings: report.warnings });
+		return {
+			imported: { tiles: report.tiles.length, cells: report.cells },
+			importWarnings: report.warnings
+		};
 	},
 
 	// Save the generator filters, then the reload re-lists candidates through them.

@@ -148,6 +148,40 @@ the reviewer's timing check below is only answerable if the player knew to captu
 Confirmation is remembered in a `voli_c4_ack_<eventId>` cookie. It is a UX nudge, not a
 security gate — the server validates every submission regardless.
 
+#### Importing a planned tile list
+
+A board this size is designed in a spreadsheet, not curated a tile at a time, so
+`/admin/connect4/<slug>` takes a CSV: **⭳ Import a planned tile list**, in the pool step.
+One row per tile, and the planning sheet's own headings are recognised as they are
+(including its `Inlcluded Items` typo):
+
+| Column | Becomes |
+|---|---|
+| `Tile` | the tile's name — and, for this event, its whole specification |
+| `Source in Game` | the source shown under the name |
+| `Quantity Required` | the number needed to finish it |
+| `Expected Hours` | the difficulty figure the rail and CSV show |
+| `Included Items` | a group tile's qualifying list (comma or slash separated) |
+| `Copies` | **how many board cells the tile occupies** |
+| `Content Type`, `Tier` | carried for reference |
+
+Every imported row becomes a **custom tile** (a synthetic negative id, matched by name)
+because these are hand-written objectives — "Any Barrows Body", "Mixology Points" — not
+entries in the generated boss-drop universe. No item allowlist is built, and none is
+needed: the event is reviewed by hand, so the NAME is the specification and a human
+decides whether the proof meets it.
+
+The import is **all-or-nothing on the cell count**: the copies must total exactly the
+board's cells, and a mismatch is refused with the arithmetic spelled out
+("fills 600 cells but this board has 250"), because the likely fix is the board size
+rather than the plan. It writes the custom list and the pool in a single structure
+update — 244 separate calls would be 244 round trips and a half-built board if one
+failed.
+
+The planned list for the clan-vs-clan event is 244 distinct tiles expanding to **600
+cells, which is exactly a 40×15 board** — the only shape in the allowed range that
+divides into 600, and the largest the rules permit.
+
 #### Reviewing a claim (the timing check)
 
 A first-come board is only fair if the drop happened **after** the tile went up, and a

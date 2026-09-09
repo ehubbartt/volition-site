@@ -753,6 +753,46 @@
 					{/if}
 				</div>
 
+				<!-- The curated plan. For a board whose tiles were designed in a spreadsheet
+				     this replaces the generator entirely: one row per tile, expanded by its
+				     copies column into one entry per cell. -->
+				<details class="fold">
+					<summary>⭳ Import a planned tile list (CSV) — replaces the whole pool</summary>
+					<form
+						method="POST"
+						action="?/importTiles"
+						enctype="multipart/form-data"
+						class="import-form"
+						use:enhance
+					>
+						<p class="muted tiny">
+							One row per tile. Recognised columns: <code>Tile</code>,
+							<code>Source in Game</code>, <code>Content Type</code>,
+							<code>Quantity Required</code>, <code>Expected Hours</code>,
+							<code>Included Items</code>, <code>Copies</code>, <code>Tier</code> — the
+							planning sheet's own headings work as they are. Every row becomes a custom
+							tile, and <strong>Copies</strong> decides how many cells it takes, so the
+							copies must total exactly this board's {data.deckSize}.
+						</p>
+						<input type="file" name="csv" accept=".csv,text/csv" />
+						<details class="fold">
+							<summary>…or paste the rows instead</summary>
+							<textarea name="csv_text" rows="6" placeholder="Tile,Source in Game,…"></textarea>
+						</details>
+						<button type="submit">Import and replace the pool</button>
+						{#if form?.imported}
+							<p class="ok tiny">
+								Imported {form.imported.tiles} tiles filling {form.imported.cells} cells.
+							</p>
+						{/if}
+						{#if form?.importWarnings?.length}
+							<ul class="muted tiny warn-list">
+								{#each form.importWarnings as w (w)}<li>{w}</li>{/each}
+							</ul>
+						{/if}
+					</form>
+				</details>
+
 				<!-- What the generator OFFERS below (and what auto/random fill draws from).
 				     Stored on the game; tightening these never invalidates already-ticked
 				     tiles, because saving validates against the unfiltered universe. -->
@@ -1564,4 +1604,7 @@
 		align-self: center;
 		font-size: 0.85rem;
 	}
+	.import-form { display: grid; gap: 0.5rem; }
+	.import-form textarea { width: 100%; font-family: monospace; font-size: 0.75rem; }
+	.warn-list { margin: 0; padding-left: 1.1rem; }
 </style>

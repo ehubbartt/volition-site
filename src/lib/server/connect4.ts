@@ -592,6 +592,34 @@ export async function addCustomTile(
 }
 
 /** Save the generator filters (setup only — they only shape what the list offers). */
+/**
+ * Replace the game's whole tile list from an imported plan: the custom tiles AND the
+ * pool in ONE structure write, because 244 separate calls would be 244 round trips and
+ * a half-built board if one of them failed.
+ *
+ * Deliberately all-or-nothing on the cell count: a pool that does not fill the board
+ * exactly is refused with the arithmetic spelled out, since the likely fix is the board
+ * size rather than the plan.
+ */
+export async function importPool(
+	eventId: string,
+	custom: TileRef[],
+	pool: TileRef[]
+): Promise<Result<{ tiles: number; cells: number }>> {
+	const snap = await loadConnect4ById(eventId);
+	if (!snap) return errResult('No such game');
+	if (snap.phase !== 'setup') return errResult('The pool is locked once the game starts');
+	if (pool.length !== snap.deckSize) {
+		const size = `${snap.cols}x${snap.rows}`;
+		return errResult(
+			`That plan fills ${pool.length} cells but this board has ${snap.deckSize} (${size}). ` +
+				`Change the board size on a new game, or adjust the copies in the plan.`
+		);
+	}
+	const res = await patchStructure(eventId, { custom, pool });
+	return res.ok ? okResult({ tiles: custom.length, cells: pool.length }) : errResult(res.error);
+}
+
 export async function setPoolOptions(
 	eventId: string,
 	opts: Partial<StoredPoolOpts>
