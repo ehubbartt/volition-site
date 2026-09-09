@@ -18,6 +18,7 @@
 		"demo:battleship": "node scripts/battleship-demo.mjs",
 		"sim:connect4": "node scripts/connect4-sim.mjs",
 		"drill:connect4": "node scripts/connect4-full-drill.mjs",
+		"drill:connect4:review": "node scripts/connect4-review-drill.mjs",
 		"demo:connect4": "node scripts/connect4-demo.mjs"
 	},
 	"devDependencies": {

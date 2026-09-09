@@ -130,9 +130,10 @@ That leaves two ways in, and they are the same code path:
 
 - **Member proof submissions.** A seated member picks the column on the member board,
   uploads a screenshot, and it becomes a generic `vs_submissions` row
-  (`target_id = c4:<col>:<deckIdx>`) in the shared `/admin/submissions` queue. Nothing is
-  credited on submit — **approval is what places the piece**, so two people claiming the
-  same tile is a race an admin settles rather than a database one.
+  (`target_id = c4:<col>:<deckIdx>`) in the shared `/admin/submissions` queue **and
+  places the piece straight away, marked `pending`**. Submission order settles a
+  contested tile, which is the point: if the piece only appeared on approval, the tile
+  would go to whoever an admin happened to review first.
 - **By hand.** An admin credits a column to a side directly from the tester, for anything
   that never became a submission.
 
@@ -160,6 +161,28 @@ codeword and drop-log checks.
 If the column has moved on since (someone else's claim was approved first) the row is
 flagged **superseded**: approving it will not place a piece, and the reviewer is told so
 before they decide.
+
+#### The two rejections
+
+| Button | The piece | The tile |
+|---|---|---|
+| **Ask again** (partial) | Stays exactly where it is | Stays theirs — that IS the priority. Nobody can take it while they fetch a better screenshot, and a resubmission re-points the piece they already hold rather than claiming a cell they are standing on. |
+| **Reject & free tile** (full) | Deleted, and every piece above it in the column shifts DOWN a row | Goes to the back of `structure.connect4.requeue`; the freed slot takes whatever was at the front. A swap, so the board still holds exactly one tile per cell, and an empty queue is the identity — the tile simply becomes its column's live offer again. |
+
+Shifting a column is only possible because a piece is no longer pinned to the slot whose
+number matches its row: it keeps its `deck_idx` — the tile it actually earned — while its
+row changes underneath it. That is why `liveTiles` reads "the first UNCLAIMED slot in this
+column's slice" rather than indexing by piece count, and why the bounds constraint was
+relaxed to `col >= 0 and row >= 0 and deck_idx >= 0`.
+
+**Pending pieces count toward the score.** They occupy their cell, so the standings agree
+with the board; the trade is that a full rejection moves the score retroactively. The
+waiting-room panel under the member board is what makes that legible — every unreviewed
+claim, who holds it, and (for its owner) a partial rejection's note and a prompt to send
+another shot.
+
+Verify the whole path with `npm run drill:connect4:review`, which checks the schema is
+applied before it starts.
 
 **A member who is signed up but not yet on a side claims nothing.** The side is never
 guessed.

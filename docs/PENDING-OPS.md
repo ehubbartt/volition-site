@@ -9,6 +9,22 @@ Nothing here is done by a deploy. Delete sections as you complete them.
 
 ---
 
+## 0a. ☐ RE-RUN `db/scripts/connect4.sql` — needed before the review flow works
+
+It gained `vs_connect4_pieces.status` and `.submission_id` (provisional pieces) on top
+of the earlier `vs_connect4_bonus` table. Until it is applied:
+
+* a submitted claim still places a piece, but it is confirmed on the spot and cannot be
+  reviewed (the insert falls back to the old column set on purpose, so nothing breaks);
+* the two rejections, the column shift and the tile requeue do nothing;
+* the waiting-room panel under the member board stays empty.
+
+Nothing errors — it simply behaves like the pre-review build. Verify afterwards with
+`npm run drill:connect4:review`, which refuses to run until the columns exist and then
+walks submit → resubmit → stack → full reject → column shift → tile back on offer.
+
+---
+
 ## 0. Connect Four runs on manual proof (no action needed, context only)
 
 `DINK_AUTO_TRACKING` in `src/lib/server/connect4.ts` is `false`, so a live game projects
