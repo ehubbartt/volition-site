@@ -388,8 +388,13 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 				const prior = snap.pieces.find((p) => p.deck_idx === deckIdx - 1);
 				const firstOfColumn = deckIdx % snap.rows === 0;
 				it.tileActiveSince = firstOfColumn ? snap.startsAt : (prior?.claimed_at ?? null);
-				// Already taken? Then this submission is chasing a tile that has gone.
-				it.tileSuperseded = snap.pieces.some((p) => p.deck_idx === deckIdx);
+				// Superseded means SOMEONE ELSE holds this tile. The submitter's own piece is
+				// sitting on that slot by design — a claim places it provisionally — so it must
+				// not count, or every single claim would warn that it had been beaten.
+				const own = new Set(it.ids);
+				it.tileSuperseded = snap.pieces.some(
+					(p) => p.deck_idx === deckIdx && !(p.submission_id && own.has(p.submission_id))
+				);
 			}
 		}
 	}
