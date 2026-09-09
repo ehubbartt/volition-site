@@ -4,7 +4,7 @@ import { mintBombsForApprovedClaims } from '$lib/server/battleship';
 import { isAdmin } from '$lib/server/auth';
 import { grantPlayerVp } from '$lib/server/playerStats';
 import { decideSubmissions, revokeSubmissions } from '$lib/server/submissions';
-import { claimTile, loadConnect4ById } from '$lib/server/connect4';
+import { confirmPiece, rejectPieceFully } from '$lib/server/connect4';
 import type { SubmissionSource, ReviewDecision } from '$lib/submissions';
 import type { Actions } from './$types';
 
@@ -13,52 +13,6 @@ import type { Actions } from './$types';
 // universal load in +page.ts, so navigating here never waits on the server.
 
 const SOURCES: SubmissionSource[] = ['generic', 'bingo', 'team'];
-
-/**
- * Place the board piece for any approved Connect Four claim.
- *
- * The submission's target is `c4:<col>:<deckIdx>` — the column AND the exact tile that
- * was on offer when the player submitted. We pass the column, so the claim lands on
- * whatever that column currently offers, and use the submission id as the drop key:
- * that is what makes re-approving after a revoke idempotent, because the pieces table's
- * unique(event_id, drop_key) has already seen it.
- *
- * A tile someone else won first simply fails to claim, which is correct — the reviewer
- * was warned it had been superseded before they approved.
- */
-async function creditConnect4Approvals(approvedIds: string[]): Promise<void> {
-	const { data: rows } = await db()
-		.from('vs_submissions')
-		.select('id, event_id, user_id, target_id')
-		.in('id', approvedIds)
-		.like('target_id', 'c4:%');
-	for (const r of ((rows ?? []) as Array<{
-		id: string;
-		event_id: string | null;
-		user_id: string | null;
-		target_id: string;
-	}>)) {
-		if (!r.event_id || !r.user_id) continue;
-		const col = Number(r.target_id.split(':')[1]);
-		if (!Number.isInteger(col)) continue;
-
-		const snap = await loadConnect4ById(r.event_id);
-		if (!snap || snap.phase !== 'live') continue;
-		const side = snap.sides.find((sd) => sd.members.some((m) => m.userId === r.user_id))?.side;
-		if (!side) continue;
-
-		const res = await claimTile({
-			eventId: r.event_id,
-			side,
-			col,
-			dropKey: `manual:submission:${r.id}`,
-			byUserId: r.user_id
-		});
-		if (res.status !== 'claimed' && res.status !== 'duplicate') {
-			console.warn(`[submissions] connect4 claim ${r.id}: ${res.status} ${res.error ?? ''}`);
-		}
-	}
-}
 
 // Grant the event's vp_reward to the submitter the FIRST time one of their generic
 // submissions for that event is approved. Idempotent: skips if they already had an
@@ -96,6 +50,38 @@ async function grantVpForApproval(
 	await grantPlayerVp(ctx.discordId, rsn, vp);
 }
 
+/**
+ * Settle the board for Connect Four rows a decision just changed.
+ *
+ * The piece is already ON the board — a submission places it provisionally, so the race
+ * was decided when the player submitted, not when an admin got to it. So approving only
+ * has to confirm it, and rejecting has two very different meanings:
+ *
+ *   partial — the claim is probably fine, the evidence is not. The piece STAYS, which is
+ *             the submitter's priority: they keep the tile while they fetch a better
+ *             screenshot, and nobody can take it from under them.
+ *   full    — the claim is not good. The piece is removed, the column shifts down, and
+ *             the tile goes back into play through the requeue.
+ */
+async function settleConnect4(ids: string[], outcome: 'approve' | 'partial' | 'full'): Promise<void> {
+	const { data: rows } = await db()
+		.from('vs_submissions')
+		.select('id, event_id, target_id')
+		.in('id', ids)
+		.like('target_id', 'c4:%');
+	for (const r of ((rows ?? []) as Array<{ id: string; event_id: string | null }>)) {
+		if (!r.event_id) continue;
+		if (outcome === 'approve') {
+			const res = await confirmPiece(r.id);
+			if (!res.ok) console.warn(`[submissions] confirm ${r.id}: ${res.error}`);
+		} else if (outcome === 'full') {
+			const res = await rejectPieceFully(r.event_id, r.id);
+			if (!res.ok) console.warn(`[submissions] full reject ${r.id}: ${res.error}`);
+		}
+		// 'partial' deliberately touches nothing on the board.
+	}
+}
+
 export const actions: Actions = {
 	decide: async ({ locals, request }) => {
 		if (!locals.user) throw redirect(303, '/');
@@ -105,6 +91,9 @@ export const actions: Actions = {
 		const source = form.get('source')?.toString() ?? '';
 		const ids = (form.get('ids')?.toString() ?? '').split(',').filter(Boolean);
 		const decision = form.get('decision')?.toString() ?? '';
+		// Connect Four rejections come in two flavours; every other event sends neither
+		// and lands on 'partial', which touches no board.
+		const rejectKind = form.get('reject_kind')?.toString() ?? '';
 		const note = form.get('note')?.toString().trim() || null;
 
 		if (!SOURCES.includes(source as SubmissionSource)) {
@@ -166,11 +155,14 @@ export const actions: Actions = {
 		// Connect Four: approval is what places the piece. Only for rows THIS request
 		// flipped, so two admins approving at once cannot drop two pieces — and the
 		// board's own unique(event_id, col, row) is the final arbiter anyway.
-		if (source === 'generic' && decision === 'approve' && (changedIds?.length ?? 0) > 0) {
+		if (source === 'generic' && (changedIds?.length ?? 0) > 0) {
+			// `rejectKind` distinguishes the two rejections; approvals just confirm.
+			const outcome =
+				decision === 'approve' ? 'approve' : rejectKind === 'full' ? 'full' : 'partial';
 			try {
-				await creditConnect4Approvals(changedIds ?? ids);
+				await settleConnect4(changedIds ?? ids, outcome);
 			} catch (e) {
-				console.error('[submissions] connect4 credit failed:', (e as Error).message);
+				console.error('[submissions] connect4 settle failed:', (e as Error).message);
 			}
 		}
 

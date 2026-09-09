@@ -898,7 +898,7 @@ export async function createSubmission({
 	// Test submission (admin preview run) — hidden from the live /admin/submissions queue.
 	test?: boolean;
 	files: File[];
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
 	if (!taskId && !eventId) return { ok: false, error: 'Missing task/event' };
 	const qty = Number.isFinite(quantity) ? Math.max(1, Math.floor(quantity)) : 1;
 
@@ -945,7 +945,7 @@ export async function createSubmission({
 		paths.push(result.path);
 	}
 
-	const { error: insErr } = await db().from('vs_submissions').insert({
+	const { data: inserted, error: insErr } = await db().from('vs_submissions').insert({
 		task_id: taskId,
 		event_id: eventId,
 		user_id: userId,
@@ -958,11 +958,11 @@ export async function createSubmission({
 		test,
 		proof_urls: urls,
 		proof_paths: paths
-	});
+	}).select('id').single();
 	if (insErr) {
 		await db().storage.from(BINGO_BUCKET).remove(paths);
 		return { ok: false, error: insErr.message };
 	}
 
-	return { ok: true };
+	return { ok: true, id: (inserted as { id: string }).id };
 }

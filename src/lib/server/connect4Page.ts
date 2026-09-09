@@ -7,7 +7,8 @@ import {
 } from '$lib/server/connect4';
 import { maybeProcessDinkDrops } from '$lib/server/dinkDrops';
 import { liveVersion } from '$lib/server/liveVersion';
-import type { Connect4Scoring, LiveTile, Piece, Side } from '$lib/connect4/rules';
+import { db } from '$lib/server/db';
+import { cellId, type Connect4Scoring, type LiveTile, type Piece, type Side } from '$lib/connect4/rules';
 
 // Builds the payload for the MEMBER board page (/events/[slug]/connect4) — the spectator
 // view of a game the admin tester drives. Everything here is public to a signed-in member:
@@ -43,6 +44,18 @@ export interface Connect4View {
 	live: (LiveTile | null)[];
 	/** Awards beside the board — scores are public, so members see these too. */
 	bonus: BonusAward[];
+	/** Claims placed but not yet reviewed, newest first — the board's waiting room. */
+	awaiting: {
+		cell: string;
+		col: number;
+		itemName: string | null;
+		side: Side;
+		rsn: string | null;
+		at: string;
+		/** Set when this is the viewer's own claim that was sent back for better proof. */
+		needsBetterProof: boolean;
+		note: string | null;
+	}[];
 	winner: Side | null;
 	full: boolean;
 	deckSize: number;
@@ -74,6 +87,48 @@ export async function buildConnect4Page(
 	const viewerSide =
 		r.sides.find((s) => s.members.some((m) => m.userId === user.id))?.side ?? null;
 
+	// The waiting room: pieces on the board that nobody has reviewed yet. Public, because
+	// the whole point is that both clans can see what is contested and what is settled.
+	// A rejection note is only ever shown to the person it was written for.
+	const pendingPieces = r.pieces.filter((p) => p.status === 'pending');
+	const notesBySubmission = new Map<string, string | null>();
+	const subIds = pendingPieces.map((p) => p.submission_id).filter((x): x is string => !!x);
+	if (subIds.length) {
+		const { data } = await db()
+			.from('vs_submissions')
+			.select('id, status, review_note, user_id')
+			.in('id', subIds);
+		for (const row of (data ?? []) as Array<{
+			id: string;
+			status: string;
+			review_note: string | null;
+			user_id: string | null;
+		}>) {
+			// 'rejected' on a piece that is STILL STANDING is a partial rejection: the
+			// evidence was sent back but the tile was never taken away.
+			if (row.status === 'rejected' && row.user_id === user.id) {
+				notesBySubmission.set(row.id, row.review_note ?? '');
+			}
+		}
+	}
+
+	const rsnByUser = new Map<string, string | null>();
+	for (const sd of r.sides) for (const m of sd.members) rsnByUser.set(m.userId, m.rsn);
+
+	const awaiting = pendingPieces
+		.slice()
+		.sort((a, b) => (b.claimed_at ?? '').localeCompare(a.claimed_at ?? ''))
+		.map((p) => ({
+			cell: cellId(p.col, p.row),
+			col: p.col,
+			itemName: p.item_name ?? null,
+			side: p.side,
+			rsn: p.by_user_id ? (rsnByUser.get(p.by_user_id) ?? null) : null,
+			at: p.claimed_at ?? '',
+			needsBetterProof: !!p.submission_id && notesBySubmission.has(p.submission_id),
+			note: p.submission_id ? (notesBySubmission.get(p.submission_id) ?? null) : null
+		}));
+
 	return {
 		kind: 'ok',
 		// Baseline for the page's live poll, computed alongside the payload so a change
@@ -100,6 +155,7 @@ export async function buildConnect4Page(
 			pieces: r.pieces,
 			live: r.live,
 			bonus: r.bonus,
+			awaiting,
 			winner: r.winner,
 			full: r.full,
 			deckSize: r.deckSize,

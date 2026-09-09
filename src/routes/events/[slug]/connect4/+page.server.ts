@@ -1,6 +1,11 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { createSubmission } from '$lib/server/submissions';
-import { loadConnect4, sideForUser } from '$lib/server/connect4';
+import {
+	claimTile,
+	loadConnect4,
+	repointPendingPiece,
+	sideForUser
+} from '$lib/server/connect4';
 import { columnLabel } from '$lib/connect4/rules';
 import type { Actions } from './$types';
 
@@ -48,6 +53,31 @@ export const actions: Actions = {
 		});
 		if (!result.ok) return fail(400, { error: result.error });
 
-		return { submitted: true, col };
+		// Already holding this column from a partial rejection? Then this is a better
+		// screenshot for the claim they never lost — keep the piece, point it at the new
+		// proof. Claiming again would fail, since they are standing on the cell.
+		if (await repointPendingPiece(game.id, col, locals.user.id, result.id)) {
+			return { submitted: true, col, resubmitted: true };
+		}
+
+		// Place the piece PROVISIONALLY. Submission order is what settles a contested
+		// tile — if the piece only landed on approval, whoever an admin happened to
+		// review first would win, which is not the race the players are running.
+		const claim = await claimTile({
+			eventId: game.id,
+			side,
+			col,
+			dropKey: `manual:submission:${result.id}`,
+			byUserId: locals.user.id,
+			status: 'pending',
+			submissionId: result.id
+		});
+		if (claim.status !== 'claimed') {
+			// Someone beat them to it between picking the column and submitting. The proof
+			// row stays for an admin to see, but nothing was placed.
+			return { submitted: true, col, tileTaken: true };
+		}
+
+		return { submitted: true, col, cell: claim.cell };
 	}
 };

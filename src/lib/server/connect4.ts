@@ -48,6 +48,7 @@ import {
 	type LiveTile,
 	type Phase,
 	type Piece,
+	type PieceStatus,
 	type Run,
 	type Side,
 	type SideStanding,
@@ -127,6 +128,10 @@ export interface Connect4Snapshot {
 	live: (LiveTile | null)[];
 	/** Hand-recorded awards (pets) that add to a side's total without touching the board. */
 	bonus: BonusAward[];
+	/** Tiles waiting to be dealt back in after a full rejection, oldest first. */
+	requeue: TileRef[];
+	/** Slot → the tile now sitting there, where the requeue has moved one. */
+	assignments: Record<string, TileRef>;
 	standings: SideStanding[];
 	winner: Side | null;
 	/** True once every cell is claimed — the game has run out of board. */
@@ -155,6 +160,14 @@ interface StructureC4 {
 	deck?: TileRef[];
 	seed?: number | null;
 	winner?: Side | null;
+	/**
+	 * Tiles waiting to be dealt back in, oldest first. A fully-rejected tile joins the
+	 * back and the freed slot takes the front — a swap, so the board keeps exactly one
+	 * tile per cell.
+	 */
+	requeue?: TileRef[];
+	/** Slot → the tile now sitting there, when the requeue has moved one. */
+	assignments?: Record<string, TileRef>;
 }
 
 function readStructure(structure: unknown): StructureC4 {
@@ -194,7 +207,10 @@ function rowToPiece(r: Record<string, unknown>): Piece {
 		source: (r.source as string | null) ?? null,
 		by_user_id: (r.by_user_id as string | null) ?? null,
 		drop_key: r.drop_key as string,
-		claimed_at: r.claimed_at as string
+		claimed_at: r.claimed_at as string,
+		// Rows written before the status column existed are settled history.
+		status: (r.status as PieceStatus | null) ?? 'confirmed',
+		submission_id: (r.submission_id as string | null) ?? null
 	};
 }
 
@@ -329,7 +345,14 @@ async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
 
 	const scoring = normalizeScoring(c4.scoring);
 	const size = clampSize(c4.size);
-	const deck = Array.isArray(c4.deck) ? c4.deck : [];
+	// The dealt deck, with any requeue swaps overlaid. Applied HERE so every consumer —
+	// liveTiles, claimTile, the rail, the CSV — sees one deck and never has to know a
+	// tile was moved. The raw array in `structure` stays the original deal.
+	const rawDeck = Array.isArray(c4.deck) ? c4.deck : [];
+	const slotAssignments = (c4.assignments ?? {}) as Record<string, TileRef>;
+	const deck = Object.keys(slotAssignments).length
+		? rawDeck.map((t, i) => slotAssignments[String(i)] ?? t)
+		: rawDeck;
 	const phase: Phase = c4.phase ?? 'setup';
 
 	// Per-side progress toward quantity tiles, attached to the live slots. One extra
@@ -378,6 +401,8 @@ async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
 		unassigned: signups.filter((s) => !s.team_id).map((s) => asMember(s.user_id)),
 		pieces,
 		live,
+		requeue: Array.isArray(c4.requeue) ? c4.requeue : [],
+		assignments: (c4.assignments ?? {}) as Record<string, TileRef>,
 		bonus: bonusRows.map((b) => ({
 			id: b.id,
 			side: (isSide(b.side) ? b.side : 1) as Side,
@@ -996,6 +1021,14 @@ export async function claimTile(input: {
 	col?: number | null;
 	byUserId?: string | null;
 	receivedAt?: string | null;
+	/**
+	 * 'pending' places the piece PROVISIONALLY — it holds the cell (so submission order,
+	 * not review order, settles who won the tile) but is shown unconfirmed until a
+	 * reviewer approves it. Admin credits have nothing to review and stay 'confirmed'.
+	 */
+	status?: PieceStatus;
+	/** The vs_submissions row that placed it, so a decision can find its piece. */
+	submissionId?: string | null;
 }): Promise<ClaimReport> {
 	const sb = db();
 	const snap = await loadConnect4ById(input.eventId);
@@ -1088,7 +1121,7 @@ export async function claimTile(input: {
 		const row = landingRow(columnCounts(pieces, size), target.col, size);
 		if (row === null) return { status: 'no_tile', error: 'That column is full' };
 
-		const { error } = await sb.from('vs_connect4_pieces').insert({
+		const base = {
 			event_id: input.eventId,
 			col: target.col,
 			row,
@@ -1099,7 +1132,21 @@ export async function claimTile(input: {
 			source: target.tile.source,
 			by_user_id: input.byUserId ?? null,
 			drop_key: input.dropKey
+		};
+		let { error } = await sb.from('vs_connect4_pieces').insert({
+			...base,
+			status: input.status ?? 'confirmed',
+			submission_id: input.submissionId ?? null
 		});
+		// Schema here is hand-applied, so the code can reach a database that has not had
+		// the provisional-piece columns yet. Rather than fail every claim until someone
+		// runs the SQL, fall back to the shape that always existed: the piece lands, it
+		// is simply confirmed on the spot and cannot be reviewed. `42703`/`PGRST204` are
+		// "no such column" from Postgres and PostgREST respectively.
+		if (error && /42703|PGRST204/.test(`${(error as { code?: string }).code} ${error.message}`)) {
+			console.warn('[connect4] pieces table has no status column — run connect4.sql');
+			({ error } = await sb.from('vs_connect4_pieces').insert(base));
+		}
 
 		if (error) {
 			if ((error as { code?: string }).code !== '23505') {
@@ -1501,6 +1548,112 @@ async function restateWinner(snap: Connect4Snapshot): Promise<void> {
 	if (!fresh) return;
 	const winner = leaderOf(fresh.pieces, fresh.scoring, bonusTotals(fresh.bonus));
 	if (winner !== fresh.winner) await patchStructure(snap.id, { winner });
+}
+
+// ── Reviewing a provisional claim ────────────────────────────────────────────
+
+/**
+ * A partially-rejected submitter keeps their tile — that IS the priority. When they come
+ * back with a better screenshot we point the piece they already hold at the new proof
+ * row rather than trying to claim the cell again, which would fail because they are
+ * already standing on it.
+ *
+ * Returns false when they hold nothing there, so the caller knows to claim normally.
+ */
+export async function repointPendingPiece(
+	eventId: string,
+	col: number,
+	userId: string,
+	submissionId: string
+): Promise<boolean> {
+	const { data } = await db()
+		.from('vs_connect4_pieces')
+		.select('id')
+		.eq('event_id', eventId)
+		.eq('col', col)
+		.eq('by_user_id', userId)
+		.eq('status', 'pending')
+		.limit(1);
+	const row = (data ?? [])[0] as { id: string } | undefined;
+	if (!row) return false;
+	await db()
+		.from('vs_connect4_pieces')
+		.update({ submission_id: submissionId })
+		.eq('id', row.id);
+	return true;
+}
+
+
+/** Approve: the piece stops being provisional and simply stands. */
+export async function confirmPiece(submissionId: string): Promise<Result> {
+	const { error } = await db()
+		.from('vs_connect4_pieces')
+		.update({ status: 'confirmed' })
+		.eq('submission_id', submissionId);
+	return error ? errResult(error.message) : okResult();
+}
+
+/**
+ * FULL rejection: the claim is not good and the tile goes back into play.
+ *
+ * Three things have to happen together, and the order matters:
+ *   1. the piece is deleted;
+ *   2. every piece ABOVE it in that column shifts down a row — but keeps its own
+ *      `deck_idx`, because a player keeps the tile they actually earned. Row and slot
+ *      are decoupled from here on, which is exactly what `liveTiles` was generalised
+ *      for;
+ *   3. the freed tile goes to the BACK of the requeue and the freed slot takes whatever
+ *      was at the FRONT of it. That is a swap, so the board still holds exactly one
+ *      tile per cell — with an empty queue it is the identity, and the tile simply
+ *      becomes its column's live offer again.
+ *
+ * A partial rejection does none of this: the piece stays exactly where it is, which IS
+ * the submitter's priority — they still hold the tile while they find a better shot.
+ */
+export async function rejectPieceFully(
+	eventId: string,
+	submissionId: string
+): Promise<Result<{ cell: string; requeued: string | null }>> {
+	const sb = db();
+	const snap = await loadConnect4ById(eventId);
+	if (!snap) return errResult('No such game');
+
+	const piece = snap.pieces.find((p) => p.submission_id === submissionId);
+	if (!piece) return okResult({ cell: '', requeued: null }); // nothing was placed
+
+	const size = sizeOf(snap);
+	const cell = cellId(piece.col, piece.row);
+
+	const { error: delErr } = await sb.from('vs_connect4_pieces').delete().eq('id', piece.id!);
+	if (delErr) return errResult(delErr.message);
+
+	// Shift the column down. Sequential on purpose: unique(event_id, col, row) means two
+	// rows briefly colliding would be rejected, and walking upward from the hole never
+	// collides because the cell below has just been vacated.
+	const above = snap.pieces
+		.filter((p) => p.col === piece.col && p.row > piece.row)
+		.sort((a, b) => a.row - b.row);
+	for (const p of above) {
+		const { error } = await sb
+			.from('vs_connect4_pieces')
+			.update({ row: p.row - 1 })
+			.eq('id', p.id!);
+		if (error) return errResult(`shifting ${cellId(p.col, p.row)}: ${error.message}`);
+	}
+
+	// Swap the freed tile through the requeue.
+	const queue: TileRef[] = [...snap.requeue];
+	const assignments: Record<string, TileRef> = { ...snap.assignments };
+	const freedTile = assignments[String(piece.deck_idx)] ?? snap.deck[piece.deck_idx];
+	if (freedTile) {
+		queue.push(freedTile);
+		const incoming = queue.shift()!;
+		assignments[String(piece.deck_idx)] = incoming;
+	}
+	const res = await patchStructure(eventId, { requeue: queue, assignments });
+	if (!res.ok) return errResult(res.error);
+
+	return okResult({ cell, requeued: freedTile?.item_name ?? null });
 }
 
 export async function deleteConnect4(eventId: string): Promise<Result> {

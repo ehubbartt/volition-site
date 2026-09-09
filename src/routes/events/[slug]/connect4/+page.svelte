@@ -32,6 +32,17 @@
 	// Set while a claim submission is in flight, so the button can say so.
 	let submitting = $state(false);
 
+	/** "4m ago" — the waiting room cares about recency, not wall-clock time. */
+	function ago(iso: string): string {
+		const ms = Date.now() - Date.parse(iso);
+		if (!isFinite(ms) || ms < 0) return 'just now';
+		const m = Math.floor(ms / 60000);
+		if (m < 1) return 'just now';
+		if (m < 60) return `${m}m ago`;
+		const h = Math.floor(m / 60);
+		return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`;
+	}
+
 
 	const EMPTY = { kind: 'ok', live: '', game: null } as unknown as Connect4PageResult;
 	const res = swrResource(() => data.connect4, EMPTY);
@@ -472,6 +483,42 @@
 			</div>
 		</section>
 
+		<!-- ── awaiting approval ─────────────────────────────────────────────
+		     Claims already standing on the board that nobody has reviewed yet. Public on
+		     purpose: both clans can see what is contested and what is settled. -->
+		{#if game.awaiting.length}
+			<section class="osrs-panel">
+				<div class="osrs-titlebar">Waiting on an admin — {game.awaiting.length}</div>
+				<div class="pad">
+					<p class="muted tiny">
+						These tiles are already held by whoever submitted first. An admin still has to
+						check the proof: approved, the piece just stops flashing; rejected outright, it
+						comes off the board and the tile goes back into play.
+					</p>
+					<ul class="awaiting">
+						{#each game.awaiting as a (a.cell)}
+							<li class:mine={a.needsBetterProof}>
+								<span class="chip" style="--c: {game.sides[a.side - 1]?.color}"></span>
+								<strong>{a.cell}</strong>
+								<span>{a.itemName ?? '—'}</span>
+								<span class="muted tiny">{a.rsn ?? 'someone'} · {ago(a.at)}</span>
+								{#if a.needsBetterProof}
+									<div class="redo">
+										<strong>An admin needs a better screenshot.</strong>
+										{#if a.note}<span class="muted"> “{a.note}”</span>{/if}
+										<span>
+											You still hold this tile — nobody can take it while you sort the shot
+											out. Click column {columnLabel(a.col)} on the board and send another.
+										</span>
+									</div>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				</div>
+			</section>
+		{/if}
+
 		<!-- ── the log ───────────────────────────────────────────────────────── -->
 		{#if pieces.length}
 			<section class="osrs-panel">
@@ -709,4 +756,23 @@
 	.claim-form p { margin: 0; }
 	.err { color: var(--danger); }
 	.ok { color: var(--success); }
+	.awaiting { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+	.awaiting li {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		padding: 0.3rem 0.4rem;
+		border-radius: 3px;
+		background: var(--surface-alt);
+	}
+	.awaiting li.mine { background: var(--danger-bg); }
+	.awaiting .chip {
+		width: 0.7rem;
+		height: 0.7rem;
+		border-radius: 50%;
+		background: var(--c);
+		flex: none;
+	}
+	.redo { flex-basis: 100%; font-size: 0.82rem; }
 </style>

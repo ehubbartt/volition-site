@@ -47,6 +47,10 @@
   // tile went up. A separate box because it is a different question from "is there a
   // drop log" — a perfectly real drop can still be too early to count.
   let timingConfirmed = $state(false);
+  // Which rejection the admin pressed. Connect Four splits it in two: 'partial' leaves
+  // the piece standing (the submitter keeps the tile while they find a better shot),
+  // 'full' takes it off the board and returns the tile to the queue.
+  let rejectKind = $state<'partial' | 'full'>('partial');
 
   // Reviewed-history view filters (client-side over the loaded history).
   let reviewedStatus = $state<"all" | "approved" | "rejected">("all");
@@ -692,16 +696,43 @@
         <input type="hidden" name="ids" value={current.ids.join(",")} />
         <input type="hidden" name="decision" value="reject" />
         <input type="hidden" name="note" value={rejectNote} />
-        <button
-          id="reject-btn"
-          type="submit"
-          class="reject"
-          disabled={busy}
-          title="Reject (←)"
-        >
-          <span class="big-icon">✗</span>
-          <span class="label-text">Reject</span>
-        </button>
+        <!-- Connect Four rejections are two different acts, so the button carries which
+             one. Every other event has one Reject and sends no kind. -->
+        <input type="hidden" name="reject_kind" value={rejectKind} />
+        {#if current.tileActiveSince}
+          <button
+            id="reject-btn"
+            type="submit"
+            class="reject partial"
+            disabled={busy}
+            onclick={() => (rejectKind = 'partial')}
+            title="Bad evidence, good claim — they keep the tile and send a better shot"
+          >
+            <span class="big-icon">↺</span>
+            <span class="label-text">Ask again</span>
+          </button>
+          <button
+            type="submit"
+            class="reject full"
+            disabled={busy}
+            onclick={() => (rejectKind = 'full')}
+            title="Not a valid claim — takes the piece off the board and the tile back into play"
+          >
+            <span class="big-icon">✗</span>
+            <span class="label-text">Reject &amp; free tile</span>
+          </button>
+        {:else}
+          <button
+            id="reject-btn"
+            type="submit"
+            class="reject"
+            disabled={busy}
+            title="Reject (←)"
+          >
+            <span class="big-icon">✗</span>
+            <span class="label-text">Reject</span>
+          </button>
+        {/if}
       </form>
 
       <button
@@ -1693,6 +1724,12 @@
   .tile-warn {
     margin: 0.2rem 0 0;
     font-size: 0.85rem;
+    color: var(--danger);
+  }
+  .reject.partial .big-icon {
+    color: var(--yellow);
+  }
+  .reject.full .big-icon {
     color: var(--danger);
   }
 </style>

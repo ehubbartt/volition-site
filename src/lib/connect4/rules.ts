@@ -88,11 +88,20 @@ export function tileQty(tile: Pick<TileRef, 'qty'>): number {
 }
 
 /** One claimed cell. The extras past col/row/side/deck_idx are display only. */
+/**
+ * Whether a piece has been reviewed. A 'pending' piece already OWNS its cell — that is
+ * what makes the race first-come rather than first-reviewed — but its claim is not yet
+ * confirmed and a full rejection can still take it away.
+ */
+export type PieceStatus = 'pending' | 'confirmed';
+
 export interface Piece {
 	col: number;
 	row: number;
 	side: Side;
 	deck_idx: number;
+	status?: PieceStatus;
+	submission_id?: string | null;
 	id?: string;
 	item_id?: number | null;
 	item_name?: string | null;
@@ -230,12 +239,27 @@ export function liveTiles(
 	pieces: Piece[],
 	size: BoardSize = DEFAULT_SIZE
 ): (LiveTile | null)[] {
-	const counts = columnCounts(pieces, size);
+	// A column offers the first slot in its slice that NO piece has claimed — rather
+	// than `deck[col*rows + pieceCount]`, which assumed a piece always sits on the slot
+	// matching its row. A fully-rejected claim breaks that assumption: its piece is
+	// deleted and the pieces above it shift DOWN a row while keeping the tile they
+	// actually earned (their deck_idx), so row and slot are no longer the same number.
+	// Reading "first unclaimed slot" is what makes the rejected tile offerable again and
+	// keeps every other piece's tile attached to the player who earned it.
+	const claimed = new Set(pieces.map((p) => p.deck_idx));
 	const out: (LiveTile | null)[] = [];
 	for (let col = 0; col < size.cols; col++) {
-		const idx = liveDeckIdx(col, counts[col] ?? 0, size);
-		const tile = idx === null ? undefined : deck[idx];
-		out.push(idx === null || !tile ? null : { col, deckIdx: idx, tile });
+		let found: LiveTile | null = null;
+		if (col >= 0 && col < size.cols) {
+			const base = col * size.rows;
+			for (let i = base; i < base + size.rows; i++) {
+				if (claimed.has(i)) continue;
+				const tile = deck[i];
+				if (tile) found = { col, deckIdx: i, tile };
+				break;
+			}
+		}
+		out.push(found);
 	}
 	return out;
 }

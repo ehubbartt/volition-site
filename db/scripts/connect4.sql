@@ -105,3 +105,31 @@ create table if not exists vs_connect4_bonus (
 );
 create index if not exists vs_connect4_bonus_event
 	on vs_connect4_bonus (event_id, created_at desc);
+
+-- ---------------------------------------------------------------------------
+-- PROVISIONAL pieces.
+--
+-- A claim is submitted with proof and reviewed, which raises a fairness question the
+-- old model got wrong: if the piece only lands on APPROVAL, then whoever an admin
+-- happens to review first wins a contested tile, not whoever got the drop first. So a
+-- submission places the piece immediately as `pending`, and review either confirms it
+-- or takes it away. Submission order settles the race; review lag cannot change it.
+--
+-- `submission_id` ties the piece back to the vs_submissions row that placed it, so a
+-- decision on that row can find its piece without guessing.
+--
+-- Pieces made by an admin's direct credit are 'confirmed' on the spot — there is
+-- nothing to review — which is why the default is 'confirmed' and existing rows need
+-- no backfill.
+-- ---------------------------------------------------------------------------
+alter table vs_connect4_pieces
+	add column if not exists status text not null default 'confirmed';
+alter table vs_connect4_pieces
+	add column if not exists submission_id uuid;
+
+alter table vs_connect4_pieces drop constraint if exists vs_connect4_pieces_status_check;
+alter table vs_connect4_pieces add constraint vs_connect4_pieces_status_check
+	check (status in ('pending', 'confirmed'));
+
+create index if not exists vs_connect4_pieces_submission
+	on vs_connect4_pieces (submission_id) where submission_id is not null;
