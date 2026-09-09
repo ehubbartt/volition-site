@@ -3,10 +3,11 @@ import { test, expect, type Page } from '@playwright/test';
 // THE MEMBER BOARD, driven alongside the admin tester it watches.
 //
 // The admin page creates and starts a test game; the member page opens it at
-// /events/[slug]/connect4 and is held to two promises: it can only WATCH (no credit
-// controls anywhere), and it never goes stale (a credit made on the admin board shows up
-// on the open member board through the version poll, with no reload). The full admin UX
-// is covered by connect4-event.spec.ts — this file only proves the spectator half.
+// /events/[slug]/connect4 and is held to two promises: it can never CREDIT ITSELF (a
+// member submits proof for review, and only an admin's approval places a piece), and it
+// never goes stale (a credit made on the admin board shows up on the open member board
+// through the version poll, with no reload). The full admin UX is covered by
+// connect4-event.spec.ts — this file only proves the member half.
 //
 //   npx playwright test e2e/connect4-member.spec.ts
 
@@ -63,7 +64,7 @@ test('admin sets up and starts a game', async () => {
 	await expect(admin.locator('.hole')).toHaveCount(DECK);
 });
 
-test('the member board loads, shows the game, and offers no way to act', async () => {
+test('the member board loads, and can submit proof but never credit', async () => {
 	await member.goto(`/events/${SLUG}/connect4`, { waitUntil: 'domcontentloaded' });
 	await member.locator('.hole').first().waitFor({ timeout: 30_000 });
 
@@ -74,13 +75,20 @@ test('the member board loads, shows the game, and offers no way to act', async (
 	);
 	await expect(member.locator('.score').first()).toContainText('2 players');
 
-	// Selecting a tile shows what it takes — and nothing that credits it.
+	// Selecting a tile shows what it takes — and no way to credit it. Claims are proof
+	// submissions now, so a form may be present; what must NEVER be present is anything
+	// that places a piece straight from the member's own page.
 	await member.locator('.rail .tile').first().click();
 	await expect(member.locator('.tile-detail')).toBeVisible();
-	await expect(member.locator('.tile-detail button')).toHaveCount(0);
-	// Nor any other way to act: nothing on the board page POSTs (the shared layout may
-	// carry its own chrome, so the check is scoped to the page's content).
-	await expect(member.locator('.page form')).toHaveCount(0);
+	await expect(member.locator('.tile-detail button.credit')).toHaveCount(0);
+
+	// Every form on the page must be the review-submission one — never a credit.
+	const actions = await member
+		.locator('.page form')
+		.evaluateAll((fs) => fs.map((f) => f.getAttribute('action') || ''));
+	for (const a of actions) {
+		expect(a, `member page exposes a non-submission form: ${a}`).toContain('submitClaim');
+	}
 
 	const o = await member.evaluate(() => ({
 		scroll: document.documentElement.scrollWidth,

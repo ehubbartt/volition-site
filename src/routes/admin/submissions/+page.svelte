@@ -43,6 +43,10 @@
   // (task submissions don't). Reset per card.
   let womConfirmed = $state(false);
   let logConfirmed = $state(false);
+  // Connect Four: the reviewer has compared the drop's in-game time against when the
+  // tile went up. A separate box because it is a different question from "is there a
+  // drop log" — a perfectly real drop can still be too early to count.
+  let timingConfirmed = $state(false);
 
   // Reviewed-history view filters (client-side over the loaded history).
   let reviewedStatus = $state<"all" | "approved" | "rejected">("all");
@@ -106,7 +110,8 @@
   const current = $derived(filtered[currentIndex] ?? null);
   const remaining = $derived(filtered.length - currentIndex);
   const canApprove = $derived(
-    current?.kind !== "event" || (womConfirmed && logConfirmed),
+    (current?.kind !== "event" || (womConfirmed && logConfirmed)) &&
+      (!current?.tileActiveSince || timingConfirmed),
   );
 
   const reviewedItems = $derived(data.reviewed?.items ?? []);
@@ -141,6 +146,7 @@
     rejectNote = "";
     womConfirmed = false;
     logConfirmed = false;
+    timingConfirmed = false;
     lastAction = {
       kind: "skip",
       rsn: current.submitter.rsn ?? current.submitter.discord_username ?? "",
@@ -603,17 +609,37 @@
 
     {#if error}<p class="error">{error}</p>{/if}
 
-    {#if current.kind === "event"}
+    {#if current.tileActiveSince || current.kind === "event"}
       <fieldset class="approve-checks">
         <legend>Before approving</legend>
-        <label class="check">
-          <input type="checkbox" bind:checked={womConfirmed} />
-          <span>Has WOM codeword</span>
-        </label>
-        <label class="check">
-          <input type="checkbox" bind:checked={logConfirmed} />
-          <span>Visible Drop/Collection Log</span>
-        </label>
+        {#if current.kind === "event"}
+          <label class="check">
+            <input type="checkbox" bind:checked={womConfirmed} />
+            <span>Has WOM codeword</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" bind:checked={logConfirmed} />
+            <span>Visible Drop/Collection Log</span>
+          </label>
+        {/if}
+        {#if current.tileActiveSince}
+          <!-- First-come board: a real drop from BEFORE the tile went up must not
+               claim it, so the reviewer confirms the times line up by hand. -->
+          <p class="tile-window">
+            This tile went up at <strong>{fmt(current.tileActiveSince)}</strong>.
+            The drop has to have happened after that.
+          </p>
+          <label class="check">
+            <input type="checkbox" bind:checked={timingConfirmed} />
+            <span>In-game drop time is after the tile went up</span>
+          </label>
+          {#if current.tileSuperseded}
+            <p class="tile-warn">
+              ⚠ That column has already moved on — someone else's claim for this tile was
+              approved first. Approving this now will not place a piece.
+            </p>
+          {/if}
+        {/if}
       </fieldset>
     {/if}
 
@@ -650,6 +676,7 @@
               rejectNote = "";
               womConfirmed = false;
               logConfirmed = false;
+              timingConfirmed = false;
               nextCard();
             } else if (result.type === "failure") {
               error =
@@ -707,6 +734,7 @@
               rejectNote = "";
               womConfirmed = false;
               logConfirmed = false;
+              timingConfirmed = false;
               nextCard();
             } else if (result.type === "failure") {
               error =
@@ -726,7 +754,7 @@
           type="submit"
           class="approve"
           disabled={busy || !canApprove}
-          title={canApprove ? "Approve (→)" : "Check both boxes to approve"}
+          title={canApprove ? "Approve (→)" : "Tick every box above to approve"}
         >
           <span class="big-icon">✓</span>
           <span class="label-text">Approve</span>
@@ -1657,5 +1685,14 @@
     .proof-button img {
       max-height: 22rem;
     }
+  }
+  .tile-window {
+    margin: 0.2rem 0;
+    font-size: 0.85rem;
+  }
+  .tile-warn {
+    margin: 0.2rem 0 0;
+    font-size: 0.85rem;
+    color: var(--danger);
   }
 </style>

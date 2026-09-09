@@ -1023,23 +1023,10 @@
 		<div class="osrs-titlebar">Run the game</div>
 		<div class="pad row wrap">
 			{#if game.phase === 'live'}
-				<form method="POST" action="?/simulate" use:enhance class="inline">
-					<label class="tiny">
-						Simulate a drop for
-						<select name="userId">
-							{#each members as m (m.userId)}<option value={m.userId}>{m.rsn}</option>{/each}
-						</select>
-					</label>
-					<label class="tiny">
-						column
-						<select name="col">
-							{#each liveTiles as slot, col (col)}
-								{#if slot}<option value={col}>{columnLabel(col)} — {slot.tile.item_name}</option>{/if}
-							{/each}
-						</select>
-					</label>
-					<button type="submit">Send it through the real pipeline</button>
-				</form>
+				<!-- The Dink simulate control lived here. This event runs on manual proof —
+				     see DINK_AUTO_TRACKING in connect4.ts — so there is no pipeline to send
+				     a drop through; claims arrive at /admin/submissions instead. -->
+				<a class="btn-link" href="/admin/submissions">Review claim submissions →</a>
 				<form method="POST" action="?/finish" use:enhance><button type="submit">End the game</button></form>
 			{/if}
 			{#if game.phase === 'finished'}
@@ -1572,5 +1559,9 @@
 		padding: 0.5rem;
 		border-radius: var(--radius);
 		margin: 0;
+	}
+	.btn-link {
+		align-self: center;
+		font-size: 0.85rem;
 	}
 </style>

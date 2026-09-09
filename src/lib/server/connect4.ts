@@ -1201,6 +1201,19 @@ export async function creditManual(input: {
  * candidate matcher. Diff-based and idempotent, so it is safe to run on every page load —
  * which is exactly how a crash between a claim and its sync heals itself.
  */
+/**
+ * Whether a live game projects its tiles into the Dink allowlist.
+ *
+ * OFF for the clan-vs-clan event, deliberately: only one of the two clans had Dink set
+ * up, so auto-crediting was a head start rather than a convenience. With this false a
+ * game tracks NOTHING — no drop can match a tile — and every claim arrives as a proof
+ * submission reviewed in /admin/submissions.
+ *
+ * Flipping it back to true is the whole restore: the projection, the proxy allowlist
+ * and the drop consumer are all unchanged and still work.
+ */
+const DINK_AUTO_TRACKING = false;
+
 export async function syncTrackedItems(
 	eventId: string,
 	preloaded?: Connect4Snapshot
@@ -1225,7 +1238,7 @@ export async function syncTrackedItems(
 		required_qty: number;
 	}
 	const wanted = new Map<string, Want>();
-	if (snap.phase === 'live') {
+	if (DINK_AUTO_TRACKING && snap.phase === 'live') {
 		for (const l of snap.live) {
 			if (!l) continue;
 			const members = l.tile.any_of?.length

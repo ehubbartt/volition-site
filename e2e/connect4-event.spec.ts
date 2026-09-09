@@ -352,25 +352,10 @@ test('four in a row scores, glows, and moves the standings', async () => {
 	await shot('run-of-five');
 });
 
-test('a simulated drop goes through the real Dink pipeline', async () => {
-	const before = await pieceCount();
-	// Scoped to the simulate form: the page has a second user picker (the pet-bonus
-	// award form), so a bare select[name="userId"] matches two controls.
-	const sim = page.locator('form[action="?/simulate"]');
-	await sim.locator('select[name="userId"]').selectOption({ index: 0 });
-	// Any column with a live tile; the select only lists those.
-	await sim.locator('select[name="col"]').selectOption({ index: 6 });
-	await page.getByRole('button', { name: 'Send it through the real pipeline' }).click();
-
-	// The count is however many queued drops the consumer drained, which is 1 on a clean
-	// run and more if an earlier attempt left one behind — what matters is that it credited.
-	await expect(page.locator('.ok')).toContainText(/Simulated a .* drop for .* — [1-9]\d* credited/, {
-		timeout: 30_000
-	});
-	expect(await pieceCount(), 'the simulated drop did not land').toBeGreaterThan(before);
-	await expect(page.locator('.osrs-table tbody tr').first()).toContainText('simulated');
-	await shot('simulated-drop');
-});
+// The Dink simulate step used to live here. Connect Four now runs on manual proof
+// (DINK_AUTO_TRACKING is off in connect4.ts) — a live game projects nothing into the
+// allowlist, so there is no pipeline for this test to drive. Claims are covered by the
+// admin credit path above and by the submission review flow.
 
 test('undo takes the top piece back off', async () => {
 	const before = await pieceCount();

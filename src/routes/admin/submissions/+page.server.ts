@@ -4,6 +4,7 @@ import { mintBombsForApprovedClaims } from '$lib/server/battleship';
 import { isAdmin } from '$lib/server/auth';
 import { grantPlayerVp } from '$lib/server/playerStats';
 import { decideSubmissions, revokeSubmissions } from '$lib/server/submissions';
+import { claimTile, loadConnect4ById } from '$lib/server/connect4';
 import type { SubmissionSource, ReviewDecision } from '$lib/submissions';
 import type { Actions } from './$types';
 
@@ -12,6 +13,52 @@ import type { Actions } from './$types';
 // universal load in +page.ts, so navigating here never waits on the server.
 
 const SOURCES: SubmissionSource[] = ['generic', 'bingo', 'team'];
+
+/**
+ * Place the board piece for any approved Connect Four claim.
+ *
+ * The submission's target is `c4:<col>:<deckIdx>` — the column AND the exact tile that
+ * was on offer when the player submitted. We pass the column, so the claim lands on
+ * whatever that column currently offers, and use the submission id as the drop key:
+ * that is what makes re-approving after a revoke idempotent, because the pieces table's
+ * unique(event_id, drop_key) has already seen it.
+ *
+ * A tile someone else won first simply fails to claim, which is correct — the reviewer
+ * was warned it had been superseded before they approved.
+ */
+async function creditConnect4Approvals(approvedIds: string[]): Promise<void> {
+	const { data: rows } = await db()
+		.from('vs_submissions')
+		.select('id, event_id, user_id, target_id')
+		.in('id', approvedIds)
+		.like('target_id', 'c4:%');
+	for (const r of ((rows ?? []) as Array<{
+		id: string;
+		event_id: string | null;
+		user_id: string | null;
+		target_id: string;
+	}>)) {
+		if (!r.event_id || !r.user_id) continue;
+		const col = Number(r.target_id.split(':')[1]);
+		if (!Number.isInteger(col)) continue;
+
+		const snap = await loadConnect4ById(r.event_id);
+		if (!snap || snap.phase !== 'live') continue;
+		const side = snap.sides.find((sd) => sd.members.some((m) => m.userId === r.user_id))?.side;
+		if (!side) continue;
+
+		const res = await claimTile({
+			eventId: r.event_id,
+			side,
+			col,
+			dropKey: `manual:submission:${r.id}`,
+			byUserId: r.user_id
+		});
+		if (res.status !== 'claimed' && res.status !== 'duplicate') {
+			console.warn(`[submissions] connect4 claim ${r.id}: ${res.status} ${res.error ?? ''}`);
+		}
+	}
+}
 
 // Grant the event's vp_reward to the submitter the FIRST time one of their generic
 // submissions for that event is approved. Idempotent: skips if they already had an
@@ -116,6 +163,17 @@ export const actions: Actions = {
 		// Only grant VP if THIS request actually flipped at least one row to approved.
 		// If another admin approved the same submission a moment earlier, our update
 		// matched zero rows (changedIds empty) and we must not award again.
+		// Connect Four: approval is what places the piece. Only for rows THIS request
+		// flipped, so two admins approving at once cannot drop two pieces — and the
+		// board's own unique(event_id, col, row) is the final arbiter anyway.
+		if (source === 'generic' && decision === 'approve' && (changedIds?.length ?? 0) > 0) {
+			try {
+				await creditConnect4Approvals(changedIds ?? ids);
+			} catch (e) {
+				console.error('[submissions] connect4 credit failed:', (e as Error).message);
+			}
+		}
+
 		if (grantCtx && (changedIds?.length ?? 0) > 0) {
 			try {
 				await grantVpForApproval(grantCtx, changedIds ?? ids);

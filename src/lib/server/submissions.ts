@@ -12,6 +12,7 @@
 // (via createSubmission) and its pending rows show up in /admin/submissions.
 
 import { db, fetchAllFiltered } from './db';
+import { loadConnect4ById } from './connect4';
 import { grantPlayerVp } from './playerStats';
 import { renderMarkdown } from '$lib/markdown';
 import { CLAN_LABEL } from '$lib/clans';
@@ -316,7 +317,11 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 				count: 0,
 				quantity: 0,
 				required: DUO_TILE_IDS.has(r.target_id) ? getDuoTileRequired(r.target_id) : null,
-				approvedSoFar: null
+				approvedSoFar: null,
+				// Filled in below for Connect Four rows, which are the only ones whose
+				// target is a moving target.
+				tileActiveSince: null,
+				tileSuperseded: false
 			};
 			groups.set(key, group);
 		}
@@ -353,6 +358,39 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 		}
 		for (const it of countItems) {
 			it.approvedSoFar = approvedByKey.get(`${it.event.id}|${it.team!.id}|${it.task.id}`) ?? 0;
+		}
+	}
+
+	// ── Connect Four: when did the claimed tile actually go up? ──────────────
+	// A first-come board is only fair if the drop happened AFTER the tile appeared, so
+	// the reviewer needs that timestamp in front of them. A tile's start is the moment
+	// the piece beneath it landed (that claim is what dealt this one in), or the game's
+	// own start for the first tile in a column.
+	//
+	// target_id is `c4:<col>:<deckIdx>`; deckIdx is what makes it exact, and what tells
+	// us whether the column has since moved past this tile.
+	const c4Items = items.filter((it) => it.task.id.startsWith('c4:'));
+	if (c4Items.length) {
+		const byEvent = new Map<string, typeof c4Items>();
+		for (const it of c4Items) {
+			byEvent.set(it.event.id, [...(byEvent.get(it.event.id) ?? []), it]);
+		}
+		for (const [eventId, group] of byEvent) {
+			const snap = await loadConnect4ById(eventId).catch(() => null);
+			if (!snap) continue;
+			for (const it of group) {
+				const [, colRaw, idxRaw] = it.task.id.split(':');
+				const col = Number(colRaw);
+				const deckIdx = Number(idxRaw);
+				if (!Number.isInteger(col) || !Number.isInteger(deckIdx)) continue;
+
+				// The piece that dealt this tile in is the one occupying the slot before it.
+				const prior = snap.pieces.find((p) => p.deck_idx === deckIdx - 1);
+				const firstOfColumn = deckIdx % snap.rows === 0;
+				it.tileActiveSince = firstOfColumn ? snap.startsAt : (prior?.claimed_at ?? null);
+				// Already taken? Then this submission is chasing a tile that has gone.
+				it.tileSuperseded = snap.pieces.some((p) => p.deck_idx === deckIdx);
+			}
 		}
 	}
 

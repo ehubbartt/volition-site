@@ -40,6 +40,13 @@ export interface ReviewItem {
 	// null for tiles that aren't count-based.
 	required: number | null;
 	approvedSoFar: number | null;
+	// FIRST-COME events (Connect Four): when the thing being claimed actually went up.
+	// The reviewer's job is to check the drop's in-game time is AFTER this — otherwise a
+	// drop from before the tile existed could claim it. null for every other event.
+	tileActiveSince: string | null;
+	// The column has since moved on: whoever was approved first took this tile, so the
+	// submission is for something that is no longer on offer.
+	tileSuperseded: boolean;
 }
 
 // One already-reviewed submission group, for the read-only history view. Same shape

@@ -9,6 +9,18 @@ Nothing here is done by a deploy. Delete sections as you complete them.
 
 ---
 
+## 0. Connect Four runs on manual proof (no action needed, context only)
+
+`DINK_AUTO_TRACKING` in `src/lib/server/connect4.ts` is `false`, so a live game projects
+nothing into the Dink allowlist and no drop can auto-credit a tile. Members submit a
+screenshot per column from the member board; the rows land in `/admin/submissions`, show
+**when that tile went up**, and approval is gated behind a checkbox that the in-game drop
+time is later. Approving is what places the piece.
+
+Restoring Dink crediting later is one constant back to `true` — nothing else changed.
+
+---
+
 ## 1. Deploy the worker half of the drop-drain pipeline
 
 The secrets exist everywhere (both Fly apps + the Worker), but the **code that uses
@@ -90,7 +102,18 @@ a re-runnable diagnostic.
 
 ---
 
-## 3. Dink delivery modes + the relay
+## 3. Dink delivery modes + the relay — PARKED
+
+> Built and pushed, deliberately **not shipped**. The clan-vs-clan event runs on manual
+> proof instead (only one clan had Dink set up, which was a head start rather than a
+> convenience), so none of this is on the critical path. Nothing here is deployed and
+> nothing depends on it — pick it up when the event is over.
+>
+> Site work is on `staging`; proxy work is on `dink-delivery-modes`. Neither the SQL nor
+> the proxy deploy has been done, and until they are, everything behaves exactly as it
+> did before.
+
+
 
 1. ☐ Apply `db/scripts/dink_modes_and_relays.sql` to **both** databases. Adds
    `dink_tokens.mode` / `.forward_clan` and the `vs_dink_relays` table. Until it
@@ -110,7 +133,7 @@ a re-runnable diagnostic.
 
 ---
 
-## 3. Connect Four production go-live
+## 4. Connect Four production go-live
 
 1. ☑ Merge `staging` → `main` — 2026-08-27 (fast-forward) and again 2026-09-08
    (a merge commit this time: `main` had picked up the personal-bingo PRs #77

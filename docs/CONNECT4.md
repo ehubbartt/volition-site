@@ -14,9 +14,13 @@ the implementation. See also [`EVENTS.md`](EVENTS.md) for the shared events spin
 pipeline this hangs off.
 
 > **Status: live on prod** (merged 2026-09-08; `connect4.sql` applied to both databases
-> 2026-09-09). Games are driven from `/admin/connect4`; members watch (read-only) at
-> `/events/[slug]/connect4`. Note that `connect4.sql` gained the `vs_connect4_bonus`
-> table after that — re-run the file wherever pet bonuses are wanted.
+> 2026-09-09). Games are driven from `/admin/connect4`; members submit claims at
+> `/events/[slug]/connect4` and admins approve them in `/admin/submissions`.
+> Two follow-ups need `connect4.sql` re-run wherever they are wanted: the
+> `vs_connect4_bonus` table (pet bonuses).
+>
+> **This event runs on manual proof — Dink auto-crediting is deliberately off.**
+> See *Tracking* below.
 
 ---
 
@@ -52,9 +56,10 @@ Two optional tile shapes on top of the plain single item:
 
 - **Group tiles** (`any_of`) — "Any CoX purple": a drop of ANY listed item claims the
   tile, and the tile's name is just a label. Built from the custom-task form (pick a
-  source for its whole priced drop table, and/or type a list); every member is projected
-  into the Dink allowlist, and the qualifying list shows on the hover card, the detail
-  strip and the CSV. A group tile's icon is its first member's.
+  source for its whole priced drop table, and/or type a list); the qualifying list shows
+  on the hover card, the detail strip and the CSV. A group tile's icon is its first
+  member's. (Each member would also be projected into the Dink allowlist, were
+  auto-tracking on — see *Tracking*.)
 - **Quantity tiles** (`qty`) — "×3": one side needs that many qualifying drops, and the
   FIRST side to its Nth drop claims the tile. Per-side progress lives in
   `vs_connect4_progress` — one row per qualifying drop, `unique (event_id, drop_key)`
@@ -114,13 +119,36 @@ delete; the standings recompute like everything else.
 
 ### Tracking
 
-Two ways in, and they are the same code path:
+**Dink auto-tracking is OFF for this event.** `DINK_AUTO_TRACKING` in
+`src/lib/server/connect4.ts` is `false`, so a live game projects **nothing** into
+`vs_event_tracked_items` and no drop can ever match a tile. The reason is fairness, not
+technology: in a clan-vs-clan event only one clan had the plugin set up, which is a head
+start rather than a convenience. Flipping that constant back to `true` restores the whole
+path — the projection, the proxy allowlist and the drop consumer are all unchanged.
 
-- **Dink.** The 25 live tiles are projected into `vs_event_tracked_items`, which is what
-  feeds the proxy's allowlist and the drop consumer's matcher. A member's drop claims the
-  tile above whichever column is offering it, **for their own side**.
-- **By hand.** An admin credits a column to a side from the tester. Used for anything Dink
-  can't see — and it is the fallback for the opposing clan while they are still onboarding.
+That leaves two ways in, and they are the same code path:
+
+- **Member proof submissions.** A seated member picks the column on the member board,
+  uploads a screenshot, and it becomes a generic `vs_submissions` row
+  (`target_id = c4:<col>:<deckIdx>`) in the shared `/admin/submissions` queue. Nothing is
+  credited on submit — **approval is what places the piece**, so two people claiming the
+  same tile is a race an admin settles rather than a database one.
+- **By hand.** An admin credits a column to a side directly from the tester, for anything
+  that never became a submission.
+
+#### Reviewing a claim (the timing check)
+
+A first-come board is only fair if the drop happened **after** the tile went up, and a
+screenshot alone can't prove that — someone could submit a drop from last week. So a
+Connect Four row in the review queue carries `tileActiveSince`: the moment the piece
+beneath it landed (that claim is what dealt this tile in), or the game's `starts_at` for
+the first tile in a column. The queue shows it, and approval is gated behind a checkbox
+confirming the in-game time in the screenshot is later — the same shape as the WOM
+codeword and drop-log checks.
+
+If the column has moved on since (someone else's claim was approved first) the row is
+flagged **superseded**: approving it will not place a piece, and the reviewer is told so
+before they decide.
 
 **A member who is signed up but not yet on a side claims nothing.** The side is never
 guessed.

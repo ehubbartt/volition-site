@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { PageData } from './$types';
+	import { enhance } from '$app/forms';
+	import type { PageData, ActionData } from './$types';
 	import { invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { swrResource } from '$lib/swrResource.svelte';
@@ -25,7 +26,10 @@
 	// here there is no optimistic local state to protect — the server snapshot IS the
 	// board, and the version poll keeps it honest (docs/LIVE-UPDATES.md).
 
-	let { data }: { data: PageData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	// Set while a claim submission is in flight, so the button can say so.
+	let submitting = $state(false);
 
 	const EMPTY = { kind: 'ok', live: '', game: null } as unknown as Connect4PageResult;
 	const res = swrResource(() => data.connect4, EMPTY);
@@ -392,10 +396,46 @@
 								{/if}
 							</div>
 						</div>
+
+						{#if game.phase === 'live' && game.viewerSide}
+							<!-- Claims are PROOF submissions, not credits: this posts a screenshot to
+							     the same /admin/submissions queue every other event uses, and an admin
+							     approves it. Nothing lands on the board from here. -->
+							<form
+								method="POST"
+								action="?/submitClaim"
+								enctype="multipart/form-data"
+								class="claim-form"
+								use:enhance={() => {
+									submitting = true;
+									return async ({ update }) => {
+										await update({ reset: true });
+										submitting = false;
+									};
+								}}
+							>
+								<input type="hidden" name="col" value={selectedTile.col} />
+								<label class="claim-file">
+									<span>Screenshot of the drop</span>
+									<input type="file" name="proof" accept="image/*" multiple required />
+								</label>
+								<button type="submit" disabled={submitting}>
+									{submitting ? 'Sending…' : 'Submit this drop for review'}
+								</button>
+								<p class="muted tiny">
+									Make sure the shot shows <strong>the in-game time</strong> as well as the drop —
+									an admin checks it landed after this tile went up.
+								</p>
+							</form>
+							{#if form?.error}<p class="err tiny">{form.error}</p>{/if}
+							{#if form?.submitted}
+								<p class="ok tiny">Sent for review — an admin will confirm it shortly.</p>
+							{/if}
+						{/if}
 					{:else if game.phase === 'live'}
 						<p class="muted tiny hint">
-							Get the drop above a column and it's your side's piece — first come, first served.
-							Click a tile to see what it takes.
+							Got a drop above a column? Click that tile and send your screenshot — an admin
+							checks it and your side's piece falls into place.
 						</p>
 					{/if}
 				{/if}
@@ -610,4 +650,17 @@
 		color: var(--success);
 		background: var(--success-bg);
 	}
+	.claim-form {
+		display: grid;
+		gap: 0.4rem;
+		margin-top: 0.6rem;
+		padding: 0.6rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--surface-alt);
+	}
+	.claim-file { display: grid; gap: 0.2rem; font-size: 0.8rem; color: var(--muted); }
+	.claim-form p { margin: 0; }
+	.err { color: var(--danger); }
+	.ok { color: var(--success); }
 </style>

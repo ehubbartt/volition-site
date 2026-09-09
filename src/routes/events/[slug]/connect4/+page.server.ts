@@ -1,0 +1,53 @@
+import { fail, redirect } from '@sveltejs/kit';
+import { createSubmission } from '$lib/server/submissions';
+import { loadConnect4, sideForUser } from '$lib/server/connect4';
+import { columnLabel } from '$lib/connect4/rules';
+import type { Actions } from './$types';
+
+// The page itself is instant-nav (no server load — see +page.ts and docs/PAGES.md).
+// This file exists only for the member's own CLAIM SUBMISSION.
+//
+// Connect Four is run entirely on manual proof: a member submits a screenshot for the
+// column they got the drop for, and it lands in the generic /admin/submissions queue
+// like every other event's proof. Nothing is credited here — approval does that, so
+// two people submitting the same tile is a race an admin settles, not a database one.
+//
+// Why proof-and-review rather than the Dink auto-credit this event used to use: a
+// clan-vs-clan event where only one side has the plugin set up is not a fair race.
+
+export const actions: Actions = {
+	submitClaim: async ({ request, locals, params }) => {
+		if (!locals.user) throw redirect(303, '/');
+
+		const game = await loadConnect4(params.slug);
+		if (!game) return fail(404, { error: 'No such game' });
+		if (game.phase !== 'live') return fail(400, { error: 'This game is not running' });
+
+		// A member who is signed up but not seated has no side to claim FOR — the same
+		// rule the drop pipeline applies. Never guessed.
+		const side = await sideForUser(game.id, locals.user.id);
+		if (!side) return fail(403, { error: "You're not on a side in this game yet." });
+
+		const form = await request.formData();
+		const col = Number(form.get('col'));
+		const slot = Number.isInteger(col) ? game.live[col] : null;
+		if (!slot) return fail(400, { error: 'That column has nothing on offer.' });
+
+		const files = form.getAll('proof').filter((f): f is File => f instanceof File && f.size > 0);
+		if (files.length === 0) return fail(400, { error: 'Add a screenshot showing the drop' });
+
+		// target_id carries the column AND the deck slot it was on offer for. The slot is
+		// what makes a stale submission detectable: if the column moves on before an admin
+		// reviews, the row still says which tile was actually being claimed.
+		const result = await createSubmission({
+			eventId: game.id,
+			userId: locals.user.id,
+			targetId: `c4:${col}:${slot.deckIdx}`,
+			targetLabel: `${slot.tile.item_name} — column ${columnLabel(col)}`,
+			files
+		});
+		if (!result.ok) return fail(400, { error: result.error });
+
+		return { submitted: true, col };
+	}
+};
