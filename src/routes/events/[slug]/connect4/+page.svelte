@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import BoardAckModal from '$lib/board/BoardAckModal.svelte';
 	import type { PageData, ActionData } from './$types';
 	import { invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
@@ -31,10 +32,32 @@
 	// Set while a claim submission is in flight, so the button can say so.
 	let submitting = $state(false);
 
+
 	const EMPTY = { kind: 'ok', live: '', game: null } as unknown as Connect4PageResult;
 	const res = swrResource(() => data.connect4, EMPTY);
 	const payload = $derived(res.value as Connect4PageResult);
 	const game = $derived(payload?.kind === 'ok' ? payload.game : null);
+
+	// ── Evidence acknowledgement ──────────────────────────────────────────────
+	// The same first-visit gate the DuoWolf board uses. It matters more here: this
+	// event is scored entirely on manual proof, and an admin has to compare the drop's
+	// in-game time against when the tile went up — which they can only do if the player
+	// has chat timestamps on and knows the rule. Remembered per event in a cookie; a UX
+	// nudge, not a security gate (the server validates every submission regardless).
+	const EVENT_CODEWORD = 'VOLI';
+	let ackConfirmed = $state(false);
+	const ackCookie = $derived(game ? `voli_c4_ack_${game.id}` : '');
+	const ackOpen = $derived(
+		!!game && game.phase === 'live' && !!game.viewerSide && !ackConfirmed
+	);
+	function confirmAck() {
+		try {
+			document.cookie = `${ackCookie}=1; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+		} catch {
+			/* cookies blocked — the gate simply reappears next visit */
+		}
+		ackConfirmed = true;
+	}
 
 	const pieces = $derived(game?.pieces ?? []);
 	const pieceIds = $derived(pieces.map((p) => p.id as string));
@@ -125,6 +148,13 @@
 			if (localStorage.getItem(VIEW_KEY) === '3d') view = '3d';
 		} catch {
 			/* storage unavailable — flat is the safe default */
+		}
+		// The board arrives after this mount (instant-nav), so match on the cookie NAME
+		// rather than waiting for the payload to name the event.
+		try {
+			if (/(?:^|;\s*)voli_c4_ack_[^=]+=1/.test(document.cookie)) ackConfirmed = true;
+		} catch {
+			/* no cookies — the gate just shows again */
 		}
 	});
 	function setView(v: 'flat' | '3d') {
@@ -487,6 +517,22 @@
 			set3dHover(null);
 		}}
 	/>
+{/if}
+
+{#if ackOpen && game}
+	<BoardAckModal
+		eventName={game.name}
+		codeword={EVENT_CODEWORD}
+		guideHref="/evidence-guide"
+		confirmLabel="Confirm & view the board"
+		onConfirm={confirmAck}
+	>
+		{#snippet extra()}
+			I understand a drop only counts if I got it <strong>after the tile went up</strong> —
+			an admin compares the in-game time in my screenshot against when it appeared, so my
+			shot has to show the clock.
+		{/snippet}
+	</BoardAckModal>
 {/if}
 
 <style>

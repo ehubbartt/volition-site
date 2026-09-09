@@ -34,6 +34,19 @@ test.afterAll(async () => {
 	await member?.close();
 });
 
+/**
+ * Clear the evidence-acknowledgement gate if it is showing. It only appears for a member
+ * who is SEATED on a side, so whether it shows depends on which account the run is
+ * signed in as — hence the conditional rather than an unconditional wait.
+ */
+async function dismissAck(page: Page): Promise<void> {
+	const modal = page.getByRole('dialog', { name: /Before you start/i });
+	if (!(await modal.isVisible().catch(() => false))) return;
+	for (const box of await modal.locator('input[type="checkbox"]').all()) await box.check();
+	await modal.getByRole('button', { name: /Confirm/ }).click();
+	await expect(modal).toBeHidden();
+}
+
 /** How many claims the server has confirmed, read off a board page's own header. */
 async function serverClaims(page: Page): Promise<number> {
 	const t = await page.locator('.board-panel .osrs-titlebar').innerText();
@@ -67,6 +80,7 @@ test('admin sets up and starts a game', async () => {
 test('the member board loads, and can submit proof but never credit', async () => {
 	await member.goto(`/events/${SLUG}/connect4`, { waitUntil: 'domcontentloaded' });
 	await member.locator('.hole').first().waitFor({ timeout: 30_000 });
+	await dismissAck(member);
 
 	await expect(member.locator('.hole')).toHaveCount(DECK);
 	await expect(member.locator('.rail .tile')).toHaveCount(COLS);
@@ -103,6 +117,8 @@ test('the events page routes the connect4 kind to the board', async () => {
 	await member.goto(`/events/${SLUG}`, { waitUntil: 'domcontentloaded' });
 	await member.waitForURL(new RegExp(`/events/${SLUG}/connect4$`), { timeout: 20_000 });
 	await member.locator('.hole').first().waitFor({ timeout: 30_000 });
+	// The confirm cookie should carry this across, but stay robust if it did not.
+	await dismissAck(member);
 });
 
 test('a credit on the admin board reaches the open member board without a reload', async () => {

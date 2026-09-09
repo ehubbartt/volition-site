@@ -136,6 +136,17 @@ That leaves two ways in, and they are the same code path:
 - **By hand.** An admin credits a column to a side directly from the tester, for anything
   that never became a submission.
 
+#### The evidence gate
+
+A seated member hitting a live board gets the same first-visit acknowledgement modal the
+DuoWolf board uses (`$lib/board/BoardAckModal.svelte`), with one extra line specific to
+this event: **a drop only counts if it was obtained after the tile went up**, so their
+screenshot has to show the in-game clock. That matters more here than on DuoWolf, because
+the reviewer's timing check below is only answerable if the player knew to capture it.
+
+Confirmation is remembered in a `voli_c4_ack_<eventId>` cookie. It is a UX nudge, not a
+security gate — the server validates every submission regardless.
+
 #### Reviewing a claim (the timing check)
 
 A first-come board is only fair if the drop happened **after** the tile went up, and a

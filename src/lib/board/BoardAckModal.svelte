@@ -8,16 +8,27 @@
 		codeword: string;
 		guideHref: string;
 		onConfirm: () => void;
+		/** Wording for the confirm button, when "the board" isn't what they're entering. */
+		confirmLabel?: string;
+		/**
+		 * One more rule this event needs agreed to, rendered as an extra ticked line —
+		 * Connect Four uses it for the "the tile has to have been up already" rule. When
+		 * given, its box counts toward the gate like every other.
+		 */
+		extra?: import('svelte').Snippet;
 	}
 
-	let { eventName, codeword, guideHref, onConfirm }: Props = $props();
+	let { eventName, codeword, guideHref, onConfirm, confirmLabel, extra }: Props = $props();
 
 	let ackCodeword = $state(false);
 	let ackTimestamps = $state(false);
 	let ackGuide = $state(false);
 	let ackRules = $state(false);
+	let ackExtra = $state(false);
 
-	const allChecked = $derived(ackCodeword && ackTimestamps && ackGuide && ackRules);
+	const allChecked = $derived(
+		ackCodeword && ackTimestamps && ackGuide && ackRules && (!extra || ackExtra)
+	);
 </script>
 
 <div class="backdrop" role="presentation">
@@ -70,15 +81,23 @@
 					</span>
 				</label>
 			</li>
+			{#if extra}
+				<li>
+					<label>
+						<input type="checkbox" bind:checked={ackExtra} />
+						<span>{@render extra()}</span>
+					</label>
+				</li>
+			{/if}
 		</ul>
 
 		<div class="actions">
 			<a class="guide-cta" href={guideHref} target="_blank" rel="noopener">Open the Evidence Guide ↗</a>
 			<p class="hint" class:ready={allChecked} aria-live="polite">
-				{allChecked ? '✓ All set — you can enter the board.' : 'Tick every box above to continue.'}
+				{allChecked ? '✓ All set — you can continue.' : 'Tick every box above to continue.'}
 			</p>
 			<button type="button" class="primary" disabled={!allChecked} onclick={onConfirm}>
-				Confirm &amp; enter the board
+				{confirmLabel ?? 'Confirm & enter the board'}
 			</button>
 		</div>
 	</div>
