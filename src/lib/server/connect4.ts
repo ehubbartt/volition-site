@@ -29,6 +29,7 @@ import {
 	ROWS,
 	cellId,
 	clampSize,
+	NEW_GAME_SIZE,
 	columnCounts,
 	deckSizeOf,
 	landingRow,
@@ -105,7 +106,7 @@ export interface Connect4Snapshot {
 	phase: Phase;
 	test: boolean;
 	scoring: Connect4Scoring;
-	/** Board dimensions, fixed at creation. Classic is 25×10. */
+	/** Board dimensions, fixed at creation. A new game is 40×15. */
 	cols: number;
 	rows: number;
 	/** cols × rows — how many tiles the pool needs and the board can hold. */
@@ -459,7 +460,7 @@ export async function createConnect4(input: {
 	ownerUserId: string;
 	scoring?: Partial<Connect4Scoring>;
 	sideNames?: [string, string];
-	/** Board dimensions — clamped to sane bounds; omitted = the classic 25×10. */
+	/** Board dimensions — clamped to sane bounds; omitted = `NEW_GAME_SIZE` (40×15). */
 	cols?: number;
 	rows?: number;
 	test?: boolean;
@@ -471,7 +472,12 @@ export async function createConnect4(input: {
 		phase: 'setup',
 		test: input.test ?? false,
 		scoring: normalizeScoring(input.scoring),
-		size: clampSize({ cols: input.cols, rows: input.rows }),
+		// `clampSize` falls back to DEFAULT_SIZE, which is the LEGACY size for boards that
+		// never stored one. A brand-new game wants the current default instead.
+		size: clampSize({
+			cols: input.cols ?? NEW_GAME_SIZE.cols,
+			rows: input.rows ?? NEW_GAME_SIZE.rows
+		}),
 		pool: [],
 		custom: [],
 		deck: [],

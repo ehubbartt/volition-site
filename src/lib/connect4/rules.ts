@@ -19,13 +19,22 @@
 // row 0) and serialize to the string `"col,row"` — the identity the database's
 // unique (event_id, cell) index uses. Never build a cell id by hand; use cellId/parseCell.
 
-/** The board's dimensions. Fixed per game at creation; the classic board is 25×10. */
+/** The board's dimensions. Fixed per game at creation; a new board is 40×15. */
 export interface BoardSize {
 	cols: number;
 	rows: number;
 }
 
+/**
+ * The size a game gets when none was stored. This is the LEGACY FALLBACK, not the
+ * default for new games — games created before the size was configurable have no
+ * `structure.connect4.size`, and every read of those boards re-derives their geometry
+ * from this constant. Changing it silently reinterprets those boards (wrong deck size,
+ * wrong cell mapping), so it stays where it is. New games use `NEW_GAME_SIZE`.
+ */
 export const DEFAULT_SIZE: BoardSize = { cols: 25, rows: 10 };
+/** What the admin form and `createConnect4` reach for when no size is given. */
+export const NEW_GAME_SIZE: BoardSize = { cols: 40, rows: 15 };
 export const COLS = DEFAULT_SIZE.cols;
 export const ROWS = DEFAULT_SIZE.rows;
 /** One curated tile per cell: filling the board consumes the whole deck. */

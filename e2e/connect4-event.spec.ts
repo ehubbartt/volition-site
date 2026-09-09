@@ -135,6 +135,10 @@ test('creates a test game from the admin list', async () => {
 
 	await page.locator('input[name="name"]').fill(`UX pass ${SLUG}`);
 	await page.locator('input[name="slug"]').fill(SLUG);
+	// Pin the size: the form now defaults to the event's 40×15 (600 cells), which is a
+	// slow board to drive a UI test across. The geometry under test is the same.
+	await page.locator('input[name="cols"]').fill(String(COLS));
+	await page.locator('input[name="rows"]').fill(String(ROWS));
 	// The create form defaults to a test game; a real one would refuse to delete later.
 	await expect(page.locator('input[name="test"]')).toBeChecked();
 	await page.getByRole('button', { name: 'Create' }).click();

@@ -1,7 +1,7 @@
 # Connect Four — ruleset & implementation
 
 A clan-vs-clan event where the board game **is** the bingo. One shared board (sized per
-game; classically **25×10**); above each column sits a boss drop. The first team to get
+game; **40×15 = 600 tiles** by default); above each column sits a boss drop. The first team to get
 that drop claims the column — their piece falls to the lowest empty row, exactly like the real game, and a new
 tile drops into the slot above. Connect four in a row to score, and keep going: longer
 lines pay more.
@@ -37,9 +37,19 @@ pipeline this hangs off.
 ### The board and the deck
 
 The board's size is **per game**, chosen at creation (5–40 columns × 4–15 rows,
-`structure.connect4.size`; the classic board is 25×10). cols × rows cells means exactly
-that many curated tiles — filling the board consumes the whole deck. Older games with no
-stored size are 25×10.
+`structure.connect4.size`). cols × rows cells means exactly that many curated tiles —
+filling the board consumes the whole deck.
+
+A new game defaults to **40×15 (600 cells)** — `NEW_GAME_SIZE` in
+`src/lib/connect4/rules.ts`, and the values the New Game form is pre-filled with. That is
+the maximum the clamp allows, and it is what the planned tile list is sized for (244
+distinct tiles whose quantities expand to exactly 600 cells — see *Importing a planned
+tile list*).
+
+`DEFAULT_SIZE` is a **different** constant and stays at 25×10: games created before the
+size was configurable have no stored size, and every read re-derives their geometry from
+it. Raising `DEFAULT_SIZE` would silently reinterpret those old boards (wrong deck size,
+wrong cell mapping), so new-game defaults move `NEW_GAME_SIZE` only.
 
 The deck is **dealt once, up front**: at start the curated pool is shuffled with a stored
 seed, and column `c` owns the slice `[c*rows, c*rows+rows)`. The tile on offer above a

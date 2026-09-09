@@ -13,7 +13,8 @@ import { test, expect, type Page } from '@playwright/test';
 
 const SLUG = `mx-c4-${Date.now().toString(36)}`;
 const COLS = 25;
-const DECK = COLS * 10;
+const ROWS = 10;
+const DECK = COLS * ROWS;
 
 let admin: Page;
 let member: Page;
@@ -57,6 +58,9 @@ test('admin sets up and starts a game', async () => {
 	await admin.goto('/admin/connect4');
 	await admin.locator('input[name="name"]').fill(`Member view ${SLUG}`);
 	await admin.locator('input[name="slug"]').fill(SLUG);
+	// Pin the size — the form defaults to 40×15 (600 cells), needless work for this test.
+	await admin.locator('input[name="cols"]').fill(String(COLS));
+	await admin.locator('input[name="rows"]').fill(String(ROWS));
 	await expect(admin.locator('input[name="test"]')).toBeChecked();
 	await admin.getByRole('button', { name: 'Create' }).click();
 	await expect(admin).toHaveURL(new RegExp(`/admin/connect4/${SLUG}$`));

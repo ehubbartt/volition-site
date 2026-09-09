@@ -82,6 +82,9 @@ try {
 			name: 'Connect Four — test game',
 			description: 'Left behind by npm run demo:connect4. Safe to delete.',
 			ownerUserId: players[0].id,
+			// Pinned: the demo curates rules.DECK_SIZE tiles, so it needs that geometry.
+			cols: rules.COLS,
+			rows: rules.ROWS,
 			sideNames: ['Volition', 'Challengers'],
 			test: true
 		});

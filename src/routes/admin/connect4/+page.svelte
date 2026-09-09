@@ -8,7 +8,7 @@
 <div class="page">
 	<h1>Connect Four</h1>
 	<p class="lead">
-		A shared board (classically 25×10). Both clans chase the same objectives — one per
+		A shared board (40×15 by default — 600 objectives). Both clans chase the same objectives — one per
 		column; the first team to get one claims it and a piece falls into place. Connect four
 		(or more) to score.
 	</p>
@@ -64,8 +64,8 @@
 				Board size — fixed once created. The pool needs one tile per cell, so a bigger
 				board needs more candidates (add custom tasks if the generated list runs short).
 			</p>
-			<label>Columns (5–40) <input name="cols" type="number" min="5" max="40" value="25" /></label>
-			<label>Rows (4–15) <input name="rows" type="number" min="4" max="15" value="10" /></label>
+			<label>Columns (5–40) <input name="cols" type="number" min="5" max="40" value="40" /></label>
+			<label>Rows (4–15) <input name="rows" type="number" min="4" max="15" value="15" /></label>
 
 			<details class="wide fold">
 				<summary>Scoring — the defaults are fine, and every dial is retunable later (even mid-game)</summary>

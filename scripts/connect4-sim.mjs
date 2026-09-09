@@ -90,6 +90,10 @@ try {
 		name: `Simulated Connect Four`,
 		description: 'Automated end-to-end simulation. Safe to delete.',
 		ownerUserId: players[0].id,
+		// Pinned to the module constants every assertion below is written against — the
+		// create default is the event's 40×15, which these checks are not sized for.
+		cols: rules.COLS,
+		rows: rules.ROWS,
 		test: true
 	});
 	check('game created', created.ok, created.ok ? '' : created.error);

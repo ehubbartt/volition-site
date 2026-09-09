@@ -1,7 +1,7 @@
 import { redirect, fail } from '@sveltejs/kit';
 import { isAdmin } from '$lib/server/auth';
 import { createConnect4, deleteConnect4, listConnect4Games } from '$lib/server/connect4';
-import { DEFAULT_SCORING } from '$lib/connect4/rules';
+import { DEFAULT_SCORING, NEW_GAME_SIZE } from '$lib/connect4/rules';
 import type { Actions, PageServerLoad } from './$types';
 
 // Connect Four game list + creation. Form-heavy and rare, so it keeps a classic server
@@ -45,8 +45,8 @@ export const actions: Actions = {
 			description: String(form.get('description') ?? '').trim() || null,
 			ownerUserId: locals.user.id,
 			// Board size — createConnect4 clamps to its sane bounds.
-			cols: num('cols', 25),
-			rows: num('rows', 10),
+			cols: num('cols', NEW_GAME_SIZE.cols),
+			rows: num('rows', NEW_GAME_SIZE.rows),
 			sideNames: [
 				String(form.get('side1') ?? '').trim() || 'Red',
 				String(form.get('side2') ?? '').trim() || 'Yellow'
