@@ -1140,7 +1140,26 @@
 			{#each [4, 5, 6, 7] as len, i (len)}
 				<label>Run of {len} <input name="line_{len}" type="number" value={game.scoring.line_points[i]?.points ?? 0} /></label>
 			{/each}
-			<label>Each cell past 7 <input name="extra_per_cell" type="number" value={game.scoring.extra_per_cell} /></label>
+			<label class="wide">
+				Longer than 7
+				<!-- Option text stays SHORT: a select is as wide as its widest option, and a
+				     sentence in here pushed the admin page past a phone screen. -->
+				<select name="line_mode" class="mode-pick">
+					<option value="blocks" selected={game.scoring.line_mode === 'blocks'}>Complete fours</option>
+					<option value="tiers" selected={game.scoring.line_mode !== 'blocks'}>One long line</option>
+				</select>
+				<span class="muted tiny">
+					{#if game.scoring.line_mode === 'blocks'}
+						8 pays two fours; 9–11 pay no more; 12 pays three.
+					{:else}
+						The run-of-7 value, plus “each cell past 7” for every cell beyond it.
+					{/if}
+				</span>
+			</label>
+			<label>
+				Each cell past 7 <input name="extra_per_cell" type="number" value={game.scoring.extra_per_cell} />
+				{#if game.scoring.line_mode === 'blocks'}<span class="muted tiny">(unused in this mode)</span>{/if}
+			</label>
 			<label title="Only pre-fills the pet award form below; awards already given keep their own value.">
 				Default pet bonus <input name="pet_points" type="number" value={game.scoring.pet_points} />
 			</label>
@@ -1650,6 +1669,10 @@
 	.btn-link {
 		align-self: center;
 		font-size: 0.85rem;
+	}
+	/* Never let a control set the page's width — the board already fights for it. */
+	.mode-pick {
+		max-width: 100%;
 	}
 	.planned {
 		margin: 0.5rem 0 0.75rem;

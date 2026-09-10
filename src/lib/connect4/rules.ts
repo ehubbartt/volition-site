@@ -143,18 +143,44 @@ export interface Connect4Scoring {
 	 * re-scores the whole board.
 	 */
 	pet_points: number;
+	/**
+	 * How a run LONGER than the tier table pays.
+	 *
+	 *  `tiers`  — the top tier, plus `extra_per_cell` for each cell beyond it. A long
+	 *             line is one big line.
+	 *  `blocks` — a run is worth as many COMPLETE fours as fit, at the 4-tier's rate,
+	 *             and the cells that do not complete one add nothing to the line. An
+	 *             eight pays exactly two fours; the ninth, tenth and eleventh tiles pay
+	 *             only their tile points; the twelfth completes a third four.
+	 *             The 5/6/7 tiers still apply to a run that has not yet reached two
+	 *             blocks, so a five is 50 and a seven is 70 as usual.
+	 */
+	line_mode: LineMode;
 }
 
+export type LineMode = 'tiers' | 'blocks';
+
+/**
+ * What a NEW game starts with — the clan-vs-clan event's own numbers: every tile is
+ * worth 10, and a tile sitting in a line of four is worth 20. Deliberately flatter than
+ * the old 100/250/500/900 table, which made a handful of contested lines outweigh
+ * hundreds of ordinary drops. Every dial is retunable per game, mid-game included.
+ *
+ * NOT a fallback for stored scoring beyond the individual fields: `normalizeScoring`
+ * defaults a missing `line_mode` to 'tiers' rather than to this, so a game created
+ * before the dial existed keeps scoring the way it always did.
+ */
 export const DEFAULT_SCORING: Connect4Scoring = {
 	tile_points: 10,
 	line_points: [
-		{ len: 4, points: 100 },
-		{ len: 5, points: 250 },
-		{ len: 6, points: 500 },
-		{ len: 7, points: 900 }
+		{ len: 4, points: 40 },
+		{ len: 5, points: 50 },
+		{ len: 6, points: 60 },
+		{ len: 7, points: 70 }
 	],
-	extra_per_cell: 400,
-	pet_points: 25
+	extra_per_cell: 0,
+	pet_points: 10,
+	line_mode: 'blocks'
 };
 
 export type Phase = 'setup' | 'live' | 'finished';
@@ -391,15 +417,28 @@ export function minScoringLen(s: Connect4Scoring): number {
 }
 
 /**
- * What a run of `len` pays: the largest configured tier at or below it, plus
- * `extra_per_cell` for every cell past the top of the table. Extending a line pays the
- * difference automatically, because standings are always recomputed from scratch — a
- * 4-run that becomes a 5-run stops paying the 4-tier and starts paying the 5-tier.
+ * What a run of `len` pays. Tiers never stack: a 5-run pays the 5-tier INSTEAD of the
+ * 4-tier, not both. Extending a line pays the difference automatically, because
+ * standings are recomputed from scratch on every read.
+ *
+ * Past the table, the two modes disagree on purpose (see `line_mode`): `tiers` keeps
+ * paying `extra_per_cell` per cell forever, while `blocks` counts complete fours, so
+ * eight is worth two fours and nine, ten and eleven are worth no more than eight.
  */
 export function pointsFor(len: number, s: Connect4Scoring): number {
 	const tiers = s.line_points.filter((r) => r.len <= len);
 	if (!tiers.length) return 0;
 	const best = tiers.reduce((a, b) => (b.len > a.len ? b : a));
+
+	if (s.line_mode === 'blocks') {
+		// The 4-tier is the block: its length is the unit and its points are the rate.
+		const unit = Math.min(...s.line_points.map((r) => r.len));
+		const unitPoints = s.line_points.find((r) => r.len === unit)?.points ?? 0;
+		const blocks = Math.floor(len / unit);
+		// One block or less is still an ordinary run — 5, 6 and 7 keep their own tiers.
+		return blocks <= 1 ? best.points : blocks * unitPoints;
+	}
+
 	const top = Math.max(...s.line_points.map((r) => r.len));
 	const beyond = len > top ? (len - top) * (s.extra_per_cell || 0) : 0;
 	return best.points + beyond;
@@ -480,6 +519,10 @@ export function normalizeScoring(input: Partial<Connect4Scoring> | null | undefi
 		tile_points: Math.max(0, Math.round(Number(src.tile_points ?? DEFAULT_SCORING.tile_points) || 0)),
 		line_points: [...byLen.values()].sort((a, b) => a.len - b.len),
 		extra_per_cell: Math.max(0, Math.round(Number(src.extra_per_cell ?? DEFAULT_SCORING.extra_per_cell) || 0)),
-		pet_points: Math.max(0, Math.round(Number(src.pet_points ?? DEFAULT_SCORING.pet_points) || 0))
+		pet_points: Math.max(0, Math.round(Number(src.pet_points ?? DEFAULT_SCORING.pet_points) || 0)),
+		// A game stored before this dial existed scored long runs the `tiers` way, and
+		// re-reading it must not restate what its sides were already told they had. So a
+		// MISSING mode falls back to 'tiers', never to whatever the current default is.
+		line_mode: src.line_mode === 'blocks' ? 'blocks' : 'tiers'
 	};
 }

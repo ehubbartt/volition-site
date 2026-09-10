@@ -57,7 +57,9 @@ export const actions: Actions = {
 					len,
 					points: num(`line_${len}`, DEFAULT_SCORING.line_points[i]?.points ?? 0)
 				})),
-				extra_per_cell: num('extra_per_cell', DEFAULT_SCORING.extra_per_cell)
+				extra_per_cell: num('extra_per_cell', DEFAULT_SCORING.extra_per_cell),
+				line_mode: form.get('line_mode') === 'tiers' ? 'tiers' : DEFAULT_SCORING.line_mode,
+				pet_points: num('pet_points', DEFAULT_SCORING.pet_points)
 			},
 			test: form.get('test') === 'on'
 		});

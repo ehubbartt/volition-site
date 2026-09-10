@@ -79,6 +79,17 @@
 					<label>Run of 5 <input name="line_5" type="number" value={data.defaults.line_points[1].points} /></label>
 					<label>Run of 6 <input name="line_6" type="number" value={data.defaults.line_points[2].points} /></label>
 					<label>Run of 7 <input name="line_7" type="number" value={data.defaults.line_points[3].points} /></label>
+					<label class="wide">
+						Longer than 7
+						<select name="line_mode" style="max-width: 100%">
+							<option value="blocks" selected={data.defaults.line_mode === 'blocks'}>Complete fours</option>
+							<option value="tiers" selected={data.defaults.line_mode !== 'blocks'}>One long line</option>
+						</select>
+						<span class="sub">
+							Complete fours: 8 pays two fours, 9–11 pay no more, 12 pays three. One long
+							line: the run-of-7 value plus “each cell past 7”.
+						</span>
+					</label>
 					<label>Each cell past 7 <input name="extra_per_cell" type="number" value={data.defaults.extra_per_cell} /></label>
 				</div>
 			</details>

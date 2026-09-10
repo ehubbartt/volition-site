@@ -396,7 +396,15 @@ export const actions: Actions = {
 				points: num(`line_${len}`, game.scoring.line_points[i]?.points ?? 0)
 			})),
 			extra_per_cell: num('extra_per_cell', game.scoring.extra_per_cell),
-			pet_points: num('pet_points', game.scoring.pet_points)
+			pet_points: num('pet_points', game.scoring.pet_points),
+			// Every other field here falls back to what the game already has; the mode does
+			// too, so a submit that somehow omits it cannot silently rescore the board.
+			line_mode:
+				form.get('line_mode') === 'blocks'
+					? 'blocks'
+					: form.get('line_mode') === 'tiers'
+						? 'tiers'
+						: game.scoring.line_mode
 		});
 		return res.ok ? { scored: true } : fail(400, { error: res.error });
 	},

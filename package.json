@@ -20,7 +20,8 @@
 		"drill:connect4": "node scripts/connect4-full-drill.mjs",
 		"drill:connect4:review": "node scripts/connect4-review-drill.mjs",
 		"demo:connect4": "node scripts/connect4-demo.mjs",
-		"drill:connect4:planned": "node scripts/connect4-planned-drill.mjs"
+		"drill:connect4:planned": "node scripts/connect4-planned-drill.mjs",
+		"drill:connect4:scoring": "node scripts/connect4-scoring-drill.mjs"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.62.0",

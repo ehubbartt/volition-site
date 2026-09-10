@@ -84,27 +84,56 @@ Two optional tile shapes on top of the plain single item:
 
 ### Scoring
 
-All three dials are per-event and **retunable mid-game**, because standings are recomputed
+Every dial is per-event and **retunable mid-game**, because standings are recomputed
 from the pieces on every read — changing the numbers re-scores the whole board with no
 migration and no drift.
 
 | Dial | Default | What it does |
 |---|---|---|
 | `tile_points` | 10 | Paid per tile claimed. **Set to 0 to score connect-fours only.** |
-| `line_points` | 4→100, 5→250, 6→500, 7→900 | What a run of that length pays. |
-| `extra_per_cell` | 400 | Paid per cell beyond the longest configured run. |
-| `pet_points` | 25 | Default for a hand-recorded **pet bonus**. Only pre-fills the award form — see below. |
+| `line_points` | 4→40, 5→50, 6→60, 7→70 | What a run of that length pays. |
+| `line_mode` | `blocks` | How a run **longer than the table** pays. See below. |
+| `extra_per_cell` | 0 | `tiers` mode only: paid per cell beyond the longest configured run. |
+| `pet_points` | 10 | Default for a hand-recorded **pet bonus**. Only pre-fills the award form — see below. |
+
+In one sentence: **every tile is worth 10, and a tile sitting in a line of four is worth
+20.** Flatter than the old 100/250/500/900 table on purpose — at 120 v 120 a handful of
+contested lines should not outweigh hundreds of ordinary drops.
 
 **A maximal run scores once, at its current length.** A run of six contains three
 overlapping windows of four; counting those separately would pay three times for one line.
 Only whole runs score, and only from their true start.
 
-**Extending a line pays the difference.** A four that becomes a five stops paying 100 and
-starts paying 250 — a net 150 — because nothing is banked incrementally. Undoing that piece
-puts it back to 100 just as cleanly.
+**Tiers never stack.** A four that becomes a five stops paying 40 and starts paying 50 — a
+net 10 — because nothing is banked incrementally. Undoing that piece puts it back to 40
+just as cleanly.
+
+**Past the table, `line_mode` decides** (`pointsFor` in `rules.ts`):
+
+| Run | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+|---|---|---|---|---|---|---|---|---|---|
+| `blocks` (default) | 40 | 50 | 60 | 70 | **80** | 80 | 80 | 80 | **120** |
+| `tiers` | 40 | 50 | 60 | 70 | 70 + *extra* | … | | | |
+
+`blocks` counts **complete fours**: a run is worth as many whole fours as fit, at the
+4-tier's rate. Eight pays exactly two fours; the ninth, tenth and eleventh tiles pay only
+their own tile points; the twelfth completes a third four. The 5/6/7 tiers still apply
+below two blocks, so a five is 50 and a seven is 70. One eight and two separate fours are
+both worth 160 with tiles included — so there is never a reason to break a line up or to
+stop short of extending one.
+
+`tiers` is the older rule: the top tier plus `extra_per_cell` for every cell past it, so a
+long line keeps growing without bound. **A game stored before this dial existed reads as
+`tiers`** — `normalizeScoring` defaults a missing mode to it rather than to the current
+default, so re-reading an old board never restates what its sides were already told they
+had banked.
 
 **A cross counts twice.** Two runs meeting at a cell are different directions, and a cross
 is genuinely two lines.
+
+`npm run drill:connect4:scoring` asserts this whole table — including that an eight equals
+two separate fours, and that a legacy game still scores the `tiers` way. It touches no
+database, so it runs anywhere.
 
 #### Bonus awards (pets)
 
