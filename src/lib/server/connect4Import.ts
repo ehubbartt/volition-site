@@ -12,6 +12,7 @@
 // human decides whether the proof meets it.
 
 import type { TileRef } from '$lib/connect4/rules';
+import planned from './data/connect4PlannedTiles.json';
 
 export interface ImportedTile {
 	name: string;
@@ -52,28 +53,96 @@ const COLUMNS: Record<string, string[]> = {
 	tier: ['tier', 'difficulty', 'requirements']
 };
 
-/** Split a CSV line, honouring quoted fields (names contain commas). */
-function splitCsvLine(line: string): string[] {
-	const out: string[] = [];
+/**
+ * Read a whole CSV into records. NOT line-by-line: a quoted field may contain
+ * newlines, and the planning sheet's notes column does — splitting on \n first
+ * tears one record into pieces and every column after it lands in the wrong place.
+ */
+function parseCsv(text: string): string[][] {
+	const rows: string[][] = [];
+	let row: string[] = [];
 	let cur = '';
 	let quoted = false;
-	for (let i = 0; i < line.length; i++) {
-		const ch = line[i];
+	for (let i = 0; i < text.length; i++) {
+		const ch = text[i];
 		if (quoted) {
 			if (ch === '"') {
-				if (line[i + 1] === '"') {
+				if (text[i + 1] === '"') {
 					cur += '"';
 					i++;
 				} else quoted = false;
 			} else cur += ch;
 		} else if (ch === '"') quoted = true;
 		else if (ch === ',') {
-			out.push(cur);
+			row.push(cur);
+			cur = '';
+		} else if (ch === '\r') {
+			// swallow; the \n that follows ends the record
+		} else if (ch === '\n') {
+			row.push(cur);
+			rows.push(row);
+			row = [];
 			cur = '';
 		} else cur += ch;
 	}
-	out.push(cur);
-	return out.map((s) => s.trim());
+	row.push(cur);
+	rows.push(row);
+	return rows.map((r) => r.map((c) => c.trim()));
+}
+
+const norm = (h: string) => h.toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** One table of tiles found in the sheet: where its columns are, and its tier. */
+interface Block {
+	at: Record<string, number>;
+	tier: string | null;
+}
+
+/**
+ * Find the tile tables in a header record. The planning sheet is not one table: it
+ * lays the LOW, MEDIUM and HIGH tiers out side by side, each with its own copy of the
+ * same headings, with a stats panel to their left and a spacer column between them.
+ * So every "Tile" heading starts a block, and that block owns the columns up to the
+ * next one — which also makes a plain single-table CSV just a file with one block.
+ */
+function blocksOf(
+	header: string[],
+	banner: string[] | undefined,
+	known: Map<number, string>
+): Block[] {
+	const starts: number[] = [];
+	header.forEach((h, i) => {
+		if (COLUMNS.name.includes(norm(h))) starts.push(i);
+	});
+	return starts.map((start, n) => {
+		const end = starts[n + 1] ?? header.length;
+		const at: Record<string, number> = {};
+		for (const [field, names] of Object.entries(COLUMNS)) {
+			at[field] = -1;
+			for (let i = start; i < end; i++) {
+				if (names.includes(norm(header[i]))) {
+					at[field] = i;
+					break;
+				}
+			}
+		}
+		// The tier is written once, above the block, as a banner ("High Requirements
+		// /PvM Skill…") rather than per row — so read it off the row above. The FIRST
+		// banner wins: the sheet repeats its header partway down, and that second
+		// banner labels all three blocks "Low" (a copy-paste slip in the source), so
+		// re-reading it would relabel every medium and high tile.
+		let tier = known.get(start) ?? null;
+		for (let i = start; i >= 0 && banner && !tier; i--) {
+			const m = /\b(low|medium|high)\b/i.exec(banner[i] ?? '');
+			if (m) {
+				tier = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+				break;
+			}
+			if (banner[i]) break; // some other label — not this block's banner
+		}
+		if (tier) known.set(start, tier);
+		return { at, tier };
+	});
 }
 
 const intOr = (v: string, d: number): number => {
@@ -84,59 +153,85 @@ const intOr = (v: string, d: number): number => {
 export function parseTileCsv(text: string): ImportReport {
 	const errors: string[] = [];
 	const warnings: string[] = [];
-	const lines = text.split(/\r?\n/).filter((l) => l.trim());
-	if (lines.length < 2) return { tiles: [], cells: 0, errors: ['That file has no rows in it'], warnings };
-
-	const header = splitCsvLine(lines[0]).map((h) => h.toLowerCase().replace(/\s+/g, ' ').trim());
-	const at: Record<string, number> = {};
-	for (const [field, names] of Object.entries(COLUMNS)) {
-		at[field] = header.findIndex((h) => names.includes(h));
-	}
-	if (at.name < 0) {
-		return {
-			tiles: [],
-			cells: 0,
-			errors: [`No "Tile" column found. Columns seen: ${header.join(', ')}`],
-			warnings
-		};
-	}
-	for (const need of ['copies', 'qty'] as const) {
-		if (at[need] < 0) warnings.push(`No "${need}" column — defaulting every tile to 1.`);
-	}
+	const rows = parseCsv(text).filter((r) => r.some((c) => c));
+	if (rows.length < 2) return { tiles: [], cells: 0, errors: ['That file has no rows in it'], warnings };
 
 	const tiles: ImportedTile[] = [];
 	const seen = new Map<string, number>();
-	lines.slice(1).forEach((line, i) => {
-		const cell = splitCsvLine(line);
-		const get = (f: string) => (at[f] >= 0 ? (cell[at[f]] ?? '') : '');
-		const name = get('name');
-		if (!name) return; // blank row, or a spacer between the sheet's blocks
+	let blocks: Block[] = [];
+	let sawHeader = false;
+	const tierByStart = new Map<number, string>();
 
-		const rowNo = i + 2;
-		const prior = seen.get(name.toLowerCase());
-		if (prior) {
-			// Two rows for one tile is almost always a copy-paste slip; the copies column
-			// is how a tile appears more than once, so flag rather than silently merge.
-			warnings.push(`Row ${rowNo}: "${name}" also appears on row ${prior} — imported twice.`);
+	// Walk the sheet top to bottom. A record that carries a "Tile" heading REDEFINES
+	// the layout from there down — the export repeats its header partway through, and
+	// re-reading it is what keeps the rows below aligned.
+	rows.forEach((cells, i) => {
+		const isHeader = cells.some((c) => COLUMNS.name.includes(norm(c)));
+		if (isHeader) {
+			blocks = blocksOf(cells, rows[i - 1], tierByStart);
+			if (blocks.length > 1 && !sawHeader) {
+				warnings.push(`Read ${blocks.length} tier blocks laid out side by side.`);
+			}
+			sawHeader = true;
+			return;
 		}
-		seen.set(name.toLowerCase(), rowNo);
+		if (!blocks.length) return; // still above the header — stats, notes, banners
 
-		const hoursRaw = Number(get('hours'));
-		tiles.push({
-			name,
-			source: get('source') || null,
-			content: get('content') || null,
-			qty: intOr(get('qty'), 1),
-			hours: Number.isFinite(hoursRaw) && hoursRaw > 0 ? Math.round(hoursRaw * 100) / 100 : null,
-			included: get('included')
-				? get('included').split(/[,/]/).map((s) => s.trim()).filter(Boolean)
-				: [],
-			copies: intOr(get('copies'), 1),
-			tier: get('tier') || null
-		});
+		for (const { at, tier } of blocks) {
+			const get = (f: string) => (at[f] >= 0 ? (cells[at[f]] ?? '') : '');
+			const name = get('name');
+			if (!name) continue; // this block has no tile on this row
+
+			// The sheet's stats panel sits in the same columns as the first block, so
+			// "Total Low Tiles" and friends land in a Tile cell and would import as
+			// tiles. A planned tile always says how many cells it takes; a summary row
+			// leaves that blank, which is the difference between them.
+			if (at.copies >= 0) {
+				if (!get('copies')) continue;
+			} else if (!get('source') && !get('hours')) continue;
+
+			const rowNo = i + 1;
+			const prior = seen.get(name.toLowerCase());
+			if (prior) {
+				// Two rows for one tile is almost always a copy-paste slip; the copies
+				// column is how a tile appears more than once, so flag rather than merge.
+				warnings.push(`Row ${rowNo}: "${name}" also appears on row ${prior} — imported twice.`);
+			}
+			seen.set(name.toLowerCase(), rowNo);
+
+			const hoursRaw = Number(get('hours'));
+			tiles.push({
+				name,
+				source: get('source') || null,
+				content: get('content') || null,
+				qty: intOr(get('qty'), 1),
+				hours: Number.isFinite(hoursRaw) && hoursRaw > 0 ? Math.round(hoursRaw * 100) / 100 : null,
+				included: get('included')
+					? get('included').split(/[,/]/).map((s) => s.trim()).filter(Boolean)
+					: [],
+				copies: intOr(get('copies'), 1),
+				tier: get('tier') || tier
+			});
+		}
 	});
 
-	if (!tiles.length) errors.push('No tile rows found below the header');
+	if (!sawHeader) {
+		const seenCols = rows[0].filter(Boolean).join(', ');
+		return {
+			tiles: [],
+			cells: 0,
+			errors: [
+				`No "Tile" column found anywhere in that file. The first row reads: ${seenCols || '(blank)'}`
+			],
+			warnings
+		};
+	}
+	if (!tiles.length) errors.push('Found the header, but no tile rows under it');
+	for (const need of ['copies', 'qty'] as const) {
+		if (blocks.length && blocks.every((b) => b.at[need] < 0)) {
+			warnings.push(`No "${need}" column — defaulting every tile to 1.`);
+		}
+	}
 	const cells = tiles.reduce((n, t) => n + t.copies, 0);
 	return { tiles, cells, errors, warnings };
 }
@@ -169,3 +264,22 @@ export function toPoolAndCustom(tiles: ImportedTile[]): { custom: TileRef[]; poo
 	});
 	return { custom, pool };
 }
+
+/**
+ * THE PLANNED BOARD, checked in.
+ *
+ * The event runs on one specific 600-cell list designed in `Tile_Planning.xlsx`, so
+ * that list lives in the repo (`data/connect4PlannedTiles.json`, generated from the
+ * sheet by `parseTileCsv`) rather than being re-uploaded from a spreadsheet export
+ * every time a game is set up. An admin gets the exact tiles in one click, and a
+ * malformed export can no longer stand between them and a working board.
+ *
+ * Regenerate it from a new sheet export with:
+ *   node scripts/build_planned_tiles.mjs <export.csv>
+ */
+export function plannedTiles(): ImportedTile[] {
+	return (planned.list as ImportedTile[]).map((t) => ({ ...t, included: [...t.included] }));
+}
+
+/** What the built-in list adds up to — the admin UI says this before it is used. */
+export const PLANNED_SUMMARY = { tiles: planned.tiles, cells: planned.cells };

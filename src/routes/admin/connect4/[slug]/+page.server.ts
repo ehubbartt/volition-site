@@ -35,7 +35,7 @@ import {
 	type PoolCandidate,
 	type PoolOptions
 } from '$lib/server/connect4Pool';
-import { parseTileCsv, toPoolAndCustom } from '$lib/server/connect4Import';
+import { parseTileCsv, toPoolAndCustom, plannedTiles, PLANNED_SUMMARY } from '$lib/server/connect4Import';
 import { simulateDinkDrop, maybeProcessDinkDrops } from '$lib/server/dinkDrops';
 import { liveVersion } from '$lib/server/liveVersion';
 import { SIGNUP_EVENT_KIND } from '$lib/events/signupForm';
@@ -122,7 +122,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				? [...new Set(candidates.map((c) => c.source).filter((s): s is string => !!s))].sort()
 				: [],
 		poolCount: fresh.pool.length,
-		deckSize: fresh.deckSize
+		deckSize: fresh.deckSize,
+		// What the built-in planned board holds, so the button can say so before use.
+		planned: PLANNED_SUMMARY
 	};
 };
 
@@ -263,15 +265,33 @@ export const actions: Actions = {
 		if (!text.trim()) return fail(400, { error: 'Pick a CSV file or paste the rows' });
 
 		const report = parseTileCsv(text);
-		if (report.errors.length) return fail(400, { error: report.errors.join(' · ') });
+		// A CSV the admin can fix is not a server error, and `importError` rather than
+		// the shared `error` is what lets the message render INSIDE the import fold —
+		// the panel sits far down the page, so a message that only appears at the top
+		// reads as the button having done nothing at all.
+		if (report.errors.length) return { importError: report.errors.join(' · ') };
 
 		const { custom, pool } = toPoolAndCustom(report.tiles);
 		const res = await importPool(game.id, custom, pool);
-		if (!res.ok) return fail(400, { error: res.error, importWarnings: report.warnings });
+		if (!res.ok) return { importError: res.error, importWarnings: report.warnings };
 		return {
 			imported: { tiles: report.tiles.length, cells: report.cells },
 			importWarnings: report.warnings
 		};
+	},
+
+	// Load the event's own planned board — the 600 tiles designed in the planning
+	// sheet, checked in rather than re-uploaded. Same path as an import, minus the file.
+	loadPlanned: async ({ locals, params }) => {
+		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
+		const game = await loadConnect4(params.slug);
+		if (!game) return fail(404, { error: 'No such game' });
+
+		const tiles = plannedTiles();
+		const { custom, pool } = toPoolAndCustom(tiles);
+		const res = await importPool(game.id, custom, pool);
+		if (!res.ok) return { importError: res.error };
+		return { imported: { tiles: tiles.length, cells: pool.length } };
 	},
 
 	// Save the generator filters, then the reload re-lists candidates through them.

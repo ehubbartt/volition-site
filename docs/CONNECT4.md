@@ -158,12 +158,31 @@ the reviewer's timing check below is only answerable if the player knew to captu
 Confirmation is remembered in a `voli_c4_ack_<eventId>` cookie. It is a UX nudge, not a
 security gate — the server validates every submission regardless.
 
-#### Importing a planned tile list
+#### The planned board (the button)
 
-A board this size is designed in a spreadsheet, not curated a tile at a time, so
-`/admin/connect4/<slug>` takes a CSV: **⭳ Import a planned tile list**, in the pool step.
-One row per tile, and the planning sheet's own headings are recognised as they are
-(including its `Inlcluded Items` typo):
+The event runs on one specific designed list, so that list is **checked in**:
+`src/lib/server/data/connect4PlannedTiles.json`, 244 tiles expanding to 600 cells.
+The pool step's first control is **★ Load the planned board**, which writes it straight
+into the game — no export, no upload, and no malformed spreadsheet standing between an
+admin and a working board.
+
+Regenerate it when the sheet changes:
+
+```
+node scripts/build_planned_tiles.mjs path/to/Tile_Planning-Tiles.csv
+```
+
+It parses the export with the *same* parser the CSV import uses, so the button always
+loads exactly what importing that file would have produced, and prints the totals to
+check against the sheet's own stats block (Low 150 / Medium 300 / High 150 cells).
+`npm run drill:connect4:planned` asserts all of that, and that the list still deals onto
+a real board.
+
+#### Importing a different tile list
+
+For a list that is *not* the planned one, `/admin/connect4/<slug>` still takes a CSV:
+**⭳ Import a different tile list**, in the pool step. One row per tile, and the planning
+sheet's own headings are recognised as they are (including its `Inlcluded Items` typo):
 
 | Column | Becomes |
 |---|---|
@@ -174,6 +193,22 @@ One row per tile, and the planning sheet's own headings are recognised as they a
 | `Included Items` | a group tile's qualifying list (comma or slash separated) |
 | `Copies` | **how many board cells the tile occupies** |
 | `Content Type`, `Tier` | carried for reference |
+
+The reader handles the planning sheet **as exported**, which is not a plain table:
+
+- **Three tier blocks side by side.** Every `Tile` heading starts a block that owns the
+  columns up to the next one, so LOW, MEDIUM and HIGH are read from one row each. A
+  single-table CSV is simply a file with one block.
+- **A repeated header.** A row carrying a `Tile` heading redefines the layout from there
+  down, which is what keeps the rows below it aligned.
+- **Quoted fields containing newlines.** The sheet's notes column has them, so the file
+  is read into records rather than split on `\n` — splitting first tears one record apart
+  and every column after it lands in the wrong place.
+- **A stats panel in the same columns as the first block.** `Total Low Tiles` and friends
+  would import as tiles, so a row is only a tile if it says how many cells it takes; a
+  summary row leaves `Copies` blank.
+- **Tier from the banner above the block**, not per row — and the *first* banner wins,
+  because the sheet's repeated one labels all three blocks "Low".
 
 Every imported row becomes a **custom tile** (a synthetic negative id, matched by name)
 because these are hand-written objectives — "Any Barrows Body", "Mixology Points" — not
@@ -191,6 +226,10 @@ failed.
 The planned list for the clan-vs-clan event is 244 distinct tiles expanding to **600
 cells, which is exactly a 40×15 board** — the only shape in the allowed range that
 divides into 600, and the largest the rules permit.
+
+A problem with the file is reported **inside the import panel**, not only in the page's
+error strip at the top: the panel is a fold far down a long page, and a message that
+renders only at the top reads as the button having done nothing.
 
 #### Reviewing a claim (the timing check)
 

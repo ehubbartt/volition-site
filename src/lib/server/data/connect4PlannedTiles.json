@@ -1,0 +1,2453 @@
+{
+	"source": "Tile_Planning.xlsx — Tiles sheet",
+	"tiles": 244,
+	"cells": 600,
+	"list": [
+		{
+			"name": "Bear Feet",
+			"source": "Beginner Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 9,
+			"included": [],
+			"copies": 1,
+			"tier": "Low"
+		},
+		{
+			"name": "Any Elegant Clothing Piece",
+			"source": "Easy/Medium Casket",
+			"content": "Clues",
+			"qty": 5,
+			"hours": 10,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Any Kourend Scarf",
+			"source": "Elite Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Demon Feet",
+			"source": "Beginner Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 9,
+			"included": [],
+			"copies": 1,
+			"tier": "Low"
+		},
+		{
+			"name": "Any Cavalier",
+			"source": "Hard Casket",
+			"content": "Clues",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Ancient D'hide Piece",
+			"source": "Hard Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Frog Slippers",
+			"source": "Beginner Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 9,
+			"included": [],
+			"copies": 1,
+			"tier": "Low"
+		},
+		{
+			"name": "Any Boater",
+			"source": "Medium Casket",
+			"content": "Clues",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Armadyl D'hide Piece",
+			"source": "Hard Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Mole Slippers",
+			"source": "Beginner Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 9,
+			"included": [],
+			"copies": 1,
+			"tier": "Low"
+		},
+		{
+			"name": "Any God Cloak",
+			"source": "Medium Casket",
+			"content": "Clues",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Bandos D'hide Piece",
+			"source": "Hard Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Any Beret",
+			"source": "Easy Casket",
+			"content": "Clues",
+			"qty": 2,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Any Headband",
+			"source": "Medium Casket",
+			"content": "Clues",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Guthix D'hide Piece",
+			"source": "Hard Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Any Bob Shirt",
+			"source": "Easy Casket",
+			"content": "Clues",
+			"qty": 2,
+			"hours": 12,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Any Kourend Banner",
+			"source": "Medium Casket",
+			"content": "Clues",
+			"qty": 2,
+			"hours": 10,
+			"included": [
+				"Arceuus",
+				"Piscarilius",
+				"Hosidius",
+				"Shayzien",
+				"Lovakengj Banner"
+			],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Saradomin D'hide Piece",
+			"source": "Hard Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Ham Joint or Rain Bow",
+			"source": "Easy Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 30,
+			"included": [],
+			"copies": 1,
+			"tier": "Low"
+		},
+		{
+			"name": "Any Mitre",
+			"source": "Medium Casket",
+			"content": "Clues",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Zamorak D'hide Piece",
+			"source": "Hard Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Imp Mask or Goblin Mask",
+			"source": "Easy Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 30,
+			"included": [],
+			"copies": 1,
+			"tier": "Low"
+		},
+		{
+			"name": "Climbing Boots (g)",
+			"source": "Medium Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Any Dragon Mask",
+			"source": "Hard/Elite Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Any Cane",
+			"source": "Easy, Medium, Hard or Elite Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "Low"
+		},
+		{
+			"name": "Holy Sandals",
+			"source": "Medium Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Any Demon Mask",
+			"source": "Master Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Shaman Mask",
+			"source": "Ogress Shaman",
+			"content": "Misc Collection Logs",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Ranger Boots",
+			"source": "Medium Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Any Kourend Hood",
+			"source": "Master Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Mask of Ranul",
+			"source": "Undead Druid",
+			"content": "Misc Collection Logs",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Spiked Manacles",
+			"source": "Medium Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Dragon Metal Lump or Slice",
+			"source": "Adamant or Rune Dragons",
+			"content": "Misc Collection Logs",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Nagua Uniques",
+			"source": "Amoxliatl, Sulphur Nagua, Earthbound Nagua, Frost Nagua",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 6,
+			"included": [],
+			"copies": 4,
+			"tier": "Low"
+		},
+		{
+			"name": "Wizard Boots",
+			"source": "Medium Casket",
+			"content": "Clues",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Granite Pieces",
+			"source": "Many",
+			"content": "Misc Collection Logs",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Zombie Axe or Helm",
+			"source": "Armored Zombie",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 6,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Any Crozier",
+			"source": "Medium/Hard Casket",
+			"content": "Clues",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Toktz-mej-tal",
+			"source": "Tzhaar",
+			"content": "Misc Collection Logs",
+			"qty": 1,
+			"hours": 20,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Any Barrows Body",
+			"source": "Barrows",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Low"
+		},
+		{
+			"name": "Any Stole",
+			"source": "Medium/Hard Casket",
+			"content": "Clues",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Alchemical Hydra Heads",
+			"source": "Alchemical Hydra",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "High"
+		},
+		{
+			"name": "Any Barrows Helm",
+			"source": "Barrows",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Low"
+		},
+		{
+			"name": "Gnome Scarf or Goggles",
+			"source": "Gnome Restaurant",
+			"content": "Misc Collection Logs",
+			"qty": 10,
+			"hours": 5,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Hydra Leather or Hydra's Claw",
+			"source": "Alchemical Hydra",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "High"
+		},
+		{
+			"name": "Any Barrows Legs",
+			"source": "Barrows",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Low"
+		},
+		{
+			"name": "Chewed Bones",
+			"source": "Mithril Dragons",
+			"content": "Misc Collection Logs",
+			"qty": 10,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Any Raid Megarare",
+			"source": "Any Raid",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 40,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Any Barrows Weapon",
+			"source": "Barrows",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Low"
+		},
+		{
+			"name": "Crystal Grail",
+			"source": "Rabbit (Priffinddas)",
+			"content": "Misc Collection Logs",
+			"qty": 5,
+			"hours": 5,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Any Corp Unique",
+			"source": "Corporeal Beast",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 5,
+			"tier": "High"
+		},
+		{
+			"name": "Basilisk Head",
+			"source": "Basilisk",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Abyssal Head",
+			"source": "Abyssal Demon, Abyssal Sire",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Ancestral Piece",
+			"source": "COX",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Brine Sabre",
+			"source": "Brine Rat",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Bludgeon Piece",
+			"source": "Abyssal Sire",
+			"content": "PvM",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Arcane Prayer Scroll",
+			"source": "COX",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Beef",
+			"source": "Brutus",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 5,
+			"included": [],
+			"copies": 4,
+			"tier": "Low"
+		},
+		{
+			"name": "Aquanite Tendon",
+			"source": "Aquanites",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Dexterous Prayer Scroll",
+			"source": "COX",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Bryophyta's Essence",
+			"source": "Bryophyta",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Araxyte Fang",
+			"source": "Araxxor",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Dinhs Bullwark or Dragon Claws",
+			"source": "COX",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Black Mask",
+			"source": "Cave Horror",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 12,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Noxious Halberd Piece",
+			"source": "Araxxor",
+			"content": "PvM",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Dragon Hunter Crossbow or Twisted Buckler",
+			"source": "COX",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Malediction or Odium Shard 1",
+			"source": "Chaos Fanatic",
+			"content": "PvM",
+			"qty": 5,
+			"hours": 8,
+			"included": [],
+			"copies": 4,
+			"tier": "Low"
+		},
+		{
+			"name": "Araxyte Head",
+			"source": "Araxxor, Araxyte",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "COX CM Unique",
+			"source": "COX CM",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Cockatrice Head",
+			"source": "Cockatrice",
+			"content": "PvM",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Aranea Boots",
+			"source": "Araxytes",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Avernic Treads",
+			"source": "Doom of Mokhaiotl",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "High"
+		},
+		{
+			"name": "Crawling Hand",
+			"source": "Crawling Hand",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 5,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Basilisk Jaw",
+			"source": "Basilisk Knight",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Eye of Ayak",
+			"source": "Doom of Mokhaiotl",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "High"
+		},
+		{
+			"name": "Malediction or Odium Shard 2",
+			"source": "Crazy Archaeologist",
+			"content": "PvM",
+			"qty": 5,
+			"hours": 6,
+			"included": [],
+			"copies": 4,
+			"tier": "Low"
+		},
+		{
+			"name": "Claws of Callisto",
+			"source": "Callisto/Artio",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Mokhaiotl Cloth",
+			"source": "Doom of Mokhaiotl",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "High"
+		},
+		{
+			"name": "Archer Rings",
+			"source": "Dag Kings",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 6,
+			"included": [],
+			"copies": 3,
+			"tier": "Low"
+		},
+		{
+			"name": "Tyrannical Ring",
+			"source": "Callisto/Artio",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Eye of the Duke",
+			"source": "Duke Sucellus",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 3,
+			"tier": "High"
+		},
+		{
+			"name": "Berserker Rings",
+			"source": "Dag Kings",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 6,
+			"included": [],
+			"copies": 3,
+			"tier": "Low"
+		},
+		{
+			"name": "Voidwaker Hilt",
+			"source": "Callisto/Artio",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Virtus Pieces",
+			"source": "Duke Sucellus, The Leviathan, Vardorvis, The Whisperer",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 8,
+			"tier": "High"
+		},
+		{
+			"name": "Seers Rings",
+			"source": "Dag Kings",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 6,
+			"included": [],
+			"copies": 3,
+			"tier": "Low"
+		},
+		{
+			"name": "Any Cerb Crystal",
+			"source": "Cerberus",
+			"content": "PvM",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Echo Crystals",
+			"source": "Fortis Colosseum",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "High"
+		},
+		{
+			"name": "Steel Rings",
+			"source": "Deranged Archaeologist",
+			"content": "PvM",
+			"qty": 6,
+			"hours": 3,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Smouldering Stone",
+			"source": "Cerberus",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Sunfire Fanatic Pieces",
+			"source": "Fortis Colosseum",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "High"
+		},
+		{
+			"name": "Giant Mole pet",
+			"source": "Giant Mole",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 40,
+			"included": [],
+			"copies": 1,
+			"tier": "Low"
+		},
+		{
+			"name": "Antler Guard",
+			"source": "Custodian Stalkers",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Any Jar",
+			"source": "Many",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "High"
+		},
+		{
+			"name": "Horn of Plenty",
+			"source": "Gryphon",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 6,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Dark Bow",
+			"source": "Dark Beast",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Any Nex Unique",
+			"source": "Nex",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 5,
+			"tier": "High"
+		},
+		{
+			"name": "Black Mystic Pieces",
+			"source": "Many",
+			"content": "PvM",
+			"qty": 10,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Any Ballista Frame",
+			"source": "Demonic Gorilla, Tormented Gorilla",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Imbued Heart/Eternal gem",
+			"source": "Superior Slayer Monsters",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Elemental Amulets",
+			"source": "Many",
+			"content": "PvM",
+			"qty": 8,
+			"hours": 8,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Monkey Tail",
+			"source": "Demonic Gorilla, Tormented Gorilla",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Inferno Capes",
+			"source": "The Inferno",
+			"content": "PvM",
+			"qty": 5,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "White Mystic Pieces",
+			"source": "Many",
+			"content": "PvM",
+			"qty": 10,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Zenyte Shard",
+			"source": "Demonic Gorilla, Tormented Gorilla",
+			"content": "PvM",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Leviathans Lure",
+			"source": "The Leviathan",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 3,
+			"tier": "High"
+		},
+		{
+			"name": "Blood Moon Armor Pieces",
+			"source": "Moons of Peril",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 9,
+			"included": [],
+			"copies": 3,
+			"tier": "Low"
+		},
+		{
+			"name": "Drake Tooth or Claw",
+			"source": "Drake",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Any Nightmare Unique",
+			"source": "The Nightmare, Phosani's Nightmare",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 5,
+			"tier": "High"
+		},
+		{
+			"name": "Blue Moon Armor Pieces",
+			"source": "Moons of Peril",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 9,
+			"included": [],
+			"copies": 3,
+			"tier": "Low"
+		},
+		{
+			"name": "Earth Warrior Champ Scroll",
+			"source": "Earth Warrior",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Sirens Staff",
+			"source": "The Whisperer",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "High"
+		},
+		{
+			"name": "Eclipse Moon Armor Pieces",
+			"source": "Moons of Peril",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 9,
+			"included": [],
+			"copies": 3,
+			"tier": "Low"
+		},
+		{
+			"name": "Elder Chaos Robes",
+			"source": "Elder Chaos Druid",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Elidinis Ward",
+			"source": "TOA",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Hill Giant Club",
+			"source": "Obor",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 12,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Crystal Armor Seeds",
+			"source": "Gauntlet",
+			"content": "PvM",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 6,
+			"tier": "Medium"
+		},
+		{
+			"name": "Lightbearer",
+			"source": "TOA",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Twinflame Staff Crown",
+			"source": "Royal Titans",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 9,
+			"included": [],
+			"copies": 4,
+			"tier": "Low"
+		},
+		{
+			"name": "Enhanced Crystal Weapon Seed",
+			"source": "Gauntlet",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 40,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Masori Piece",
+			"source": "TOA",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Malediction or Odium Shard 3",
+			"source": "Scorpia",
+			"content": "PvM",
+			"qty": 5,
+			"hours": 8,
+			"included": [],
+			"copies": 4,
+			"tier": "Low"
+		},
+		{
+			"name": "Ghoul Champ Scroll",
+			"source": "Ghoul",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Osmumtens Fang",
+			"source": "TOA",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Scurrius Spine",
+			"source": "Scurrius",
+			"content": "PvM",
+			"qty": 6,
+			"hours": 9,
+			"included": [],
+			"copies": 4,
+			"tier": "Low"
+		},
+		{
+			"name": "Giant Champ Scroll",
+			"source": "Giant",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Avernic Defender Hilt",
+			"source": "TOB",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "High"
+		},
+		{
+			"name": "Belle's Folly",
+			"source": "Shellbane Gryphon",
+			"content": "PvM",
+			"qty": 5,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Low"
+		},
+		{
+			"name": "Goblin Champ Scroll",
+			"source": "Goblin",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Ghrazi Rapier or Sanguinesti Staff",
+			"source": "TOB",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Big Harpoonfish",
+			"source": "Tempoross",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 16,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Any Bandos Armor Piece",
+			"source": "Graardor",
+			"content": "PvM",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Justiciar Piece",
+			"source": "TOB",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Tome of Water",
+			"source": "Tempoross",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 16,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Bandos Hilt",
+			"source": "Graardor",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 12,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "TOB HM Unique",
+			"source": "TOB HM",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Fire Capes",
+			"source": "The Fight Caves",
+			"content": "PvM",
+			"qty": 10,
+			"hours": 5,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Black Tourmaline Core",
+			"source": "Grotesque Guardians",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Executioners Axe head",
+			"source": "Vardorvis",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 3,
+			"tier": "High"
+		},
+		{
+			"name": "Necklace of Fangs",
+			"source": "Turoth",
+			"content": "PvM",
+			"qty": 5,
+			"hours": 6,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Granite Hammer",
+			"source": "Grotesque Guardians",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Oathplate Piece",
+			"source": "Yama",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "High"
+		},
+		{
+			"name": "Warped Sceptre",
+			"source": "Warped Terrorbirds/Warped Tortoises",
+			"content": "PvM",
+			"qty": 2,
+			"hours": 8,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Hobgoblin Champ Scroll",
+			"source": "Hobgoblin",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Soulflame horn",
+			"source": "Yama",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "High"
+		},
+		{
+			"name": "Pyromancer Pieces",
+			"source": "Wintertodt",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 9,
+			"included": [],
+			"copies": 4,
+			"tier": "Low"
+		},
+		{
+			"name": "Imp Champ Scroll",
+			"source": "Imp",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Golden Tench",
+			"source": "Aerial Fishing",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Tome of Fire",
+			"source": "Wintertodt",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 21,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Jogre Champ Scroll",
+			"source": "Jogre",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Giant Blue Krill",
+			"source": "Deep Sea Trawling",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 5,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Colossal Wyrm Course",
+			"source": "Agility",
+			"content": "Skilling/Minigames",
+			"qty": 1500,
+			"hours": 6,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Staff of the Dead",
+			"source": "K'ril Tsutsaroth",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Golden Haddock",
+			"source": "Deep Sea Trawling",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 5,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Rooftop Course Laps",
+			"source": "Agility",
+			"content": "Skilling/Minigames",
+			"qty": 600,
+			"hours": 7,
+			"included": [],
+			"copies": 5,
+			"tier": "Low"
+		},
+		{
+			"name": "Zamorak Hilt",
+			"source": "K'ril Tsutsaroth",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Huge Halibut",
+			"source": "Deep Sea Trawling",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 5,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Brimhaven Agility Tickets",
+			"source": "Brimhaven Agility Arena",
+			"content": "Skilling/Minigames",
+			"qty": 400,
+			"hours": 7,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "KQ Heads",
+			"source": "Kalphite Queen",
+			"content": "PvM",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Orangefin",
+			"source": "Deep Sea Trawling",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 5,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Imcando Hammer",
+			"source": "Camdozaal",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 5,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "KBD Heads",
+			"source": "King Black Dragon",
+			"content": "PvM",
+			"qty": 5,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Purplefin",
+			"source": "Deep Sea Trawling",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 5,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Gold Nuggets",
+			"source": "Mining",
+			"content": "Skilling/Minigames",
+			"qty": 200,
+			"hours": 13,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Kraken Tents",
+			"source": "Kraken",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Swift Marlin",
+			"source": "Deep Sea Trawling",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 5,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Stardust",
+			"source": "Mining",
+			"content": "Skilling/Minigames",
+			"qty": 6000,
+			"hours": 6,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Any Armadyl Armor Piece",
+			"source": "Kree'arra",
+			"content": "PvM",
+			"qty": 2,
+			"hours": 15,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Big Bass",
+			"source": "Fishing",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 5,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "MTA Alchemy Points",
+			"source": "MTA",
+			"content": "Skilling/Minigames",
+			"qty": 1700,
+			"hours": 17,
+			"included": [],
+			"copies": 1,
+			"tier": "Low"
+		},
+		{
+			"name": "Armadyl Hilt",
+			"source": "Kree'arra",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Big Shark",
+			"source": "Fishing",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 5,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "MTA Graveyard Points",
+			"source": "MTA",
+			"content": "Skilling/Minigames",
+			"qty": 1500,
+			"hours": 3,
+			"included": [],
+			"copies": 1,
+			"tier": "Low"
+		},
+		{
+			"name": "Kurask head",
+			"source": "Kurask",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Big Swordfish",
+			"source": "Fishing",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 5,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "MTA Enchant Points",
+			"source": "MTA",
+			"content": "Skilling/Minigames",
+			"qty": 15000,
+			"hours": 3,
+			"included": [],
+			"copies": 1,
+			"tier": "Low"
+		},
+		{
+			"name": "Leaf Bladed Axe",
+			"source": "Kurask",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Ring of Endurance",
+			"source": "Hallowed Seuplchre",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "MTA Telegrab Points",
+			"source": "MTA",
+			"content": "Skilling/Minigames",
+			"qty": 1500,
+			"hours": 7,
+			"included": [],
+			"copies": 1,
+			"tier": "Low"
+		},
+		{
+			"name": "Lesser Demon Champ Scroll",
+			"source": "Lesser Demon",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "LMS Victories",
+			"source": "LMS",
+			"content": "Skilling/Minigames",
+			"qty": 5,
+			"hours": 5,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Pest Control Points",
+			"source": "Pest Control",
+			"content": "Skilling/Minigames",
+			"qty": 850,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Dragon Warhammer",
+			"source": "Lizardman Shamans",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Barracuda, Salvor's or Angler Paint",
+			"source": "Sailing",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Salvaging Uniques",
+			"source": "Sailing",
+			"content": "Skilling/Minigames",
+			"qty": 3,
+			"hours": 20,
+			"included": [],
+			"copies": 4,
+			"tier": "Low"
+		},
+		{
+			"name": "Dragon Pickaxe",
+			"source": "Many",
+			"content": "PvM",
+			"qty": 2,
+			"hours": 8,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Bottled Storm",
+			"source": "Sailing",
+			"content": "Skilling/Minigames",
+			"qty": 5,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "High"
+		},
+		{
+			"name": "Tithe Farm Points",
+			"source": "Tithe Farm",
+			"content": "Skilling/Minigames",
+			"qty": 500,
+			"hours": 6,
+			"included": [],
+			"copies": 3,
+			"tier": "Low"
+		},
+		{
+			"name": "Revenant Weapons",
+			"source": "Revenants",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Dragon Cannon Barrel",
+			"source": "Sailing",
+			"content": "Skilling/Minigames",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Mermaid Tears",
+			"source": "Underwater Agility and Thieving",
+			"content": "Skilling/Minigames",
+			"qty": 800,
+			"hours": 4,
+			"included": [],
+			"copies": 2,
+			"tier": "Low"
+		},
+		{
+			"name": "Sarachnis Cudgel",
+			"source": "Sarachnis",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Dragon Salvaging Hook",
+			"source": "Sailing",
+			"content": "Skilling/Minigames",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "High"
+		},
+		{
+			"name": "Skeleton Champ Scroll",
+			"source": "Skeleton",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Inky Paint",
+			"source": "Sailing",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 1,
+			"tier": "High"
+		},
+		{
+			"name": "Dragon Hunter Wand or Tome of Earth",
+			"source": "The Hueycoatl",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 12,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Dragon Pickaxe Broken",
+			"source": "Volcanic mine",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "High"
+		},
+		{
+			"name": "Hueycoatl Hide Drops",
+			"source": "The Hueycoatl",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Hallowfell",
+			"source": "The Mad Angel",
+			"content": "PvM",
+			"qty": 4,
+			"hours": 10,
+			"included": [],
+			"copies": 6,
+			"tier": "Medium"
+		},
+		{
+			"name": "Crimson Kisten",
+			"source": "The Maggot King",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Elder Venator Fang",
+			"source": "The Maggot King",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Venator Shard",
+			"source": "The Phantom Muspah",
+			"content": "PvM",
+			"qty": 2,
+			"hours": 8,
+			"included": [],
+			"copies": 5,
+			"tier": "Medium"
+		},
+		{
+			"name": "Smoke Battlestaff",
+			"source": "Thermonuclear Smoke Devil",
+			"content": "PvM",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Burning Claw",
+			"source": "Tormented Demon",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Tormented Synapse",
+			"source": "Tormented Demon",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Obsidian Armor Pieces",
+			"source": "Tzhaar",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Tzhaar Weapons/armor Other",
+			"source": "Tzhaar",
+			"content": "PvM",
+			"qty": 10,
+			"hours": 5,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Blood Shard",
+			"source": "Venator,Vyre",
+			"content": "PvM",
+			"qty": 2,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Fangs of Venenatis",
+			"source": "Venenatis/Spindel",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Treasonous Ring",
+			"source": "Venenatis/Spindel",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Voidwaker Gem",
+			"source": "Venenatis/Spindel",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Ring of the Gods",
+			"source": "Vet'ion/Calvarion",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Skull of Vetion",
+			"source": "Vet'ion/Calvarion",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Voidwaker Blade",
+			"source": "Vet'ion/Calvarion",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Dragonbone Necklace",
+			"source": "Vorkath",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Vorkath Head",
+			"source": "Vorkath",
+			"content": "PvM",
+			"qty": 3,
+			"hours": 5,
+			"included": [],
+			"copies": 5,
+			"tier": "Medium"
+		},
+		{
+			"name": "Any Visage",
+			"source": "Vorkath, Dragons, Wyverns, Zulrah",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Dragon Sword/Harpoon",
+			"source": "Wyrm",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Crystal Tool Seed or Zalcano Shard",
+			"source": "Zalcano",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 15,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Armadyl Crossbow",
+			"source": "Zilyana",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Saradomin Hilt",
+			"source": "Zilyana",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Zombie Champ Scroll",
+			"source": "Zombie",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 1,
+			"tier": "Medium"
+		},
+		{
+			"name": "Teleport Anchoring Scroll",
+			"source": "Zombie Pirates",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Magic Fang",
+			"source": "Zulrah",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Tanzanite Fang",
+			"source": "Zulrah",
+			"content": "PvM",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Ape Atoll Laps",
+			"source": "Ape Atoll Course Laps",
+			"content": "Skilling/Minigames",
+			"qty": 400,
+			"hours": 8,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Barbarian Assault Points/High Gambles",
+			"source": "Barb Assault",
+			"content": "Skilling/Minigames",
+			"qty": 5000,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Chompy Birds",
+			"source": "Chompy Birds",
+			"content": "Skilling/Minigames",
+			"qty": 1000,
+			"hours": 5,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Elven Signet",
+			"source": "Crystaline Implings",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 5,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Giants Foundry Points",
+			"source": "Giants Foundry",
+			"content": "Skilling/Minigames",
+			"qty": 5000,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Jewelers Chisel",
+			"source": "Golem Crafting",
+			"content": "Skilling/Minigames",
+			"qty": 3,
+			"hours": 15,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Abyssal Dyes",
+			"source": "GOTR",
+			"content": "Skilling/Minigames",
+			"qty": 3,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Hallowed Marks",
+			"source": "Hallowed Sepulchre",
+			"content": "Skilling/Minigames",
+			"qty": 1200,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Mahog Homes Contracts",
+			"source": "HMahog Homes",
+			"content": "Skilling/Minigames",
+			"qty": 250,
+			"hours": 10,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Hunter Rumors",
+			"source": "Hunter Rumors",
+			"content": "Skilling/Minigames",
+			"qty": 200,
+			"hours": 15,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Moon Key Halves",
+			"source": "Many",
+			"content": "Skilling/Minigames",
+			"qty": 10,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Mixology Points",
+			"source": "Mastering Mixology",
+			"content": "Skilling/Minigames",
+			"qty": 70000,
+			"hours": 7,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Skullball Course Laps",
+			"source": "Meme",
+			"content": "Skilling/Minigames",
+			"qty": 200,
+			"hours": 5,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Unidentified Minerals",
+			"source": "Mining",
+			"content": "Skilling/Minigames",
+			"qty": 100,
+			"hours": 10,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		},
+		{
+			"name": "Pharoahs Sceptre",
+			"source": "Pyramid Plunder",
+			"content": "Skilling/Minigames",
+			"qty": 1,
+			"hours": 10,
+			"included": [],
+			"copies": 4,
+			"tier": "Medium"
+		},
+		{
+			"name": "Albatross Feather",
+			"source": "Sailing",
+			"content": "Skilling/Minigames",
+			"qty": 10,
+			"hours": 5,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Echo Pearl",
+			"source": "Sailing",
+			"content": "Skilling/Minigames",
+			"qty": 10,
+			"hours": 5,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Narwhal Horn",
+			"source": "Sailing",
+			"content": "Skilling/Minigames",
+			"qty": 10,
+			"hours": 5,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Ray Barbs",
+			"source": "Sailing",
+			"content": "Skilling/Minigames",
+			"qty": 16,
+			"hours": 5,
+			"included": [],
+			"copies": 3,
+			"tier": "Medium"
+		},
+		{
+			"name": "Zealot Robe Pieces",
+			"source": "Shades of Mortton",
+			"content": "Skilling/Minigames",
+			"qty": 4,
+			"hours": 15,
+			"included": [],
+			"copies": 2,
+			"tier": "Medium"
+		}
+	]
+}

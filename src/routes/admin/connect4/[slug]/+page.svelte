@@ -753,11 +753,27 @@
 					{/if}
 				</div>
 
-				<!-- The curated plan. For a board whose tiles were designed in a spreadsheet
-				     this replaces the generator entirely: one row per tile, expanded by its
-				     copies column into one entry per cell. -->
+				<!-- THE PLANNED BOARD. The event runs on one specific designed list, so it
+				     ships with the site: no export, no upload, no way for a malformed
+				     spreadsheet to stand between an admin and a working board. -->
+				<form method="POST" action="?/loadPlanned" class="planned" use:enhance>
+					<button type="submit" class="planned-go">
+						★ Load the planned board — {data.planned.tiles} tiles filling {data.planned.cells} cells
+					</button>
+					<p class="muted tiny">
+						The tile list designed for this event, checked in from the planning sheet.
+						Replaces the whole pool. {#if data.deckSize !== data.planned.cells}<strong
+							>This board holds {data.deckSize} cells, so the {data.planned.cells}-cell
+							list will not fit — create the game at 40×15.</strong
+						>{/if}
+					</p>
+					{#if form?.importError}<p class="err tiny">{form.importError}</p>{/if}
+				</form>
+
+				<!-- The CSV route stays for a list that is not the planned one, or for a
+				     re-plan before the built-in list is regenerated from the new sheet. -->
 				<details class="fold">
-					<summary>⭳ Import a planned tile list (CSV) — replaces the whole pool</summary>
+					<summary>⭳ Import a different tile list (CSV) — replaces the whole pool</summary>
 					<form
 						method="POST"
 						action="?/importTiles"
@@ -780,6 +796,7 @@
 							<textarea name="csv_text" rows="6" placeholder="Tile,Source in Game,…"></textarea>
 						</details>
 						<button type="submit">Import and replace the pool</button>
+						{#if form?.importError}<p class="err tiny">{form.importError}</p>{/if}
 						{#if form?.imported}
 							<p class="ok tiny">
 								Imported {form.imported.tiles} tiles filling {form.imported.cells} cells.
@@ -1603,6 +1620,13 @@
 	.btn-link {
 		align-self: center;
 		font-size: 0.85rem;
+	}
+	.planned {
+		margin: 0.5rem 0 0.75rem;
+	}
+	.planned-go {
+		width: 100%;
+		font-size: 1.02rem;
 	}
 	.import-form { display: grid; gap: 0.5rem; }
 	.import-form textarea { width: 100%; font-family: monospace; font-size: 0.75rem; }
