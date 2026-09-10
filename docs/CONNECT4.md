@@ -134,6 +134,16 @@ long line keeps growing without bound. **A game stored before this dial existed 
 default, so re-reading an old board never restates what its sides were already told they
 had banked.
 
+That fallback is for **reading** only. A brand-new game has no history to protect, so
+`createConnect4` fills any dial the caller omits from `DEFAULT_SCORING` — a fresh board
+starts on `blocks`. (It didn't always: creation inherited the read fallback, so new games
+quietly scored long runs the `tiers` way. `sim:connect4` now asserts the mode a new game
+starts on, and what the 8th tile of a line is worth end to end.)
+
+**Check an existing game before the event starts.** A game created before that fix stored
+`tiers`, and it keeps it — the admin scoring panel's *Longer than 7* select shows which
+rule a board is on. Switching it re-scores the whole board immediately.
+
 **A cross counts twice.** Two runs meeting at a cell are different directions, and a cross
 is genuinely two lines.
 

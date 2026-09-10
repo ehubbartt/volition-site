@@ -102,6 +102,14 @@ try {
 	eventId = created.value.id;
 
 	let snap = await c4.loadConnect4(SLUG);
+	// A brand-new game must start on the CURRENT scoring rule. Reading stored scoring
+	// falls back to the legacy 'tiers' mode on purpose, and creation used to inherit that
+	// fallback, so a fresh board scored long runs the old way.
+	check(
+		'a new game starts on the default line mode',
+		snap.scoring.line_mode === rules.DEFAULT_SCORING.line_mode,
+		`${snap.scoring.line_mode}`
+	);
 	check('phase starts at setup', snap.phase === 'setup', snap.phase);
 	check('two sides exist with team rows', snap.sides.length === 2 && snap.sides.every((s) => s.teamId));
 	check('sides are red and yellow', snap.sides[0].color === '#ef4444' && snap.sides[1].color === '#eab308');
@@ -465,6 +473,42 @@ try {
 		afterFive.total - fourTotal === fivePts - fourPts + snap.scoring.tile_points,
 		`${afterFive.total - fourTotal} vs ${fivePts - fourPts + snap.scoring.tile_points}`
 	);
+
+	// The event's rule for a long line: every cell past the table pays "each cell past 7",
+	// EXCEPT one that completes another whole four — the 8th, 12th, 16th — which pays the
+	// run-of-4 instead. Driven through the real server so the standings, not just the pure
+	// function, are known to agree. Expectations come off the game's own dials so a retune
+	// does not re-fail this.
+	const tilePts = snap.scoring.tile_points;
+	const perCell = snap.scoring.extra_per_cell;
+	let running = afterFive;
+	const lineAt = {};
+	for (const col of [15, 16, 17, 18]) {
+		const before = running;
+		await c4.creditManual({ eventId, side: 1, col });
+		snap = await c4.loadConnect4(SLUG);
+		running = scoreOf(snap, 1);
+		const len = running.longest;
+		lineAt[len] = running.linePoints;
+		// What this one cell was worth: the tile itself, plus what it added to the line.
+		const lineAdd = len % 4 === 0 ? tier(4) : len <= 7 ? tier(len) - tier(len - 1) : perCell;
+		check(
+			`tile ${len} of the line is worth ${lineAdd + tilePts}`,
+			running.total - before.total === lineAdd + tilePts,
+			`${running.total - before.total}`
+		);
+	}
+	check('an eight scores the seven plus a second four', lineAt[8] === tier(7) + tier(4), `${lineAt[8]} vs ${tier(7) + tier(4)}`);
+	check('a nine is the eight plus one ordinary cell', lineAt[9] === lineAt[8] + perCell, `${lineAt[9]} vs ${lineAt[8] + perCell}`);
+
+	// Put the line back to five so the rest of the run reads the board it expects.
+	for (const col of [18, 17, 16, 15]) {
+		snap = await c4.loadConnect4(SLUG);
+		const top = snap.pieces.filter((p) => p.col === col).reduce((a, b) => (a.row > b.row ? a : b));
+		await c4.undoClaim({ eventId, pieceId: top.id });
+	}
+	snap = await c4.loadConnect4(SLUG);
+	check('the line is back to five', scoreOf(snap, 1).longest === 5, `longest=${scoreOf(snap, 1).longest}`);
 
 	// Retuning mid-game re-scores the whole board — no migration, no drift.
 	await c4.updateScoring(eventId, { ...snap.scoring, line_points: [{ len: 4, points: 1 }, { len: 5, points: 2 }] });

@@ -1150,7 +1150,8 @@
 				</select>
 				<span class="muted tiny">
 					{#if game.scoring.line_mode === 'blocks'}
-						8 pays two fours; 9–11 pay no more; 12 pays three.
+						Each cell past 7 adds the amount below; the 8th, 12th, 16th … complete another
+						four and pay the run-of-4 instead.
 					{:else}
 						The run-of-7 value, plus “each cell past 7” for every cell beyond it.
 					{/if}
@@ -1158,7 +1159,6 @@
 			</label>
 			<label>
 				Each cell past 7 <input name="extra_per_cell" type="number" value={game.scoring.extra_per_cell} />
-				{#if game.scoring.line_mode === 'blocks'}<span class="muted tiny">(unused in this mode)</span>{/if}
 			</label>
 			<label title="Only pre-fills the pet award form below; awards already given keep their own value.">
 				Default pet bonus <input name="pet_points" type="number" value={game.scoring.pet_points} />

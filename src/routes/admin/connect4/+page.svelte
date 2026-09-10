@@ -86,8 +86,9 @@
 							<option value="tiers" selected={data.defaults.line_mode !== 'blocks'}>One long line</option>
 						</select>
 						<span class="sub">
-							Complete fours: 8 pays two fours, 9–11 pay no more, 12 pays three. One long
-							line: the run-of-7 value plus “each cell past 7”.
+							Complete fours: each cell past 7 adds “each cell past 7”, except the 8th, 12th,
+							16th … which complete another four and pay the run-of-4 instead. One long line:
+							the run-of-7 value plus “each cell past 7” for every cell beyond it.
 						</span>
 					</label>
 					<label>Each cell past 7 <input name="extra_per_cell" type="number" value={data.defaults.extra_per_cell} /></label>

@@ -29,6 +29,7 @@ import {
 	ROWS,
 	cellId,
 	clampSize,
+	DEFAULT_SCORING,
 	NEW_GAME_SIZE,
 	columnCounts,
 	deckSizeOf,
@@ -471,7 +472,11 @@ export async function createConnect4(input: {
 	const connect4: StructureC4 = {
 		phase: 'setup',
 		test: input.test ?? false,
-		scoring: normalizeScoring(input.scoring),
+		// `normalizeScoring` defaults a MISSING line_mode to the legacy 'tiers' rule so a
+		// game stored before the dial existed is never restated. A brand-new game has no
+		// history to protect, so it starts from the current defaults instead — otherwise a
+		// fresh board would quietly score long runs the old way.
+		scoring: normalizeScoring({ ...DEFAULT_SCORING, ...(input.scoring ?? {}) }),
 		// `clampSize` falls back to DEFAULT_SIZE, which is the LEGACY size for boards that
 		// never stored one. A brand-new game wants the current default instead.
 		size: clampSize({
