@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { OPPONENT_LABEL } from '$lib/clans';
 	import { invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import Connect4Board from '$lib/connect4/Connect4Board.svelte';
@@ -1007,7 +1008,7 @@
 						{/if}
 					</p>
 					<div class="split-cols">
-						{#each [{ name: 'Volition', who: st.clan }, { name: 'Visiting clan', who: st.visitors }] as group (group.name)}
+						{#each [{ name: 'Volition', who: st.clan }, { name: OPPONENT_LABEL, who: st.visitors }] as group (group.name)}
 							<div>
 								<strong>{group.name} — {group.who.length}</strong>
 								<div class="split-names muted tiny">
@@ -1021,12 +1022,13 @@
 							<strong>{st.flagged.length} to check:</strong>
 							{st.flagged.map((u) => u.rsn ?? '(no RSN)').join(', ')} — their profile says
 							Volition but they are not in the clan's player list, so they have been put with
-							the visitors. Move them below if they belong.
+							{OPPONENT_LABEL}. Move them below if they belong.
 						</p>
 					{:else}
 						<p class="muted tiny">
 							A member whose site account was never linked to their player row lands on the
-							visiting side. Fix those with the buttons below — this is only the first pass.
+							{OPPONENT_LABEL} side. Fix those with the buttons below — this is only the
+							first pass.
 						</p>
 					{/if}
 				</div>

@@ -4,6 +4,7 @@
 	import { swrResource } from '$lib/swrResource.svelte';
 	import Skeleton from '$lib/Skeleton.svelte';
 	import type { SignupQuestion } from '$lib/events/signupForm';
+	import { OPPONENT_LABEL } from '$lib/clans';
 	import type { SignupPageResult } from '$lib/server/signupPage';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -188,7 +189,7 @@
 						</ul>
 					</div>
 					<div class="camp">
-						<h3>Visitors ({visitorNames.length})</h3>
+						<h3>{OPPONENT_LABEL} ({visitorNames.length})</h3>
 						<ul class="names">
 							{#each visitorNames as n, i (`${n}-${i}`)}<li>{n}</li>{/each}
 						</ul>

@@ -645,10 +645,16 @@ config URL. Their tiles reach the proxy by the same route as ours — branch 1 o
 about clan membership.
 
 **Allegiance comes from the bot's `players` table**, via `clanMemberIds` in
-`src/lib/server/clan.ts`: in it → Volition, not in it → the visiting clan. Discord id first,
+`src/lib/server/clan.ts`: in it → Volition, not in it → the opposing camp. Discord id first,
 then RSN case-insensitively with `_` and ` ` treated as the same character. Deliberately NOT
 `vs_users.clan_allegiance`, which is a free choice on the onboarding form and would let
 anyone put themselves on either side.
+
+That second camp is labelled with `OPPONENT_LABEL` from `src/lib/clans.ts` (**IronClad**
+for this event) everywhere a roster is shown split. Note what it really holds: *everyone
+who is not Volition*, since the test is Volition membership rather than IronClad
+membership. Right for a two-clan event, and the one line to change when the opponent
+does — but a third clan's player would be labelled IronClad too.
 
 `seatByClan` (server) + the **Seat everyone from…** control in the tester's Teams panel do
 the split in one go: pick the signup form the roster was collected on, preview, then seat.
