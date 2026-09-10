@@ -20,12 +20,7 @@ export interface ReviewItem {
 	// 'task'     = a weekly/custom task submission (no checklist);
 	// 'personal' = a personal-board manual claim (reviewed, but no WOM-codeword
 	//              checklist — personal boards aren't codeword events).
-	/**
-	 * Which checklist the reviewer gets. `connect4` is its own kind because a drop
-	 * claim has no WOM codeword to carry — asking for one trains reviewers to tick a
-	 * box that means nothing, which is exactly what the timing check must not become.
-	 */
-	kind: 'event' | 'task' | 'personal' | 'connect4';
+	kind: 'event' | 'task' | 'personal';
 	ids: string[]; // the pending row ids this group covers
 	event: { id: string; slug: string; name: string };
 	submitter: {

@@ -99,6 +99,19 @@ async function openQueue(): Promise<void> {
 	await admin.locator('#approve-btn').waitFor({ timeout: 30_000 });
 }
 
+/**
+ * Work the "Before approving" checklist the way a reviewer does: EVERY box, not just
+ * the timing one. A Connect Four claim still carries the codeword and the visible
+ * drop/collection log, same as any other event proof — the tile-timing check is an
+ * extra on top of those, not a replacement for them.
+ */
+async function tickAllChecks(): Promise<void> {
+	const boxes = admin.locator('.approve-checks input[type="checkbox"]');
+	const n = await boxes.count();
+	expect(n, 'the review card showed no checks at all').toBeGreaterThan(0);
+	for (let i = 0; i < n; i++) await boxes.nth(i).check();
+}
+
 test('an admin builds the real board from the planned list', async () => {
 	test.setTimeout(180_000);
 	await admin.goto('/admin/connect4');
@@ -192,12 +205,19 @@ test('the review queue shows when the tile went up, and gates approval on it', a
 	test.setTimeout(120_000);
 	await openQueue();
 	await expect(admin.locator('.tile-window')).toContainText('This tile went up at');
+	// The codeword and drop-log checks ride alongside the timing one for this event.
+	await expect(admin.getByText('Has WOM codeword')).toBeVisible();
+	await expect(admin.getByText('Visible Drop/Collection Log')).toBeVisible();
 	// The timing box starts unticked and the approve button is dead until it is ticked.
 	await expect(admin.locator('#approve-btn')).toBeDisabled();
 	await expect(admin.locator('.tile-warn')).toHaveCount(0); // nobody superseded it
 	await shot(admin, 'review-gated');
 
+	// Ticking ONLY the timing box is not enough — the codeword and drop-log checks
+	// still gate approval, which is the intended behaviour.
 	await admin.getByText('In-game drop time is after the tile went up').click();
+	await expect(admin.locator('#approve-btn')).toBeDisabled();
+	await tickAllChecks();
 	await expect(admin.locator('#approve-btn')).toBeEnabled();
 	await shot(admin, 'review-ready');
 
@@ -218,7 +238,7 @@ test('"ask again" keeps the tile and prompts the member for a better shot', asyn
 	await submitClaim(member, 1);
 
 	await openQueue();
-	await admin.getByText('In-game drop time is after the tile went up').click();
+	await tickAllChecks();
 	await admin.getByRole('button', { name: /Ask again/ }).click();
 	await admin.waitForTimeout(2000);
 	await shot(admin, 'asked-again');
@@ -244,7 +264,7 @@ test('"reject & free tile" takes the piece off and returns the tile to play', as
 	expect(before, 'expected three pieces standing: approved, asked-again, and the new one').toBe(3);
 
 	await openQueue();
-	await admin.getByText('In-game drop time is after the tile went up').click();
+	await tickAllChecks();
 	await admin.getByRole('button', { name: /Reject & free tile/ }).click();
 	await admin.waitForTimeout(2000);
 	await shot(admin, 'rejected-full');

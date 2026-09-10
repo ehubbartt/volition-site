@@ -379,9 +379,6 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 			const snap = await loadConnect4ById(eventId).catch(() => null);
 			if (!snap) continue;
 			for (const it of group) {
-				// These are Connect Four claims, whatever event kind they hang off — so the
-				// queue asks the check that applies (timing) and not the codeword one.
-				it.kind = 'connect4';
 				const [, colRaw, idxRaw] = it.task.id.split(':');
 				const col = Number(colRaw);
 				const deckIdx = Number(idxRaw);
