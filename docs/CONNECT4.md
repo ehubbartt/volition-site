@@ -713,9 +713,42 @@ Seating also signs everyone up to the game, which is what puts them in the Dink 
 
 Costs two queries regardless of size: a 135-person roster splits in ~290ms.
 
+**Previewing keeps your choice.** The seat form is `use:enhance` with
+`update({ reset: false })`. The default enhance resets a form on success, which threw the
+source you had picked away and snapped the select back to *this game's own signups* — so
+the obvious "preview, then seat" rhythm seated the wrong list unless you re-picked.
+
+### Who the Teams panel can act on
+
+`rosterFor` (in `connect4.ts`, not the page loader — so it can be drilled without a
+browser) answers this, and it has one rule: **anyone on the event is listed, whatever
+their site account looks like.**
+
+The list starts as every `vs_users` row that has an RSN, and then adds anyone this game
+has on a side or unassigned who that query missed. Without the second half a member seated
+with a blank RSN — an opposing-clan player part-way through onboarding, or someone whose
+RSN was cleared when they left — was on a side and yet had no row to tick, so
+*Remove from event* could not reach them. They render as *(no RSN)* and are removable like
+anyone else.
+
+Three things make a member findable in a 300-plus roster:
+
+| | |
+|---|---|
+| **Filter by RSN** | Matches on the letters alone (`squash`): case, spaces, underscores and hyphens are ignored, so `Some Name` finds `Some_Name`. An RSN is written both ways and an admin types whichever one they are looking at. |
+| **On this event only** | Narrows to the people actually enrolled — no typing, and the only way to find someone with no name to type. |
+| **Ticks survive filtering** | `picked` is a set of ids, so you can search, tick, search, tick, then act on the lot. |
+
+**Results are reported beside the buttons**, inside the Teams panel: what was removed,
+what was seated, and any refusal (`assignError`, kept separate from the page-wide `error`
+for exactly this reason). They used to appear only in the banner strip at the top of the
+page, hundreds of lines above the roster, so a removal that worked, one that matched
+nobody, and one that failed outright were indistinguishable from a dead button.
+
 ### Testing
 
 ```bash
+npm run drill:connect4:roster         # who the Teams panel can act on, incl. no-RSN members
 npm run sim:connect4                  # the full game, against staging
 npm run sim:connect4 -- --quick       # skip filling all 250 cells
 npm run sim:connect4 -- --seed 7 --keep

@@ -303,10 +303,19 @@
 
 	// Team assignment panel
 	let filter = $state('');
+	let onEventOnly = $state(false);
 	let picked = $state<Set<string>>(new Set());
-	const shownRoster = $derived(
-		data.roster.filter((r) => !filter || (r.rsn ?? '').toLowerCase().includes(filter.toLowerCase()))
-	);
+	// RSNs are written with spaces in game and underscores almost everywhere else, and an
+	// admin types whichever one they are looking at. Matching on the letters alone means
+	// "Some Name" finds "Some_Name" — otherwise the row never appears and the member
+	// cannot be ticked, which reads as the Remove button doing nothing.
+	const squash = (v: string) => v.toLowerCase().replace(/[\s_-]+/g, '');
+	const shownRoster = $derived.by(() => {
+		const q = squash(filter);
+		return data.roster.filter(
+			(r) => (!onEventOnly || r.inEvent) && (!q || squash(r.rsn ?? '').includes(q))
+		);
+	});
 	function toggle(id: string) {
 		const next = new Set(picked);
 		if (next.has(id)) next.delete(id);
@@ -484,15 +493,6 @@
 		</p>
 	{/if}
 	{#if form?.customRemoved}<p class="ok">Custom task removed.</p>{/if}
-	{#if form?.removed !== undefined}
-		<p class="ok">
-			{#if form.removed}
-				Removed {form.removed} from the event.
-			{:else}
-				Nothing to remove — none of those {form.picked} were on this event.
-			{/if}
-		</p>
-	{/if}
 	{#if form?.optsSaved}<p class="ok">Generator filters saved.</p>{/if}
 	{#if form?.undone}
 		<p class="ok">
@@ -985,7 +985,15 @@
 		<div class="osrs-titlebar">{game.phase === 'setup' ? 'Step 2 · Teams' : 'Teams'}</div>
 		<div class="pad">
 			<!-- CLAN VS CLAN: no draft, the sides were decided before anyone signed up. -->
-			<form method="POST" action="?/seatByClan" use:enhance class="seat">
+			<!-- `update({ reset: false })`: the default enhance RESETS the form on success, so
+			     previewing a split threw the source you picked away and the select snapped
+			     back to "this game's own signups" — you then had to pick it again to seat. -->
+			<form
+				method="POST"
+				action="?/seatByClan"
+				use:enhance={() => async ({ update }) => update({ reset: false })}
+				class="seat"
+			>
 				<label class="tiny">
 					Seat everyone from
 					<select name="sourceEventId">
@@ -1045,6 +1053,9 @@
 
 			<div class="row">
 				<input placeholder="Filter by RSN…" bind:value={filter} />
+				<label class="tiny only-on">
+					<input type="checkbox" bind:checked={onEventOnly} /> On this event only
+				</label>
 				<span class="muted tiny">{picked.size} selected</span>
 				<form
 					method="POST"
@@ -1075,15 +1086,37 @@
 				</form>
 			</div>
 
+			<!-- Said HERE, beside the button that was pressed. These used to be reported only
+			     by the page-wide banners at the very top, some six hundred lines up and off
+			     the screen an admin is looking at, so a removal that worked, one that found
+			     nobody, and one that failed outright were indistinguishable from a dead
+			     button. -->
+			{#if form?.removed !== undefined}
+				<p class="ok tiny">
+					{#if form.removed}
+						Removed {form.removed} from the event.
+					{:else}
+						Nothing to remove — none of those {form.picked} were on this event.
+					{/if}
+				</p>
+			{:else if form?.assigned}
+				<p class="ok tiny">Seated {form.assigned}.</p>
+			{:else if form?.assignError}
+				<p class="err tiny">{form.assignError}</p>
+			{/if}
+
 			<p class="muted tiny">
 				{data.roster.filter((r) => r.inEvent).length} on this event ({data.roster.filter((r) => r.side).length}
-				seated). Everyone with a site account is listed; tick to seat or remove.
+				seated). Everyone with a site account is listed, plus anyone on the event without one;
+				tick to seat or remove.
 			</p>
 			<div class="roster">
 				{#each shownRoster.slice(0, 300) as r (r.id)}
 					<label class="member" class:on={picked.has(r.id)}>
 						<input type="checkbox" checked={picked.has(r.id)} onchange={() => toggle(r.id)} />
-						<span>{r.rsn}</span>
+						<!-- Someone on the event with no RSN still has to be tickable, or there is
+						     no way to take them off it. -->
+						<span class:noname={!r.rsn}>{r.rsn ?? '(no RSN)'}</span>
 						{#if r.side}
 							<span class="pill" style="--c: {game.sides[r.side - 1].color}">{game.sides[r.side - 1].name}</span>
 						{:else if r.inEvent}
@@ -1465,6 +1498,16 @@
 	.pill.none {
 		--c: var(--muted, #8a8a8a);
 		opacity: 0.75;
+	}
+	.noname {
+		font-style: italic;
+		opacity: 0.75;
+	}
+	.only-on {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		white-space: nowrap;
 	}
 	.pill {
 		font-size: 0.7rem;

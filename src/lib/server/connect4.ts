@@ -687,6 +687,54 @@ export async function setSideNames(eventId: string, names: [string, string]): Pr
  * batch — assigning 120 people one call at a time is how the Battleship draft first timed
  * out. Members must already be signed up; this only moves `team_id`.
  */
+/** One row of the admin roster panel: who they are, where they sit, and whether they play. */
+export interface RosterRow {
+	id: string;
+	rsn: string | null;
+	side: Side | null;
+	inEvent: boolean;
+}
+
+/**
+ * WHO THE ADMIN ROSTER PANEL MAY ACT ON — every site account, plus anyone this game has
+ * on it whose account the first list misses.
+ *
+ * That second half is the whole point. The account list only holds users with an RSN, so
+ * a player seated with a blank one (an opposing-clan member part-way through onboarding,
+ * or someone whose RSN was cleared when they left the clan) was on a side and yet absent
+ * from the panel — impossible to tick, so impossible to remove. A member the game knows
+ * about must always be reachable from the screen that takes members off it.
+ *
+ * Lives here rather than in the page loader so it can be driven by
+ * `npm run drill:connect4:roster` without a browser.
+ */
+export async function rosterFor(game: Connect4Snapshot): Promise<RosterRow[]> {
+	// Paged: the roster is well past PostgREST's 1000-row cap at clan scale.
+	const users = await fetchAllFiltered<{ id: string; rsn: string | null }>((from, to) =>
+		db().from('vs_users').select('id, rsn').not('rsn', 'is', null).order('rsn').range(from, to)
+	);
+
+	const sideByUser = new Map<string, Side>();
+	for (const s of game.sides) for (const m of s.members) sideByUser.set(m.userId, s.side);
+	// Signed up but on no side is a real state, and it used to look exactly like "not in
+	// this event at all" — so removing such a member changed nothing on screen.
+	const inEvent = new Set<string>([...sideByUser.keys(), ...game.unassigned.map((u) => u.userId)]);
+
+	const known = new Set((users.data ?? []).map((u) => u.id));
+	const strays = [...game.sides.flatMap((s) => s.members), ...game.unassigned]
+		.filter((m) => !known.has(m.userId))
+		.map((m) => ({ id: m.userId, rsn: m.rsn }));
+
+	return [...(users.data ?? []), ...strays]
+		.map((u) => ({
+			id: u.id,
+			rsn: u.rsn,
+			side: sideByUser.get(u.id) ?? null,
+			inEvent: inEvent.has(u.id)
+		}))
+		.sort((a, b) => (a.rsn ?? '\uffff').localeCompare(b.rsn ?? '\uffff'));
+}
+
 export async function assignSides(input: {
 	eventId: string;
 	userIds: string[];

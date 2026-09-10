@@ -2,7 +2,6 @@ import { redirect, fail, error } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { logAudit } from '$lib/server/audit';
-import { fetchAllFiltered } from '$lib/server/db';
 import {
 	addBonus,
 	addCustomTile,
@@ -18,6 +17,7 @@ import {
 	removeCustomTile,
 	setPoolOptions,
 	reopenGame,
+	rosterFor,
 	seatByClan,
 	setPool,
 	setSideNames,
@@ -83,18 +83,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const fresh = (await loadConnect4(params.slug)) ?? game;
 	await syncTrackedItems(fresh.id, fresh);
 
-	// The roster to assign from: everyone with a site account. Signed-up members are
-	// flagged so the panel can show who is already playing.
-	// Paged: the roster is well past PostgREST's 1000-row cap at clan scale.
-	const users = await fetchAllFiltered<{ id: string; rsn: string | null }>((from, to) =>
-		db().from('vs_users').select('id, rsn').not('rsn', 'is', null).order('rsn').range(from, to)
-	);
-
-	const sideByUser = new Map<string, Side>();
-	for (const s of fresh.sides) for (const m of s.members) sideByUser.set(m.userId, s.side);
-	// Signed up but on no side is a real state, and it used to look exactly like "not in
-	// this event at all" — so removing such a member changed nothing on screen.
-	const inEvent = new Set<string>([...sideByUser.keys(), ...fresh.unassigned.map((u) => u.userId)]);
+	// Who the panel may act on. `rosterFor` lives in the server lib so the rule it
+	// enforces — anyone ON the event is listed, with or without a site RSN — is testable
+	// without a browser.
+	const roster = await rosterFor(fresh);
 
 	// Candidates are only needed while curating, and there are ~300 of them. Hand-added
 	// custom tasks lead the list so they're never lost in the generated crowd.
@@ -111,12 +103,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			deck: [],
 			pool: fresh.phase === 'setup' ? fresh.pool : []
 		},
-		roster: (users.data ?? []).map((u) => ({
-			id: u.id,
-			rsn: u.rsn,
-			side: sideByUser.get(u.id) ?? null,
-			inEvent: inEvent.has(u.id)
-		})),
+		roster,
 		candidates,
 		// Rosters a clan-vs-clan game can be seated from — normally the signup form the
 		// list was collected on.
@@ -172,10 +159,14 @@ export const actions: Actions = {
 		const game = await loadConnect4(params.slug);
 		if (!game) return fail(404, { error: 'No such game' });
 		const userIds = form.getAll('userId').map(String).filter(Boolean);
-		if (!userIds.length) return fail(400, { error: 'Pick at least one member' });
+		// `assignError` rather than the page-wide `error`: the teams panel renders this one
+		// beside the buttons. A failure reported only at the top of the page is off screen
+		// from where the admin is working, and a Remove that failed then looked identical to
+		// a Remove that did nothing.
+		if (!userIds.length) return fail(400, { assignError: 'Tick at least one member first' });
 		const raw = String(form.get('side') ?? '');
 		const side = raw === 'none' ? null : sideOf(form);
-		if (raw !== 'none' && side === null) return fail(400, { error: 'Pick a side' });
+		if (raw !== 'none' && side === null) return fail(400, { assignError: 'Pick a side' });
 
 		// "Enrol" both signs them up and seats them, so one button works whether or not the
 		// member has ever touched this event. "Remove" is its mirror: off the event, not
@@ -184,10 +175,10 @@ export const actions: Actions = {
 			const res = await removeFromEvent({ eventId: game.id, userIds });
 			return res.ok
 				? { removed: res.value?.removed ?? 0, picked: userIds.length }
-				: fail(400, { error: res.error });
+				: fail(400, { assignError: res.error });
 		}
 		const res = await enrolMembers({ eventId: game.id, userIds, side });
-		return res.ok ? { assigned: userIds.length } : fail(400, { error: res.error });
+		return res.ok ? { assigned: userIds.length } : fail(400, { assignError: res.error });
 	},
 
 	seatByClan: async ({ request, locals, params }) => {
