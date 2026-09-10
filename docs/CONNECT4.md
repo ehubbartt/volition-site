@@ -93,7 +93,7 @@ migration and no drift.
 | `tile_points` | 10 | Paid per tile claimed. **Set to 0 to score connect-fours only.** |
 | `line_points` | 4→40, 5→50, 6→60, 7→70 | What a run of that length pays. |
 | `line_mode` | `blocks` | How a run **longer than the table** pays. See below. |
-| `extra_per_cell` | 0 | `tiers` mode only: paid per cell beyond the longest configured run. |
+| `extra_per_cell` | 10 | What an ordinary extra cell adds to a line. **Both modes use it.** |
 | `pet_points` | 10 | Default for a hand-recorded **pet bonus**. Only pre-fills the award form — see below. |
 
 In one sentence: **every tile is worth 10, and a tile sitting in a line of four is worth
@@ -112,15 +112,21 @@ just as cleanly.
 
 | Run | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
 |---|---|---|---|---|---|---|---|---|---|
-| `blocks` (default) | 40 | 50 | 60 | 70 | **80** | 80 | 80 | 80 | **120** |
-| `tiers` | 40 | 50 | 60 | 70 | 70 + *extra* | … | | | |
+| `blocks` (default) line pts | 40 | 50 | 60 | 70 | **110** | 120 | 130 | 140 | **180** |
+| what that tile was worth | **50** | 20 | 20 | 20 | **50** | 20 | 20 | 20 | **50** |
+| `tiers` line pts | 40 | 50 | 60 | 70 | 70 + *extra* | … | | | |
 
-`blocks` counts **complete fours**: a run is worth as many whole fours as fit, at the
-4-tier's rate. Eight pays exactly two fours; the ninth, tenth and eleventh tiles pay only
-their own tile points; the twelfth completes a third four. The 5/6/7 tiers still apply
-below two blocks, so a five is 50 and a seven is 70. One eight and two separate fours are
-both worth 160 with tiles included — so there is never a reason to break a line up or to
-stop short of extending one.
+`blocks` means **every fourth tile completes another connect four**. A line never loses
+what it had: each cell adds `extra_per_cell` (10), except one that completes a whole
+block of four, which adds the 4-tier (40) instead. So the tile that closes a four is
+worth 50 — its own 10 plus 40 — and the 8th, 12th and 16th are worth 50 for the same
+reason, with the cells between them worth 20.
+
+In one line: **10, 10, 10, 50, 20, 20, 20, 50, 20, 20, 20, 50 …**
+
+A single eight is worth 190 while two separate fours are 160: the 30 difference is the
+10 each that the 5th, 6th and 7th cells earned. Extending a line you already hold always
+beats starting a new one.
 
 `tiers` is the older rule: the top tier plus `extra_per_cell` for every cell past it, so a
 long line keeps growing without bound. **A game stored before this dial existed reads as

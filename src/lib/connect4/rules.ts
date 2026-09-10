@@ -178,7 +178,7 @@ export const DEFAULT_SCORING: Connect4Scoring = {
 		{ len: 6, points: 60 },
 		{ len: 7, points: 70 }
 	],
-	extra_per_cell: 0,
+	extra_per_cell: 10,
 	pet_points: 10,
 	line_mode: 'blocks'
 };
@@ -430,16 +430,23 @@ export function pointsFor(len: number, s: Connect4Scoring): number {
 	if (!tiers.length) return 0;
 	const best = tiers.reduce((a, b) => (b.len > a.len ? b : a));
 
+	const top = Math.max(...s.line_points.map((r) => r.len));
+
 	if (s.line_mode === 'blocks') {
-		// The 4-tier is the block: its length is the unit and its points are the rate.
+		// A line never loses what it had; it keeps growing. Every cell past the table adds
+		// `extra_per_cell`, EXCEPT one that completes another whole block of four, which
+		// adds the 4-tier instead. So the 8th tile pays like the 4th did, the 12th like the
+		// 8th, and the cells between them are ordinary.
 		const unit = Math.min(...s.line_points.map((r) => r.len));
 		const unitPoints = s.line_points.find((r) => r.len === unit)?.points ?? 0;
-		const blocks = Math.floor(len / unit);
-		// One block or less is still an ordinary run — 5, 6 and 7 keep their own tiers.
-		return blocks <= 1 ? best.points : blocks * unitPoints;
+		if (len <= top) return best.points;
+		let pts = s.line_points.find((r) => r.len === top)?.points ?? best.points;
+		for (let n = top + 1; n <= len; n++) {
+			pts += n % unit === 0 ? unitPoints : s.extra_per_cell || 0;
+		}
+		return pts;
 	}
 
-	const top = Math.max(...s.line_points.map((r) => r.len));
 	const beyond = len > top ? (len - top) * (s.extra_per_cell || 0) : 0;
 	return best.points + beyond;
 }

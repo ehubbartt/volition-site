@@ -21,7 +21,7 @@ try {
   console.log('\n── The event table (10 a tile, complete fours past 7) ──');
   const line = (n) => r.pointsFor(n, s);
   // 4-7 keep their own tiers; 8 is two fours; 9-11 add nothing; 12 is three.
-  for (const [len, want] of [[3,0],[4,40],[5,50],[6,60],[7,70],[8,80],[9,80],[10,80],[11,80],[12,120],[16,160]]) {
+  for (const [len, want] of [[3,0],[4,40],[5,50],[6,60],[7,70],[8,110],[9,120],[10,130],[11,140],[12,180],[16,250]]) {
     ck(`run of ${String(len).padStart(2)} line pts`, line(len), want);
   }
 
@@ -29,16 +29,18 @@ try {
   const p = (col) => ({ id: `p${col}`, col, row: 0, side: 1, deck_idx: col, claimed_at: new Date().toISOString() });
   const total = (n) => r.sideStanding(Array.from({ length: n }, (_, i) => p(i)), 1, s).total;
   ck('4 in a row total', total(4), 80);
-  ck('8 in a row total', total(8), 160);
+  ck('8 in a row total', total(8), 190);
   // Each is the tile's own 10 plus whatever it moves the line by.
-  ck('the 4th tile is worth (10 + 40 line)', total(4) - total(3), 50);
-  ck('the 8th tile is worth (10 + 10 line)', total(8) - total(7), 20);
-  ck('the 9th tile is worth (10, line unmoved)', total(9) - total(8), 10);
-  ck('the 12th tile is worth (10 + 40 line)', total(12) - total(11), 50);
+  // The sequence the event runs on: 10, 10, 10, 50, 20, 20, 20, 50, 20, 20, 20, 50 …
+  const want = [10, 10, 10, 50, 20, 20, 20, 50, 20, 20, 20, 50];
+  want.forEach((w, i) => ck(`tile ${i + 1} is worth`, total(i + 1) - total(i), w));
 
   console.log('\n── One eight and two separate fours must agree ──');
   const split = [...Array.from({ length: 4 }, (_, i) => p(i)), ...Array.from({ length: 4 }, (_, i) => p(i + 10))];
+  // Two fours pay 2 x 40; one eight pays that plus the 10s its 5th-7th cells earned,
+  // so a single long line is worth MORE than the same tiles split up.
   ck('two separate fours', r.sideStanding(split, 1, s).total, 160);
+  ck('one eight beats two fours by the in-between cells', total(8) - r.sideStanding(split, 1, s).total, 30);
 
   console.log('\n── A game stored before the dial existed keeps the old rule ──');
   const legacy = r.normalizeScoring({
