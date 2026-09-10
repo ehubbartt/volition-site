@@ -708,6 +708,30 @@ export async function assignSides(input: {
 }
 
 /**
+ * Take members OFF the event entirely — the signup row goes, not just the side.
+ *
+ * Distinct from `assignSides(null)`, which unseats but leaves them enrolled: that state
+ * is invisible on the roster (no side pill either way), so an admin clicking a button
+ * labelled "Remove" on someone who is already unseated saw nothing change and nothing
+ * leave. Pieces they already claimed stay on the board — those are the game's record and
+ * are attributed by `by_user_id`, which this does not touch.
+ */
+export async function removeFromEvent(input: {
+	eventId: string;
+	userIds: string[];
+}): Promise<Result<{ removed: number }>> {
+	if (!input.userIds.length) return okResult({ removed: 0 });
+	const { data, error } = await db()
+		.from('vs_event_signups')
+		.delete()
+		.eq('event_id', input.eventId)
+		.in('user_id', input.userIds)
+		.select('user_id');
+	if (error) return errResult(error.message);
+	return okResult({ removed: (data ?? []).length });
+}
+
+/**
  * Sign members up and put them on a side in one go — the admin path for building a roster
  * from the signup event's list, or for adding the opposing clan as they onboard. Existing
  * signups are left in place (the insert ignores duplicates) and then assigned.

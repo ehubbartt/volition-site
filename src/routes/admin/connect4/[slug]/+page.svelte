@@ -484,6 +484,15 @@
 		</p>
 	{/if}
 	{#if form?.customRemoved}<p class="ok">Custom task removed.</p>{/if}
+	{#if form?.removed !== undefined}
+		<p class="ok">
+			{#if form.removed}
+				Removed {form.removed} from the event.
+			{:else}
+				Nothing to remove — none of those {form.picked} were on this event.
+			{/if}
+		</p>
+	{/if}
 	{#if form?.optsSaved}<p class="ok">Generator filters saved.</p>{/if}
 	{#if form?.undone}
 		<p class="ok">
@@ -1055,10 +1064,21 @@
 							→ {s.name}
 						</button>
 					{/each}
-					<button type="submit" name="side" value="none" disabled={!picked.size}>Remove</button>
+					<button
+						type="submit"
+						name="side"
+						value="none"
+						class="danger"
+						disabled={!picked.size}
+						title="Take them off the event entirely — not just off a side"
+					>Remove from event</button>
 				</form>
 			</div>
 
+			<p class="muted tiny">
+				{data.roster.filter((r) => r.inEvent).length} on this event ({data.roster.filter((r) => r.side).length}
+				seated). Everyone with a site account is listed; tick to seat or remove.
+			</p>
 			<div class="roster">
 				{#each shownRoster.slice(0, 300) as r (r.id)}
 					<label class="member" class:on={picked.has(r.id)}>
@@ -1066,6 +1086,10 @@
 						<span>{r.rsn}</span>
 						{#if r.side}
 							<span class="pill" style="--c: {game.sides[r.side - 1].color}">{game.sides[r.side - 1].name}</span>
+						{:else if r.inEvent}
+							<!-- Signed up, no side. Without this the row is identical to someone who
+							     was never in the event, so removing them looks like a no-op. -->
+							<span class="pill none">in event · no side</span>
 						{/if}
 					</label>
 				{/each}
@@ -1418,6 +1442,10 @@
 	}
 	.cand {
 		flex-wrap: wrap;
+	}
+	.pill.none {
+		--c: var(--muted, #8a8a8a);
+		opacity: 0.75;
 	}
 	.pill {
 		font-size: 0.7rem;

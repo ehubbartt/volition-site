@@ -8,6 +8,7 @@ import {
 	addCustomTile,
 	importPool,
 	assignSides,
+	removeFromEvent,
 	claimTile,
 	creditManual,
 	enrolMembers,
@@ -91,6 +92,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const sideByUser = new Map<string, Side>();
 	for (const s of fresh.sides) for (const m of s.members) sideByUser.set(m.userId, s.side);
+	// Signed up but on no side is a real state, and it used to look exactly like "not in
+	// this event at all" — so removing such a member changed nothing on screen.
+	const inEvent = new Set<string>([...sideByUser.keys(), ...fresh.unassigned.map((u) => u.userId)]);
 
 	// Candidates are only needed while curating, and there are ~300 of them. Hand-added
 	// custom tasks lead the list so they're never lost in the generated crowd.
@@ -110,7 +114,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		roster: (users.data ?? []).map((u) => ({
 			id: u.id,
 			rsn: u.rsn,
-			side: sideByUser.get(u.id) ?? null
+			side: sideByUser.get(u.id) ?? null,
+			inEvent: inEvent.has(u.id)
 		})),
 		candidates,
 		// Rosters a clan-vs-clan game can be seated from — normally the signup form the
@@ -173,10 +178,15 @@ export const actions: Actions = {
 		if (raw !== 'none' && side === null) return fail(400, { error: 'Pick a side' });
 
 		// "Enrol" both signs them up and seats them, so one button works whether or not the
-		// member has ever touched this event.
-		const res = side === null
-			? await assignSides({ eventId: game.id, userIds, side: null })
-			: await enrolMembers({ eventId: game.id, userIds, side });
+		// member has ever touched this event. "Remove" is its mirror: off the event, not
+		// merely off a side — otherwise it does nothing at all to someone unseated.
+		if (side === null) {
+			const res = await removeFromEvent({ eventId: game.id, userIds });
+			return res.ok
+				? { removed: res.value?.removed ?? 0, picked: userIds.length }
+				: fail(400, { error: res.error });
+		}
+		const res = await enrolMembers({ eventId: game.id, userIds, side });
 		return res.ok ? { assigned: userIds.length } : fail(400, { error: res.error });
 	},
 
