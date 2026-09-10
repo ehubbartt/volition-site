@@ -376,8 +376,13 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const game = await loadConnect4(params.slug);
 		if (!game) return fail(404, { error: 'No such game' });
+		// A field that arrives BLANK means "unchanged", not zero. `Number('')` is 0 and
+		// `isFinite(0)` is true, so an empty box used to save as a real zero — one stray
+		// submit from a form whose boxes had been blanked and the whole event scored nothing.
 		const num = (k: string, d: number) => {
-			const n = Number(form.get(k));
+			const raw = form.get(k);
+			if (raw === null || String(raw).trim() === '') return d;
+			const n = Number(raw);
 			return isFinite(n) ? n : d;
 		};
 		const res = await updateScoring(game.id, {

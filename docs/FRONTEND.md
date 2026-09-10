@@ -9,6 +9,16 @@ broadly-shared component or change a convention. For page data-loading, see
 - **Svelte 5 runes** (`$state`, `$derived`, `$props`, `{#snippet}`/`{@render}`).
 - **Form actions** return `{ ok: true }` or `fail(status, { error })`; forms use
   `use:enhance` for optimistic UI. Pending state via `src/lib/busy.svelte.ts` (`createBusy()`).
+- **A pre-filled form needs `update({ reset: false })`.** The bare `use:enhance` RESETS the
+  form on success, and a reset restores each control to its `value` **attribute** — which
+  Svelte never writes, because `value={…}` is set as a DOM *property*. So every pre-filled
+  box on a settings-style form empties itself the moment you press Save, which reads as the
+  save having wiped the thing you were editing. Bare `use:enhance` is right only where
+  clearing the form is the point (a "create" or "add" form) or where the row it lives in
+  disappears on success. Pair it with a server that treats a **blank** numeric field as
+  "unchanged" rather than `0` — `Number('')` is `0` and `isFinite(0)` is `true`, so the
+  usual guard does not catch it — and with a visible confirmation, so a save that worked
+  never looks the same as one that ate your input.
 - **Styling:** scoped component CSS + global design tokens (CSS variables) in `src/app.css`
   (dark theme, orange accent, self-hosted RS fonts). Use the tokens, don't hardcode colors.
 - **Server-only** logic stays in `src/lib/server/` so secrets never reach the client.

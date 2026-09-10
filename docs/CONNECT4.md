@@ -108,6 +108,14 @@ Only whole runs score, and only from their true start.
 net 10 — because nothing is banked incrementally. Undoing that piece puts it back to 40
 just as cleanly.
 
+The tester's Scoring form uses `update({ reset: false })` and says *Saved — the board is
+re-scored.* With the bare `use:enhance` every box blanked itself on save (see
+[FRONTEND.md](FRONTEND.md) — a reset restores the `value` attribute, which Svelte does not
+write), and with no confirmation the blanking was the only sign a save had happened at all,
+so it looked like saving had wiped the event's numbers. A blank box now means "unchanged"
+server-side, so even an empty submit cannot score a whole event at zero.
+`e2e/connect4-scoring-form.spec.ts` holds that line.
+
 **Past the table, `line_mode` decides** (`pointsFor` in `rules.ts`):
 
 | Run | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |

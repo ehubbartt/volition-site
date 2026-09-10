@@ -1163,7 +1163,17 @@
 	<!-- ── scoring ───────────────────────────────────────────────────────── -->
 	<section class="osrs-panel">
 		<div class="osrs-titlebar">Scoring — optional, retunable any time (even mid-game)</div>
-		<form method="POST" action="?/scoring" use:enhance class="pad grid">
+		<!-- `reset: false` is LOAD-BEARING. Svelte sets `value={…}` as a DOM property, so
+		     these boxes have no value ATTRIBUTE and their reset value is blank — the default
+		     enhance resets a form on success, which emptied every number here the moment you
+		     pressed Save. It looked like saving had wiped the scoring, and a second Save from
+		     that blank form would have. -->
+		<form
+			method="POST"
+			action="?/scoring"
+			use:enhance={() => async ({ update }) => update({ reset: false })}
+			class="pad grid"
+		>
 			<p class="wide muted tiny">
 				Changing these re-scores the whole board immediately — the standings are always recomputed
 				from the pieces. A run only ever scores once, at its current length, so extending a four
@@ -1196,7 +1206,12 @@
 			<label title="Only pre-fills the pet award form below; awards already given keep their own value.">
 				Default pet bonus <input name="pet_points" type="number" value={game.scoring.pet_points} />
 			</label>
-			<div class="wide"><button type="submit">Save scoring</button></div>
+			<div class="wide">
+				<button type="submit">Save scoring</button>
+				<!-- Saving used to have NO visible effect but the boxes blanking, which is
+				     precisely why that blanking read as "it wiped my scoring". -->
+				{#if form?.scored}<span class="ok tiny">Saved — the board is re-scored.</span>{/if}
+			</div>
 		</form>
 	</section>
 
@@ -1211,7 +1226,22 @@
 				keeps the points it was given, so changing the default in Scoring above never
 				restates what a side already banked.
 			</p>
-			<form method="POST" action="?/awardBonus" use:enhance class="row wrap bonus-form">
+			<!-- Clear what is award-specific, keep what is pre-filled: a plain reset blanked
+			     the points box too (see the scoring form above), leaving the next award with
+			     no visible value. -->
+			<form
+				method="POST"
+				action="?/awardBonus"
+				use:enhance={() =>
+					async ({ update, formElement, result }) => {
+						await update({ reset: false });
+						if (result.type === 'success') {
+							const named = formElement.querySelector('input[name="item_name"]');
+							if (named instanceof HTMLInputElement) named.value = '';
+						}
+					}}
+				class="row wrap bonus-form"
+			>
 				<label class="tiny">
 					side
 					<select name="side">
