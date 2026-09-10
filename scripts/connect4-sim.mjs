@@ -446,7 +446,12 @@ try {
 	snap = await c4.loadConnect4(SLUG);
 	const afterFour = scoreOf(snap, 1);
 	check('a connect four is detected', afterFour.longest === 4, `longest=${afterFour.longest}`);
-	check('the run scores the 4-tier once', afterFour.linePoints === 100, `${afterFour.linePoints}`);
+	// Read the tiers off the GAME rather than hardcoding them: the event's numbers are
+	// retunable, and a sim that pins them re-fails every time they are tuned.
+	const tier = (len) => snap.scoring.line_points.find((r) => r.len === len)?.points ?? 0;
+	const fourPts = tier(4);
+	const fivePts = tier(5);
+	check('the run scores the 4-tier once', afterFour.linePoints === fourPts, `${afterFour.linePoints} vs ${fourPts}`);
 	const fourTotal = afterFour.total;
 
 	const extend = await c4.creditManual({ eventId, side: 1, col: 14 });
@@ -454,11 +459,11 @@ try {
 		JSON.stringify(extend.newRuns?.map((r) => r.len)));
 	snap = await c4.loadConnect4(SLUG);
 	const afterFive = scoreOf(snap, 1);
-	check('the five-run replaces the four-run rather than stacking', afterFive.linePoints === 250, `${afterFive.linePoints}`);
+	check('the five-run replaces the four-run rather than stacking', afterFive.linePoints === fivePts, `${afterFive.linePoints} vs ${fivePts}`);
 	check(
 		'extending pays the upgrade delta plus the tile',
-		afterFive.total - fourTotal === 150 + snap.scoring.tile_points,
-		`${afterFive.total - fourTotal}`
+		afterFive.total - fourTotal === fivePts - fourPts + snap.scoring.tile_points,
+		`${afterFive.total - fourTotal} vs ${fivePts - fourPts + snap.scoring.tile_points}`
 	);
 
 	// Retuning mid-game re-scores the whole board — no migration, no drift.
@@ -493,7 +498,7 @@ try {
 	const fiveEnd = snap.pieces.find((p) => p.col === 14 && p.row === 0);
 	await c4.undoClaim({ eventId, pieceId: fiveEnd.id });
 	snap = await c4.loadConnect4(SLUG);
-	check('undoing an extension restores the shorter line', scoreOf(snap, 1).linePoints === 100, `${scoreOf(snap, 1).linePoints}`);
+	check('undoing an extension restores the shorter line', scoreOf(snap, 1).linePoints === tier(4), `${scoreOf(snap, 1).linePoints} vs ${tier(4)}`);
 
 	// ── 10. a column retires ─────────────────────────────────────────────────
 	step(10, 'A column fills up and retires');
