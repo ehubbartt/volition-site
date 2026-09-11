@@ -316,6 +316,19 @@
 	// board only when it moves, so an open board never shows a stale tile. Paused during
 	// a replay — a refetch must not pull the board out from under a run mid-flight.
 	let refreshedAt = $state<string>('');
+	// THE STROKE OF THE START. Until then the payload carries no tiles at all — that is
+	// what stops a board dealt the night before being read early — so when the countdown
+	// runs out the page has to go and FETCH the board it has been waiting for. The version
+	// poll cannot do it: nothing has changed on the board, so its token is unmoved, and
+	// without this every player would sit looking at an empty rail until they reloaded.
+	let fetchedOnOpen = $state(false);
+	$effect(() => {
+		if (opened && !fetchedOnOpen) {
+			fetchedOnOpen = true;
+			invalidateAll();
+		}
+	});
+
 	async function refresh() {
 		await invalidateAll();
 		refreshedAt = new Date().toLocaleTimeString();

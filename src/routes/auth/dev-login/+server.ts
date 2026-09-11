@@ -12,7 +12,15 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ url, cookies }) => {
 	if (!devLoginEnabled()) throw error(404, 'Not found');
 
-	const discordId = devLoginDiscordId();
+	// `?as=<discord id>` signs in as SOMEONE ELSE, which is what makes a multi-actor test
+	// possible: the end-to-end suite drives the event as an ordinary seated player in one
+	// browser context and as an admin in another, instead of proving the admin path twice.
+	// It grants nothing extra — roles are still resolved from the allow-lists and
+	// `vs_admin_roles`, so signing in as a member gets a member's access — and it lives
+	// behind the same `devLoginEnabled()` gate as the rest of this route, which is
+	// statically false in every build.
+	const asId = (url.searchParams.get('as') ?? '').trim();
+	const discordId = asId || devLoginDiscordId();
 	if (!discordId) {
 		throw error(
 			500,
