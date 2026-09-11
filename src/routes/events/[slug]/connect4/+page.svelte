@@ -171,7 +171,7 @@
 	// in-game time against when the tile went up — which they can only do if the player
 	// has chat timestamps on and knows the rule. Remembered per event in a cookie; a UX
 	// nudge, not a security gate (the server validates every submission regardless).
-	const EVENT_CODEWORD = 'VOLI';
+	const EVENT_CODEWORD = 'HASBRO';
 	let ackConfirmed = $state(false);
 	const ackCookie = $derived(game ? `voli_c4_ack_${game.id}` : '');
 	const ackOpen = $derived(

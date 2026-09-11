@@ -18,7 +18,7 @@
 // the board, costs nothing — and `disposeTokenTextures()` frees the lot with the scene.
 
 import * as THREE from 'three';
-import { viaProxy, wikiImageSources } from '$lib/wikiImage';
+import { nameInitials, viaProxy, wikiImageSources } from '$lib/wikiImage';
 
 const SIZE = 128;
 const cache = new Map<string, THREE.CanvasTexture>();
@@ -42,6 +42,19 @@ function paintDisc(ctx: CanvasRenderingContext2D) {
 	rim.addColorStop(1, 'rgba(0,0,0,0.35)');
 	ctx.fillStyle = rim;
 	ctx.fillRect(0, 0, SIZE, SIZE);
+	ctx.restore();
+}
+
+/** The name's initials, centred — the 3D twin of the flat rail's `.wiki-fallback`. */
+function paintInitials(ctx: CanvasRenderingContext2D, text: string) {
+	if (!text) return;
+	ctx.save();
+	ctx.fillStyle = '#3a3223';
+	ctx.font = `700 ${Math.round(SIZE * (text.length > 2 ? 0.34 : 0.42))}px system-ui, sans-serif`;
+	ctx.textAlign = 'center';
+	ctx.textBaseline = 'middle';
+	// A touch above centre reads as optically centred against the rim shadow below.
+	ctx.fillText(text, SIZE / 2, SIZE * 0.52);
 	ctx.restore();
 }
 
@@ -89,7 +102,16 @@ export function tokenTexture(itemName: string): THREE.CanvasTexture {
 	// Through the cache like every other icon — the 3D board draws the same 40 items the
 	// rail does, and hotlinking them separately doubled the burst the wiki saw.
 	loadFirst(wikiImageSources(itemName).map(viaProxy)).then((img) => {
-		if (!img) return; // every spelling 404'd — the bare disc stands in
+		if (!img) {
+			// Every spelling 404'd. The flat rail draws the name's initials here; the 3D
+			// board used to leave a bare disc, which is why half the tokens read as blank
+			// cream counters in 3D while the same board was legible in flat. More than
+			// half this event's tiles are task names the wiki has no file for, so this is
+			// the common case, not the edge one.
+			paintInitials(ctx, nameInitials(itemName));
+			tex.needsUpdate = true;
+			return;
+		}
 		const box = SIZE * 0.72;
 		const scale = Math.min(box / img.naturalWidth, box / img.naturalHeight);
 		const w = img.naturalWidth * scale;
