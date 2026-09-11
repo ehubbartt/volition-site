@@ -392,28 +392,40 @@ async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
 	if (deck.some((t) => tileQty(t) > 1)) {
 		const idxs = live.filter((l): l is LiveTile => !!l && tileQty(l.tile) > 1).map((l) => l.deckIdx);
 		if (idxs.length) {
-			let prog: { deck_idx: number; side: Side; qty?: number }[] | null = null;
+			let prog: { deck_idx: number; side: Side; qty?: number; by_user_id?: string | null }[] | null = null;
 			let progErr: unknown = null;
 			({ data: prog, error: progErr } = await sb
 				.from('vs_connect4_progress')
-				.select('deck_idx, side, qty')
+				.select('deck_idx, side, qty, by_user_id')
 				.eq('event_id', ev.id)
 				.in('deck_idx', idxs));
 			if (missingColumn(progErr)) {
 				({ data: prog } = await sb
 					.from('vs_connect4_progress')
-					.select('deck_idx, side')
+					.select('deck_idx, side, by_user_id')
 					.eq('event_id', ev.id)
 					.in('deck_idx', idxs));
 			}
 			const counts = new Map<number, { 1: number; 2: number }>();
+			// Who actually contributed, so a ×N tile can name them rather than showing only
+			// whoever happened to place the piece. Ids, not names: the payload already
+			// carries the roster, so the page resolves them without a second query.
+			const who = new Map<number, { userId: string; side: Side; qty: number }[]>();
 			for (const r of prog ?? []) {
 				const c = counts.get(r.deck_idx) ?? { 1: 0, 2: 0 };
-				c[r.side] += Number(r.qty) || 1;
+				const qty = Number(r.qty) || 1;
+				c[r.side] += qty;
 				counts.set(r.deck_idx, c);
+				const uid = (r as { by_user_id?: string | null }).by_user_id;
+				if (uid) {
+					who.set(r.deck_idx, [...(who.get(r.deck_idx) ?? []), { userId: uid, side: r.side, qty }]);
+				}
 			}
 			for (const l of live) {
-				if (l && tileQty(l.tile) > 1) l.progress = counts.get(l.deckIdx) ?? { 1: 0, 2: 0 };
+				if (l && tileQty(l.tile) > 1) {
+					l.progress = counts.get(l.deckIdx) ?? { 1: 0, 2: 0 };
+					l.contributors = who.get(l.deckIdx) ?? [];
+				}
 			}
 		}
 	}

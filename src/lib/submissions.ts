@@ -54,6 +54,19 @@ export interface ReviewItem {
 	tileNeedsPreShot: boolean;
 	// What specifically had to be photographed first, when the tile says so.
 	tilePreNote: string | null;
+	// QUANTITY tiles (Connect Four ×N): what the tile asks for, and where the claimant's
+	// side actually stands. Both matter to a reviewer and neither is in `target_label`,
+	// which only ever said "covers 1 of 3" — true of the first claim and of the one that
+	// finishes the tile alike. `tileBanked` ALREADY includes this claim: a Connect Four
+	// claim banks when it is submitted, not when it is approved, which is what makes
+	// submission order decide a contested tile.
+	tileNeed: number | null;
+	tileBanked: number | null;
+	tileSideName: string | null;
+	// This claim is the one that reached the total and put the piece on the board — the
+	// moment a reviewer should look hardest, and previously indistinguishable from any
+	// other "covers 1 of 3".
+	tileCompletedIt: boolean;
 }
 
 // One already-reviewed submission group, for the read-only history view. Same shape

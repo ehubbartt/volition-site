@@ -37,7 +37,8 @@
 		onselect,
 		oncolumn,
 		disabled = false,
-		cellFloor = 0
+		cellFloor = 0,
+		rsnFor
 	}: {
 		pieces: Piece[];
 		live: (LiveTile | null)[];
@@ -66,6 +67,12 @@
 		 * whole unit scrolls sideways inside `.wrap` rather than the page doing it.
 		 */
 		cellFloor?: number;
+		/**
+		 * Resolve a member id to a name, for the contributor list on a ×N tile. A function
+		 * rather than a map because every caller already holds the roster in its own shape;
+		 * omitted, contributors simply read as "someone".
+		 */
+		rsnFor?: (userId: string) => string | null;
 	} = $props();
 
 	// Claim order is the order pieces arrive from the server (ordered by claimed_at).
@@ -130,7 +137,16 @@
 	};
 
 	const claimedVia = (p: Piece) =>
-		p.drop_key?.startsWith('manual:') ? 'credited by hand' : p.drop_key?.startsWith('test-') ? 'simulated' : 'from a Dink drop';
+		// `manual:submission:` is a MEMBER's approved screenshot; a bare `manual:` is an
+		// admin placing the piece themselves. Both start 'manual:', so testing only that
+		// told every player their own proof had been credited by hand.
+		p.drop_key?.startsWith('manual:submission:')
+			? 'from an approved screenshot'
+			: p.drop_key?.startsWith('manual:')
+				? 'credited by hand'
+				: p.drop_key?.startsWith('test-')
+					? 'simulated'
+					: 'from a Dink drop';
 
 	function enter(e: MouseEvent | FocusEvent, piece: Piece | undefined) {
 		if (!piece) return;
@@ -159,6 +175,12 @@
 			anyOf: info.slot.tile.any_of?.map((m) => m.item_name) ?? null,
 			qty: info.slot.tile.qty ?? null,
 			progress: info.slot.progress ?? null,
+			contributors:
+				info.slot.contributors?.map((c) => ({
+					rsn: rsnFor?.(c.userId) ?? 'someone',
+					side: c.side,
+					qty: c.qty
+				})) ?? null,
 			sideNames,
 			where: `column ${columnLabel(info.slot.col)}`,
 			x: info.x,

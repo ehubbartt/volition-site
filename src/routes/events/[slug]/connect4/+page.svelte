@@ -279,6 +279,26 @@
 		}
 	});
 
+	// Roster lookup for the ×N contributor list — the payload already carries every
+	// seated member's name, so naming contributors costs no extra query.
+	const rsnByUser = $derived(
+		new Map((game?.sides ?? []).flatMap((sd) => sd.members.map((m) => [m.userId, m.rsn])))
+	);
+
+	// ── Submission toast ──────────────────────────────────────────────────────
+	// The confirmation under the form is easy to miss on a 600-cell board — it sits below
+	// the fold once the claim panel is open, and a player who does not see it submits the
+	// same screenshot again. That double-banks a ×N tile, which is exactly how one tile
+	// completed on one player's duplicate. So the confirmation also arrives as a toast,
+	// pinned where they are looking.
+	let toast = $state<{ id: number; kind: 'ok' | 'warn'; text: string } | null>(null);
+	let toastTimer: ReturnType<typeof setTimeout> | null = null;
+	function say(kind: 'ok' | 'warn', text: string) {
+		if (toastTimer) clearTimeout(toastTimer);
+		toast = { id: Date.now(), kind, text };
+		toastTimer = setTimeout(() => (toast = null), 9000);
+	}
+
 	let selected = $state<number | null>(null);
 	const selectedTile = $derived(
 		resubmit?.tile
@@ -287,6 +307,25 @@
 				? null
 				: (game?.live[selected] ?? null)
 	);
+
+	// One toast per action result. `form` is replaced wholesale by use:enhance, so tracking
+	// the object identity is enough — resubmitting the same column twice still speaks.
+	let toldAbout: unknown = null;
+	$effect(() => {
+		const f = form;
+		if (!f || f === toldAbout) return;
+		toldAbout = f;
+		if (f.error) say('warn', f.error);
+		else if (f.submitted && f.progress)
+			say(
+				'ok',
+				`Sent for review — ${f.progress.have} of ${f.progress.need} for your side. Don't send it again; an admin will check it.`
+			);
+		else if (f.submitted && f.tileTaken)
+			say('warn', 'Sent for review, but another side claimed this tile first — nothing was placed.');
+		else if (f.submitted)
+			say('ok', "Sent for review — an admin will confirm it shortly. Don't send it again.");
+	});
 
 	// ── The tiles-on-offer list ───────────────────────────────────────────────
 	// The rail says what is on offer, but at 40 columns a token is too small to read and
@@ -411,12 +450,17 @@
 			}, 260);
 		}
 	}
+	// `manual:submission:` is a MEMBER's approved screenshot; a bare `manual:` is an admin
+	// placing the piece themselves. Both start 'manual:', so testing only that told every
+	// player their own proof had been credited by hand.
 	const claimedVia = (p: { drop_key?: string }) =>
-		p.drop_key?.startsWith('manual:')
-			? 'credited by hand'
-			: p.drop_key?.startsWith('test-')
-				? 'simulated'
-				: 'from a Dink drop';
+		p.drop_key?.startsWith('manual:submission:')
+			? 'from an approved screenshot'
+			: p.drop_key?.startsWith('manual:')
+				? 'credited by hand'
+				: p.drop_key?.startsWith('test-')
+					? 'simulated'
+					: 'from a Dink drop';
 
 	const hover3dCard = $derived.by((): CardInfo | null => {
 		const h = hover3d;
@@ -673,6 +717,7 @@
 								falling={playback.falling}
 								{selected}
 								{cellFloor}
+								rsnFor={(id) => rsnByUser.get(id) ?? null}
 								onselect={(c) => {
 									cancelResubmit();
 									selected = selected === c ? null : c;
@@ -1007,6 +1052,18 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Pinned to the viewport, so it is visible wherever they are on a 600-cell board. -->
+{#if toast}
+	{#key toast.id}
+		<div class="toast" class:warn={toast.kind === 'warn'} role="status" aria-live="polite">
+			<span>{toast.text}</span>
+			<button type="button" class="toast-x" onclick={() => (toast = null)} aria-label="Dismiss">
+				×
+			</button>
+		</div>
+	{/key}
+{/if}
 
 {#if hover3dCard}
 	<TileHoverCard
@@ -1388,5 +1445,55 @@
 		color: var(--muted);
 		font-size: 0.8rem;
 		cursor: pointer;
+	}
+	.toast {
+		position: fixed;
+		left: 50%;
+		bottom: 1.1rem;
+		transform: translateX(-50%);
+		z-index: 60;
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		max-width: min(34rem, calc(100vw - 2rem));
+		padding: 0.55rem 0.8rem;
+		border: 1px solid var(--success, #6aa84f);
+		border-radius: 4px;
+		background: #1d2417;
+		color: var(--text);
+		font-size: 0.85rem;
+		line-height: 1.3;
+		box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
+	}
+	.toast.warn {
+		border-color: var(--danger);
+		background: #2a1a1a;
+	}
+	.toast-x {
+		border-image: none;
+		border: 0;
+		background: none;
+		min-height: 0;
+		margin: 0;
+		padding: 0 0.2rem;
+		font-size: 1.1rem;
+		line-height: 1;
+		color: var(--muted);
+		cursor: pointer;
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.toast {
+			animation: c4-toast-in 160ms ease-out;
+		}
+	}
+	@keyframes c4-toast-in {
+		from {
+			opacity: 0;
+			transform: translate(-50%, 8px);
+		}
+		to {
+			opacity: 1;
+			transform: translate(-50%, 0);
+		}
 	}
 </style>

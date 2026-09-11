@@ -267,7 +267,16 @@
 			}, 260);
 	}
 	const claimedVia = (p: { drop_key?: string }) =>
-		p.drop_key?.startsWith('manual:') ? 'credited by hand' : p.drop_key?.startsWith('test-') ? 'simulated' : 'from a Dink drop';
+		// `manual:submission:` is a MEMBER's approved screenshot; a bare `manual:` is an
+		// admin placing the piece themselves. Both start 'manual:', so testing only that
+		// told every player their own proof had been credited by hand.
+		p.drop_key?.startsWith('manual:submission:')
+			? 'from an approved screenshot'
+			: p.drop_key?.startsWith('manual:')
+				? 'credited by hand'
+				: p.drop_key?.startsWith('test-')
+					? 'simulated'
+					: 'from a Dink drop';
 
 	// The 3D board reports what the pointer is over; the card itself is the same component
 	// the flat board uses, so both views describe a tile identically.

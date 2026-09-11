@@ -27,6 +27,8 @@
 		/** Quantity tile: drops one side needs, and where both sides stand. */
 		qty?: number | null;
 		progress?: { 1: number; 2: number } | null;
+		/** Who has banked toward a ×N tile, resolved to names by the board. */
+		contributors?: { rsn: string; side: number; qty: number }[] | null;
 		/** Side names for the progress line (defaults to Red/Yellow). */
 		sideNames?: string[] | null;
 		x: number;
@@ -100,6 +102,16 @@
 					{info.sideNames?.[1] ?? 'Yellow'} {info.progress[2]}/{info.qty}
 				{/if}
 			</div>
+			{#if info.contributors?.length}
+				<div class="hc-who">
+					<span class="hc-who-head">banked by:</span>
+					<ul>
+						{#each info.contributors as c, i (`${c.rsn}-${i}`)}
+							<li>{c.rsn}{#if c.qty > 1} ×{c.qty}{/if}</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
 		{/if}
 		{#if info.anyOf?.length}
 			<div class="hc-anyof">
@@ -191,6 +203,17 @@
 		padding-left: 1rem;
 		max-height: 9rem;
 		overflow-y: auto;
+	}
+	.hc-who {
+		font-size: 0.72rem;
+		color: var(--muted);
+	}
+	.hc-who ul {
+		margin: 0.1rem 0 0;
+		padding-left: 0.9rem;
+	}
+	.hc-who-head {
+		font-style: italic;
 	}
 	.hc-anyof-head {
 		font-style: italic;

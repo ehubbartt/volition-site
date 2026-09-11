@@ -275,6 +275,13 @@ export interface LiveTile {
 	tile: TileRef;
 	/** Per-side drops banked toward a QUANTITY tile — attached by the server store. */
 	progress?: { 1: number; 2: number };
+	/**
+	 * Who has banked toward it. A ×N tile is a group effort, but the board could only ever
+	 * name the player who happened to place the piece — the others were invisible, and a
+	 * duplicate claim from one person looked exactly like two people contributing. Ids
+	 * rather than names: every consumer already holds the roster.
+	 */
+	contributors?: { userId: string; side: Side; qty: number }[];
 }
 
 /**

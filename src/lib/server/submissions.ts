@@ -13,6 +13,7 @@
 
 import { db, fetchAllFiltered } from './db';
 import { loadConnect4ById } from './connect4';
+import { tileQty } from '$lib/connect4/rules';
 import { grantPlayerVp } from './playerStats';
 import { renderMarkdown } from '$lib/markdown';
 import { CLAN_LABEL } from '$lib/clans';
@@ -322,6 +323,10 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 				// target is a moving target.
 				tileActiveSince: null,
 				tileSuperseded: false,
+				tileNeed: null,
+				tileBanked: null,
+				tileSideName: null,
+				tileCompletedIt: false,
 				// Set for a Connect Four tile the planning sheet marked as needing a BEFORE
 				// screenshot. The reviewer has to be told: an "after" alone proves nothing
 				// about a counter, and by the time it reaches the queue nobody can go back
@@ -384,6 +389,40 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 		for (const [eventId, group] of byEvent) {
 			const snap = await loadConnect4ById(eventId).catch(() => null);
 			if (!snap) continue;
+
+			// Every bank row for the slots in this batch, in one read. `qty` is hand-applied
+			// schema, so fall back to one-per-row if the column is not there yet.
+			const slots = group
+				.map((it) => Number(it.task.id.split(':')[2]))
+				.filter((n) => Number.isInteger(n));
+			const banks = new Map<number, { side: 1 | 2; qty: number; submissionId: string | null }[]>();
+			if (slots.length) {
+				let rows: { deck_idx: number; side: 1 | 2; qty?: number; drop_key: string | null }[] | null = null;
+				let bErr: unknown = null;
+				({ data: rows, error: bErr } = await db()
+					.from('vs_connect4_progress')
+					.select('deck_idx, side, qty, drop_key')
+					.eq('event_id', eventId)
+					.in('deck_idx', slots));
+				if (bErr) {
+					({ data: rows } = await db()
+						.from('vs_connect4_progress')
+						.select('deck_idx, side, drop_key')
+						.eq('event_id', eventId)
+						.in('deck_idx', slots));
+				}
+				for (const r of rows ?? []) {
+					const list = banks.get(r.deck_idx) ?? [];
+					list.push({
+						side: r.side,
+						qty: Number(r.qty) || 1,
+						submissionId: r.drop_key?.startsWith('manual:submission:')
+							? r.drop_key.slice('manual:submission:'.length)
+							: null
+					});
+					banks.set(r.deck_idx, list);
+				}
+			}
 			for (const it of group) {
 				const [, colRaw, idxRaw] = it.task.id.split(':');
 				const col = Number(colRaw);
@@ -404,6 +443,26 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 				it.tileSuperseded = snap.pieces.some(
 					(p) => p.deck_idx === deckIdx && !(p.submission_id && own.has(p.submission_id))
 				);
+
+				// A ×N tile: say where the side stands, not just what this proof claims.
+				const need = tileQty(tile ?? {});
+				if (need > 1) {
+					it.tileNeed = need;
+					const rows = banks.get(deckIdx) ?? [];
+					// Which side this claim is on comes from the bank row it wrote, keyed by
+					// the same drop_key the piece uses — exact, and no roster lookup.
+					const mine = rows.find((r) => own.has(r.submissionId ?? ''));
+					const side = mine?.side ?? null;
+					if (side) {
+						it.tileSideName = snap.sides[side - 1]?.name ?? `side ${side}`;
+						it.tileBanked = rows
+							.filter((r) => r.side === side)
+							.reduce((n, r) => n + r.qty, 0);
+					}
+					it.tileCompletedIt = snap.pieces.some(
+						(p) => p.deck_idx === deckIdx && p.submission_id && own.has(p.submission_id)
+					);
+				}
 			}
 		}
 	}

@@ -564,7 +564,23 @@
         <span class="event-name muted">{current.event.name}</span>
       </div>
       <h2 class="task-name">{current.task.label}</h2>
-      {#if current.required != null}
+      {#if current.tileNeed != null}
+        <!-- A ×N tile banks when the claim is SUBMITTED, so this total already counts
+             the proof on screen. "covers 1 of 3" alone never said whether this was the
+             first of three or the one that took the tile. -->
+        <div class="tile-prog">
+          <span class="prog-count">
+            {current.tileSideName ?? 'this side'}
+            {current.tileBanked ?? '?'}/{current.tileNeed} banked
+          </span>
+          <span class="claim-badge" title="How many of the tile's total this proof covers">
+            this proof covers {current.quantity}
+          </span>
+          {#if current.tileCompletedIt}
+            <span class="will-complete">· this claim completed the tile</span>
+          {/if}
+        </div>
+      {:else if current.required != null}
         <div class="tile-prog">
           <span class="prog-count"
             >{current.approvedSoFar ?? 0}/{current.required} approved</span

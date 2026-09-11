@@ -127,6 +127,26 @@ Two optional tile shapes on top of the plain single item:
   worked. Rejecting an approved row is still not allowed — un-approving is the path,
   because that is what reverses the VP and reclaims the pack.
 
+  **A quantity tile says where the side stands, and who got it there.** The review card
+  shows the claiming side's running bank (`Volition 2/3 banked`) beside what the proof
+  covers, and flags the claim that actually completed the tile — `target_label` only ever
+  said "covers 1 of 3", which reads identically on the first claim and the deciding one.
+  The board's hover card lists every contributor to a ×N tile rather than only whoever
+  placed the piece; contributor ids ride on `LiveTile.contributors` and each consumer
+  resolves them against the roster it already holds, so naming them costs no extra query.
+  Both exist because one player's duplicate screenshot completed a tile and nothing on
+  either screen made that visible.
+
+  **"credited by hand" means an ADMIN placed it.** A member's approved proof reads *from an
+  approved screenshot*. Both use a `manual:` drop key — member claims are
+  `manual:submission:<id>` — so a prefix test on `manual:` alone told every player their
+  own screenshot had been credited by hand.
+
+  **A submission also confirms itself as a toast.** The line under the claim form sits
+  below the fold once the panel is open on a 600-cell board, and a player who misses it
+  sends the same screenshot again — which double-banks a ×N tile. The toast is pinned to
+  the viewport, says where the side now stands, and tells them not to send it twice.
+
   `npm run drill:connect4:reject` guards these — it posts the real member
   and admin forms, and reverting any one fix turns its checks red — 7 of 20 for the bank, 5 for the race.
 
