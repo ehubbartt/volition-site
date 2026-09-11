@@ -347,21 +347,71 @@
 			say('ok', "Sent for review — an admin will confirm it shortly. Don't send it again.");
 	});
 
+	// ── When a tile went up ───────────────────────────────────────────────────
+	// A column deals its slice in order, so a tile went live the moment the piece BELOW it
+	// landed — and the first slot in a column went live when the game opened. The same
+	// rule the reviewer's timing check uses (`tileActiveSince`), computed here from the
+	// piece log the payload already carries rather than asking the server again.
+	function tileLiveAt(deckIdx: number): number | null {
+		if (!game) return null;
+		if (deckIdx % game.rows === 0) return game.startsAt ? Date.parse(game.startsAt) : null;
+		const below = game.pieces.find((p) => p.deck_idx === deckIdx - 1);
+		const at = below?.claimed_at ? Date.parse(below.claimed_at) : NaN;
+		return Number.isFinite(at) ? at : null;
+	}
+
+	/** How long a freshly-dealt tile is worth flagging. */
+	const NEW_FOR_MS = 15 * 60_000;
+	/** Columns whose objective went up within the window — the rail marks them. */
+	const freshCols = $derived.by(() => {
+		const out = new Set<number>();
+		for (const [col, slot] of (game?.live ?? []).entries()) {
+			if (!slot) continue;
+			const at = tileLiveAt(slot.deckIdx);
+			if (at != null && clock.now - at < NEW_FOR_MS) out.add(col);
+		}
+		return out;
+	});
+
 	// ── The tiles-on-offer list ───────────────────────────────────────────────
 	// The rail says what is on offer, but at 40 columns a token is too small to read and
 	// a player has to hunt along it for the drop they actually got. This is the same 40
 	// tiles as a plain list they can scan, filter and click — clicking is exactly what
 	// clicking the rail does, so there is one selection and one claim form, not two.
 	let tileFilter = $state('');
+	// Three readings of the same 40 objectives. 'board' is the board's own order, which is
+	// the only one that matches the rail above it; the other two answer the two questions
+	// players actually ask — what just went up, and what can I get quickest.
+	type OfferSort = 'board' | 'newest' | 'fastest';
+	const SORTS: { key: OfferSort; label: string; hint: string }[] = [
+		{ key: 'board', label: 'Board order', hint: 'Column A through to the last, same as the rail' },
+		{ key: 'newest', label: 'Newest first', hint: 'Most recently dealt objectives first' },
+		{ key: 'fastest', label: 'Fastest first', hint: 'Lowest expected hours to obtain first' }
+	];
+	let offerSort = $state<OfferSort>('board');
 	const openTiles = $derived(
 		(game?.live ?? [])
 			.map((slot, col) => ({ slot, col }))
 			.filter((t): t is { slot: NonNullable<typeof t.slot>; col: number } => !!t.slot)
 	);
+	const sortedTiles = $derived.by(() => {
+		const list = [...openTiles];
+		// A tile with no EHB and one with no known deal time both sort LAST rather than
+		// first — an unknown is not a zero, and floating them to the top would be a lie.
+		if (offerSort === 'fastest') {
+			return list.sort((a, b) => (a.slot.tile.ehb ?? Infinity) - (b.slot.tile.ehb ?? Infinity));
+		}
+		if (offerSort === 'newest') {
+			return list.sort(
+				(a, b) => (tileLiveAt(b.slot.deckIdx) ?? -Infinity) - (tileLiveAt(a.slot.deckIdx) ?? -Infinity)
+			);
+		}
+		return list;
+	});
 	const shownTiles = $derived.by(() => {
 		const q = tileFilter.trim().toLowerCase();
-		if (!q) return openTiles;
-		return openTiles.filter((t) => {
+		if (!q) return sortedTiles;
+		return sortedTiles.filter((t) => {
 			const tile = t.slot.tile;
 			const hay = [
 				columnLabel(t.col),
@@ -737,6 +787,7 @@
 								falling={playback.falling}
 								{selected}
 								{cellFloor}
+								{freshCols}
 								rsnFor={(id) => rsnByUser.get(id) ?? null}
 								onselect={(c) => {
 									cancelResubmit();
@@ -951,13 +1002,27 @@
 							Every objective currently up for grabs, one per column. Click one to send your
 							screenshot — the same as clicking its token above the board.
 						</p>
-						<input
-							class="offer-filter"
-							type="search"
-							placeholder="Filter by item, boss or column…"
-							bind:value={tileFilter}
-							aria-label="Filter the tiles on offer"
-						/>
+						<div class="offer-tools">
+							<span class="viewtoggle sorttoggle" aria-label="Sort the tiles on offer">
+								{#each SORTS as srt (srt.key)}
+									<button
+										type="button"
+										class:on={offerSort === srt.key}
+										title={srt.hint}
+										onclick={() => (offerSort = srt.key)}
+									>
+										{srt.label}
+									</button>
+								{/each}
+							</span>
+							<input
+								class="offer-filter"
+								type="search"
+								placeholder="Filter by item, boss or column…"
+								bind:value={tileFilter}
+								aria-label="Filter the tiles on offer"
+							/>
+						</div>
 					</div>
 					{#if shownTiles.length}
 						<ul class="offers">
@@ -966,6 +1031,7 @@
 								<li>
 									<button type="button" class:on={selected === t.col} onclick={() => pickTile(t.col)}>
 										<span class="col-tag">{columnLabel(t.col)}</span>
+									{#if freshCols.has(t.col)}<span class="new-tag">NEW</span>{/if}
 										<WikiImage
 											src={itemImageUrl(tile.any_of?.[0]?.item_name ?? tile.item_name)}
 											fallback={nameInitials(tile.item_name)}
@@ -1406,6 +1472,22 @@
 	.offer-head p {
 		margin: 0;
 		flex: 1 1 16rem;
+	}
+	.offer-tools {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.sorttoggle {
+		margin-left: 0;
+	}
+	.new-tag {
+		flex: none;
+		font-size: 0.62rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		color: var(--danger);
 	}
 	.offer-filter {
 		flex: 0 1 15rem;

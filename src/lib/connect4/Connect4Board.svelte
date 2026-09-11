@@ -38,6 +38,7 @@
 		oncolumn,
 		disabled = false,
 		cellFloor = 0,
+		freshCols,
 		rsnFor
 	}: {
 		pieces: Piece[];
@@ -73,6 +74,8 @@
 		 * omitted, contributors simply read as "someone".
 		 */
 		rsnFor?: (userId: string) => string | null;
+		/** Columns whose objective was dealt recently — the rail flags them as new. */
+		freshCols?: Set<number>;
 	} = $props();
 
 	// Claim order is the order pieces arrive from the server (ordered by claimed_at).
@@ -192,7 +195,7 @@
 <svelte:window onscroll={leave} />
 
 <div class="wrap" style="--n: {cols}; --rows: {rows};{cellFloor ? ` --min-cell: ${cellFloor}px;` : ''}">
-	<TileRail {live} {claiming} {selected} {onselect} onhover={railHover} />
+	<TileRail {live} {claiming} {selected} {freshCols} {onselect} onhover={railHover} />
 
 	<div class="collabels" aria-hidden="true">
 		{#each colList as c (c)}<span class:full={colFull[c]}>{columnLabel(c)}</span>{/each}

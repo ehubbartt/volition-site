@@ -142,6 +142,17 @@ Two optional tile shapes on top of the plain single item:
   `manual:submission:<id>` — so a prefix test on `manual:` alone told every player their
   own screenshot had been credited by hand.
 
+  **The offer list sorts three ways, and fresh tiles say so.** *Board order* is the rail's
+  own order and the only one that lines up with the tokens above; *Newest first* and
+  *Fastest first* answer the two questions players actually ask — what just went up, and
+  what can I get quickest. A tile with no EHB, or no known deal time, sorts LAST rather
+  than first: an unknown is not a zero. When a tile went up is derived on the client from
+  the piece log the payload already carries — a column deals its slice in order, so a tile
+  went live when the piece below it landed, and the first slot in a column when the game
+  opened. That is the same rule as the reviewer's `tileActiveSince`. Anything dealt within
+  15 minutes is flagged **NEW** in red, on the rail token and in the list, sized in
+  container units so it survives the board zoom.
+
   **Submitting takes a confirmation step.** Posting a claim is not free: it takes the cell
   immediately, and on a ×N tile it banks immediately, so a proof sent early or sent twice
   costs the side progress only an admin can return. The Submit button therefore opens a

@@ -14,6 +14,7 @@
 		live = [],
 		claiming,
 		selected = null,
+		freshCols,
 		onselect,
 		onhover
 	}: {
@@ -25,6 +26,12 @@
 		 */
 		claiming?: Set<number>;
 		selected?: number | null;
+		/**
+		 * Columns whose objective went up in the last few minutes. Flagged on the token
+		 * itself: a 40-column rail changes a tile at a time and nothing about a replacement
+		 * looked different from the tile that had been sitting there for an hour.
+		 */
+		freshCols?: Set<number>;
 		onselect?: (col: number) => void;
 		/** Reports the pointed-at objective (and where it is) so the board can card it. */
 		onhover?: (info: { slot: LiveTile; x: number; y: number } | null) => void;
@@ -70,6 +77,7 @@
 				{#if slot.tile.qty && slot.tile.qty > 1}
 					<span class="qty-badge" aria-hidden="true">×{slot.tile.qty}</span>
 				{/if}
+				{#if freshCols?.has(col)}<span class="new-flag">NEW</span>{/if}
 				{#if claiming?.has(col)}<span class="dealing" aria-hidden="true"></span>{/if}
 			{:else}
 				<span class="done">✓</span>
@@ -190,6 +198,22 @@
 		font-size: 0.9rem;
 	}
 	/* Quantity marker, tucked in the corner so a 45px card stays an icon. */
+	/* Above the token art, in the card's own top strip — sized in container units so it
+	   stays readable at every board zoom. */
+	.new-flag {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		text-align: center;
+		font-size: max(7px, 22cqw);
+		font-weight: 700;
+		line-height: 1.1;
+		letter-spacing: 0.03em;
+		color: #ff5252;
+		text-shadow: 0 1px 2px #000;
+		pointer-events: none;
+	}
 	.qty-badge {
 		position: absolute;
 		right: 1px;
