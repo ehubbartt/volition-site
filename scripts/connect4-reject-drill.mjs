@@ -263,6 +263,43 @@ try {
     `FIX 4 — escalating to a full rejection then frees it (${heldF} → ${(await piecesIn(F)).length})`
   );
 
+  // ══ PETS — points beside the board, no cell ════════════════════════════════
+  const petBonuses = async () => {
+    const { data } = await sb.from('vs_connect4_bonus').select('id, side, points, item_name, drop_key')
+      .eq('event_id', game.id);
+    return data ?? [];
+  };
+  const petRes = await member.actions.submitPet({
+    request: (() => {
+      const fd = new FormData();
+      fd.set('pet', 'Nexling');
+      fd.append('proof', proof());
+      return new Request(`http://local/events/${SLUG}/connect4?/submitPet`, { method: 'POST', body: fd });
+    })(),
+    locals: { user: red1 },
+    params: { slug: SLUG }
+  });
+  console.log('pet submit →', JSON.stringify(petRes));
+  check(petRes?.submitted === true && petRes?.pet === 'Nexling', `a pet can be submitted from the board`);
+  check((await petBonuses()).length === 0, `submitting a pet awards NOTHING yet (review does)`);
+  const piecesBefore = (await piecesIn(0)).length + (await piecesIn(1)).length;
+
+  const petSub = (await subsFor(red1.id)).filter((x) => x.target_id === 'c4:pet').pop();
+  await decide(petSub.id, 'approve');
+  const paid = await petBonuses();
+  check(paid.length === 1, `approving it awards exactly one bonus (got ${paid.length})`);
+  check(paid[0]?.side === 1, `...to the submitter's own side (side ${paid[0]?.side})`);
+  check(paid[0]?.item_name === 'Nexling', `...naming the pet ("${paid[0]?.item_name}")`);
+  check(
+    (await piecesIn(0)).length + (await piecesIn(1)).length === piecesBefore,
+    `...and places no piece on the board`
+  );
+
+  // Revoke then re-approve must not pay twice.
+  await revoke(petSub.id);
+  await decide(petSub.id, 'approve');
+  check((await petBonuses()).length === 1, `re-approving after a revoke does not pay twice`);
+
   console.log('\n──────── PASS ────────');
   for (const m of ok) console.log('  ✓', m);
   if (bad.length) {

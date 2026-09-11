@@ -4,7 +4,14 @@ import { mintBombsForApprovedClaims } from '$lib/server/battleship';
 import { isAdmin } from '$lib/server/auth';
 import { grantPlayerVp } from '$lib/server/playerStats';
 import { decideSubmissions, revokeSubmissions } from '$lib/server/submissions';
-import { confirmPiece, rejectPieceFully, revokeProgressFor } from '$lib/server/connect4';
+import {
+	addBonus,
+	confirmPiece,
+	loadConnect4ById,
+	rejectPieceFully,
+	revokeProgressFor,
+	sideForUser
+} from '$lib/server/connect4';
 import type { SubmissionSource, ReviewDecision } from '$lib/submissions';
 import type { Actions } from './$types';
 
@@ -63,14 +70,70 @@ async function grantVpForApproval(
  *   full    — the claim is not good. The piece is removed, the column shifts down, and
  *             the tile goes back into play through the requeue.
  */
+/**
+ * Turn an approved pet submission into a bonus award, once. Idempotent through
+ * `vs_connect4_bonus.drop_key`, which is unique per event: re-approving after a revoke
+ * cannot pay a second time.
+ */
+async function awardPet(
+	eventId: string,
+	submissionId: string,
+	userId: string | null,
+	label: string | null
+): Promise<{ ok: boolean; error?: string }> {
+	const snap = await loadConnect4ById(eventId);
+	if (!snap) return { ok: false, error: 'No such game' };
+	const side = userId ? await sideForUser(eventId, userId) : null;
+	if (!side) return { ok: false, error: 'That submitter is not on a side' };
+
+	const dropKey = `manual:submission:${submissionId}`;
+	const { data: already } = await db()
+		.from('vs_connect4_bonus')
+		.select('id')
+		.eq('event_id', eventId)
+		.eq('drop_key', dropKey)
+		.maybeSingle();
+	if (already) return { ok: true };
+
+	const res = await addBonus({
+		eventId,
+		side,
+		points: snap.scoring.pet_points,
+		kind: 'pet',
+		itemName: (label ?? '').replace(/^Pet\s*—\s*/, '').trim() || null,
+		byUserId: userId,
+		note: 'submitted on the board',
+		dropKey
+	});
+	return res.ok ? { ok: true } : { ok: false, error: res.error };
+}
+
 async function settleConnect4(ids: string[], outcome: 'approve' | 'partial' | 'full'): Promise<void> {
 	const { data: rows } = await db()
 		.from('vs_submissions')
-		.select('id, event_id, target_id')
+		.select('id, event_id, target_id, user_id, target_label')
 		.in('id', ids)
 		.like('target_id', 'c4:%');
-	for (const r of ((rows ?? []) as Array<{ id: string; event_id: string | null }>)) {
+	for (const r of ((rows ?? []) as Array<{
+		id: string;
+		event_id: string | null;
+		target_id: string;
+		user_id: string | null;
+		target_label: string | null;
+	}>)) {
 		if (!r.event_id) continue;
+
+		// A PET pays points beside the board — no column, no piece. Approving is what
+		// awards it; the two rejections have nothing to undo because nothing was placed
+		// when it was submitted.
+		if (r.target_id === 'c4:pet') {
+			if (outcome === 'approve') {
+				const res = await awardPet(r.event_id, r.id, r.user_id, r.target_label);
+				if (!res.ok) console.warn(`[submissions] pet award ${r.id}: ${res.error}`);
+			}
+			continue;
+		}
+
 		if (outcome === 'approve') {
 			const res = await confirmPiece(r.id);
 			if (!res.ok) console.warn(`[submissions] confirm ${r.id}: ${res.error}`);

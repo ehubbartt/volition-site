@@ -129,5 +129,52 @@ export const actions: Actions = {
 		}
 
 		return { submitted: true, col, cell: claim.cell };
+	},
+
+	/**
+	 * A PET. Pets are filtered out of the tile pool on purpose — nobody can be asked to
+	 * farm one — so they pay points beside the board instead of claiming a cell. Until now
+	 * that was an admin typing it into the Pet bonuses panel from a Discord screenshot,
+	 * with nowhere for the player to send it.
+	 *
+	 * It goes through the SAME review queue as a tile claim, so the evidence rules and the
+	 * audit trail are identical. What it does not do is touch the board: no column, no
+	 * slot, no piece. The award is created on approval, not here — a pet cannot be raced
+	 * for, so there is nothing to hold by submitting first.
+	 */
+	submitPet: async ({ request, locals, params }) => {
+		if (!locals.user) throw redirect(303, '/');
+
+		const game = await loadConnect4(params.slug);
+		if (!game) return fail(404, { error: 'No such game' });
+		if (game.phase !== 'live' && game.phase !== 'finished') {
+			return fail(400, { error: 'This game is not running' });
+		}
+		if (game.phase === 'live' && !hasOpened(game)) {
+			return fail(400, { error: `This game opens at ${new Date(game.startsAt ?? '').toLocaleString()}.` });
+		}
+		const side = await sideForUser(game.id, locals.user.id);
+		if (!side) return fail(403, { error: "You're not on a side in this game yet." });
+
+		const form = await request.formData();
+		const petName = (form.get('pet')?.toString() ?? '').trim().slice(0, 80);
+		if (!petName) return fail(400, { error: 'Name the pet.' });
+
+		const files = form.getAll('proof').filter((f): f is File => f instanceof File && f.size > 0);
+		if (files.length === 0) return fail(400, { error: 'Add a screenshot showing the pet' });
+
+		const result = await createSubmission({
+			eventId: game.id,
+			userId: locals.user.id,
+			// No column, no slot: the settle step keys off this shape to award points
+			// rather than to place a piece.
+			targetId: 'c4:pet',
+			targetLabel: `Pet — ${petName}`,
+			quantity: 1,
+			files
+		});
+		if (!result.ok) return fail(400, { error: result.error });
+
+		return { submitted: true, pet: petName };
 	}
 };

@@ -1861,6 +1861,12 @@ export async function addBonus(input: {
 	byUserId?: string | null;
 	note?: string | null;
 	awardedBy?: string | null;
+	/**
+	 * Idempotency key, for an award created by something that can run twice — an approval
+	 * that is revoked and re-approved, say. Unique per event, and NULL for a hand-entered
+	 * award so two of those never collide.
+	 */
+	dropKey?: string | null;
 }): Promise<Result<{ id: string }>> {
 	const snap = await loadConnect4ById(input.eventId);
 	if (!snap) return errResult('No such game');
@@ -1881,7 +1887,8 @@ export async function addBonus(input: {
 			item_name: name || null,
 			by_user_id: input.byUserId || null,
 			note: (input.note ?? '').trim() || null,
-			awarded_by: input.awardedBy || null
+			awarded_by: input.awardedBy || null,
+			drop_key: input.dropKey || null
 		})
 		.select('id')
 		.single();

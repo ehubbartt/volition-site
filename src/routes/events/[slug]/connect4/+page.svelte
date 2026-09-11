@@ -290,6 +290,28 @@
 	// tile it banks immediately — so a proof sent early, or twice, costs the side real
 	// progress that only an admin can take back. The last step is therefore deliberate:
 	// it restates what is being sent, and makes them say they are done.
+	// ── Pets ──────────────────────────────────────────────────────────────────
+	// A pet claims no cell — pets are filtered out of the tile pool, so they pay points
+	// beside the board. Its own little form, with its own staged shot, so opening it can
+	// never disturb a tile claim in progress.
+	let petOpen = $state(false);
+	let petName = $state('');
+	let petShots = $state<{ file: File; url: string }[]>([]);
+	let petSending = $state(false);
+	let petInput = $state<HTMLInputElement | null>(null);
+	function addPetFiles(list: FileList | null) {
+		for (const f of Array.from(list ?? [])) {
+			if (!f.type.startsWith('image/')) continue;
+			petShots = [...petShots, { file: f, url: URL.createObjectURL(f) }];
+		}
+		if (petInput) petInput.value = '';
+	}
+	function clearPet() {
+		for (const s of petShots) URL.revokeObjectURL(s.url);
+		petShots = [];
+		petName = '';
+	}
+
 	/** Proof screenshots currently open in the viewer, or null. */
 	let viewing = $state<string[] | null>(null);
 
@@ -346,6 +368,8 @@
 			);
 		else if (f.submitted && f.tileTaken)
 			say('warn', 'Sent for review, but another side claimed this tile first — nothing was placed.');
+		else if (f.submitted && f.pet)
+			say('ok', `Pet sent for review — ${f.pet}. An admin will add the points shortly.`);
 		else if (f.submitted)
 			say('ok', "Sent for review — an admin will confirm it shortly. Don't send it again.");
 	});
@@ -1015,6 +1039,99 @@
 				{/if}
 			</div>
 		</section>
+
+		<!-- ── pets ──────────────────────────────────────────────────────────
+		     Points beside the board. Pets are deliberately not on the tile list — nobody
+		     can be asked to farm one — so this is the only way to claim one, and it had
+		     no member-facing route at all until now. -->
+		{#if game.viewerSide && (game.phase === 'live' || game.phase === 'finished')}
+			<section class="osrs-panel">
+				<div class="osrs-titlebar">Got a pet?</div>
+				<div class="pad">
+					<p class="muted tiny">
+						Pets aren't on the board — they can't be farmed to order, so they pay
+						<strong>{game.scoring.pet_points} points</strong> to your side instead of claiming a
+						cell. Send the drop screenshot and an admin will add the points.
+					</p>
+
+					{#if !petOpen}
+						<button type="button" onclick={() => (petOpen = true)}>Submit a pet</button>
+					{:else}
+						<form
+							method="POST"
+							action="?/submitPet"
+							enctype="multipart/form-data"
+							class="pet-form"
+							use:enhance={({ formData }) => {
+								petSending = true;
+								formData.delete('proof');
+								for (const st of petShots) formData.append('proof', st.file);
+								return async ({ update, result }) => {
+									if (result.type === 'success') {
+										clearPet();
+										petOpen = false;
+									}
+									await update({ reset: false });
+									petSending = false;
+								};
+							}}
+						>
+							<label class="tiny">
+								<span>Which pet?</span>
+								<input name="pet" bind:value={petName} maxlength="80" placeholder="e.g. Nexling" />
+							</label>
+
+							<input
+								bind:this={petInput}
+								type="file"
+								name="proof"
+								accept="image/*"
+								multiple
+								class="hidden-input"
+								onchange={(e) => addPetFiles(e.currentTarget.files)}
+							/>
+							<button type="button" class="link-ish" onclick={() => petInput?.click()}>
+								Add a screenshot
+							</button>
+
+							{#if petShots.length}
+								<div class="pet-shots">
+									{#each petShots as st, i (st.url)}<img src={st.url} alt="Screenshot {i + 1}" />{/each}
+								</div>
+							{/if}
+
+							<div class="claim-actions">
+								<button type="submit" disabled={petSending || !petShots.length || !petName.trim()}>
+									{petSending ? 'Sending…' : 'Send the pet for review'}
+								</button>
+								<button
+									type="button"
+									class="link-ish"
+									onclick={() => {
+										clearPet();
+										petOpen = false;
+									}}
+								>
+									Cancel
+								</button>
+							</div>
+						</form>
+					{/if}
+
+					{#if game.bonus.length}
+						<ul class="pets">
+							{#each game.bonus.slice(-8).reverse() as bn (bn.id)}
+								<li>
+									<span class="chip" style="--c: {game.sides[bn.side - 1]?.color}"></span>
+									<strong>{bn.itemName ?? bn.kind}</strong>
+									<span class="muted tiny">{bn.byRsn ?? 'someone'} · +{bn.points}</span>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+			</section>
+		{/if}
 
 		<!-- ── what is on offer ──────────────────────────────────────────────
 		     The rail in one readable column. Same selection as clicking the rail. -->
@@ -1743,6 +1860,42 @@
 		color: var(--muted);
 		font-size: 0.8rem;
 		cursor: pointer;
+	}
+	.pet-form {
+		display: grid;
+		gap: 0.5rem;
+		justify-items: start;
+		margin-top: 0.5rem;
+	}
+	.pet-form label {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+	.pet-shots {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+	}
+	.pet-shots img {
+		width: 84px;
+		height: 84px;
+		object-fit: cover;
+		border: 1px solid var(--border);
+		border-radius: 3px;
+	}
+	.pets {
+		list-style: none;
+		margin: 0.6rem 0 0;
+		padding: 0;
+		display: grid;
+		gap: 0.25rem;
+		font-size: 0.85rem;
+	}
+	.pets li {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
 	}
 	.proof-btn {
 		border-image: none;

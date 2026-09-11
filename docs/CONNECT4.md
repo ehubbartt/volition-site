@@ -275,6 +275,16 @@ database, so it runs anywhere.
 
 #### Bonus awards (pets)
 
+**Players submit their own.** *Got a pet?* on the board posts to `?/submitPet`, which puts
+a row in the same review queue as a tile claim — same evidence rules, same audit trail —
+with `target_id` `c4:pet` and no column or slot. Approving is what pays: `settleConnect4`
+sees that shape and calls `addBonus` for the submitter's side at `pet_points`, rather than
+placing a piece. Nothing is awarded at submission time, because a pet cannot be raced for
+and there is no cell to hold. The award carries the submission's `drop_key`, which is
+unique per event, so a revoke-and-re-approve cannot pay twice. Admins can still enter one
+by hand in the *Pet bonuses* panel — those rows carry a NULL `drop_key` and never collide.
+
+
 Points that sit **beside** the board rather than on it. Pets are filtered out of the tile
 generator on purpose, but a clan landing one during the event should still be worth
 something — so an admin records it by hand in the *Pet bonuses* panel and the side's total
