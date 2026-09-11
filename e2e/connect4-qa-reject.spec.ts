@@ -103,15 +103,15 @@ async function queueLabels(page: Page): Promise<string[]> {
 	return seen;
 }
 
-/** What the board says Volition has banked toward column C's ×1000 tile. */
+/** What the board says Volition has banked toward column B's ×5 tile. */
 async function volitionBank(page: Page): Promise<number> {
 	await page.reload({ waitUntil: 'domcontentloaded' });
 	await expect(page.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
-	await page.getByRole('button', { name: 'Column C: QA Stardust Haul' }).click();
+	await page.getByRole('button', { name: 'Column B: QA Mixology Points' }).click();
 	const detail = page.locator('.tile-detail');
-	await expect(detail).toContainText(/Volition \d+\/1000/, { timeout: 20_000 });
+	await expect(detail).toContainText(/Volition \d+\/5/, { timeout: 20_000 });
 	const text = (await detail.textContent()) ?? '';
-	return Number(/Volition (\d+)\/1000/.exec(text)?.[1] ?? NaN);
+	return Number(/Volition (\d+)\/5/.exec(text)?.[1] ?? NaN);
 }
 
 async function decide(page: Page, label: string, button: RegExp, note?: string) {
@@ -196,75 +196,6 @@ test('a full rejection takes the piece off the board and puts the tile back on o
 	});
 });
 
-test('rejecting a quantity claim gives the banked amount back', async () => {
-	test.setTimeout(240_000);
-	// A player claims 600 of a ×1000 tile. No piece is placed — only a bank, so this
-	// cannot wait on the board moving the way an ordinary claim does.
-	await openBoard(red);
-	const form = await stage(red, 'C', 'QA Stardust Haul', 600);
-	await form.getByRole('button', { name: /Submit this drop/ }).click();
-	await red.waitForTimeout(3000);
-	await red.reload({ waitUntil: 'domcontentloaded' });
-	await expect(red.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
-	await red.getByRole('button', { name: 'Column C: QA Stardust Haul' }).click();
-	await expect(red.locator('.tile-detail')).toContainText('Volition 600/1000', { timeout: 20_000 });
-
-	// The admin decides it is not a valid claim at all.
-	await decide(admin, 'QA Stardust Haul', /Reject & free tile/, 'That is not stardust.');
-
-	// The 600 must not still be sitting there: the next real 400 would finish the tile
-	// off the back of a claim an admin threw out.
-	await red.reload({ waitUntil: 'domcontentloaded' });
-	await red.getByRole('button', { name: 'Column C: QA Stardust Haul' }).click();
-	await expect(
-		red.locator('.tile-detail'),
-		'a rejected quantity claim is still banked toward the tile'
-	).toContainText('Volition 0/1000', { timeout: 20_000 });
-});
-
-test('two clans racing one column never double-book a cell, and each piece matches its proof', async () => {
-	test.setTimeout(240_000);
-	await openBoard(red);
-	await openBoard(yellow);
-	const f1 = await stage(red, 'E', 'Ancestral hat');
-	const f2 = await stage(yellow, 'E', 'Ancestral hat');
-
-	// Both send at once. The database decides who gets the cell, not the application.
-	await Promise.all([
-		f1.getByRole('button', { name: /Submit this drop/ }).click(),
-		f2.getByRole('button', { name: /Submit this drop/ }).click()
-	]);
-	await expect(red.getByText(/Sent for review/)).toBeVisible({ timeout: 60_000 });
-	await expect(yellow.getByText(/Sent for review/)).toBeVisible({ timeout: 60_000 });
-
-	await red.reload({ waitUntil: 'domcontentloaded' });
-	await expect(red.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
-
-	// No cell is ever double-booked — unique(event_id, col, row) is the arbiter.
-	const cells = await red.locator('.hole.filled').evaluateAll((els) =>
-		els.map((e) => e.getAttribute('aria-label')?.split(' — ')[0] ?? '')
-	);
-	expect(new Set(cells).size, `duplicate cells: ${cells.join(', ')}`).toBe(cells.length);
-
-	// What each piece in column E is FOR, off the board itself.
-	const held = await red.locator('.hole.filled').evaluateAll((els) =>
-		els
-			.map((e) => e.getAttribute('aria-label') ?? '')
-			.filter((l) => /^E\d/.test(l))
-			.map((l) => l.split(', ').slice(1).join(', '))
-	);
-	// And what the review queue says was actually proved for column E.
-	const proved = (await queueLabels(admin)).filter((l) => /column E/.test(l));
-
-	for (const tile of held) {
-		expect(
-			proved.some((l) => l.startsWith(`${tile} —`)),
-			`a piece is holding "${tile}" in column E but no submission for column E names it — ` +
-				`queue says: ${proved.join(' | ')}`
-		).toBe(true);
-	}
-});
-
 test('a player who is signed up but not on a side cannot claim, and is told why', async () => {
 	test.setTimeout(120_000);
 	await bench.goto(`/events/${SLUG}/connect4`, { waitUntil: 'domcontentloaded' });
@@ -332,38 +263,49 @@ test('no tile anywhere renders as a broken image', async () => {
 	await expect(red.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
 	// Give the wiki proxy a moment to answer or fail over to the initials.
 	await red.waitForTimeout(4000);
+	// A tile whose name has no wiki file hides its <img> and draws initials instead, so
+	// "broken" means a VISIBLE image that loaded nothing — the empty-frame glyph.
 	const broken = await red.locator('.rail img').evaluateAll((imgs) =>
-		imgs.filter((i) => (i as HTMLImageElement).naturalWidth === 0).map((i) => (i as HTMLImageElement).src)
+		imgs
+			.filter((i) => {
+				const img = i as HTMLImageElement;
+				return getComputedStyle(img).display !== 'none' && img.naturalWidth === 0;
+			})
+			.map((i) => (i as HTMLImageElement).src)
 	);
 	expect(broken, `broken tile art: ${broken.join(', ')}`).toHaveLength(0);
+	// And every hidden one has initials standing in its place.
+	const hidden = await red.locator('.rail img').evaluateAll(
+		(imgs) => imgs.filter((i) => getComputedStyle(i).display === 'none').length
+	);
+	await expect(red.locator('.rail .wiki-fallback')).toHaveCount(hidden);
 	// The task-shaped tiles have no wiki file at all, so they must show initials instead.
 	await expect(red.getByRole('button', { name: 'Column C: QA Stardust Haul' })).toContainText(/QS|QA/);
 });
 
 test('the form refuses an empty submission and clamps a nonsense quantity', async () => {
-	test.setTimeout(180_000);
+	test.setTimeout(240_000);
+	// Column B's ×5 tile, so this never touches the ×1000 the rejection test needs.
 	await openBoard(red2);
-	await red2.getByRole('button', { name: 'Column C: QA Stardust Haul' }).click();
+	await red2.getByRole('button', { name: 'Column B: QA Mixology Points' }).click();
 	// Submit is dead until a screenshot is staged.
 	await expect(
 		red2.locator('form.claim-form').getByRole('button', { name: /Submit this drop/ })
 	).toBeDisabled();
 	// And the server refuses a post with no image.
 	const noImage = await red2.request.post(`/events/${SLUG}/connect4?/submitClaim`, {
-		// The header `use:enhance` sends, so the action answers with its result rather
-		// than a full page render — the member board has no server load to render into.
 		headers: { 'x-sveltekit-action': 'true' },
-		multipart: { col: '2', quantity: '5' }
+		multipart: { col: '1', quantity: '2' }
 	});
 	expect(await noImage.text()).toContain('Add a screenshot');
 
-	// Absurd covers values bank exactly one, they are not believed and not rejected.
+	// Absurd covers values bank exactly one — they are neither believed nor rejected.
 	for (const value of ['0', '-50', 'banana']) {
 		const before = await volitionBank(red2);
 		const res = await red2.request.post(`/events/${SLUG}/connect4?/submitClaim`, {
 			headers: { 'x-sveltekit-action': 'true' },
 			multipart: {
-				col: '2',
+				col: '1',
 				quantity: value,
 				proof: { name: 'd.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]) }
 			}
@@ -374,26 +316,91 @@ test('the form refuses an empty submission and clamps a nonsense quantity', asyn
 	}
 
 	// And more than the tile needs is capped at the tile, never past it.
-	const before = await volitionBank(red2);
 	await red2.request.post(`/events/${SLUG}/connect4?/submitClaim`, {
-		// The header `use:enhance` sends, so the action answers with its result rather
-		// than a full page render — the member board has no server load to render into.
 		headers: { 'x-sveltekit-action': 'true' },
 		multipart: {
-			col: '2',
+			col: '1',
 			quantity: '999999',
 			proof: { name: 'd.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]) }
 		}
 	});
 	await red2.reload({ waitUntil: 'domcontentloaded' });
 	await expect(red2.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
-	// 1000 was the cap, so the tile is finished and column C has moved on — exactly once.
-	await expect(red2.getByRole('button', { name: 'Column C: Tyrannical ring' })).toBeVisible({
+	// 5 was the cap, so the tile is finished and column B has moved on — exactly once.
+	await expect(red2.getByRole('button', { name: 'Column B: QA Wintertodt Kits' })).toBeVisible({
 		timeout: 30_000
 	});
-	const cPieces = await red2.locator('.hole.filled').evaluateAll((els) =>
-		els.map((e) => e.getAttribute('aria-label') ?? '').filter((l) => /^C\d/.test(l))
+	const bPieces = await red2.locator('.hole.filled').evaluateAll((els) =>
+		els.map((e) => e.getAttribute('aria-label') ?? '').filter((l) => /^B\d/.test(l))
 	);
-	expect(cPieces, `column C pieces: ${cPieces.join(' | ')}`).toHaveLength(1);
-	expect(before).toBeGreaterThanOrEqual(0);
+	expect(bPieces, `column B pieces: ${bPieces.join(' | ')}`).toHaveLength(1);
+});
+
+test('two clans racing one column never double-book a cell, and each piece matches its proof', async () => {
+	test.setTimeout(240_000);
+	await openBoard(red);
+	await openBoard(yellow);
+	const f1 = await stage(red, 'E', 'Ancestral hat');
+	const f2 = await stage(yellow, 'E', 'Ancestral hat');
+
+	// Both send at once. The database decides who gets the cell, not the application.
+	await Promise.all([
+		f1.getByRole('button', { name: /Submit this drop/ }).click(),
+		f2.getByRole('button', { name: /Submit this drop/ }).click()
+	]);
+	await expect(red.getByText(/Sent for review/)).toBeVisible({ timeout: 60_000 });
+	await expect(yellow.getByText(/Sent for review/)).toBeVisible({ timeout: 60_000 });
+
+	await red.reload({ waitUntil: 'domcontentloaded' });
+	await expect(red.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
+
+	// No cell is ever double-booked — unique(event_id, col, row) is the arbiter.
+	const cells = await red.locator('.hole.filled').evaluateAll((els) =>
+		els.map((e) => e.getAttribute('aria-label')?.split(' — ')[0] ?? '')
+	);
+	expect(new Set(cells).size, `duplicate cells: ${cells.join(', ')}`).toBe(cells.length);
+
+	// What each piece in column E is FOR, off the board itself.
+	const held = await red.locator('.hole.filled').evaluateAll((els) =>
+		els
+			.map((e) => e.getAttribute('aria-label') ?? '')
+			.filter((l) => /^E\d/.test(l))
+			.map((l) => l.split(', ').slice(1).join(', '))
+	);
+	// And what the review queue says was actually proved for column E.
+	const proved = (await queueLabels(admin)).filter((l) => /column E/.test(l));
+
+	for (const tile of held) {
+		expect(
+			proved.some((l) => l.startsWith(`${tile} —`)),
+			`a piece is holding "${tile}" in column E but no submission for column E names it — ` +
+				`queue says: ${proved.join(' | ')}`
+		).toBe(true);
+	}
+});
+
+test('rejecting a quantity claim gives the banked amount back', async () => {
+	test.setTimeout(240_000);
+	// A player claims 600 of a ×1000 tile. No piece is placed — only a bank, so this
+	// cannot wait on the board moving the way an ordinary claim does.
+	await openBoard(red);
+	const form = await stage(red, 'C', 'QA Stardust Haul', 600);
+	await form.getByRole('button', { name: /Submit this drop/ }).click();
+	await red.waitForTimeout(3000);
+	await red.reload({ waitUntil: 'domcontentloaded' });
+	await expect(red.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
+	await red.getByRole('button', { name: 'Column C: QA Stardust Haul' }).click();
+	await expect(red.locator('.tile-detail')).toContainText('Volition 600/1000', { timeout: 20_000 });
+
+	// The admin decides it is not a valid claim at all.
+	await decide(admin, 'QA Stardust Haul', /Reject & free tile/, 'That is not stardust.');
+
+	// The 600 must not still be sitting there: the next real 400 would finish the tile
+	// off the back of a claim an admin threw out.
+	await red.reload({ waitUntil: 'domcontentloaded' });
+	await red.getByRole('button', { name: 'Column C: QA Stardust Haul' }).click();
+	await expect(
+		red.locator('.tile-detail'),
+		'a rejected quantity claim is still banked toward the tile'
+	).toContainText('Volition 0/1000', { timeout: 20_000 });
 });
