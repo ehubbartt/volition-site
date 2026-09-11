@@ -1040,99 +1040,6 @@
 			</div>
 		</section>
 
-		<!-- ── pets ──────────────────────────────────────────────────────────
-		     Points beside the board. Pets are deliberately not on the tile list — nobody
-		     can be asked to farm one — so this is the only way to claim one, and it had
-		     no member-facing route at all until now. -->
-		{#if game.viewerSide && (game.phase === 'live' || game.phase === 'finished')}
-			<section class="osrs-panel">
-				<div class="osrs-titlebar">Got a pet?</div>
-				<div class="pad">
-					<p class="muted tiny">
-						Pets aren't on the board — they can't be farmed to order, so they pay
-						<strong>{game.scoring.pet_points} points</strong> to your side instead of claiming a
-						cell. Send the drop screenshot and an admin will add the points.
-					</p>
-
-					{#if !petOpen}
-						<button type="button" onclick={() => (petOpen = true)}>Submit a pet</button>
-					{:else}
-						<form
-							method="POST"
-							action="?/submitPet"
-							enctype="multipart/form-data"
-							class="pet-form"
-							use:enhance={({ formData }) => {
-								petSending = true;
-								formData.delete('proof');
-								for (const st of petShots) formData.append('proof', st.file);
-								return async ({ update, result }) => {
-									if (result.type === 'success') {
-										clearPet();
-										petOpen = false;
-									}
-									await update({ reset: false });
-									petSending = false;
-								};
-							}}
-						>
-							<label class="tiny">
-								<span>Which pet?</span>
-								<input name="pet" bind:value={petName} maxlength="80" placeholder="e.g. Nexling" />
-							</label>
-
-							<input
-								bind:this={petInput}
-								type="file"
-								name="proof"
-								accept="image/*"
-								multiple
-								class="hidden-input"
-								onchange={(e) => addPetFiles(e.currentTarget.files)}
-							/>
-							<button type="button" class="link-ish" onclick={() => petInput?.click()}>
-								Add a screenshot
-							</button>
-
-							{#if petShots.length}
-								<div class="pet-shots">
-									{#each petShots as st, i (st.url)}<img src={st.url} alt="Screenshot {i + 1}" />{/each}
-								</div>
-							{/if}
-
-							<div class="claim-actions">
-								<button type="submit" disabled={petSending || !petShots.length || !petName.trim()}>
-									{petSending ? 'Sending…' : 'Send the pet for review'}
-								</button>
-								<button
-									type="button"
-									class="link-ish"
-									onclick={() => {
-										clearPet();
-										petOpen = false;
-									}}
-								>
-									Cancel
-								</button>
-							</div>
-						</form>
-					{/if}
-
-					{#if game.bonus.length}
-						<ul class="pets">
-							{#each game.bonus.slice(-8).reverse() as bn (bn.id)}
-								<li>
-									<span class="chip" style="--c: {game.sides[bn.side - 1]?.color}"></span>
-									<strong>{bn.itemName ?? bn.kind}</strong>
-									<span class="muted tiny">{bn.byRsn ?? 'someone'} · +{bn.points}</span>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				</div>
-			</section>
-		{/if}
-
 		<!-- ── what is on offer ──────────────────────────────────────────────
 		     The rail in one readable column. Same selection as clicking the rail. -->
 		{#if game.phase === 'live' && openTiles.length}
@@ -1224,6 +1131,99 @@
 						</ul>
 					{:else}
 						<p class="muted tiny">Nothing on offer matches “{tileFilter}”.</p>
+					{/if}
+				</div>
+			</section>
+		{/if}
+
+		<!-- ── pets ──────────────────────────────────────────────────────────
+		     Points beside the board. Pets are deliberately not on the tile list — nobody
+		     can be asked to farm one — so this is the only way to claim one, and it had
+		     no member-facing route at all until now. -->
+		{#if game.viewerSide && (game.phase === 'live' || game.phase === 'finished')}
+			<section class="osrs-panel">
+				<div class="osrs-titlebar">Got a pet?</div>
+				<div class="pad">
+					<p class="muted tiny">
+						Pets aren't on the board — they can't be farmed to order, so they pay
+						<strong>{game.scoring.pet_points} points</strong> to your side instead of claiming a
+						cell. Send the drop screenshot and an admin will add the points.
+					</p>
+
+					{#if !petOpen}
+						<button type="button" onclick={() => (petOpen = true)}>Submit a pet</button>
+					{:else}
+						<form
+							method="POST"
+							action="?/submitPet"
+							enctype="multipart/form-data"
+							class="pet-form"
+							use:enhance={({ formData }) => {
+								petSending = true;
+								formData.delete('proof');
+								for (const st of petShots) formData.append('proof', st.file);
+								return async ({ update, result }) => {
+									if (result.type === 'success') {
+										clearPet();
+										petOpen = false;
+									}
+									await update({ reset: false });
+									petSending = false;
+								};
+							}}
+						>
+							<label class="tiny">
+								<span>Which pet?</span>
+								<input name="pet" bind:value={petName} maxlength="80" placeholder="e.g. Nexling" />
+							</label>
+
+							<input
+								bind:this={petInput}
+								type="file"
+								name="proof"
+								accept="image/*"
+								multiple
+								class="hidden-input"
+								onchange={(e) => addPetFiles(e.currentTarget.files)}
+							/>
+							<button type="button" class="link-ish" onclick={() => petInput?.click()}>
+								Add a screenshot
+							</button>
+
+							{#if petShots.length}
+								<div class="pet-shots">
+									{#each petShots as st, i (st.url)}<img src={st.url} alt="Screenshot {i + 1}" />{/each}
+								</div>
+							{/if}
+
+							<div class="claim-actions">
+								<button type="submit" disabled={petSending || !petShots.length || !petName.trim()}>
+									{petSending ? 'Sending…' : 'Send the pet for review'}
+								</button>
+								<button
+									type="button"
+									class="link-ish"
+									onclick={() => {
+										clearPet();
+										petOpen = false;
+									}}
+								>
+									Cancel
+								</button>
+							</div>
+						</form>
+					{/if}
+
+					{#if game.bonus.length}
+						<ul class="pets">
+							{#each game.bonus.slice(-8).reverse() as bn (bn.id)}
+								<li>
+									<span class="chip" style="--c: {game.sides[bn.side - 1]?.color}"></span>
+									<strong>{bn.itemName ?? bn.kind}</strong>
+									<span class="muted tiny">{bn.byRsn ?? 'someone'} · +{bn.points}</span>
+								</li>
+							{/each}
+						</ul>
 					{/if}
 				</div>
 			</section>
