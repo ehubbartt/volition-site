@@ -57,6 +57,8 @@ async function paste(page: Page) {
 
 /** Make the board move: the other clan claims a column, which bumps the live token. */
 async function moveTheBoard(page: Page, col: string, name: string) {
+	await page.reload({ waitUntil: 'domcontentloaded' });
+	await expect(page.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
 	await page.getByRole('button', { name: `Column ${col}: ${name}` }).click();
 	const form = page.locator('form.claim-form');
 	await expect(form).toBeVisible({ timeout: 15_000 });
@@ -125,7 +127,9 @@ test('pasting while the board is refetching can lose the screenshot', async () =
 
 		// Kick the board, then paste into the refetch window.
 		const [col, name] = tiles[i];
-		const move = moveTheBoard(mover, col, name);
+		const move = moveTheBoard(mover, col, name).catch(() => {
+			/* the mover is only rigging — a hiccup there is not a result */
+		});
 		await victim.waitForTimeout(600 + i * 250);
 		await paste(victim);
 		await move;
