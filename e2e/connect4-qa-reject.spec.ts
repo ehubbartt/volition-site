@@ -124,8 +124,10 @@ test('a pre-screenshot tile says so on the rail, in the detail, and ABOVE the dr
 	test.setTimeout(120_000);
 	await openBoard(red);
 
+	// The rail token says so in its hover title. (The 📷 badge that used to sit on the
+	// token was taken off in `Take the camera badge off the rail tokens`, so the title,
+	// the detail strip and the claim form are the three places left that carry it.)
 	const token = red.getByRole('button', { name: 'Column D: QA Rooftop Course Laps' });
-	await expect(token.locator('.pre-badge')).toBeVisible();
 	await expect(token).toHaveAttribute('title', /NEEDS A BEFORE SCREENSHOT/);
 
 	await token.click();
