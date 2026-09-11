@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 // Shared rigging for the Connect Four QA specs.
 //
@@ -89,3 +89,29 @@ export async function pasteProof(page: Page): Promise<void> {
 
 /** Column index → the label the UI shows (A, B, C…). */
 export const colLabel = (col: number) => String.fromCharCode(65 + col);
+
+/**
+ * Stage a pasted screenshot and make sure it is still staged.
+ *
+ * The retry is not belt-and-braces: opening a column (and every board refetch after it)
+ * kicks off an IndexedDB restore that ASSIGNS over the staged list, so a paste landing
+ * inside that window is silently thrown away — see e2e/connect4-qa-draft-churn.spec.ts,
+ * which is the spec that holds that line. Everything else here is testing other
+ * behaviour, so it pastes until the screenshot sticks rather than failing on a defect it
+ * is not about.
+ */
+export async function stageProof(page: Page): Promise<void> {
+	const thumbs = page.locator('form.claim-form .thumb img');
+	for (let attempt = 0; attempt < 4; attempt++) {
+		await pasteProof(page);
+		try {
+			await expect(thumbs).toHaveCount(1, { timeout: 5_000 });
+			// And it has to survive the restore that may still be in flight.
+			await page.waitForTimeout(1200);
+			if ((await thumbs.count()) === 1) return;
+		} catch {
+			/* the paste was swallowed — try again */
+		}
+	}
+	throw new Error('the pasted screenshot never stuck in the claim form');
+}

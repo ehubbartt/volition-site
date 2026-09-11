@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
-import { buildLab, deleteLab, passAckGate, pasteProof, signInAs, type LabCast } from './c4-qa-lab';
+import { buildLab, deleteLab, passAckGate, signInAs, stageProof, type LabCast } from './c4-qa-lab';
 
 // "ASK AGAIN" — THE SEND-BACK, FROM ALL FOUR CHAIRS.
 //
@@ -57,8 +57,7 @@ async function claim(page: Page, col: string, name: string) {
 	await tile.click();
 	const form = page.locator('form.claim-form');
 	await expect(form).toBeVisible({ timeout: 15_000 });
-	await pasteProof(page);
-	await expect(form.locator('.thumb img')).toHaveCount(1, { timeout: 10_000 });
+	await stageProof(page);
 	await form.getByRole('button', { name: /Submit this drop/ }).click();
 	await expect(page.getByText('Sent for review')).toBeVisible({ timeout: 60_000 });
 }
@@ -180,8 +179,7 @@ test('the resubmit button reopens the claim they hold and posts a better screens
 	await expect(holder.locator('.tile-detail')).toContainText('Bandos chestplate');
 	await expect(holder.locator('.tile-detail')).not.toContainText('Armadyl crossbow');
 
-	await pasteProof(holder);
-	await expect(form.locator('.thumb img')).toHaveCount(1, { timeout: 10_000 });
+	await stageProof(holder);
 	await form.getByRole('button', { name: /Submit this drop/ }).click();
 	await expect(holder.getByText('Sent for review')).toBeVisible({ timeout: 60_000 });
 

@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
-import { buildLab, deleteLab, passAckGate, pasteProof, signInAs, type LabCast } from './c4-qa-lab';
+import { buildLab, deleteLab, passAckGate, signInAs, stageProof, type LabCast } from './c4-qa-lab';
 
 // QUANTITY TILES, THROUGH THE BROWSER.
 //
@@ -80,8 +80,7 @@ async function approveCurrent(page: Page, label: string) {
 async function submit(page: Page, qty?: number) {
 	const form = page.locator('form.claim-form');
 	await expect(form).toBeVisible({ timeout: 15_000 });
-	await pasteProof(page);
-	await expect(form.locator('.thumb img')).toHaveCount(1, { timeout: 10_000 });
+	await stageProof(page);
 	if (qty != null) await form.locator('input[name="quantity"]').fill(String(qty));
 	await form.getByRole('button', { name: /Submit this drop/ }).click();
 }

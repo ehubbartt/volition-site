@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
-import { buildLab, deleteLab, passAckGate, pasteProof, signInAs, type LabCast } from './c4-qa-lab';
+import { buildLab, deleteLab, passAckGate, signInAs, stageProof, type LabCast } from './c4-qa-lab';
 
 // FULL REJECTIONS, CONTESTED COLUMNS, AND THE REST OF WHAT A PLAYER CAN DO WRONG.
 //
@@ -50,8 +50,7 @@ async function stage(page: Page, col: string, name: string, qty?: number) {
 	await tile.click();
 	const form = page.locator('form.claim-form');
 	await expect(form).toBeVisible({ timeout: 15_000 });
-	await pasteProof(page);
-	await expect(form.locator('.thumb img')).toHaveCount(1, { timeout: 10_000 });
+	await stageProof(page);
 	if (qty != null) await form.locator('input[name="quantity"]').fill(String(qty));
 	return form;
 }
@@ -161,8 +160,7 @@ test('a pre-screenshot tile says so on the rail, in the detail, and ABOVE the dr
 	// already open, so submit from the form that is up — clicking the token again would
 	// close it.
 	const form = red.locator('form.claim-form');
-	await pasteProof(red);
-	await expect(form.locator('.thumb img')).toHaveCount(1, { timeout: 10_000 });
+	await stageProof(red);
 	await form.getByRole('button', { name: /Submit this drop/ }).click();
 	await expect(red.getByText(/Sent for review/)).toBeVisible({ timeout: 60_000 });
 	await openQueue(admin);
@@ -200,10 +198,14 @@ test('a full rejection takes the piece off the board and puts the tile back on o
 
 test('rejecting a quantity claim gives the banked amount back', async () => {
 	test.setTimeout(240_000);
-	// A player claims 600 of a ×1000 tile. No piece is placed — only a bank.
+	// A player claims 600 of a ×1000 tile. No piece is placed — only a bank, so this
+	// cannot wait on the board moving the way an ordinary claim does.
 	await openBoard(red);
-	await claim(red, 'C', 'QA Stardust Haul', 600);
+	const form = await stage(red, 'C', 'QA Stardust Haul', 600);
+	await form.getByRole('button', { name: /Submit this drop/ }).click();
+	await red.waitForTimeout(3000);
 	await red.reload({ waitUntil: 'domcontentloaded' });
+	await expect(red.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
 	await red.getByRole('button', { name: 'Column C: QA Stardust Haul' }).click();
 	await expect(red.locator('.tile-detail')).toContainText('Volition 600/1000', { timeout: 20_000 });
 
