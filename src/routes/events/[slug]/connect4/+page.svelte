@@ -17,7 +17,9 @@
 	import TileHoverCard, { type CardInfo } from '$lib/connect4/TileHoverCard.svelte';
 	import WikiImage from '$lib/WikiImage.svelte';
 	import { createClock, untilText } from '$lib/clock.svelte';
-	import { itemImageUrl, monsterImageUrl } from '$lib/wikiImage';
+	// No monsterImageUrl: the source's own icon was dropped so the wiki budget goes on
+	// the ITEM icons, which are what a player actually reads off the board.
+	import { itemImageUrl, nameInitials } from '$lib/wikiImage';
 	import {
 		columnLabel,
 		runCellSet,
@@ -525,6 +527,7 @@
 						<div class="tile-detail">
 							<WikiImage
 								src={itemImageUrl(selectedTile.tile.any_of?.[0]?.item_name ?? selectedTile.tile.item_name)}
+								fallback={nameInitials(selectedTile.tile.item_name)}
 								alt=""
 								size={40}
 							/>
@@ -532,7 +535,6 @@
 								<strong>{columnLabel(selectedTile.col)} — {selectedTile.tile.item_name}</strong>
 								<div class="muted tiny">
 									{#if selectedTile.tile.source}
-										<WikiImage src={monsterImageUrl(selectedTile.tile.source)} alt="" size={16} />
 										{selectedTile.tile.source}
 									{/if}
 									{#if selectedTile.tile.ehb} · {formatEhb(selectedTile.tile.ehb)} to obtain{/if}

@@ -69,10 +69,26 @@ export function wikiImageUrl(name: string): string {
 export function wikiImageSources(name: string | null | undefined): string[] {
 	const n = (name ?? '').trim();
 	if (!n) return [];
-	const out = [wikiImageUrl(n)];
-	const titled = wikiImageUrl(wikiTitleCase(n));
-	if (titled && titled !== out[0]) out.push(titled);
+	const out: string[] = [];
+	const add = (u: string) => {
+		if (u && !out.includes(u)) out.push(u);
+	};
+	add(wikiImageUrl(n));
+	// SENTENCE CASE MATTERS AS MUCH AS TITLE CASE. The wiki files most items under
+	// "Bear feet.png", and a name that reaches us already title-cased — which everything
+	// off a planning spreadsheet is — matched neither the as-given spelling nor the
+	// title-cased one, because those are the same string. 225 of the event's 244 tiles
+	// resolved to nothing for exactly this reason.
+	add(wikiImageUrl(wikiSentenceCase(n)));
+	add(wikiImageUrl(wikiTitleCase(n)));
 	return out;
+}
+
+/** "BEAR FEET" / "Bear Feet" → "Bear feet" — the wiki's usual spelling for an item file. */
+export function wikiSentenceCase(name: string): string {
+	const s = name.trim();
+	if (!s) return '';
+	return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
 /**
@@ -196,4 +212,19 @@ export function caTierImageUrl(tier: string | null | undefined): string[] {
 // <WikiImage>'s onerror fallback covers a rename of this file on the wiki.
 export function diaryImageUrl(): string[] {
 	return wikiImageSources('Achievement Diaries icon');
+}
+
+/**
+ * Two letters to stand in for an icon we cannot fetch. Half this event's board is written
+ * as a task rather than as an item — "Any Barrows Helm", "Rooftop Course Laps" — and the
+ * wiki has no file for those names, so the tile has to say something for itself.
+ */
+export function nameInitials(name: string | null | undefined): string {
+	const words = (name ?? '')
+		.replace(/[^A-Za-z0-9 ]/g, ' ')
+		.split(/\s+/)
+		.filter((w) => w && !/^(any|or|of|the|and|a|an)$/i.test(w));
+	if (!words.length) return '?';
+	if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+	return (words[0][0] + words[1][0]).toUpperCase();
 }

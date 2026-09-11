@@ -13,18 +13,35 @@
 		src,
 		alt = '',
 		size = 42,
-		class: klass = ''
-	}: { src: string | string[]; alt?: string; size?: number; class?: string } = $props();
+		class: klass = '',
+		fallback = ''
+	}: {
+		src: string | string[];
+		alt?: string;
+		size?: number;
+		class?: string;
+		/** Shown in the image's place when no spelling resolves — see `retryImage`. */
+		fallback?: string;
+	} = $props();
+	let failed = $state(false);
 
-	// Our caching proxy FIRST, the wiki itself as the fallback. Hotlinking from every
-	// browser is what got us throttled on a 600-tile board; the proxy fetches each file
-	// once and serves it from memory. Keeping the direct urls behind it means a problem
-	// with the proxy degrades to the old behaviour instead of blanking the board.
+	// OUR ORIGIN ONLY. The wiki urls used to sit behind the proxy as a fallback, and that
+	// was worse than having none: a browser that fell through to them was hotlinking again,
+	// and a throttled wiki does not refuse those requests, it leaves them HANGING — an
+	// <img> that never errors never reaches the fallback below, so the tile stayed blank
+	// for good. The proxy already tries every spelling server-side, so there is nothing the
+	// direct urls could still resolve; when it says no, the name has no file and the
+	// fallback is the honest answer.
 	const given = $derived((Array.isArray(src) ? src : [src]).filter(Boolean));
-	const sources = $derived([...given.map(viaProxy), ...given].filter((u, i, a) => a.indexOf(u) === i));
+	const sources = $derived([...new Set(given.map(viaProxy))]);
 	const first = $derived(sources[0] ?? '');
 	// Identity of the whole candidate list, so {#key} remounts when any of it changes.
 	const key = $derived(sources.join('|'));
+	// A new candidate list is a fresh chance — clear the failure with it.
+	$effect(() => {
+		key;
+		failed = false;
+	});
 </script>
 
 {#if first}
@@ -43,12 +60,31 @@
 			height={size}
 			decoding="async"
 			referrerpolicy="no-referrer"
-			use:retryImage={{ sources }}
+			use:retryImage={{ sources, onfail: () => (failed = true) }}
 		/>
+		{#if failed && fallback}
+			<span class="wiki-fallback" style="--s: {size}px" title={alt || fallback}>{fallback}</span>
+		{/if}
 	{/key}
 {/if}
 
 <style>
+	/* Not every tile on a board is a real item — "Any Barrows Helm", "Rooftop Course Laps"
+	   — and those have no wiki file to find. They read as themselves rather than as a gap. */
+	.wiki-fallback {
+		display: inline-grid;
+		place-items: center;
+		width: var(--s);
+		height: var(--s);
+		border-radius: 50%;
+		background: color-mix(in srgb, var(--accent, #c8a24a) 22%, transparent);
+		color: var(--text, #e8e3d5);
+		font-size: calc(var(--s) * 0.42);
+		font-weight: 700;
+		line-height: 1;
+		letter-spacing: -0.02em;
+		vertical-align: middle;
+	}
 	.wiki-img {
 		object-fit: contain;
 		vertical-align: middle;

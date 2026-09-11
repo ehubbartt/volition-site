@@ -748,6 +748,23 @@ take the form's. A game with no form behind it opens the moment it is dealt, as 
 > blank opens the board as soon as you deal."* Type the announced time into **Opens at**
 > and it is exact. Giving signup forms their own start time is the obvious follow-up.
 
+### Tile icons
+
+Icons come from `/api/wiki-image` (see [FRONTEND.md](FRONTEND.md)), never hotlinked — a
+600-tile board watched by two clans throttles the wiki otherwise. Three things this board
+in particular needed:
+
+- **Sentence case.** The planned list is title-cased, the wiki files items as
+  `Bear feet.png`. Adding that spelling took the board from 19 of 244 tiles resolving to
+  107.
+- **Initials when there is no file.** The other 137 are written as tasks, not items — "Any
+  Barrows Helm", "Rooftop Course Laps", "MTA Alchemy Points". Nothing can be fetched for
+  those, so `<WikiImage fallback={nameInitials(...)}>` draws the initials instead. The rail
+  is what a player reads at a glance and must never be a row of empty discs.
+- **No source sub-icon.** The boss's own icon next to "from Araxxor" doubled the wiki
+  traffic a board generates for a line of text that already says it. Dropped; the item
+  icon is what the budget goes on.
+
 ### Listed vs open — two different flags
 
 A game is created **unlisted** so a half-built board is not on display, and `status`

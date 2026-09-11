@@ -23,6 +23,15 @@ test('the proxy serves wiki images, caches them, and refuses to fetch anything e
 	expect(byFile.status()).toBe(200);
 	expect((await byFile.body()).byteLength).toBeGreaterThan(50);
 
+	// TITLE-CASED NAMES RESOLVE. Everything off a planning spreadsheet arrives like this,
+	// and the wiki files most items in sentence case — "Bear feet.png". Offering only the
+	// as-given and title-cased spellings meant those were the same string and 225 of the
+	// event's 244 tiles resolved to nothing.
+	for (const titled of ['Bear Feet', 'Demon Feet', 'Frog Slippers', 'Mole Slippers']) {
+		const r = await request.get(`/api/wiki-image?name=${encodeURIComponent(titled)}`);
+		expect(r.status(), `${titled} did not resolve`).toBe(200);
+	}
+
 	// The second request must not go to the wiki at all. Timing is the only signal we have
 	// from out here, and a cache hit is orders of magnitude faster than a round trip.
 	const cold = Date.now();
@@ -42,6 +51,42 @@ test('the proxy serves wiki images, caches them, and refuses to fetch anything e
 	expect((await request.get('/api/wiki-image')).status()).toBe(400);
 	// A name the wiki has no file for is a 404, not a hang or a 500.
 	expect((await request.get('/api/wiki-image?name=Zzz%20Not%20A%20Real%20Item')).status()).toBe(404);
+});
+
+test('a tile the wiki has no file for reads as itself, not as a hole', async ({ page }) => {
+	test.setTimeout(120_000);
+	// Half this event's board is written as a task rather than an item — "Any Barrows
+	// Helm", "Rooftop Course Laps" — and no spelling of those is a wiki file. The token
+	// above the board is what a player reads at a glance, so it must never be blank.
+	await page.goto('/events/rehearsal/connect4', { waitUntil: 'domcontentloaded' });
+	const tiles = page.locator('.rail .tile');
+	const up = await tiles
+		.first()
+		.waitFor({ timeout: 45_000 })
+		.then(() => true)
+		.catch(() => false);
+	test.skip(!up, 'no open rehearsal board — npm run rehearse:connect4');
+	await page.waitForTimeout(20_000); // let every candidate settle
+
+	const state = await page.locator('.rail .tile').evaluateAll((els) =>
+		els.map((el) => {
+			const img = el.querySelector('img') as HTMLImageElement | null;
+			return {
+				icon: !!img && img.naturalWidth > 0 && img.style.display !== 'none',
+				pending: !!img && !img.complete,
+				initials: !!el.querySelector('.wiki-fallback')
+			};
+		})
+	);
+	const blank = state.filter((s) => !s.icon && !s.initials);
+	const pending = state.filter((s) => s.pending);
+	console.log(
+		`  rail: ${state.filter((s) => s.icon).length} icons, ${state.filter((s) => s.initials).length} initials, ${blank.length} blank`
+	);
+	// A hanging request is the failure that used to leave a board empty: an <img> that
+	// never errors never reaches its fallback.
+	expect(pending, 'icon requests were still hanging').toHaveLength(0);
+	expect(blank, 'tokens above the board rendered as empty discs').toHaveLength(0);
 });
 
 test('the board asks our own origin for its tile icons', async ({ page }) => {

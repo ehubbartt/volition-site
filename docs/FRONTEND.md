@@ -68,8 +68,12 @@ bugs that used to recur per feature):
   OSRS item database in a different case (`Staff_of_the_Dead.png`, not
   `Staff_of_the_dead.png`). There is no case-insensitive lookup, so the typed helpers
   (`itemImageUrl`, `skillImageUrl`, `monsterImageUrl` and `caTierImageUrl`) return a **list
-  of candidate spellings** (as given, then the wiki's title case, hyphens included) which
-  `<WikiImage>` walks. Measured over the boss-drop catalogue, that took blank icons from
+  of candidate spellings** — as given, then **sentence case**, then the wiki's title case
+  (hyphens included) — which `<WikiImage>` walks. Sentence case is not optional: the wiki
+  files most items as `Bear feet.png`, and a name that arrives already title-cased (which
+  everything off a planning spreadsheet is) matched neither of the other two, because they
+  are the same string. It took the Connect Four board from **19 of 244** tiles resolving to
+  **107**; the rest are task names with no file to find, and fall back to initials. Measured over the boss-drop catalogue, that took blank icons from
   61/345 to 5.
   `monsterImageUrl` adds two more passes for drop sources, whose names rarely match an NPC
   file: `MONSTER_IMAGE_ALIASES` maps raids, reward chests and form-qualified bosses to an
@@ -90,11 +94,19 @@ bugs that used to recur per feature):
   URL fetched is always built here, on the wiki's host.
 - **`src/lib/WikiImage.svelte`** — an `<img>` with the hotlink incantation baked in
   (`referrerpolicy="no-referrer"` + `use:retryImage`); renders nothing for an empty `src`.
-  `src` takes a url **or a list of candidates**, and each is rewritten through the proxy
-  above by `viaProxy` with the direct wiki url kept behind it — so every existing caller got
-  the cache without changing, and a problem with the proxy degrades to the old behaviour
-  instead of blanking a board. `e2e/wiki-image-proxy.spec.ts` asserts a page loads **zero**
-  images from `runescape.wiki`.
+  `src` takes a url **or a list of candidates**, and every one is rewritten through the
+  proxy above by `viaProxy` — **our origin only**. The direct wiki urls used to sit behind
+  them as a fallback and that was worse than having none: a browser that fell through was
+  hotlinking again, and a throttled wiki does not refuse those requests, it leaves them
+  **hanging** — an `<img>` that never errors never reaches its fallback, so the tile stayed
+  blank for good. The proxy already tries every spelling server-side, so there is nothing
+  the direct urls could still resolve.
+  `fallback` (a short string, e.g. `nameInitials(name)`) is drawn in the image's place once
+  every candidate has failed. Half a board can be written as tasks rather than items — "Any
+  Barrows Helm", "Rooftop Course Laps" — and the wiki has no file for those names, so the
+  token reads as itself instead of as a hole.
+  `e2e/wiki-image-proxy.spec.ts` asserts a page loads **zero** images from
+  `runescape.wiki`, that no icon request is left hanging, and that no token renders blank.
   `retryImage` (`$lib/imageRetry`) handles the two failures that blank a tile and that
   `onerror` cannot tell apart, since it carries no status: it tries every candidate spelling
   once (clearing a case mismatch within a frame), then backs off and retries the whole list

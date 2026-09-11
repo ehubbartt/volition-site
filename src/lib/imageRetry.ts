@@ -22,9 +22,14 @@
 
 export function retryImage(
 	node: HTMLImageElement,
-	opts: { max?: number; sources?: string[] } = {}
-): { destroy(): void; update(o: { max?: number; sources?: string[] }): void } {
+	opts: { max?: number; sources?: string[]; onfail?: () => void } = {}
+): { destroy(): void; update(o: { max?: number; sources?: string[]; onfail?: () => void }): void } {
 	let max = opts.max ?? 3;
+	// Called once every spelling has been tried and re-tried. The caller can then put
+	// SOMETHING in the space — a tile whose name the wiki has no file for (half this
+	// event's board is written as "Any Barrows Helm" rather than as an item) should read
+	// as itself, not as a hole.
+	let onfail = opts.onfail;
 	// Strip any prior cache-buster so retries don't stack them.
 	const clean = (u: string) => u.replace(/([?&])r=\d+(&|$)/, (_, p1, p2) => (p2 === '&' ? p1 : '')).replace(/[?&]$/, '');
 	let sources = (opts.sources?.length ? opts.sources : [node.src]).map(clean).filter(Boolean);
@@ -47,6 +52,7 @@ export function retryImage(
 			round += 1;
 			if (round > max) {
 				node.style.display = 'none'; // genuinely missing → collapse the element
+				onfail?.();
 				return;
 			}
 			if (timer) clearTimeout(timer);
@@ -60,8 +66,9 @@ export function retryImage(
 
 	node.addEventListener('error', onError);
 	return {
-		update(next: { max?: number; sources?: string[] }) {
+		update(next: { max?: number; sources?: string[]; onfail?: () => void }) {
 			max = next.max ?? max;
+			onfail = next.onfail ?? onfail;
 			if (next.sources?.length) {
 				const mapped = next.sources.map(clean).filter(Boolean);
 				// Only restart the walk if the candidate list actually changed, or a

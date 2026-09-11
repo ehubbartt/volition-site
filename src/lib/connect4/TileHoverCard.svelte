@@ -7,7 +7,7 @@
 	// and entering the card. The parent hides it on a short delay and `onkeep` cancels that,
 	// the standard hover-card dance; without it the links are visible but unclickable.
 	import WikiImage from '$lib/WikiImage.svelte';
-	import { itemImageUrl, monsterImageUrl, wikiPageUrl } from '$lib/wikiImage';
+	import { itemImageUrl, wikiPageUrl } from '$lib/wikiImage';
 	import { formatEhb } from '$lib/ehb';
 
 	export interface CardInfo {
@@ -84,11 +84,12 @@
 	</div>
 
 	<div class="hc-meta">
+		<!-- The boss's own icon used to sit here. It doubled the wiki traffic a board
+		     generates for a line of text that already says where the drop comes from, and
+		     the item icon — the one that has to be recognisable at a glance — is what the
+		     budget is better spent on. -->
 		{#if info.source}
-			<div class="hc-row">
-				<WikiImage src={monsterImageUrl(info.source)} alt="" size={16} />
-				<span>from <strong>{info.source}</strong></span>
-			</div>
+			<div class="hc-row"><span>from <strong>{info.source}</strong></span></div>
 		{/if}
 		{#if info.ehb}<div class="hc-row">{formatEhb(info.ehb)} to obtain</div>{/if}
 		{#if info.qty && info.qty > 1}

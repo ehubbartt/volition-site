@@ -7,7 +7,7 @@
 	// else. The name lives in the detail strip the parent shows for the selected column —
 	// trying to fit it here produces 25 unreadable slivers.
 	import WikiImage from '$lib/WikiImage.svelte';
-	import { itemImageUrl } from '$lib/wikiImage';
+	import { itemImageUrl, nameInitials } from '$lib/wikiImage';
 	import { columnLabel, type LiveTile } from './rules';
 
 	let {
@@ -55,7 +55,15 @@
 		>
 			{#if slot}
 				<span class="disc">
-					<WikiImage src={itemImageUrl(slot.tile.any_of?.[0]?.item_name ?? slot.tile.item_name)} alt="" size={28} />
+					<!-- The token above the board is the thing a player reads at a glance, so it
+					     never renders as an empty disc: a name with no wiki file falls back to
+					     its initials. -->
+					<WikiImage
+						src={itemImageUrl(slot.tile.any_of?.[0]?.item_name ?? slot.tile.item_name)}
+						alt=""
+						size={28}
+						fallback={nameInitials(slot.tile.item_name)}
+					/>
 				</span>
 				{#if slot.tile.qty && slot.tile.qty > 1}
 					<span class="qty-badge" aria-hidden="true">×{slot.tile.qty}</span>

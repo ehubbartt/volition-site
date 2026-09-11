@@ -88,7 +88,7 @@ export function tokenTexture(itemName: string): THREE.CanvasTexture {
 
 	// Through the cache like every other icon — the 3D board draws the same 40 items the
 	// rail does, and hotlinking them separately doubled the burst the wiki saw.
-	loadFirst([...wikiImageSources(itemName).map(viaProxy), ...wikiImageSources(itemName)]).then((img) => {
+	loadFirst(wikiImageSources(itemName).map(viaProxy)).then((img) => {
 		if (!img) return; // every spelling 404'd — the bare disc stands in
 		const box = SIZE * 0.72;
 		const scale = Math.min(box / img.naturalWidth, box / img.naturalHeight);
