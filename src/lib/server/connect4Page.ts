@@ -48,12 +48,22 @@ export interface Connect4View {
 	awaiting: {
 		cell: string;
 		col: number;
+		/** The deck slot the claim is for — the tile they actually hold, not the column's
+		 *  current one, which has moved on. */
+		deckIdx: number;
 		itemName: string | null;
 		side: Side;
 		rsn: string | null;
 		at: string;
 		/** Set when this is the viewer's own claim that was sent back for better proof. */
 		needsBetterProof: boolean;
+		/**
+		 * The tile this claim is FOR, on the viewer's own send-back rows only. The column
+		 * has already moved on to its next tile, so the resubmit panel cannot read it off
+		 * `live` — and it still needs to show the qty, the group members and the
+		 * before-screenshot warning that belong to the tile actually held.
+		 */
+		tile: LiveTile['tile'] | null;
 		note: string | null;
 	}[];
 	winner: Side | null;
@@ -121,11 +131,16 @@ export async function buildConnect4Page(
 		.map((p) => ({
 			cell: cellId(p.col, p.row),
 			col: p.col,
+			deckIdx: p.deck_idx,
 			itemName: p.item_name ?? null,
 			side: p.side,
 			rsn: p.by_user_id ? (rsnByUser.get(p.by_user_id) ?? null) : null,
 			at: p.claimed_at ?? '',
 			needsBetterProof: !!p.submission_id && notesBySubmission.has(p.submission_id),
+			tile:
+				!!p.submission_id && notesBySubmission.has(p.submission_id)
+					? (snap.deck[p.deck_idx] ?? null)
+					: null,
 			note: p.submission_id ? (notesBySubmission.get(p.submission_id) ?? null) : null
 		}));
 

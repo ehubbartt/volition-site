@@ -4,6 +4,7 @@ import { isAdmin } from '$lib/server/auth';
 import { logAudit } from '$lib/server/audit';
 import {
 	addBonus,
+	applyPreShots,
 	addCustomTile,
 	importPool,
 	assignSides,
@@ -476,6 +477,20 @@ export const actions: Actions = {
 		const listed = form.get('listed') === '1';
 		const res = await setListed(game.id, listed);
 		return res.ok ? { listed } : fail(400, { error: res.error });
+	},
+
+	// Re-stamp the pre-screenshot flag from the checked-in planned list onto THIS game.
+	// A dealt game holds its own copy of every tile, so a change to the list does not reach
+	// it — this is how a board already in play picks the flag up, without a re-deal.
+	markPreShots: async ({ locals, params }) => {
+		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
+		const game = await loadConnect4(params.slug);
+		if (!game) return fail(404, { error: 'No such game' });
+		const names = plannedTiles()
+			.filter((t) => t.pre)
+			.map((t) => ({ name: t.name, note: t.preNote ?? null }));
+		const res = await applyPreShots(game.id, names);
+		return res.ok ? { preShots: res.value } : fail(400, { error: res.error });
 	},
 
 	scoring: async ({ request, locals, params }) => {

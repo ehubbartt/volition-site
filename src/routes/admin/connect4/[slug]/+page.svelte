@@ -322,6 +322,10 @@
 			: '';
 	}
 
+	// How much of the board needs a "before" shot — the answer an admin wants before the
+	// off, not after someone asks in Discord.
+	const preShotCells = $derived(game.live.filter((t) => t?.tile.pre_shot).length);
+
 	// Ticks so the badge clears itself when the start time passes, with nobody reloading.
 	const clock = createClock(15_000);
 	const opened = $derived(
@@ -547,6 +551,22 @@
 				<button type="submit" class="quiet">Hide it</button>
 			{/if}
 		</form>
+	{/if}
+	{#if game.phase !== 'setup'}
+		<!-- A dealt game holds its own copy of every tile, so a change to the planned list
+		     does not reach it. This re-stamps the flag by name — no re-deal. -->
+		<form method="POST" action="?/markPreShots" use:enhance class="listing pre-mark">
+			<span class="muted tiny">
+				{preShotCells} of the {game.live.filter(Boolean).length} tiles on offer right now need a
+				<strong>before</strong> screenshot.
+			</span>
+			<button type="submit" class="quiet">Re-apply from the planned list</button>
+		</form>
+	{/if}
+	{#if form?.preShots}
+		<p class="ok">
+			Marked {form.preShots.tiles} tiles — {form.preShots.cells} cells now ask for a before screenshot.
+		</p>
 	{/if}
 	{#if form?.listed !== undefined}
 		<p class="ok">{form.listed ? 'Now listed on /events.' : 'Hidden from /events.'}</p>

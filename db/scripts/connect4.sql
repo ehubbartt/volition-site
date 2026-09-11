@@ -133,3 +133,16 @@ alter table vs_connect4_pieces add constraint vs_connect4_pieces_status_check
 
 create index if not exists vs_connect4_pieces_submission
 	on vs_connect4_pieces (submission_id) where submission_id is not null;
+
+-- ---------------------------------------------------------------------------
+-- Progress rows carry an AMOUNT.
+--
+-- A ×N tile used to mean N separate drops, so one row per drop and count(*) was
+-- the whole story. This board also counts amounts — 70,000 Mixology points,
+-- 6,000 Stardust, 1,500 Colossal Wyrm laps — and 22 of its tiles ask for more
+-- than 99. One row per unit is absurd at that scale, so a claim banks ONE row
+-- carrying how much it covered, and progress is sum(qty) rather than count(*).
+-- Existing rows are worth 1, which is exactly what they meant.
+alter table vs_connect4_progress add column if not exists qty int not null default 1;
+alter table vs_connect4_progress drop constraint if exists vs_connect4_progress_qty_positive;
+alter table vs_connect4_progress add constraint vs_connect4_progress_qty_positive check (qty > 0);

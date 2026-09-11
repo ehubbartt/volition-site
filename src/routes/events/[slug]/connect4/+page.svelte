@@ -57,6 +57,26 @@
 	/** Brief "got it" acknowledgement after a paste, so the action is not silent. */
 	let pasted = $state(false);
 
+	/**
+	 * The claim being re-evidenced, when an admin has asked for a better screenshot. Held
+	 * separately from `selected` because the two disagree on purpose: the column is showing
+	 * its NEXT tile, while this is the one the player still holds.
+	 */
+	type Awaiting = NonNullable<typeof game>['awaiting'][number];
+	let resubmit = $state<
+		{ cell: string; col: number; deckIdx: number; tile: Awaiting['tile'] } | null
+	>(null);
+	function cancelResubmit() {
+		resubmit = null;
+	}
+	function startResubmit(a: Awaiting) {
+		resubmit = { cell: a.cell, col: a.col, deckIdx: a.deckIdx, tile: a.tile };
+		selected = a.col; // keeps the staged-file drafts, which are keyed by column
+		queueMicrotask(() =>
+			document.querySelector('.claim-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+		);
+	}
+
 	function addFiles(list: FileList | File[] | null) {
 		const incoming = Array.from(list ?? []).filter((f) => f.type.startsWith('image/'));
 		if (!incoming.length) return;
@@ -261,7 +281,11 @@
 
 	let selected = $state<number | null>(null);
 	const selectedTile = $derived(
-		selected === null ? null : (game?.live[selected] ?? null)
+		resubmit?.tile
+			? { col: resubmit.col, deckIdx: resubmit.deckIdx, tile: resubmit.tile, progress: undefined }
+			: selected === null
+				? null
+				: (game?.live[selected] ?? null)
 	);
 
 	// ── 2D / 3D ───────────────────────────────────────────────────────────────
@@ -540,7 +564,10 @@
 								revealed={playback.revealed}
 								falling={playback.falling}
 								{selected}
-								onselect={(c) => (selected = selected === c ? null : c)}
+								onselect={(c) => {
+									cancelResubmit();
+									selected = selected === c ? null : c;
+								}}
 								onhover={set3dHover}
 							/>
 						{:else}
@@ -555,7 +582,10 @@
 								revealed={playback.revealed}
 								falling={playback.falling}
 								{selected}
-								onselect={(c) => (selected = selected === c ? null : c)}
+								onselect={(c) => {
+									cancelResubmit();
+									selected = selected === c ? null : c;
+								}}
 							/>
 						{/if}
 					{/key}
@@ -573,6 +603,9 @@
 								<div class="muted tiny">
 									{#if selectedTile.tile.source}
 										{selectedTile.tile.source}
+									{/if}
+									{#if selectedTile.tile.pre_shot}
+										<strong class="pre-flag">📷 before + after</strong> ·
 									{/if}
 									{#if selectedTile.tile.ehb} · {formatEhb(selectedTile.tile.ehb)} to obtain{/if}
 									{#if selectedTile.tile.qty && selectedTile.tile.qty > 1}
@@ -615,6 +648,25 @@
 								}}
 							>
 								<input type="hidden" name="col" value={selectedTile.col} />
+								{#if resubmit}
+									<input type="hidden" name="resubmit" value="1" />
+									<p class="redo-head">
+										Replacing the proof for <strong>{selectedTile.tile.item_name}</strong> at
+										{resubmit.cell} — you still hold it.
+										<button type="button" class="link-like" onclick={cancelResubmit}>cancel</button>
+									</p>
+								{/if}
+								<!-- Said BEFORE the drop zone, because by the time you are picking a file
+								     it is already too late to have taken the other shot. -->
+								{#if selectedTile.tile.pre_shot}
+									<p class="pre-warn">
+										📷 <strong>This tile needs a BEFORE screenshot too.</strong>
+										Send one showing your count <em>before</em> you start{#if selectedTile.tile.pre_note}
+											{' '}({selectedTile.tile.pre_note}){/if}, and one after — both in the same
+										submission. Without a before, an admin cannot tell what you earned during the
+										event.
+									</p>
+								{/if}
 								{#if pasted}<p class="ok tiny">Pasted from your clipboard.</p>{/if}
 
 								<!-- Drop zone. Staged images survive closing the tile, so you can
@@ -705,7 +757,18 @@
 								</div>
 							</form>
 							{#if form?.error}<p class="err tiny">{form.error}</p>{/if}
-							{#if form?.submitted}
+							{#if form?.submitted && form?.progress}
+								<!-- A ×N tile is not finished by one drop. Say exactly where the side is,
+								     so nobody is left wondering whether the submission counted. -->
+								<p class="ok tiny">
+									Sent for review — <strong>{form.progress.have} of {form.progress.need}</strong> for
+									your side. The tile stays on the board until you reach {form.progress.need}.
+								</p>
+							{:else if form?.submitted && form?.tileTaken}
+								<p class="err tiny">
+									Sent for review, but another side claimed this tile first — nothing was placed.
+								</p>
+							{:else if form?.submitted}
 								<p class="ok tiny">Sent for review — an admin will confirm it shortly.</p>
 							{/if}
 						{/if}
@@ -743,9 +806,14 @@
 										<strong>An admin needs a better screenshot.</strong>
 										{#if a.note}<span class="muted"> “{a.note}”</span>{/if}
 										<span>
-											You still hold this tile — nobody can take it while you sort the shot
-											out. Click column {columnLabel(a.col)} on the board and send another.
+											You still hold this tile — nobody can take it while you sort the shot out.
 										</span>
+										<!-- A button, not directions. The column has ALREADY moved on to a new
+										     tile, so "click column K" sent people to the wrong objective; this
+										     reopens the claim they actually hold. -->
+										<button type="button" class="redo-btn" onclick={() => startResubmit(a)}>
+											Send a better screenshot
+										</button>
 									</div>
 								{/if}
 							</li>
@@ -989,6 +1057,31 @@
 		background: var(--surface-alt);
 	}
 	.claim-form p { margin: 0; }
+	.pre-warn {
+		padding: 0.45rem 0.6rem;
+		border: 1px solid var(--warning, #d9a441);
+		border-left-width: 4px;
+		border-radius: var(--radius);
+		background: color-mix(in srgb, var(--warning, #d9a441) 12%, transparent);
+		font-size: 0.85rem;
+		line-height: 1.35;
+	}
+	.pre-flag { color: var(--warning, #d9a441); }
+	.redo-head {
+		font-size: 0.85rem;
+	}
+	.redo-btn {
+		margin-top: 0.3rem;
+	}
+	.link-like {
+		background: none;
+		border: 0;
+		padding: 0;
+		color: var(--accent);
+		text-decoration: underline;
+		cursor: pointer;
+		font: inherit;
+	}
 	.err { color: var(--danger); }
 	.ok { color: var(--success); }
 	.awaiting { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }

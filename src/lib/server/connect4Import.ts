@@ -27,6 +27,10 @@ export interface ImportedTile {
 	/** How many board cells this tile occupies. */
 	copies: number;
 	tier: string | null;
+	/** Highlighted in the planning sheet as needing a BEFORE screenshot. */
+	pre?: boolean;
+	/** The parenthetical the sheet sometimes adds, e.g. "on banked unsireds". */
+	preNote?: string;
 }
 
 export interface ImportReport {
@@ -257,7 +261,9 @@ export function toPoolAndCustom(tiles: ImportedTile[]): { custom: TileRef[]; poo
 			...(t.qty > 1 ? { qty: t.qty } : {}),
 			...(t.included.length
 				? { any_of: t.included.map((n) => ({ item_id: null, item_name: n })) }
-				: {})
+				: {}),
+			...(t.pre ? { pre_shot: true } : {}),
+			...(t.preNote ? { pre_note: t.preNote } : {})
 		};
 		custom.push(ref);
 		for (let c = 0; c < t.copies; c++) pool.push(ref);

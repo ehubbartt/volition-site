@@ -392,15 +392,24 @@ async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
 	if (deck.some((t) => tileQty(t) > 1)) {
 		const idxs = live.filter((l): l is LiveTile => !!l && tileQty(l.tile) > 1).map((l) => l.deckIdx);
 		if (idxs.length) {
-			const { data: prog } = await sb
+			let prog: { deck_idx: number; side: Side; qty?: number }[] | null = null;
+			let progErr: unknown = null;
+			({ data: prog, error: progErr } = await sb
 				.from('vs_connect4_progress')
-				.select('deck_idx, side')
+				.select('deck_idx, side, qty')
 				.eq('event_id', ev.id)
-				.in('deck_idx', idxs);
+				.in('deck_idx', idxs));
+			if (missingColumn(progErr)) {
+				({ data: prog } = await sb
+					.from('vs_connect4_progress')
+					.select('deck_idx, side')
+					.eq('event_id', ev.id)
+					.in('deck_idx', idxs));
+			}
 			const counts = new Map<number, { 1: number; 2: number }>();
-			for (const r of (prog ?? []) as { deck_idx: number; side: Side }[]) {
+			for (const r of prog ?? []) {
 				const c = counts.get(r.deck_idx) ?? { 1: 0, 2: 0 };
-				c[r.side] += 1;
+				c[r.side] += Number(r.qty) || 1;
 				counts.set(r.deck_idx, c);
 			}
 			for (const l of live) {
@@ -972,6 +981,12 @@ export async function sourceStart(sourceEventId: string): Promise<string | null>
 	return ((data as { starts_at: string | null } | null)?.starts_at) ?? null;
 }
 
+/** True when an error says a column is not there yet — a hand-applied migration pending. */
+function missingColumn(e: unknown): boolean {
+	const code = (e as { code?: string } | null)?.code;
+	return code === '42703' || code === 'PGRST204';
+}
+
 export function hasOpened(snap: { phase: Phase; startsAt: string | null }, now = Date.now()): boolean {
 	if (snap.phase !== 'live') return false;
 	if (!snap.startsAt) return true;
@@ -1055,6 +1070,57 @@ export async function setListed(eventId: string, listed: boolean): Promise<Resul
 	if (error) return errResult(error.message);
 	bustEventCaches();
 	return okResult();
+}
+
+/**
+ * STAMP THE PRE-SCREENSHOT FLAG ONTO AN ALREADY-DEALT GAME.
+ *
+ * The flag lives on the tile, and a live game's tiles are a copy taken at deal time — so
+ * updating the checked-in planned list does nothing for a board that is already dealt.
+ * This matches by NAME across every place a tile is held (pool, custom, deck, requeue and
+ * the assignment overlay) and sets the flag there, touching nothing else: no re-deal, no
+ * re-shuffle, no change to which tile sits above which column. Safe to run on a game with
+ * pieces already on it, and safe to run twice.
+ */
+export async function applyPreShots(
+	eventId: string,
+	names: { name: string; note?: string | null }[]
+): Promise<Result<{ tiles: number; cells: number }>> {
+	const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
+	const want = new Map(names.map((n) => [norm(n.name), n.note ?? null]));
+	if (!want.size) return errResult('No tiles given');
+
+	const sb = db();
+	const { data, error } = await sb.from('vs_events').select('structure').eq('id', eventId).maybeSingle();
+	if (error) return errResult(error.message);
+	const structure = (data?.structure ?? {}) as Record<string, unknown>;
+	const c4 = readStructure(structure);
+
+	let cells = 0;
+	const seen = new Set<string>();
+	const stamp = (t: TileRef): TileRef => {
+		const key = norm(t.item_name ?? '');
+		if (!want.has(key)) return t;
+		seen.add(key);
+		const note = want.get(key);
+		return { ...t, pre_shot: true, ...(note ? { pre_note: note } : {}) };
+	};
+
+	const pool = (c4.pool ?? []).map(stamp);
+	const custom = (c4.custom ?? []).map(stamp);
+	const deck = (c4.deck ?? []).map((t) => {
+		const next = stamp(t);
+		if (next.pre_shot) cells++;
+		return next;
+	});
+	const requeue = (c4.requeue ?? []).map(stamp);
+	const assignments = Object.fromEntries(
+		Object.entries(c4.assignments ?? {}).map(([k, t]) => [k, stamp(t)])
+	);
+
+	const patched = await patchStructure(eventId, { pool, custom, deck, requeue, assignments });
+	if (!patched.ok) return errResult(patched.error);
+	return okResult({ tiles: seen.size, cells });
 }
 
 // ── The claim ───────────────────────────────────────────────────────────────
@@ -1252,6 +1318,14 @@ export async function claimTile(input: {
 	status?: PieceStatus;
 	/** The vs_submissions row that placed it, so a decision can find its piece. */
 	submissionId?: string | null;
+	/**
+	 * An ADMIN deciding the tile outright, rather than one more drop toward it. Only this
+	 * skips the quantity gate: a ×N tile otherwise needs N qualifying drops from one side
+	 * however the claim arrived.
+	 */
+	adminCredit?: boolean;
+	/** How many qualifying drops this one claim covers — a ×N tile banks that many. */
+	covers?: number;
 }): Promise<ClaimReport> {
 	const sb = db();
 	const snap = await loadConnect4ById(input.eventId);
@@ -1306,23 +1380,42 @@ export async function claimTile(input: {
 			}
 		}
 
-		// QUANTITY tile, drop-driven claim: bank this drop toward the side's count and
-		// only let the side's Nth drop through to the piece insert below. An explicit-col
-		// claim (creditManual / admin) skips this — an admin crediting a column means the
-		// tile is decided, not one more drop toward it. The progress row shares the
-		// piece's unique (event_id, drop_key) guard, so the reconcile pass can re-run a
-		// counted drop forever and it stays one drop.
+		// QUANTITY tile: bank this claim toward the side's count and only let the claim that
+		// REACHES N through to the piece insert below.
+		//
+		// This used to be gated on `input.col == null`, i.e. "only the drop pipeline
+		// counts" — on the reasoning that naming a column meant an admin deciding the tile.
+		// That stopped being true the moment members began claiming by column with manual
+		// proof: a single submission against a ×1000 tile named its column, skipped the
+		// gate entirely, and completed the tile on one drop. The gate now turns on WHO is
+		// claiming. Only an explicit admin credit decides a tile outright.
+		//
+		// The progress row shares the piece's unique (event_id, drop_key) guard, so the
+		// reconcile pass can re-run a counted drop forever and it stays one drop.
 		const need = tileQty(target.tile);
-		if (input.col == null && need > 1) {
+		if (!input.adminCredit && need > 1) {
 			if (!banked) {
-				const { error: pErr } = await sb.from('vs_connect4_progress').insert({
+				// ONE row carrying the AMOUNT this claim covers, not a row per unit: a tile can
+				// ask for 70,000 points, and banking a row each would be absurd. The row keeps
+				// the same unique (event_id, drop_key) guard, so a re-run still counts once.
+				const covers = Math.max(1, Math.min(need, Math.round(Number(input.covers) || 1)));
+				const row = {
 					event_id: input.eventId,
 					deck_idx: target.deckIdx,
 					side: input.side,
 					by_user_id: input.byUserId ?? null,
 					item_name: input.itemName ?? null,
 					drop_key: input.dropKey
-				});
+				};
+				let { error: pErr } = await sb.from('vs_connect4_progress').insert({ ...row, qty: covers });
+				// `qty` arrives with a hand-applied migration. Until it is on a given database
+				// this falls back to the old one-row-per-claim shape rather than failing the
+				// claim — on event day a missing column must not stop anyone submitting.
+				// PostgREST names the same problem differently on a write (PGRST204, from its
+				// schema cache) than on a read (42703, straight from Postgres).
+				if (missingColumn(pErr)) {
+					({ error: pErr } = await sb.from('vs_connect4_progress').insert(row));
+				}
 				if (pErr) {
 					if ((pErr as { code?: string }).code !== '23505') return { status: 'error', error: pErr.message };
 					// Counted on an earlier run (and if it had completed the tile, the piece
@@ -1331,13 +1424,26 @@ export async function claimTile(input: {
 				}
 				banked = true;
 			}
-			const { count } = await sb
+			let banks: { qty?: number }[] | null = null;
+			let bErr: unknown = null;
+			({ data: banks, error: bErr } = await sb
 				.from('vs_connect4_progress')
-				.select('id', { count: 'exact', head: true })
+				.select('qty')
 				.eq('event_id', input.eventId)
 				.eq('deck_idx', target.deckIdx)
-				.eq('side', input.side);
-			const have = count ?? 1;
+				.eq('side', input.side));
+			if (missingColumn(bErr)) {
+				const legacy = await sb
+					.from('vs_connect4_progress')
+					.select('id')
+					.eq('event_id', input.eventId)
+					.eq('deck_idx', target.deckIdx)
+					.eq('side', input.side);
+				// Pre-migration rows are worth one each, which is what they always meant.
+				banks = (legacy.data ?? []).map(() => ({ qty: 1 }));
+			}
+			// SUM, not COUNT: one row can carry a whole screenshot's worth.
+			const have = (banks ?? []).reduce((n, r) => n + (Number(r.qty) || 1), 0) || 1;
 			if (have < need) {
 				return { status: 'progress', col: target.col, side: input.side, tile: target.tile, have, need };
 			}
@@ -1462,7 +1568,10 @@ export async function creditManual(input: {
 		side: input.side,
 		col: input.col,
 		dropKey: `manual:${randomUUID()}`,
-		byUserId: input.byUserId ?? null
+		byUserId: input.byUserId ?? null,
+		// An admin crediting a column means the tile is decided, not one more drop toward
+		// it — the one case that skips the quantity gate.
+		adminCredit: true
 	});
 }
 
@@ -1786,6 +1895,27 @@ async function restateWinner(snap: Connect4Snapshot): Promise<void> {
  *
  * Returns false when they hold nothing there, so the caller knows to claim normally.
  */
+/**
+ * The caller's own pending piece in a column — the claim they are being asked to
+ * re-evidence. Its `deck_idx` is the tile they actually hold, which is NOT the one the
+ * column is offering now: their piece took that slot and the column moved on.
+ */
+export async function pendingPieceOf(
+	eventId: string,
+	col: number,
+	userId: string
+): Promise<{ id: string; deck_idx: number; row: number; item_name: string | null } | null> {
+	const { data } = await db()
+		.from('vs_connect4_pieces')
+		.select('id, deck_idx, row, item_name')
+		.eq('event_id', eventId)
+		.eq('col', col)
+		.eq('by_user_id', userId)
+		.eq('status', 'pending')
+		.limit(1);
+	return ((data ?? [])[0] as { id: string; deck_idx: number; row: number; item_name: string | null }) ?? null;
+}
+
 export async function repointPendingPiece(
 	eventId: string,
 	col: number,

@@ -88,12 +88,25 @@ export interface TileRef {
 	ehb?: number;
 	any_of?: GroupItem[];
 	qty?: number;
+	/**
+	 * This tile needs a BEFORE screenshot as well as an after — anything counted rather
+	 * than dropped (points, laps, marks, casket loot) or already sitting in a bank, where
+	 * an "after" alone proves nothing about when it was earned.
+	 */
+	pre_shot?: boolean;
+	/** What specifically to photograph first, when the tile needs saying more precisely. */
+	pre_note?: string;
 }
 
 /** The drops one side needs to claim a tile — 1 unless the tile says otherwise. */
 export function tileQty(tile: Pick<TileRef, 'qty'>): number {
 	const n = Math.round(Number(tile.qty));
-	return isFinite(n) && n > 1 ? Math.min(99, n) : 1;
+	// The ceiling used to be 99, from when a ×N tile meant N separate DROPS. This board
+	// also counts amounts — 70,000 Mixology points, 6,000 Stardust — and 22 of its tiles
+	// ask for more than 99. Capping those at 99 would have let a fraction of the work
+	// finish the tile. Progress is stored as an amount per claim, not a row per unit, so a
+	// large number costs nothing.
+	return isFinite(n) && n > 1 ? Math.min(1_000_000, n) : 1;
 }
 
 /** One claimed cell. The extras past col/row/side/deck_idx are display only. */

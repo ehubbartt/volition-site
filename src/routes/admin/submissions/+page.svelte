@@ -47,6 +47,7 @@
   // tile went up. A separate box because it is a different question from "is there a
   // drop log" — a perfectly real drop can still be too early to count.
   let timingConfirmed = $state(false);
+  let preShotConfirmed = $state(false);
   // Which rejection the admin pressed. Connect Four splits it in two: 'partial' leaves
   // the piece standing (the submitter keeps the tile while they find a better shot),
   // 'full' takes it off the board and returns the tile to the queue.
@@ -115,7 +116,10 @@
   const remaining = $derived(filtered.length - currentIndex);
   const canApprove = $derived(
     (current?.kind !== "event" || (womConfirmed && logConfirmed)) &&
-      (!current?.tileActiveSince || timingConfirmed),
+      (!current?.tileActiveSince || timingConfirmed) &&
+      // A tile that needs a BEFORE screenshot cannot be approved on an after alone: there
+      // is nothing to compare a counter against, and by now nobody can go back and take it.
+      (!current?.tileNeedsPreShot || preShotConfirmed),
   );
 
   const reviewedItems = $derived(data.reviewed?.items ?? []);
@@ -151,6 +155,7 @@
     womConfirmed = false;
     logConfirmed = false;
     timingConfirmed = false;
+    preShotConfirmed = false;
     lastAction = {
       kind: "skip",
       rsn: current.submitter.rsn ?? current.submitter.discord_username ?? "",
@@ -613,7 +618,7 @@
 
     {#if error}<p class="error">{error}</p>{/if}
 
-    {#if current.tileActiveSince || current.kind === "event"}
+    {#if current.tileActiveSince || current.tileNeedsPreShot || current.kind === "event"}
       <fieldset class="approve-checks">
         <legend>Before approving</legend>
         {#if current.kind === "event"}
@@ -624,6 +629,19 @@
           <label class="check">
             <input type="checkbox" bind:checked={logConfirmed} />
             <span>Visible Drop/Collection Log</span>
+          </label>
+        {/if}
+        {#if current.tileNeedsPreShot}
+          <!-- Counters, laps, casket loot, anything already banked: an "after" on its own
+               says nothing about what was earned during the event. -->
+          <p class="tile-window pre">
+            📷 <strong>This tile needs a BEFORE screenshot.</strong>
+            Check the submission includes a shot from before they started{#if current.tilePreNote}
+              ({current.tilePreNote}){/if}, and that the two together show the gain.
+          </p>
+          <label class="check">
+            <input type="checkbox" bind:checked={preShotConfirmed} />
+            <span>Before AND after screenshots are both here</span>
           </label>
         {/if}
         {#if current.tileActiveSince}
@@ -681,6 +699,7 @@
               womConfirmed = false;
               logConfirmed = false;
               timingConfirmed = false;
+    preShotConfirmed = false;
               nextCard();
             } else if (result.type === "failure") {
               error =
@@ -766,6 +785,7 @@
               womConfirmed = false;
               logConfirmed = false;
               timingConfirmed = false;
+    preShotConfirmed = false;
               nextCard();
             } else if (result.type === "failure") {
               error =
@@ -1720,6 +1740,12 @@
   .tile-window {
     margin: 0.2rem 0;
     font-size: 0.85rem;
+  }
+  .tile-window.pre {
+    padding: 0.35rem 0.5rem;
+    border-left: 3px solid var(--warning, #d9a441);
+    background: color-mix(in srgb, var(--warning, #d9a441) 12%, transparent);
+    border-radius: 3px;
   }
   .tile-warn {
     margin: 0.2rem 0 0;

@@ -321,7 +321,13 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 				// Filled in below for Connect Four rows, which are the only ones whose
 				// target is a moving target.
 				tileActiveSince: null,
-				tileSuperseded: false
+				tileSuperseded: false,
+				// Set for a Connect Four tile the planning sheet marked as needing a BEFORE
+				// screenshot. The reviewer has to be told: an "after" alone proves nothing
+				// about a counter, and by the time it reaches the queue nobody can go back
+				// and take the other shot.
+				tileNeedsPreShot: false,
+				tilePreNote: null
 			};
 			groups.set(key, group);
 		}
@@ -388,6 +394,9 @@ export async function loadPendingReview({ test = false }: { test?: boolean } = {
 				const prior = snap.pieces.find((p) => p.deck_idx === deckIdx - 1);
 				const firstOfColumn = deckIdx % snap.rows === 0;
 				it.tileActiveSince = firstOfColumn ? snap.startsAt : (prior?.claimed_at ?? null);
+				const tile = snap.deck[deckIdx];
+				it.tileNeedsPreShot = !!tile?.pre_shot;
+				it.tilePreNote = tile?.pre_note ?? null;
 				// Superseded means SOMEONE ELSE holds this tile. The submitter's own piece is
 				// sitting on that slot by design — a claim places it provisionally — so it must
 				// not count, or every single claim would warn that it had been beaten.

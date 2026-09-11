@@ -4,6 +4,7 @@ import {
 	claimTile,
 	hasOpened,
 	loadConnect4,
+	pendingPieceOf,
 	repointPendingPiece,
 	sideForUser
 } from '$lib/server/connect4';
@@ -42,8 +43,23 @@ export const actions: Actions = {
 
 		const form = await request.formData();
 		const col = Number(form.get('col'));
-		const slot = Number.isInteger(col) ? game.live[col] : null;
-		if (!slot) return fail(400, { error: 'That column has nothing on offer.' });
+		if (!Number.isInteger(col)) return fail(400, { error: 'Pick a column.' });
+
+		// A RESUBMIT is for the tile they already hold, not for whatever the column is
+		// offering now. Their pending piece took that slot and the column moved on, so
+		// "click column K and send another" was pointing at a different tile — the proof
+		// would have been filed against the wrong objective.
+		const redo = form.get('resubmit') === '1' ? await pendingPieceOf(game.id, col, locals.user.id) : null;
+		const slot = redo
+			? { deckIdx: redo.deck_idx, tile: game.deck[redo.deck_idx] ?? null }
+			: game.live[col];
+		if (!slot?.tile) {
+			return fail(400, {
+				error: redo
+					? 'That claim is no longer waiting on you.'
+					: 'That column has nothing on offer.'
+			});
+		}
 
 		const files = form.getAll('proof').filter((f): f is File => f instanceof File && f.size > 0);
 		if (files.length === 0) return fail(400, { error: 'Add a screenshot showing the drop' });
@@ -86,8 +102,17 @@ export const actions: Actions = {
 			dropKey: `manual:submission:${result.id}`,
 			byUserId: locals.user.id,
 			status: 'pending',
-			submissionId: result.id
+			submissionId: result.id,
+			// How many of a ×N tile's requirement this proof covers. WITHOUT this a single
+			// submission completed a thousand-drop tile: the claim named a column, and the
+			// quantity gate used to treat that as an admin deciding the tile.
+			covers: claimed
 		});
+		// A ×N tile that the side has not finished yet: the drops are banked, no piece is
+		// placed, and the column keeps offering the tile. Not a failure — say where they are.
+		if (claim.status === 'progress') {
+			return { submitted: true, col, progress: { have: claim.have ?? 0, need: claim.need ?? 0 } };
+		}
 		if (claim.status !== 'claimed') {
 			// Someone beat them to it between picking the column and submitting. The proof
 			// row stays for an admin to see, but nothing was placed.

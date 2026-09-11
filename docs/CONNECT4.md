@@ -748,6 +748,35 @@ take the form's. A game with no form behind it opens the moment it is dealt, as 
 > blank opens the board as soon as you deal."* Type the announced time into **Opens at**
 > and it is exact. Giving signup forms their own start time is the obvious follow-up.
 
+### Tiles that need a BEFORE screenshot
+
+**66 of the 244 planned tiles — 124 of the 600 cells — need a "before" as well as an
+after.** They are the ones where an after proves nothing on its own: counters and points
+(MTA, Tithe Farm, Pest Control, Mixology), laps and marks (Rooftop, Ape Atoll, Hallowed
+Sepulchre), casket loot, and things that may already be sitting in a bank (the Abyssal head
+tile says *"precheck on banked unsireds"*). They are highlighted yellow on the **PRECHECKS**
+sheet of the planning workbook, and carry `pre` in the checked-in list →
+`TileRef.pre_shot` (+ an optional `pre_note`).
+
+It is said in four places, because a player who learns about it at submission time has
+already missed their chance to take the shot:
+
+| Where | What they see |
+|---|---|
+| The token on the rail | A 📷 badge, and the hover title ends *"— NEEDS A BEFORE SCREENSHOT"* |
+| The tile detail line | **📷 before + after** |
+| The claim form | A warning **above the drop zone**, with the tile's own note if it has one |
+| The review queue | A callout, and a checkbox that **gates the approve button** |
+
+**A game already dealt does not pick this up on its own.** A live board holds its own copy
+of every tile, taken at deal time, so editing the planned list does nothing for it. The
+admin page has *"Re-apply from the planned list"* (`?/markPreShots` → `applyPreShots`),
+which matches by name across the pool, custom list, deck, requeue and assignment overlay
+and sets the flag there — **no re-deal, no re-shuffle, nothing moves**. Safe on a board with
+pieces on it, and safe to run twice. `npm run drill:connect4:preshot` proves exactly that:
+it deals a board without the flag, puts a piece on it, stamps, and asserts the deck order
+and the pieces are untouched.
+
 ### Sending proof
 
 The claim form takes a screenshot three ways — **paste (Ctrl/Cmd+V), drag & drop, or the
@@ -851,6 +880,7 @@ nobody, and one that failed outright were indistinguishable from a dead button.
 ```bash
 npm run drill:connect4:roster         # who the Teams panel can act on, incl. no-RSN members
 npm run drill:connect4:schedule       # a board seated from a signup form runs to its clock
+npm run drill:connect4:preshot        # the 66 before-screenshot tiles, and stamping a live board
 npm run sim:connect4                  # the full game, against staging
 npm run sim:connect4 -- --quick       # skip filling all 250 cells
 npm run sim:connect4 -- --seed 7 --keep

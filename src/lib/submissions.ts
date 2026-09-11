@@ -47,6 +47,13 @@ export interface ReviewItem {
 	// The column has since moved on: whoever was approved first took this tile, so the
 	// submission is for something that is no longer on offer.
 	tileSuperseded: boolean;
+	// This tile was marked as needing a BEFORE screenshot as well as an after — a counter,
+	// a lap total, casket loot, something already banked. An "after" alone proves nothing
+	// about what was earned during the event, and by the time a claim reaches the queue
+	// nobody can go back and take the missing shot, so the reviewer is told outright.
+	tileNeedsPreShot: boolean;
+	// What specifically had to be photographed first, when the tile says so.
+	tilePreNote: string | null;
 }
 
 // One already-reviewed submission group, for the read-only history view. Same shape

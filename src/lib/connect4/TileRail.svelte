@@ -45,7 +45,9 @@
 			class:retired={!slot}
 			class:claiming={claiming?.has(col)}
 			class:selected={selected === col}
-			title={slot ? `${columnLabel(col)} — ${slot.tile.item_name}${slot.tile.source ? ` (${slot.tile.source})` : ''}` : `${columnLabel(col)} — column full`}
+			title={slot
+				? `${columnLabel(col)} — ${slot.tile.item_name}${slot.tile.source ? ` (${slot.tile.source})` : ''}${slot.tile.pre_shot ? ' — NEEDS A BEFORE SCREENSHOT' : ''}`
+				: `${columnLabel(col)} — column full`}
 			aria-label={slot ? `Column ${columnLabel(col)}: ${slot.tile.item_name}` : `Column ${columnLabel(col)} is full`}
 			onclick={() => onselect?.(col)}
 			onmouseenter={(e) => report(e, slot)}
@@ -67,6 +69,12 @@
 				</span>
 				{#if slot.tile.qty && slot.tile.qty > 1}
 					<span class="qty-badge" aria-hidden="true">×{slot.tile.qty}</span>
+				{/if}
+				<!-- Visible WITHOUT clicking: a player has to know a before shot is wanted while
+				     they can still take one. After the fact is too late, which is the whole
+				     reason these tiles are marked. -->
+				{#if slot.tile.pre_shot}
+					<span class="pre-badge" title="Needs a BEFORE screenshot as well as an after">📷</span>
 				{/if}
 				{#if claiming?.has(col)}<span class="dealing" aria-hidden="true"></span>{/if}
 			{:else}
@@ -177,6 +185,15 @@
 		font-size: 0.9rem;
 	}
 	/* Quantity marker, tucked in the corner so a 45px card stays an icon. */
+	.pre-badge {
+		position: absolute;
+		top: 1px;
+		left: 2px;
+		font-size: 0.62rem;
+		line-height: 1;
+		filter: drop-shadow(0 1px 1px #000);
+		pointer-events: none;
+	}
 	.qty-badge {
 		position: absolute;
 		right: 1px;
