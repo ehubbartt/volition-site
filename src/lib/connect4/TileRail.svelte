@@ -51,7 +51,9 @@
 {#if freshCols?.size}
 	<div class="newrow" aria-hidden="true">
 		{#each live as _slot, col (col)}
-			<span class:on={freshCols.has(col)}>{freshCols.has(col) ? 'NEW' : ''}</span>
+			<span class:on={freshCols.has(col)}>
+				{#if freshCols.has(col)}<b>NEW</b>{/if}
+			</span>
 		{/each}
 	</div>
 {/if}
@@ -103,19 +105,32 @@
 		grid-template-columns: repeat(var(--n), minmax(0, 1fr));
 		gap: var(--gap);
 		min-width: calc(var(--n) * (var(--min-cell) + var(--gap)));
+		align-items: end;
 		line-height: 1;
 	}
 	.newrow span {
 		display: block;
 		min-width: 0;
-		overflow: hidden;
 		text-align: center;
-		/* Tracks the column like the labels do, with a floor so 40 columns stay legible. */
-		font-size: clamp(6px, calc(30rem / var(--n) / 3), 0.68rem);
+		/* Each cell is its own container so the word can be sized against the COLUMN rather
+		   than the page: at 40 columns a page-relative size floored out at 6px and was
+		   barely there. */
+		container-type: inline-size;
+		line-height: 1;
+	}
+	.newrow b {
+		display: block;
+		/* "NEW" in a bold sans is about 2.1em wide, so ~46cqw fills the column almost
+		   exactly. Capped so a zoomed-in board does not end up shouting, floored so a
+		   fitted 40-column board stays readable. */
+		font-size: clamp(9px, 46cqw, 1rem);
 		font-weight: 700;
 		letter-spacing: 0.02em;
+		line-height: 1;
 		color: #ff4d4d;
-		text-shadow: 0 1px 2px #000;
+		text-shadow:
+			0 1px 2px #000,
+			0 0 3px #000;
 	}
 	.rail {
 		display: grid;

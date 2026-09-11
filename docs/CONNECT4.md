@@ -153,7 +153,10 @@ Two optional tile shapes on top of the plain single item:
   15 minutes is flagged **NEW** in red — in the list, and on **both** boards. The flat
   board gives it a row of its own above the rail, on the same column tracks as the tokens
   and the frame, rather than printing it over the art it is pointing at; the row renders
-  only while something is actually new. The 3D board parents a sprite to the coin, so it
+  only while something is actually new. Each cell is its own container so the word is sized
+  against the COLUMN rather than the page — "NEW" in a bold sans is about 2.1em wide, so
+  46cqw fills the column almost exactly, giving 9.7px on a fitted 40-column board where a
+  page-relative size floored out at 6px and was barely visible. The 3D board parents a sprite to the coin, so it
   bobs and falls with it, needs no per-frame projection to stay aligned, and faces the
   camera at any tilt. A tile that arrives through the REQUEUE is not flagged: nothing about
   that swap moves a piece, so there is no timestamp to read.
