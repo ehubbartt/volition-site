@@ -23,6 +23,7 @@ const PNG = Buffer.from(
   'base64'
 );
 const proof = () => new File([PNG], 'proof.png', { type: 'image/png' });
+const DECK_NEXT = 'Twisted bow'; // what sits behind column E's offer, for the race check
 
 const server = await createServer({ server: { middlewareMode: true }, logLevel: 'error', appType: 'custom' });
 const ok = [], bad = [];
@@ -152,6 +153,35 @@ try {
   const newSub = (await subsFor(red1.id)).filter((s) => s.target_id.startsWith(`c4:${A}:`)).pop();
   const repointed = afterRedo.some((p) => p.submission_id === newSub.id);
   check(repointed, `a resubmit repoints the held piece at the new proof`);
+
+  // ══ FIX 3 — the loser of a column race claims NOTHING ══════════════════════
+  // Column E offers 'Ancestral hat' (slot 16); 'Twisted bow' (17) is behind it. Two
+  // players post for E at once. The winner takes the hat; the loser must be told they
+  // lost, NOT quietly handed the bow their screenshot says nothing about.
+  const E = 4, HAT = 16;
+  const yellow = (await users(['332338153597829122']))[0];
+  const [pA, pB] = await Promise.all([submit(red1, E, {}), submit(yellow, E, {})]);
+  const inE = await piecesIn(E);
+  const won = [pA, pB].filter((r) => r?.cell);
+  const lost = [pA, pB].filter((r) => r?.tileTaken);
+  console.log('race in E →', JSON.stringify([pA, pB]));
+  check(inE.length === 1, `FIX 3 — a column race places ONE piece (got ${inE.length})`);
+  check(won.length === 1, `FIX 3 — exactly one claimant is told they won (got ${won.length})`);
+  check(lost.length === 1, `FIX 3 — the loser is told the tile was taken (got ${lost.length})`);
+  check(
+    inE[0]?.deck_idx === HAT,
+    `FIX 3 — the piece carries the tile that was on offer (slot ${inE[0]?.deck_idx}, "${inE[0]?.item_name}")`
+  );
+  check(
+    !inE.some((p) => p.deck_idx === HAT + 1),
+    `FIX 3 — nobody is credited the tile BEHIND it ("${DECK_NEXT}")`
+  );
+
+  // A later, honest claim for what column E offers NOW must still work.
+  const after = await submit(red1, E, {});
+  const inE2 = await piecesIn(E);
+  check(!!after?.cell, `the next claim in that column still succeeds (${after?.cell ?? 'refused'})`);
+  check(inE2.length === 2, `...and places a second piece (got ${inE2.length})`);
 
   console.log('\n──────── PASS ────────');
   for (const m of ok) console.log('  ✓', m);

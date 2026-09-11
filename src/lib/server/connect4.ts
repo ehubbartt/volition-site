@@ -1326,6 +1326,22 @@ export async function claimTile(input: {
 	adminCredit?: boolean;
 	/** How many qualifying drops this one claim covers — a ×N tile banks that many. */
 	covers?: number;
+	/**
+	 * The deck slot the claimant was actually looking at, for a claim that names a COLUMN.
+	 *
+	 * A column is not a stable target: the moment someone claims it, it moves on to the
+	 * next tile in its slice. So "column E" means one thing when the player reads the board
+	 * and possibly another by the time their proof reaches here — through the gap between
+	 * the page render and the post, or through the cell-conflict retry below. Without this,
+	 * the loser of a race was quietly credited whatever the column had moved to: their
+	 * review card said *Ancestral hat*, and approving it confirmed a *Twisted bow* nobody
+	 * had proved.
+	 *
+	 * Supplied, a mismatch is a lost race and claims nothing. Omitted (admin credit), the
+	 * column is taken as meaning whatever it offers now, which is what an admin naming a
+	 * column intends.
+	 */
+	expectDeckIdx?: number | null;
 }): Promise<ClaimReport> {
 	const sb = db();
 	const snap = await loadConnect4ById(input.eventId);
@@ -1362,6 +1378,11 @@ export async function claimTile(input: {
 		if (input.col != null) {
 			target = live[input.col] ?? null;
 			if (!target) return { status: 'no_tile', error: 'That column is full' };
+			// Checked on EVERY attempt, not just after a cell conflict: the column can move
+			// on between the board the claimant read and this read, with no conflict at all.
+			if (input.expectDeckIdx != null && target.deckIdx !== input.expectDeckIdx) {
+				return { status: 'raced', error: 'Another player claimed that tile first' };
+			}
 		} else {
 			target =
 				live.find((l): l is LiveTile => !!l && matchesTile({ item_id: input.itemId, item_name: input.itemName }, l.tile)) ??

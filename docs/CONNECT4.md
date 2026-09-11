@@ -108,8 +108,17 @@ Two optional tile shapes on top of the plain single item:
   that submission's own `drop_key` before the piece goes, so it takes back exactly what that
   claim put in and no one else's contribution.
 
-  `npm run drill:connect4:reject` guards both halves of this — it posts the real member
-  and admin forms, and reverting either fix turns 7 of its 13 checks red.
+  **A claim names the SLOT it is for, not just the column.** A column is a moving target —
+  it advances the instant someone claims it — so the loser of a race used to be credited
+  whatever the column had moved on to: their review card said *Ancestral hat* and approving
+  it confirmed a *Twisted bow* nobody had proved. The member action passes `expectDeckIdx`,
+  and `claimTile` returns `raced` on a mismatch, checked on every attempt rather than only
+  after a cell conflict — the column can move between the board a player read and the write,
+  with no conflict at all. An admin credit passes no slot and still means "whatever this
+  column offers now", which is what naming a column intends.
+
+  `npm run drill:connect4:reject` guards these — it posts the real member
+  and admin forms, and reverting any one fix turns its checks red — 7 of 20 for the bank, 5 for the race.
 
   **Revoking an approval still does not**, and neither does an undo: both leave banked
   progress standing, so the next qualifying claim re-takes the tile. Clear

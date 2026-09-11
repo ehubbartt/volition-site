@@ -111,7 +111,11 @@ export const actions: Actions = {
 			// How many of a ×N tile's requirement this proof covers. WITHOUT this a single
 			// submission completed a thousand-drop tile: the claim named a column, and the
 			// quantity gate used to treat that as an admin deciding the tile.
-			covers: claimed
+			covers: claimed,
+			// The tile this proof is FOR. A column is a moving target — it advances the
+			// instant someone claims it — so without this the loser of a race was credited
+			// whatever the column had moved on to, a tile they never proved.
+			expectDeckIdx: slot.deckIdx
 		});
 		// A ×N tile that the side has not finished yet: the drops are banked, no piece is
 		// placed, and the column keeps offering the tile. Not a failure — say where they are.
