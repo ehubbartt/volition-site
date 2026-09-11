@@ -54,12 +54,45 @@
 
 	const draftKey = (col: number) => `c4:${game?.id ?? ''}:${col}`;
 
+	/** Brief "got it" acknowledgement after a paste, so the action is not silent. */
+	let pasted = $state(false);
+
 	function addFiles(list: FileList | File[] | null) {
 		const incoming = Array.from(list ?? []).filter((f) => f.type.startsWith('image/'));
 		if (!incoming.length) return;
 		staged = [...staged, ...incoming.map((f) => ({ file: f, url: URL.createObjectURL(f) }))];
 		persist();
 	}
+	/**
+	 * PASTE, the way every other submission form on the site takes it. A drop screenshot
+	 * lives on the clipboard, and asking someone to save it to disk first — 240 people,
+	 * many on one hand mid-raid — is the slowest possible way to claim a tile.
+	 *
+	 * Bound to the window rather than the drop zone: the claim form only exists for the
+	 * one tile that is open, so there is nothing else on the page competing for the paste,
+	 * and it works without the player having to click into the box first.
+	 */
+	function onPaste(e: ClipboardEvent) {
+		if (selected === null) return;
+		const items = e.clipboardData?.items;
+		const files: File[] = [...(e.clipboardData?.files ?? [])];
+		if (!files.length && items) {
+			for (const it of items) {
+				if (it.kind !== 'file') continue;
+				const f = it.getAsFile();
+				if (f) files.push(f);
+			}
+		}
+		const images = files.filter((f) => f.type.startsWith('image/'));
+		if (!images.length) return;
+		// Only swallow the paste once we know it carried an image — a player pasting text
+		// into a form field elsewhere must be left alone.
+		e.preventDefault();
+		addFiles(images);
+		pasted = true;
+		setTimeout(() => (pasted = false), 2500);
+	}
+
 	function removeStaged(i: number) {
 		const gone = staged[i];
 		if (gone) URL.revokeObjectURL(gone.url);
@@ -345,7 +378,11 @@
 	});
 	onMount(() => {
 		refreshedAt = new Date().toLocaleTimeString();
-		return () => playback.stop();
+		window.addEventListener('paste', onPaste);
+		return () => {
+			window.removeEventListener('paste', onPaste);
+			playback.stop();
+		};
 	});
 
 	const mySide = $derived(
@@ -578,6 +615,7 @@
 								}}
 							>
 								<input type="hidden" name="col" value={selectedTile.col} />
+								{#if pasted}<p class="ok tiny">Pasted from your clipboard.</p>{/if}
 
 								<!-- Drop zone. Staged images survive closing the tile, so you can
 								     screenshot the drop now and submit when you are done playing. -->
@@ -618,13 +656,14 @@
 											{/each}
 										</div>
 										<p class="muted tiny">
-											Saved on this device — you can close this and come back to it.
+											{staged.length} staged — paste or drop more if you need to. Saved on this
+											device, so you can close this and come back to it.
 										</p>
 									{:else}
 										<p class="muted tiny">
-											Drop a screenshot here, or click to pick one. Make sure the
-											<strong>in-game clock</strong> is visible — an admin checks the drop
-											landed after this tile went up.
+											<strong>Paste</strong> a screenshot (Ctrl&nbsp;+&nbsp;V), drop one here, or
+											click to pick one. Make sure the <strong>in-game clock</strong> is
+											visible — an admin checks the drop landed after this tile went up.
 										</p>
 									{/if}
 								</div>

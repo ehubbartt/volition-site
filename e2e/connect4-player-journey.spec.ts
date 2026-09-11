@@ -17,6 +17,8 @@ import { join } from 'node:path';
 const SLUG = `pj-${Date.now().toString(36)}`;
 const SHOTS = 'e2e-shots/player-journey';
 const PROOF = join(SHOTS, 'proof.png');
+const PROOF_B64 =
+	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const PLAYER_ID = (process.env.C4_PLAYER ?? '').trim();
 const PLAYER_RSN = (process.env.C4_PLAYER_RSN ?? '').trim();
 
@@ -30,10 +32,7 @@ test.beforeAll(async ({ browser }: { browser: Browser }) => {
 	mkdirSync(SHOTS, { recursive: true });
 	writeFileSync(
 		PROOF,
-		Buffer.from(
-			'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-			'base64'
-		)
+		Buffer.from(PROOF_B64, 'base64')
 	);
 	admin = await browser.newPage({ viewport: { width: 1500, height: 950 } });
 	// A FRESH context: no admin cookie, no storage state. This browser only ever knows
@@ -176,7 +175,22 @@ test('the player sends proof, and only an admin can turn it into a piece', async
 		await tile.click();
 		await form.waitFor({ state: 'visible', timeout: 15_000 });
 	});
-	await form.locator('input[name="proof"]').setInputFiles(PROOF);
+
+	// PASTED, not picked. A drop screenshot lives on the clipboard, and every other
+	// submission form on the site takes it that way — this one used to make you save the
+	// image to disk first, which is the slowest possible way to claim a tile mid-raid.
+	await player.evaluate(async (b64) => {
+		const bin = atob(b64);
+		const bytes = new Uint8Array(bin.length);
+		for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+		const file = new File([bytes], 'drop.png', { type: 'image/png' });
+		const dt = new DataTransfer();
+		dt.items.add(file);
+		window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }));
+	}, PROOF_B64);
+	await expect(player.getByText('Pasted from your clipboard.')).toBeVisible({ timeout: 10_000 });
+	await expect(form.locator('.thumb img')).toHaveCount(1);
+	await shot(player, 'pasted-proof');
 	const qty = form.locator('input[name="quantity"]');
 	if (await qty.count()) await qty.fill('1');
 	await form.getByRole('button', { name: /Submit this drop/ }).click();

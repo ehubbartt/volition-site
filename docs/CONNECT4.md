@@ -748,6 +748,24 @@ take the form's. A game with no form behind it opens the moment it is dealt, as 
 > blank opens the board as soon as you deal."* Type the announced time into **Opens at**
 > and it is exact. Giving signup forms their own start time is the obvious follow-up.
 
+### Sending proof
+
+The claim form takes a screenshot three ways — **paste (Ctrl/Cmd+V), drag & drop, or the
+file picker** — and paste is the one that matters: a drop screenshot is already on the
+clipboard, and making someone save it to disk first is the slowest possible way to claim a
+tile mid-raid. The listener is on the `window` rather than the drop zone, because the claim
+form only exists for the tile that is open, so nothing else on the page competes for the
+paste and the player does not have to click into the box first. A paste carrying no image
+is left alone for whatever else wanted it.
+
+Staged images live in IndexedDB (`$lib/board/draftStore`) keyed by column, so a screenshot
+survives closing the tile — take it now, submit when you are done playing. The rest of the
+site uses `$lib/ImageDropper` for this; Connect Four has its own because of that draft
+store.
+
+`e2e/connect4-player-journey.spec.ts` submits by **dispatching a real paste event**, so the
+clipboard path is the one under test rather than the picker.
+
 ### Tile icons
 
 Icons come from `/api/wiki-image` (see [FRONTEND.md](FRONTEND.md)), never hotlinked — a
