@@ -9,7 +9,7 @@
 	} from '$lib/board/draftStore';
 	import type { PageData, ActionData } from './$types';
 	import { invalidateAll } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { swrResource } from '$lib/swrResource.svelte';
 	import Skeleton from '$lib/Skeleton.svelte';
 	import Connect4Board from '$lib/connect4/Connect4Board.svelte';
@@ -287,6 +287,44 @@
 				? null
 				: (game?.live[selected] ?? null)
 	);
+
+	// ── The tiles-on-offer list ───────────────────────────────────────────────
+	// The rail says what is on offer, but at 40 columns a token is too small to read and
+	// a player has to hunt along it for the drop they actually got. This is the same 40
+	// tiles as a plain list they can scan, filter and click — clicking is exactly what
+	// clicking the rail does, so there is one selection and one claim form, not two.
+	let tileFilter = $state('');
+	const openTiles = $derived(
+		(game?.live ?? [])
+			.map((slot, col) => ({ slot, col }))
+			.filter((t): t is { slot: NonNullable<typeof t.slot>; col: number } => !!t.slot)
+	);
+	const shownTiles = $derived.by(() => {
+		const q = tileFilter.trim().toLowerCase();
+		if (!q) return openTiles;
+		return openTiles.filter((t) => {
+			const tile = t.slot.tile;
+			const hay = [
+				columnLabel(t.col),
+				tile.item_name,
+				tile.source ?? '',
+				...(tile.any_of?.map((m) => m.item_name) ?? [])
+			]
+				.join(' ')
+				.toLowerCase();
+			return hay.includes(q);
+		});
+	});
+
+	/** Pick a column from the list, then put the claim form where they can see it. */
+	async function pickTile(col: number) {
+		cancelResubmit();
+		selected = col;
+		await tick();
+		document
+			.getElementById('c4-claim')
+			?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	}
 
 	// ── 2D / 3D ───────────────────────────────────────────────────────────────
 	// Same key as the admin tester: it is a preference about how boards look, not a
@@ -626,7 +664,7 @@
 					{/key}
 
 					{#if selectedTile}
-						<div class="tile-detail">
+						<div class="tile-detail" id="c4-claim">
 							<WikiImage
 								src={itemImageUrl(selectedTile.tile.any_of?.[0]?.item_name ?? selectedTile.tile.item_name)}
 								fallback={nameInitials(selectedTile.tile.item_name)}
@@ -816,6 +854,67 @@
 				{/if}
 			</div>
 		</section>
+
+		<!-- ── what is on offer ──────────────────────────────────────────────
+		     The rail in one readable column. Same selection as clicking the rail. -->
+		{#if game.phase === 'live' && openTiles.length}
+			<section class="osrs-panel">
+				<div class="osrs-titlebar">Tiles on offer — {openTiles.length}</div>
+				<div class="pad">
+					<div class="offer-head">
+						<p class="muted tiny">
+							Every objective currently up for grabs, one per column. Click one to send your
+							screenshot — the same as clicking its token above the board.
+						</p>
+						<input
+							class="offer-filter"
+							type="search"
+							placeholder="Filter by item, boss or column…"
+							bind:value={tileFilter}
+							aria-label="Filter the tiles on offer"
+						/>
+					</div>
+					{#if shownTiles.length}
+						<ul class="offers">
+							{#each shownTiles as t (t.col)}
+								{@const tile = t.slot.tile}
+								<li>
+									<button type="button" class:on={selected === t.col} onclick={() => pickTile(t.col)}>
+										<span class="col-tag">{columnLabel(t.col)}</span>
+										<WikiImage
+											src={itemImageUrl(tile.any_of?.[0]?.item_name ?? tile.item_name)}
+											fallback={nameInitials(tile.item_name)}
+											alt=""
+											size={26}
+										/>
+										<span class="offer-name">
+											<strong>{tile.item_name}</strong>
+											<span class="muted tiny">
+												{#if tile.source}{tile.source}{/if}
+												{#if tile.ehb} · {formatEhb(tile.ehb)} to obtain{/if}
+												{#if tile.any_of?.length}
+													· any of: {tile.any_of.map((m) => m.item_name).join(', ')}
+												{/if}
+											</span>
+										</span>
+										{#if (tile.qty ?? 1) > 1}
+											<span class="offer-qty">×{tile.qty}</span>
+										{/if}
+										{#if tile.pre_shot}
+											<span class="offer-pre" title="Needs a BEFORE screenshot as well as an after">
+												before + after
+											</span>
+										{/if}
+									</button>
+								</li>
+							{/each}
+						</ul>
+					{:else}
+						<p class="muted tiny">Nothing on offer matches “{tileFilter}”.</p>
+					{/if}
+				</div>
+			</section>
+		{/if}
 
 		<!-- ── awaiting approval ─────────────────────────────────────────────
 		     Claims already standing on the board that nobody has reviewed yet. Public on
@@ -1124,6 +1223,94 @@
 	}
 	.err { color: var(--danger); }
 	.ok { color: var(--success); }
+	.offer-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
+		justify-content: space-between;
+	}
+	.offer-head p {
+		margin: 0;
+		flex: 1 1 16rem;
+	}
+	.offer-filter {
+		flex: 0 1 15rem;
+		min-height: 0;
+		padding: 0.2rem 0.5rem;
+		font-size: 0.8rem;
+	}
+	/* Capped and scrolled: 40 objectives as one long list would push the board and the
+	   claim form off the screen, which is the opposite of the point. */
+	.offers {
+		list-style: none;
+		margin: 0.5rem 0 0;
+		padding: 0;
+		display: grid;
+		gap: 0.25rem;
+		max-height: 21rem;
+		overflow-y: auto;
+		overscroll-behavior-y: contain;
+	}
+	.offers button {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		text-align: left;
+		min-height: 0;
+		padding: 0.3rem 0.5rem;
+		border-image: none;
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		background: rgba(0, 0, 0, 0.18);
+	}
+	.offers button:hover {
+		border-color: var(--accent);
+	}
+	.offers button.on {
+		border-color: var(--accent);
+		box-shadow: 0 0 0 2px var(--accent-soft);
+	}
+	.col-tag {
+		flex: 0 0 2.2rem;
+		font-weight: 700;
+		color: var(--accent);
+		font-size: 0.8rem;
+	}
+	.offer-name {
+		display: grid;
+		min-width: 0;
+		line-height: 1.25;
+	}
+	.offer-name strong,
+	.offer-name span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.offer-qty {
+		margin-left: auto;
+		flex: none;
+		font-weight: 700;
+		font-size: 0.8rem;
+		color: var(--yellow);
+	}
+	/* Sits after the qty badge, so it must not also claim the auto margin. */
+	.offer-pre {
+		flex: none;
+		font-size: 0.66rem;
+		padding: 0.05rem 0.35rem;
+		border-radius: 999px;
+		border: 1px solid var(--danger);
+		color: var(--danger);
+	}
+	.offer-qty + .offer-pre {
+		margin-left: 0;
+	}
+	.offers li:has(.offer-pre):not(:has(.offer-qty)) .offer-pre {
+		margin-left: auto;
+	}
 	.awaiting { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
 	.awaiting li {
 		display: flex;

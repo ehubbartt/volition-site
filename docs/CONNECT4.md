@@ -733,6 +733,14 @@ does — but a third clan's player would be labelled IronClad too.
 the split in one go: pick the signup form the roster was collected on, preview, then seat.
 Seating also signs everyone up to the game, which is what puts them in the Dink allowlist.
 
+**The rail is also a list.** *Tiles on offer* under the board is the same 40 objectives
+as scannable rows — column letter, icon, source, EHB, `×N`, and a **before + after** flag —
+with a filter box over item name, source, any-of member and column. Clicking a row runs the
+same `selected = col` the rail does, so there is one selection and one claim form, then
+scrolls the form into view. It renders only while the game is live and something is on
+offer, and the list is capped and scrolled so it cannot push the board off the screen.
+
+
 **The board zooms by flooring the column width, not by scaling.** A 40-column board fitted
 to the page gives each column about 21px, which is too small to read an objective off its
 token. The **Fit / Big / Huge** strip beside the Flat/3D toggle sets `cellFloor` (0 / 34 /
