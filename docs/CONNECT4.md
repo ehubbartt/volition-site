@@ -117,6 +117,16 @@ Two optional tile shapes on top of the plain single item:
   with no conflict at all. An admin credit passes no slot and still means "whatever this
   column offers now", which is what naming a column intends.
 
+  **Un-approving settles the board; rejecting an approved row is refused.** A revoke flips
+  the row straight to `rejected`, so while it did not settle the board the piece stayed
+  standing — and the reject a reviewer reached for next matched nothing, because a reject
+  only looked at `pending` rows. A mistaken approval was therefore impossible to undo from
+  the board at all. Revoke now settles Connect Four rows as a **full** rejection, a reject
+  matches `rejected` too (so "Ask again" can be escalated to "Reject & free tile"), and a
+  decision that changes no rows returns **409 with a reason** instead of looking like it
+  worked. Rejecting an approved row is still not allowed — un-approving is the path,
+  because that is what reverses the VP and reclaims the pack.
+
   `npm run drill:connect4:reject` guards these — it posts the real member
   and admin forms, and reverting any one fix turns its checks red — 7 of 20 for the bank, 5 for the race.
 

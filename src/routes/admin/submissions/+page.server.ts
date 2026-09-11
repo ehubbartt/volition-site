@@ -172,6 +172,20 @@ export const actions: Actions = {
 			}
 		}
 
+		// Nothing matched. For a reject that almost always means the rows are already
+		// APPROVED, and an approval has to be undone with Un-approve so the VP and pack are
+		// reversed too — rejecting it here would skip all of that. Say so: this failing
+		// silently is how a mistakenly-approved Connect Four tile stayed on the board while
+		// the reviewer believed they had just rejected it.
+		if ((changedIds?.length ?? 0) === 0) {
+			return fail(409, {
+				error:
+					decision === 'reject'
+						? 'Nothing to reject — those submissions are already approved. Un-approve them first, which also takes any Connect Four piece back off the board.'
+						: 'Nothing to approve — those submissions were already approved, probably by another admin a moment ago. Reload the queue.'
+			});
+		}
+
 		if (grantCtx && (changedIds?.length ?? 0) > 0) {
 			try {
 				await grantVpForApproval(grantCtx, changedIds ?? ids);
@@ -208,13 +222,28 @@ export const actions: Actions = {
 		if (!SOURCES.includes(source as SubmissionSource)) return fail(400, { error: 'Unknown source' });
 		if (ids.length === 0) return fail(400, { error: 'No submissions selected' });
 
-		const { error: rErr, revoked } = await revokeSubmissions({
+		const { error: rErr, revoked, revokedIds } = await revokeSubmissions({
 			source: source as SubmissionSource,
 			ids,
 			reviewerId: locals.user.id,
 			note
 		});
 		if (rErr) return fail(500, { error: rErr });
+
+		// Un-approving a Connect Four claim has to come off the BOARD too. Without this the
+		// row flipped to rejected and its piece stayed standing and confirmed — and since a
+		// revoke leaves the row already 'rejected', the reject an admin reached for next
+		// changed nothing either. A mistaken approval was unremovable.
+		//
+		// 'full' is what a revoke means: the claim is not good, so the piece goes, the
+		// column shifts down, the tile returns to play and the banked drops come back.
+		if (source === 'generic' && (revokedIds?.length ?? 0) > 0) {
+			try {
+				await settleConnect4(revokedIds ?? [], 'full');
+			} catch (e) {
+				console.error('[submissions] connect4 settle on revoke failed:', (e as Error).message);
+			}
+		}
 
 		return { ok: true, decision: 'revoke', ids, revoked };
 	}

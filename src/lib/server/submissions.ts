@@ -737,8 +737,19 @@ export async function decideSubmissions({
 	// at once, Postgres row-locking means only ONE update matches `status IN (...)`; the
 	// other returns zero changed rows. The caller grants VP only for rows IT changed, so
 	// a simultaneous double-approve can't double-award.
+	//
+	// A REJECT matches 'rejected' too, which is not redundant: a revoke flips a row
+	// straight to 'rejected' without settling any board, and an "Ask again" leaves the
+	// claim standing on purpose. Both have to be escalatable to a full rejection later —
+	// while a reject only matched 'pending', the second decision changed nothing, the
+	// caller saw no changed rows, and the board settle never ran. An admin who had
+	// approved a Connect Four claim by mistake then had NO way to take the piece off.
+	// Settling twice is harmless: rejectPieceFully and revokeProgressFor are idempotent.
 	let q = db().from(table).update(base).in('id', ids);
-	q = decision === 'approve' ? q.in('status', ['pending', 'rejected']) : q.eq('status', 'pending');
+	q =
+		decision === 'approve'
+			? q.in('status', ['pending', 'rejected'])
+			: q.in('status', ['pending', 'rejected']);
 	const { data, error } = await q.select('id');
 
 	return error ? { error: error.message } : { changedIds: (data ?? []).map((r) => r.id as string) };
@@ -759,7 +770,7 @@ export async function revokeSubmissions({
 	ids: string[];
 	reviewerId: string;
 	note: string | null;
-}): Promise<{ error?: string; revoked: number }> {
+}): Promise<{ error?: string; revoked: number; revokedIds?: string[] }> {
 	const table = SOURCE_TABLE[source];
 	if (!table) return { error: 'Unknown submission source', revoked: 0 };
 	if (ids.length === 0) return { error: 'No submissions to update', revoked: 0 };
@@ -773,7 +784,9 @@ export async function revokeSubmissions({
 			.in('id', ids)
 			.eq('status', 'approved')
 			.select('id');
-		return error ? { error: error.message, revoked: 0 } : { revoked: data?.length ?? 0 };
+		return error
+			? { error: error.message, revoked: 0 }
+			: { revoked: data?.length ?? 0, revokedIds: (data ?? []).map((r) => r.id as string) };
 	}
 
 	// Read the currently-approved generic rows first so we can reverse VP afterwards.
@@ -845,7 +858,7 @@ export async function revokeSubmissions({
 		await grantPlayerVp(p.discordId, rsn, -vp);
 	}
 
-	return { revoked: approvedIds.length };
+	return { revoked: approvedIds.length, revokedIds: approvedIds };
 }
 
 // --- Helpers for future events to CREATE submissions ---------------------------

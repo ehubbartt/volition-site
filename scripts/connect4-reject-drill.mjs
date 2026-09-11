@@ -183,6 +183,86 @@ try {
   check(!!after?.cell, `the next claim in that column still succeeds (${after?.cell ?? 'refused'})`);
   check(inE2.length === 2, `...and places a second piece (got ${inE2.length})`);
 
+  // ══ FIX 4 — a mistaken approval can be taken back off the board ════════════
+  // The path a reviewer actually took: approve, realise it was wrong, un-approve, then
+  // reject. Every step used to leave the piece standing — the revoke never settled the
+  // board, and the reject after it matched nothing because the row was already rejected.
+  const F = 5;
+  await submit(red1, F, {});
+  const fSub = (await subsFor(red1.id)).filter((x) => x.target_id.startsWith(`c4:${F}:`)).pop();
+  const decide = async (id, decision, kind) => {
+    const fd = new FormData();
+    fd.set('source', 'generic');
+    fd.set('ids', id);
+    fd.set('decision', decision);
+    if (kind) fd.set('reject_kind', kind);
+    return admin.actions.decide({
+      request: new Request('http://local/admin/submissions?/decide', { method: 'POST', body: fd }),
+      locals: { user: adminUser }
+    });
+  };
+  const revoke = async (id) => {
+    const fd = new FormData();
+    fd.set('source', 'generic');
+    fd.set('ids', id);
+    return admin.actions.revoke({
+      request: new Request('http://local/admin/submissions?/revoke', { method: 'POST', body: fd }),
+      locals: { user: adminUser }
+    });
+  };
+
+  await decide(fSub.id, 'approve');
+  check((await piecesIn(F)).length === 1, `an approved claim stands on the board`);
+  await revoke(fSub.id);
+  check(
+    (await piecesIn(F)).length === 0,
+    `FIX 4 — un-approving takes the piece back off (column F holds ${(await piecesIn(F)).length})`
+  );
+
+  // Rejecting an APPROVED row is deliberately not allowed — un-approving is the path,
+  // because that is what reverses the VP and reclaims the pack. What must NOT happen is
+  // it failing silently, which is how a mistaken approval stayed on the board while the
+  // reviewer believed they had rejected it.
+  await submit(red2, F, {});
+  const f2 = (await subsFor(red2.id)).filter((x) => x.target_id.startsWith(`c4:${F}:`)).pop();
+  await decide(f2.id, 'approve');
+  const standing = (await piecesIn(F)).length;
+  const refused = await decide(f2.id, 'reject', 'full');
+  check(
+    refused?.status === 409 && /already approved/i.test(refused?.data?.error ?? ''),
+    `FIX 4 — rejecting an approved claim is REFUSED, not silently ignored (${refused?.status ?? 'no status'})`
+  );
+  check((await piecesIn(F)).length === standing, `...and the board is untouched by the refusal`);
+  await revoke(f2.id);
+  check((await piecesIn(F)).length === standing - 1, `un-approving it then frees the tile`);
+
+  // A second admin pressing approve on a row that is already approved must be TOLD, not
+  // silently ignored — and must not place a second piece.
+  await submit(red2, F, {});
+  const f4 = (await subsFor(red2.id)).filter((x) => x.target_id.startsWith(`c4:${F}:`)).pop();
+  await decide(f4.id, 'approve');
+  const once = (await piecesIn(F)).length;
+  const twice = await decide(f4.id, 'approve');
+  check(
+    twice?.status === 409 && /already approved/i.test(twice?.data?.error ?? ''),
+    `FIX 4 — a second approval is refused with a reason (${twice?.status ?? 'no status'})`
+  );
+  check((await piecesIn(F)).length === once, `...and places no second piece (${once} → ${(await piecesIn(F)).length})`);
+  await revoke(f4.id);
+
+  // Escalating "Ask again" to "Reject & free tile" must work — the row is already
+  // 'rejected' by then, which is exactly the state the old filter refused to match.
+  await submit(red1, F, {});
+  const heldF = (await piecesIn(F)).length;
+  const f3 = (await subsFor(red1.id)).filter((x) => x.target_id.startsWith(`c4:${F}:`)).pop();
+  await decide(f3.id, 'reject', 'partial');
+  check((await piecesIn(F)).length === heldF, `an "Ask again" leaves the piece standing`);
+  await decide(f3.id, 'reject', 'full');
+  check(
+    (await piecesIn(F)).length === heldF - 1,
+    `FIX 4 — escalating to a full rejection then frees it (${heldF} → ${(await piecesIn(F)).length})`
+  );
+
   console.log('\n──────── PASS ────────');
   for (const m of ok) console.log('  ✓', m);
   if (bad.length) {
