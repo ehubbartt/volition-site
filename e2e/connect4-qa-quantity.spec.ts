@@ -209,8 +209,12 @@ test('an ADMIN credit decides a ×N tile outright — the one path that skips th
 	await admin.goto(`/admin/connect4/${SLUG}`, { waitUntil: 'domcontentloaded' });
 	// Column B now offers the ×3 tile behind the one IronClad just took.
 	await admin.getByRole('button', { name: 'Column B: QA Wintertodt Kits' }).click();
-	await admin.getByRole('button', { name: /Volition/ }).first().click();
-	await expect(admin.getByRole('button', { name: 'Column B: Dragon boots' })).toBeVisible({ timeout: 60_000 });
+	await admin.getByRole('button', { name: 'Credit Volition', exact: true }).click();
+	// One press decides it: the ×3 is claimed outright and the column moves on. This is
+	// the documented exception — everything a MEMBER sends banks and waits.
+	await expect(admin.getByRole('button', { name: 'Column B: Dragon boots' })).toBeVisible({
+		timeout: 60_000
+	});
 });
 
 test('a completed tile is off the board, and a stale resubmit lands on the CURRENT tile', async () => {
