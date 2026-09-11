@@ -787,12 +787,12 @@ tile says *"precheck on banked unsireds"*). They are highlighted yellow on the *
 sheet of the planning workbook, and carry `pre` in the checked-in list →
 `TileRef.pre_shot` (+ an optional `pre_note`).
 
-It is said in four places, because a player who learns about it at submission time has
+It is said in three places, because a player who learns about it at submission time has
 already missed their chance to take the shot:
 
 | Where | What they see |
 |---|---|
-| The token on the rail | A 📷 badge, and the hover title ends *"— NEEDS A BEFORE SCREENSHOT"* |
+| The token on the rail | The hover title ends *"— NEEDS A BEFORE SCREENSHOT"* (there was a 📷 badge on the token too; it was taken off the live board for being noise at 40 columns) |
 | The tile detail line | **📷 before + after** |
 | The claim form | A warning **above the drop zone**, with the tile's own note if it has one |
 | The review queue | A callout, and a checkbox that **gates the approve button** |
