@@ -25,7 +25,8 @@
 		"drill:connect4:roster": "node scripts/connect4-roster-drill.mjs",
 		"drill:connect4:schedule": "node scripts/connect4-schedule-drill.mjs",
 		"drill:connect4:preshot": "node scripts/connect4-preshot-drill.mjs",
-		"rehearse:connect4": "node scripts/connect4-rehearsal.mjs"
+		"rehearse:connect4": "node scripts/connect4-rehearsal.mjs",
+		"drill:connect4:reject": "C4_QA_SLUG=c4-verify node scripts/c4-qa-lab.mjs create && C4_QA_SLUG=c4-verify node scripts/connect4-reject-drill.mjs"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.62.0",

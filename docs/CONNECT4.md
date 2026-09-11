@@ -108,6 +108,9 @@ Two optional tile shapes on top of the plain single item:
   that submission's own `drop_key` before the piece goes, so it takes back exactly what that
   claim put in and no one else's contribution.
 
+  `npm run drill:connect4:reject` guards both halves of this — it posts the real member
+  and admin forms, and reverting either fix turns 7 of its 13 checks red.
+
   **Revoking an approval still does not**, and neither does an undo: both leave banked
   progress standing, so the next qualifying claim re-takes the tile. Clear
   `vs_connect4_progress` rows by hand if that was meant to reset the race.
