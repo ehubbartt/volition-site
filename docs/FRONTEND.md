@@ -101,8 +101,12 @@ bugs that used to recur per feature):
   **hanging** — an `<img>` that never errors never reaches its fallback, so the tile stayed
   blank for good. The proxy already tries every spelling server-side, so there is nothing
   the direct urls could still resolve.
-  `fallback` (a short string, e.g. `nameInitials(name)`) is drawn in the image's place once
-  every candidate has failed. Half a board can be written as tasks rather than items — "Any
+  The element is **hidden until an image actually loads**, and hidden again the instant one
+  errors — `src` is only ever set on a hidden element, so a candidate that 404s is never
+  drawn as the browser's broken-image glyph on the way past. That used to be several
+  seconds of broken icons on every tile the wiki has no file for.
+  `fallback` (a short string, e.g. `nameInitials(name)`) takes the image's place from that
+  first failure, and gives way again if a later spelling loads. Half a board can be written as tasks rather than items — "Any
   Barrows Helm", "Rooftop Course Laps" — and the wiki has no file for those names, so the
   token reads as itself instead of as a hole.
   `e2e/wiki-image-proxy.spec.ts` asserts a page loads **zero** images from

@@ -66,6 +66,18 @@ test('a tile the wiki has no file for reads as itself, not as a hole', async ({ 
 		.then(() => true)
 		.catch(() => false);
 	test.skip(!up, 'no open rehearsal board — npm run rehearse:connect4');
+	// EARLY, while the walk is still going: a candidate that 404s must never be DRAWN. The
+	// element used to stay visible between the error and the end of the retries, so every
+	// task-named tile showed the browser's broken-image glyph for several seconds.
+	await page.waitForTimeout(2000);
+	const brokenEarly = await page.locator('.rail .tile img').evaluateAll((els) =>
+		els.filter((e) => {
+			const i = e as HTMLImageElement;
+			return i.style.display !== 'none' && i.complete && i.naturalWidth === 0;
+		}).length
+	);
+	expect(brokenEarly, 'broken-image icons were on screen while retries ran').toBe(0);
+
 	await page.waitForTimeout(20_000); // let every candidate settle
 
 	const state = await page.locator('.rail .tile').evaluateAll((els) =>
@@ -87,6 +99,13 @@ test('a tile the wiki has no file for reads as itself, not as a hole', async ({ 
 	// never errors never reaches its fallback.
 	expect(pending, 'icon requests were still hanging').toHaveLength(0);
 	expect(blank, 'tokens above the board rendered as empty discs').toHaveLength(0);
+	const brokenLate = await page.locator('.rail .tile img').evaluateAll((els) =>
+		els.filter((e) => {
+			const i = e as HTMLImageElement;
+			return i.style.display !== 'none' && i.complete && i.naturalWidth === 0;
+		}).length
+	);
+	expect(brokenLate, 'broken-image icons were left on the board').toBe(0);
 });
 
 test('the board asks our own origin for its tile icons', async ({ page }) => {

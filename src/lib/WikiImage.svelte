@@ -60,7 +60,7 @@
 			height={size}
 			decoding="async"
 			referrerpolicy="no-referrer"
-			use:retryImage={{ sources, onfail: () => (failed = true) }}
+			use:retryImage={{ sources, onshown: (shown) => (failed = !shown) }}
 		/>
 		{#if failed && fallback}
 			<span class="wiki-fallback" style="--s: {size}px" title={alt || fallback}>{fallback}</span>
