@@ -34,6 +34,7 @@
 		rows = ROWS,
 		claiming,
 		sideColors = ['#ef4444', '#eab308'],
+		freshCols,
 		runCells = new Set<string>(),
 		revealed = null,
 		falling = null,
@@ -50,6 +51,8 @@
 		/** Columns whose objective is claimed but not yet replaced — their slot stays empty. */
 		claiming?: Set<number>;
 		sideColors?: string[];
+		/** Columns whose objective went up recently — tagged NEW above the coin. */
+		freshCols?: Set<number>;
 		runCells?: Set<string>;
 		revealed?: number | null;
 		falling?: string | null;
@@ -314,9 +317,46 @@
 			mesh.add(face);
 			mesh.userData.face = face;
 
+			const tag = new THREE.Sprite(
+				new THREE.SpriteMaterial({ map: newLabelTexture(), transparent: true, depthTest: false })
+			);
+			tag.position.set(0, TOKEN_R + 0.34, 0);
+			tag.scale.set(TOKEN_R * 1.7, TOKEN_R * 0.64, 1);
+			tag.renderOrder = 10;
+			tag.visible = false;
+			tag.frustumCulled = false;
+			mesh.add(tag);
+			mesh.userData.tag = tag;
+
 			scene!.add(mesh);
 			return mesh;
 		});
+	}
+
+	/**
+	 * The NEW tag. A sprite parented to the coin rather than an HTML overlay: it inherits
+	 * the coin's position, so it bobs and falls with it and needs no per-frame projection
+	 * to stay put, and a sprite always faces the camera however the board is tilted.
+	 */
+	let newLabel: THREE.Texture | null = null;
+	function newLabelTexture(): THREE.Texture {
+		if (newLabel) return newLabel;
+		const c = document.createElement('canvas');
+		c.width = 256;
+		c.height = 96;
+		const ctx = c.getContext('2d')!;
+		ctx.font = 'bold 68px system-ui, sans-serif';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		// Dark outline first: the band above the board is light wherever the page is.
+		ctx.lineWidth = 10;
+		ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+		ctx.strokeText('NEW', 128, 52);
+		ctx.fillStyle = '#ff4d4d';
+		ctx.fillText('NEW', 128, 52);
+		newLabel = new THREE.CanvasTexture(c);
+		newLabel.anisotropy = 4;
+		return newLabel;
 	}
 
 	/** Point each coin at the item its column is currently offering. */
@@ -327,12 +367,15 @@
 			// A claimed column has no coin until the server names the replacement: showing
 			// the old one again would say the objective is still up for grabs.
 			const slot = claiming?.has(col) ? null : (live[col] ?? null);
+			const tag = mesh.userData.tag as THREE.Sprite | undefined;
 			// A column mid-drop keeps its coin — the fall animation owns it until it lands.
 			if (!slot) {
 				if (!fall || fall.col !== col) mesh.visible = false;
+				if (tag) tag.visible = false;
 				continue;
 			}
 			mesh.visible = true;
+			if (tag) tag.visible = !!freshCols?.has(col);
 			const faceMesh = mesh.userData.face as THREE.Mesh | undefined;
 			const mat = faceMesh?.material as THREE.MeshStandardMaterial | undefined;
 			if (!mat) continue;
@@ -649,6 +692,7 @@
 		void runCells;
 		void live;
 		void selected;
+		void freshCols;
 		if (ready) {
 			syncDiscs();
 			syncTokens();

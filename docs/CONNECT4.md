@@ -150,8 +150,13 @@ Two optional tile shapes on top of the plain single item:
   the piece log the payload already carries — a column deals its slice in order, so a tile
   went live when the piece below it landed, and the first slot in a column when the game
   opened. That is the same rule as the reviewer's `tileActiveSince`. Anything dealt within
-  15 minutes is flagged **NEW** in red, on the rail token and in the list, sized in
-  container units so it survives the board zoom.
+  15 minutes is flagged **NEW** in red — in the list, and on **both** boards. The flat
+  board gives it a row of its own above the rail, on the same column tracks as the tokens
+  and the frame, rather than printing it over the art it is pointing at; the row renders
+  only while something is actually new. The 3D board parents a sprite to the coin, so it
+  bobs and falls with it, needs no per-frame projection to stay aligned, and faces the
+  camera at any tilt. A tile that arrives through the REQUEUE is not flagged: nothing about
+  that swap moves a piece, so there is no timestamp to read.
 
   **Submitting takes a confirmation step.** Posting a claim is not free: it takes the cell
   immediately, and on a ×N tile it banks immediately, so a proof sent early or sent twice

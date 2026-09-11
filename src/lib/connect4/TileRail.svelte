@@ -44,6 +44,18 @@
 	}
 </script>
 
+<!-- Its own row above the tokens, on the SAME column tracks as the rail and the board
+     below it — a label inside the token covered the art it was pointing at. Rendered only
+     when something is actually new, so the board is not carrying an empty strip all
+     evening. -->
+{#if freshCols?.size}
+	<div class="newrow" aria-hidden="true">
+		{#each live as _slot, col (col)}
+			<span class:on={freshCols.has(col)}>{freshCols.has(col) ? 'NEW' : ''}</span>
+		{/each}
+	</div>
+{/if}
+
 <div class="rail">
 	{#each live as slot, col (col)}
 		<button
@@ -77,7 +89,6 @@
 				{#if slot.tile.qty && slot.tile.qty > 1}
 					<span class="qty-badge" aria-hidden="true">×{slot.tile.qty}</span>
 				{/if}
-				{#if freshCols?.has(col)}<span class="new-flag">NEW</span>{/if}
 				{#if claiming?.has(col)}<span class="dealing" aria-hidden="true"></span>{/if}
 			{:else}
 				<span class="done">✓</span>
@@ -87,6 +98,25 @@
 </div>
 
 <style>
+	.newrow {
+		display: grid;
+		grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+		gap: var(--gap);
+		min-width: calc(var(--n) * (var(--min-cell) + var(--gap)));
+		line-height: 1;
+	}
+	.newrow span {
+		display: block;
+		min-width: 0;
+		overflow: hidden;
+		text-align: center;
+		/* Tracks the column like the labels do, with a floor so 40 columns stay legible. */
+		font-size: clamp(6px, calc(30rem / var(--n) / 3), 0.68rem);
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		color: #ff4d4d;
+		text-shadow: 0 1px 2px #000;
+	}
 	.rail {
 		display: grid;
 		grid-template-columns: repeat(var(--n), minmax(0, 1fr));
@@ -198,22 +228,6 @@
 		font-size: 0.9rem;
 	}
 	/* Quantity marker, tucked in the corner so a 45px card stays an icon. */
-	/* Above the token art, in the card's own top strip — sized in container units so it
-	   stays readable at every board zoom. */
-	.new-flag {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		text-align: center;
-		font-size: max(7px, 22cqw);
-		font-weight: 700;
-		line-height: 1.1;
-		letter-spacing: 0.03em;
-		color: #ff5252;
-		text-shadow: 0 1px 2px #000;
-		pointer-events: none;
-	}
 	.qty-badge {
 		position: absolute;
 		right: 1px;

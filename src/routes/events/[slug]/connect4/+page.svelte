@@ -765,6 +765,7 @@
 								rows={game.rows}
 								sideColors={game.sides.map((s) => s.color)}
 								{runCells}
+								{freshCols}
 								revealed={playback.revealed}
 								falling={playback.falling}
 								{selected}
