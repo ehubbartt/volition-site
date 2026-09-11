@@ -113,6 +113,8 @@ export interface Connect4Snapshot {
 	/** cols × rows — how many tiles the pool needs and the board can hold. */
 	deckSize: number;
 	startsAt: string | null;
+	/** The signup event this roster was seated from, if any — see `source_event_id`. */
+	sourceEventId: string | null;
 	endsAt: string | null;
 	/** The curated pool (one tile per cell), in the admin's chosen order. Empty until set. */
 	pool: TileRef[];
@@ -170,6 +172,12 @@ interface StructureC4 {
 	requeue?: TileRef[];
 	/** Slot → the tile now sitting there, when the requeue has moved one. */
 	assignments?: Record<string, TileRef>;
+	/**
+	 * The signup event this game's roster was seated from, remembered so the two behave as
+	 * one event: the board inherits that form's start time, and late signups can be pulled
+	 * in right up to the off. Set by `seatByClan`; null for a game seated by hand.
+	 */
+	source_event_id?: string | null;
 }
 
 function readStructure(structure: unknown): StructureC4 {
@@ -410,6 +418,7 @@ async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
 		rows: size.rows,
 		deckSize: deckSizeOf(size),
 		startsAt: ev.starts_at,
+		sourceEventId: c4.source_event_id ?? null,
 		endsAt: ev.ends_at,
 		pool: Array.isArray(c4.pool) ? c4.pool : [],
 		custom: Array.isArray(c4.custom) ? c4.custom : [],
@@ -449,7 +458,11 @@ const sizeOf = (snap: Connect4Snapshot): BoardSize => ({ cols: snap.cols, rows: 
  */
 export function redactSnapshot(snap: Connect4Snapshot, isAdmin: boolean): Connect4Snapshot {
 	if (isAdmin) return snap;
-	return { ...snap, deck: [], pool: [], custom: [] };
+	// Before the start, the tiles ON OFFER go too. Hiding them in the markup would not do:
+	// the payload is JSON a member can read, and a board dealt the night before would hand
+	// whoever opened devtools a list of 40 bosses to be standing at when the clock strikes.
+	const live = hasOpened(snap) ? snap.live : snap.live.map(() => null);
+	return { ...snap, deck: [], pool: [], custom: [], live };
 }
 
 // ── Create & configure ──────────────────────────────────────────────────────
@@ -903,6 +916,12 @@ export async function seatByClan(input: {
 		const res = await enrolMembers({ eventId: input.eventId, userIds: group.map((u) => u.id), side });
 		if (!res.ok) return errResult(res.error);
 	}
+	// Remember where this roster came from. From here the two behave as one event: the
+	// board takes its start time from that form, and anyone who signs up between now and
+	// the off can be pulled in with the same button.
+	if (input.sourceEventId && input.sourceEventId !== input.eventId) {
+		await patchStructure(input.eventId, { source_event_id: input.sourceEventId });
+	}
 	return okResult({
 		sourceName,
 		clan,
@@ -932,13 +951,62 @@ export async function sideForUser(eventId: string, userId: string): Promise<Side
  * The phase flip is a true CAS (`… where structure->'connect4'->>'phase' = 'setup'`), so
  * two admins pressing Start at the same moment produce one deal rather than two.
  */
-export async function startGame(eventId: string, seed?: number): Promise<Result<{ seed: number }>> {
+/**
+ * Is the game open for play? A dealt game whose `startsAt` is still in the future is
+ * LIVE but not yet OPEN: the deck is dealt and the roster is settled, and nothing counts
+ * until the clock says so. That gap is what lets an admin set a board up the night before
+ * an announced start without handing anyone a head start.
+ */
+/** The `starts_at` of the signup event a game was seated from, if it has one. */
+export async function sourceStart(sourceEventId: string): Promise<string | null> {
+	const { data } = await db()
+		.from('vs_events')
+		.select('starts_at')
+		.eq('id', sourceEventId)
+		.maybeSingle();
+	return ((data as { starts_at: string | null } | null)?.starts_at) ?? null;
+}
+
+export function hasOpened(snap: { phase: Phase; startsAt: string | null }, now = Date.now()): boolean {
+	if (snap.phase !== 'live') return false;
+	if (!snap.startsAt) return true;
+	const t = new Date(snap.startsAt).getTime();
+	return !isFinite(t) || t <= now;
+}
+
+/**
+ * Deal the deck and put the game live.
+ *
+ * `startsAt` is the moment the race actually begins — the cutoff a drop has to beat, and
+ * the instant the board opens. It defaults to now (deal and go), but an event announced
+ * for a set time should pass that time instead: the deck can then be dealt whenever, and
+ * both clans still see the tiles for the first time at the same second.
+ */
+export async function startGame(
+	eventId: string,
+	seed?: number,
+	startsAt?: string | Date | null
+): Promise<Result<{ seed: number }>> {
 	const snap = await loadConnect4ById(eventId);
 	if (!snap) return errResult('No such game');
 	if (snap.phase !== 'setup') return errResult('This game has already started');
 	if (snap.pool.length !== snap.deckSize) return errResult(`Curate ${snap.deckSize} tiles first`);
 	const anyMembers = snap.sides.some((s) => s.members.length > 0);
 	if (!anyMembers) return errResult('Put at least one member on a side first');
+
+	// An unreadable date is refused rather than quietly becoming "now": silently starting
+	// a scheduled event immediately is the one failure here nobody could undo.
+	let openAt = new Date();
+	if (startsAt) {
+		openAt = startsAt instanceof Date ? startsAt : new Date(startsAt);
+		if (!isFinite(openAt.getTime())) return errResult('That start time is not a real date');
+	} else if (snap.sourceEventId) {
+		// Seated from a signup form and given no time of its own: the board starts when that
+		// form says the event starts. This is what makes the two feel like ONE event — the
+		// deck can be dealt the night before and the race still begins when it was announced.
+		const inherited = await sourceStart(snap.sourceEventId);
+		if (inherited) openAt = new Date(inherited);
+	}
 
 	const usedSeed = seed ?? Math.floor(Math.random() * 2 ** 31);
 	const deck = shuffleDeck(snap.pool, seededRandom(usedSeed));
@@ -950,7 +1018,11 @@ export async function startGame(eventId: string, seed?: number): Promise<Result<
 
 	const { data: updated, error } = await sb
 		.from('vs_events')
-		.update({ structure: { ...structure, connect4: c4 }, status: 'open', starts_at: new Date().toISOString() })
+		.update({
+			structure: { ...structure, connect4: c4 },
+			status: 'open',
+			starts_at: openAt.toISOString()
+		})
 		.eq('id', eventId)
 		// The CAS: only the row still in `setup` is updated, so a second Start deals nothing.
 		.eq('structure->connect4->>phase', 'setup')
@@ -1164,6 +1236,9 @@ export async function claimTile(input: {
 	if (snap.phase !== 'live') return { status: 'not_live', error: 'This game is not running' };
 	if (!dropKeyAllowed(snap.test, input.dropKey)) {
 		return { status: 'blocked', error: 'This is a test game — it only accepts simulated drops' };
+	}
+	if (!hasOpened(snap)) {
+		return { status: 'not_live', error: `This game opens at ${snap.startsAt}` };
 	}
 	if (input.receivedAt && snap.startsAt && new Date(input.receivedAt) < new Date(snap.startsAt)) {
 		return { status: 'timing', error: 'That drop predates the game' };

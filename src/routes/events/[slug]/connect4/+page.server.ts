@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { createSubmission } from '$lib/server/submissions';
 import {
 	claimTile,
+	hasOpened,
 	loadConnect4,
 	repointPendingPiece,
 	sideForUser
@@ -27,6 +28,12 @@ export const actions: Actions = {
 		const game = await loadConnect4(params.slug);
 		if (!game) return fail(404, { error: 'No such game' });
 		if (game.phase !== 'live') return fail(400, { error: 'This game is not running' });
+		// Dealt, but the clock has not reached the announced start. Refused HERE rather than
+		// at review: 240 players sending proof into a queue that will only reject it is a
+		// mess for everyone, and the board is showing no tiles to claim against anyway.
+		if (!hasOpened(game)) {
+			return fail(400, { error: `This game opens at ${new Date(game.startsAt ?? '').toLocaleString()}.` });
+		}
 
 		// A member who is signed up but not seated has no side to claim FOR — the same
 		// rule the drop pipeline applies. Never guessed.

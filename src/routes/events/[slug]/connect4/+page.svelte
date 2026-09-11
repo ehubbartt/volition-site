@@ -16,6 +16,7 @@
 	import Connect4Board3D, { type HoverInfo } from '$lib/connect4/Connect4Board3D.svelte';
 	import TileHoverCard, { type CardInfo } from '$lib/connect4/TileHoverCard.svelte';
 	import WikiImage from '$lib/WikiImage.svelte';
+	import { createClock, untilText } from '$lib/clock.svelte';
 	import { itemImageUrl, monsterImageUrl } from '$lib/wikiImage';
 	import {
 		columnLabel,
@@ -128,6 +129,25 @@
 			/* cookies blocked — the gate simply reappears next visit */
 		}
 		ackConfirmed = true;
+	}
+
+	// A dealt board waiting on its announced start. Ticks once a second so the countdown
+	// runs and the board opens itself on the stroke, with nobody reloading.
+	const clock = createClock(1000);
+	const opensIn = $derived(game?.startsAt ? new Date(game.startsAt).getTime() - clock.now : 0);
+	const opened = $derived(!!game && game.phase === 'live' && opensIn <= 0);
+	function fmtStart(iso: string | null): string {
+		if (!iso) return '';
+		const d = new Date(iso);
+		return isFinite(d.getTime())
+			? d.toLocaleString(undefined, {
+					weekday: 'long',
+					month: 'short',
+					day: 'numeric',
+					hour: 'numeric',
+					minute: '2-digit'
+				})
+			: '';
 	}
 
 	const pieces = $derived(game?.pieces ?? []);
@@ -394,6 +414,27 @@
 					<p class="muted">
 						The board opens when the game starts — check back once the event is underway.
 					</p>
+				{:else if !opened}
+					<!-- Dealt, waiting on the clock. The tiles are not merely hidden here: the
+					     payload does not carry them until the start, so both clans read the board
+					     for the first time at the same second. -->
+					<div class="countdown">
+						<p class="big">Opens in {untilText(opensIn)}</p>
+						<p class="muted">
+							{fmtStart(game.startsAt)} — the 244 tiles go up then, for both clans at once.
+							Drops from before that time don't count, so don't start early.
+						</p>
+						{#if game.viewerSide}
+							<p class="muted tiny">
+								You're on <strong>{game.sides[game.viewerSide - 1]?.name}</strong>. Nothing to
+								do until the clock runs out.
+							</p>
+						{:else}
+							<p class="warn tiny">
+								You're not on a side yet — ask an admin to seat you before the start.
+							</p>
+						{/if}
+					</div>
 				{:else}
 					<div class="playbar">
 						{#if playback.playing}

@@ -22,7 +22,8 @@
 		"demo:connect4": "node scripts/connect4-demo.mjs",
 		"drill:connect4:planned": "node scripts/connect4-planned-drill.mjs",
 		"drill:connect4:scoring": "node scripts/connect4-scoring-drill.mjs",
-		"drill:connect4:roster": "node scripts/connect4-roster-drill.mjs"
+		"drill:connect4:roster": "node scripts/connect4-roster-drill.mjs",
+		"drill:connect4:schedule": "node scripts/connect4-schedule-drill.mjs"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.62.0",

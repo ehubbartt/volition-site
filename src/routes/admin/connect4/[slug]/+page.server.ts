@@ -1,5 +1,5 @@
 import { redirect, fail, error } from '@sveltejs/kit';
-import { db } from '$lib/server/db';
+import { db, fetchAllFiltered } from '$lib/server/db';
 import { isAdmin } from '$lib/server/auth';
 import { logAudit } from '$lib/server/audit';
 import {
@@ -19,6 +19,7 @@ import {
 	reopenGame,
 	rosterFor,
 	seatByClan,
+	sourceStart,
 	setPool,
 	setSideNames,
 	startGame,
@@ -47,15 +48,70 @@ import { isSide, type Side } from '$lib/connect4/rules';
  * for a clan-vs-clan is collected on one before the game exists — and the game's own
  * signups are always available as "whoever is already here".
  */
-async function signupSources(eventId: string): Promise<{ id: string; name: string }[]> {
+async function signupSources(
+	eventId: string
+): Promise<{ id: string; name: string; startsAt: string | null }[]> {
 	const { data } = await db()
 		.from('vs_events')
-		.select('id, name')
+		.select('id, name, starts_at')
 		.eq('kind', SIGNUP_EVENT_KIND)
 		.order('created_at', { ascending: false })
 		.limit(25);
-	return ((data ?? []) as { id: string; name: string }[]).filter((e) => e.id !== eventId);
+	// `starts_at` rides along so the game can be SYNCED to the form the roster came from:
+	// the signup says 1pm, and the board should open at 1pm, not whenever the deck happened
+	// to be dealt.
+	return ((data ?? []) as { id: string; name: string; starts_at: string | null }[])
+		.filter((e) => e.id !== eventId)
+		.map((e) => ({ id: e.id, name: e.name, startsAt: e.starts_at }));
 }
+/**
+ * How the game and the signup form it was seated from compare right now: the form's name
+ * and start, whether the board's own start has drifted from it, and who has signed up
+ * since the seating. All three are things an admin needs to see BEFORE the off, not
+ * discover afterwards.
+ */
+async function sourceLink(
+	game: Connect4Snapshot,
+	roster: { id: string; inEvent: boolean }[]
+): Promise<{
+	id: string;
+	name: string;
+	startsAt: string | null;
+	drifted: boolean;
+	newSignups: number;
+} | null> {
+	const id = game.sourceEventId;
+	if (!id) return null;
+	const { data } = await db()
+		.from('vs_events')
+		.select('id, name, starts_at')
+		.eq('id', id)
+		.maybeSingle();
+	const src = data as { id: string; name: string; starts_at: string | null } | null;
+	if (!src) return null;
+
+	const here = new Set(roster.filter((r) => r.inEvent).map((r) => r.id));
+	const { data: signups } = await fetchAllFiltered<{ user_id: string }>((from, to) =>
+		db().from('vs_event_signups').select('user_id').eq('event_id', id).range(from, to)
+	);
+	const newSignups = new Set(
+		(signups ?? []).map((r) => r.user_id).filter((u) => !here.has(u))
+	).size;
+
+	const same =
+		!src.starts_at ||
+		!game.startsAt ||
+		new Date(src.starts_at).getTime() === new Date(game.startsAt).getTime();
+	return {
+		id: src.id,
+		name: src.name,
+		startsAt: src.starts_at,
+		// Only meaningful once the board has a start of its own to drift FROM.
+		drifted: game.phase !== 'setup' && !same,
+		newSignups
+	};
+}
+
 import type { Actions, PageServerLoad } from './$types';
 
 // The Connect Four tester. Every phase of a game can be driven from here by hand —
@@ -88,6 +144,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	// without a browser.
 	const roster = await rosterFor(fresh);
 
+	// THE LINK to the signup form this roster came from. The two are run as one event, so
+	// the page has to be able to say when they have drifted apart: a start time that moved
+	// after the deck was dealt, or people who signed up after the seating.
+	const link = fresh.sourceEventId ? await sourceLink(fresh, roster) : null;
+
 	// Candidates are only needed while curating, and there are ~300 of them. Hand-added
 	// custom tasks lead the list so they're never lost in the generated crowd.
 	const candidates = fresh.phase === 'setup' ? await allCandidates(fresh) : [];
@@ -104,6 +165,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			pool: fresh.phase === 'setup' ? fresh.pool : []
 		},
 		roster,
+		link,
 		candidates,
 		// Rosters a clan-vs-clan game can be seated from — normally the signup form the
 		// list was collected on.
@@ -363,12 +425,43 @@ export const actions: Actions = {
 		return res.ok ? { customRemoved: true } : fail(400, { error: res.error });
 	},
 
-	start: async ({ locals, params }) => {
+	start: async ({ request, locals, params }) => {
+		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
+		const form = await request.formData();
+		const game = await loadConnect4(params.slug);
+		if (!game) return fail(404, { error: 'No such game' });
+		// A blank field means "now". The input is `datetime-local`, so what arrives has no
+		// zone and must be read in the SERVER's zone — which is UTC on Fly — unless the page
+		// sends the offset with it. It does, in `tz_offset`.
+		const at = String(form.get('starts_at') ?? '').trim();
+		const offset = Number(form.get('tz_offset'));
+		let startsAt: string | null = null;
+		if (at) {
+			const local = new Date(`${at}:00`);
+			if (!isFinite(local.getTime())) return fail(400, { error: 'That start time is not a real date' });
+			startsAt = isFinite(offset)
+				? new Date(Date.UTC(
+						local.getFullYear(), local.getMonth(), local.getDate(),
+						local.getHours(), local.getMinutes()
+					) + offset * 60_000).toISOString()
+				: local.toISOString();
+		}
+		const res = await startGame(game.id, undefined, startsAt);
+		return res.ok ? { started: true } : fail(400, { error: res.error });
+	},
+
+	// Move a dealt board back onto the signup form's time, for when that form's start is
+	// changed after the deck was dealt. Only ever pulls FROM the form: the two are one
+	// event, and the form is the one the clan was told about.
+	syncStart: async ({ locals, params }) => {
 		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
 		const game = await loadConnect4(params.slug);
 		if (!game) return fail(404, { error: 'No such game' });
-		const res = await startGame(game.id);
-		return res.ok ? { started: true } : fail(400, { error: res.error });
+		if (!game.sourceEventId) return fail(400, { error: 'This game is not seated from a signup form' });
+		const at = await sourceStart(game.sourceEventId);
+		if (!at) return fail(400, { error: 'That signup form has no start time set' });
+		const { error: uErr } = await db().from('vs_events').update({ starts_at: at }).eq('id', game.id);
+		return uErr ? fail(400, { error: uErr.message }) : { startMoved: at };
 	},
 
 	scoring: async ({ request, locals, params }) => {

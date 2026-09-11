@@ -23,6 +23,7 @@
 	import { formatEhb } from '$lib/ehb';
 	import { Playback, loadSeen, saveSeen, paceFor } from '$lib/connect4/playback.svelte';
 	import { liveEvent } from '$lib/live.svelte';
+	import { createClock } from '$lib/clock.svelte';
 
 	let { data, form } = $props();
 
@@ -301,6 +302,30 @@
 		};
 	});
 
+	// Step 3: when the race begins. Blank = the moment Start is pressed.
+	let startAt = $state('');
+	/** An ISO instant as the `datetime-local` spelling of the SAME moment, locally. */
+	function localInput(iso: string | null): string {
+		if (!iso) return '';
+		const d = new Date(iso);
+		if (!isFinite(d.getTime())) return '';
+		const pad = (n: number) => String(n).padStart(2, '0');
+		return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+	}
+	function fmtWhen(iso: string | null): string {
+		if (!iso) return '';
+		const d = new Date(iso);
+		return isFinite(d.getTime())
+			? d.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+			: '';
+	}
+
+	// Ticks so the badge clears itself when the start time passes, with nobody reloading.
+	const clock = createClock(15_000);
+	const opened = $derived(
+		game.phase === 'live' && (!game.startsAt || new Date(game.startsAt).getTime() <= clock.now)
+	);
+
 	// Team assignment panel
 	let filter = $state('');
 	let onEventOnly = $state(false);
@@ -464,6 +489,10 @@
 		</div>
 		<div class="head-right">
 			<span class="osrs-badge">{game.phase}</span>
+			<!-- Dealt but waiting on the clock. The admin sees the board; nobody else does. -->
+			{#if game.phase === 'live' && !opened}
+				<span class="osrs-badge waiting">opens {fmtWhen(game.startsAt)}</span>
+			{/if}
 			<span class="osrs-badge">{game.cols}×{game.rows}</span>
 			{#if game.test}<span class="osrs-badge test">test</span>{/if}
 			<a class="export" href="/admin/connect4/{game.slug}/export.csv" download title="The whole tile list as a spreadsheet">
@@ -531,10 +560,43 @@
 					<span class="step-n">3</span>
 					<span>
 						<strong>Start</strong>
-						<span class="muted tiny">Deals the deck and opens Dink tracking.</span>
-						<form method="POST" action="?/start" use:enhance>
+						<span class="muted tiny">
+							{#if data.link?.startsAt}
+								Deals the deck. Left blank it opens when <strong>{data.link.name}</strong> does
+								— {fmtWhen(data.link.startsAt)} — so you can deal the board tonight and the
+								race still begins when it was announced.
+							{:else}
+								Deals the deck. Leave the time blank to open right now, or set the moment the
+								race begins — the deck can be dealt long before it, and nothing counts until
+								then.
+							{/if}
+						</span>
+						<form method="POST" action="?/start" use:enhance class="start-form">
+							<!-- datetime-local has no zone, so the browser's offset travels with it and
+							     the server stores a real instant. Without this a start typed on a laptop
+							     in one zone would open at a different time on a server in another. -->
+							<input type="hidden" name="tz_offset" value={new Date().getTimezoneOffset()} />
+							<label class="tiny">
+								Opens at
+								<input type="datetime-local" name="starts_at" bind:value={startAt} />
+							</label>
+							{#each data.signupSources.filter((x) => x.startsAt) as src (src.id)}
+								<button
+									type="button"
+									class="link-btn tiny"
+									onclick={() => (startAt = localInput(src.startsAt))}
+								>
+									use {src.name}'s start ({fmtWhen(src.startsAt)})
+								</button>
+							{/each}
 							<button type="submit" disabled={data.poolCount !== data.deckSize || !members.length}>
-								Deal the deck and start
+								{#if startAt}
+									Deal the deck now, open at the time above
+								{:else if data.link?.startsAt}
+									Deal the deck now, open with {data.link.name}
+								{:else}
+									Deal the deck and start
+								{/if}
 							</button>
 						</form>
 					</span>
@@ -1013,6 +1075,35 @@
 					Volition = in the clan's player list; everyone else takes the other side.
 				</span>
 			</form>
+
+			{#if data.link}
+				<!-- The two run as ONE event. Anything that has drifted since the seating is
+				     surfaced here, before the off, rather than discovered during it. -->
+				<p class="linked tiny">
+					Seated from <strong>{data.link.name}</strong>{#if data.link.startsAt}, which starts
+						{fmtWhen(data.link.startsAt)}{/if}.
+					{#if data.link.newSignups}
+						<strong class="warn">
+							{data.link.newSignups} {data.link.newSignups === 1 ? 'person has' : 'people have'}
+							signed up since
+						</strong>
+						— seat from it again to bring them in.
+					{/if}
+				</p>
+				{#if data.link.drifted}
+					<form method="POST" action="?/syncStart" use:enhance class="inline">
+						<span class="warn tiny">
+							The board opens {fmtWhen(game.startsAt)} but {data.link.name} starts
+							{fmtWhen(data.link.startsAt)}.
+						</span>
+						<button type="submit">Move the board to match</button>
+					</form>
+				{/if}
+			{/if}
+
+			{#if form?.startMoved}
+				<p class="ok tiny">The board now opens {fmtWhen(form.startMoved)}.</p>
+			{/if}
 
 			{#if form?.seating}
 				{@const st = form.seating}
@@ -1528,6 +1619,30 @@
 	.pill.none {
 		--c: var(--muted, #8a8a8a);
 		opacity: 0.75;
+	}
+	.start-form {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: 0.4rem;
+		margin-top: 0.35rem;
+	}
+	.start-form input[type='datetime-local'] {
+		max-width: 100%;
+	}
+	.linked {
+		margin: 0.2rem 0 0.5rem;
+		padding: 0.35rem 0.5rem;
+		border-left: 3px solid var(--accent);
+		background: var(--surface-alt);
+	}
+	.link-btn {
+		background: none;
+		border: 0;
+		padding: 0;
+		color: var(--accent);
+		text-decoration: underline;
+		cursor: pointer;
 	}
 	.noname {
 		font-style: italic;

@@ -153,6 +153,11 @@ who gets whom — use **Copy as CSV**. One row per person, one column per questi
 4. When you're ready, build the real event, come back, select who you want, and send them
    over.
 
+**A Connect Four board seated from a form is tied to it.** It takes the form's start time,
+counts anyone who signs up after the seating, and follows the form if you move that start —
+so the two behave as one event with one clock. See
+[CONNECT4.md](CONNECT4.md#one-event-two-rows-the-signup-form-and-the-board).
+
 Question types are short text, paragraph, number (with optional min/max), and pick-one.
 Twelve questions max, twelve options per pick-one — a signup nobody finishes is worse than
 one that asked less.

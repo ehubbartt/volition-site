@@ -726,6 +726,44 @@ Costs two queries regardless of size: a 135-person roster splits in ~290ms.
 source you had picked away and snapped the select back to *this game's own signups* — so
 the obvious "preview, then seat" rhythm seated the wrong list unless you re-picked.
 
+### One event, two rows: the signup form and the board
+
+A clan-vs-clan roster is collected on a **signup form** before the board exists, and the
+two are then run as a single event. Seating from a form records it as the game's
+`source_event_id`, and from that point:
+
+| | |
+|---|---|
+| **The board opens when the form says** | `startGame` with no time of its own inherits the form's `starts_at`. Deal the deck the night before; the race still begins when it was announced. |
+| **Late signups are visible** | The Teams panel counts anyone on the form who is not yet on the board — *"3 people have signed up since"* — so you can seat from it again right up to the off. |
+| **Drift is surfaced, not silent** | Move the form's start after dealing and the panel says so, with one button to move the board to match (`?/syncStart`). It only ever pulls FROM the form: that is the time the clan was told. |
+
+An explicit **Opens at** on the start control beats the inherited time; leave it blank to
+take the form's. A game with no form behind it opens the moment it is dealt, as before.
+
+### Dealt, but not yet open
+
+`hasOpened(snap)` is the gate: a game is `live` once the deck is dealt, and **open** only
+once the clock reaches `startsAt`. In between the board is held shut, and that is enforced
+where it counts rather than in the markup:
+
+- `redactSnapshot` blanks the tiles **on offer** for non-admins, not just the undealt deck.
+  Hiding them in the template would be worthless — the payload is JSON a member can read,
+  and a board dealt the night before would otherwise hand whoever opened devtools a list of
+  40 bosses to be standing at. Both clans read the board for the first time at the same
+  second.
+- `claimTile` refuses with `not_live`, and the member's submit action refuses before it
+  reaches the review queue — 240 players sending proof that will only be rejected is a mess
+  for everyone.
+- The member page shows a countdown that ticks (`$lib/clock.svelte`) and opens itself on
+  the stroke, with nobody reloading. The admin gets an `opens …` badge.
+
+Drops timestamped before `startsAt` are rejected as *"That drop predates the game"* even
+after the board opens, so nobody can bank a drop in advance.
+
+`npm run drill:connect4:schedule` and `e2e/connect4-scheduled-start.spec.ts` cover all of
+it, including the payload leak.
+
 ### Who the Teams panel can act on
 
 `rosterFor` (in `connect4.ts`, not the page loader — so it can be drilled without a
@@ -757,6 +795,7 @@ nobody, and one that failed outright were indistinguishable from a dead button.
 
 ```bash
 npm run drill:connect4:roster         # who the Teams panel can act on, incl. no-RSN members
+npm run drill:connect4:schedule       # a board seated from a signup form runs to its clock
 npm run sim:connect4                  # the full game, against staging
 npm run sim:connect4 -- --quick       # skip filling all 250 cells
 npm run sim:connect4 -- --seed 7 --keep
