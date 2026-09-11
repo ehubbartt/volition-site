@@ -70,6 +70,12 @@ export async function passAckGate(page: Page): Promise<void> {
  * the window, which is where the listener lives.
  */
 export async function pasteProof(page: Page): Promise<void> {
+	// Wait for the tile's draft-restore effect to settle first. It loads IndexedDB
+	// asynchronously and assigns over `staged` when it lands, so a paste that arrives
+	// inside that window is thrown away — see e2e/connect4-qa-paste-race.spec.ts, which
+	// is the spec that proves it. Everything else here is about other behaviour, so it
+	// steps around the race rather than tripping over it.
+	await page.waitForTimeout(1500);
 	await page.evaluate(async (b64) => {
 		const bin = atob(b64);
 		const bytes = new Uint8Array(bin.length);

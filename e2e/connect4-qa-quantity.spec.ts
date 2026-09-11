@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
-import { buildLab, deleteLab, labInfo, passAckGate, pasteProof, signInAs, type LabCast } from './c4-qa-lab';
+import { buildLab, deleteLab, passAckGate, pasteProof, signInAs, type LabCast } from './c4-qa-lab';
 
 // QUANTITY TILES, THROUGH THE BROWSER.
 //
@@ -179,10 +179,11 @@ test('overshooting the threshold lands the piece exactly once, for the side that
 	await expect(redC.getByRole('button', { name: 'Column C: Tyrannical ring' })).toBeVisible();
 	await expect(redC.locator('.awaiting li')).toHaveCount(1);
 
-	// No double credit anywhere: one piece on the board, one row in the log.
-	const info = labInfo(SLUG);
-	const cPieces = info.split('\n').filter((l) => /^\s+C\d/.test(l));
-	expect(cPieces, `column C pieces:\n${info}`).toHaveLength(1);
+	// No double credit anywhere: exactly one cell in column C is filled.
+	const cPieces = await redC.locator('.hole.filled').evaluateAll((els) =>
+		els.map((e) => e.getAttribute('aria-label') ?? '').filter((l) => /^C\d/.test(l))
+	);
+	expect(cPieces, `column C pieces: ${cPieces.join(' | ')}`).toHaveLength(1);
 });
 
 test('a ×5 tile completes for whoever REACHES 5, not whoever contributed most', async () => {
@@ -204,12 +205,22 @@ test('a ×5 tile completes for whoever REACHES 5, not whoever contributed most',
 	await expect(yellowA.getByRole('button', { name: 'Column B: QA Wintertodt Kits' })).toBeVisible();
 });
 
-test('the tile that is already gone cannot be claimed again', async () => {
+test('a completed tile is off the board, and a stale resubmit lands on the CURRENT tile', async () => {
 	test.setTimeout(120_000);
 
-	// There is no UI route to a completed tile — the column has moved on — so this posts
-	// the form a stale page would have posted: a resubmit for a claim they do not hold.
+	// There is no UI route back to a completed tile: column B has moved on to the ×3
+	// behind it, and the ×5 is gone from the rail entirely.
+	await redA.reload({ waitUntil: 'domcontentloaded' });
+	await expect(redA.getByRole('button', { name: 'Column B: QA Wintertodt Kits' })).toBeVisible({
+		timeout: 30_000
+	});
+	await expect(redA.getByRole('button', { name: 'Column B: QA Mixology Points' })).toHaveCount(0);
+
+	// A stale "send a better screenshot" post — resubmit=1 from a player who no longer
+	// holds anything in that column. It must not be filed against whatever the column
+	// happens to be offering now: the proof was taken for a different objective.
 	const res = await redA.request.post(`/events/${SLUG}/connect4?/submitClaim`, {
+		headers: { 'x-sveltekit-action': 'true' },
 		multipart: {
 			col: '1',
 			resubmit: '1',
@@ -218,11 +229,10 @@ test('the tile that is already gone cannot be claimed again', async () => {
 		}
 	});
 	expect(res.status()).toBeLessThan(500);
-	expect(await res.text()).toContain('no longer waiting on you');
-
-	// And the board is unchanged by it.
-	await redA.reload({ waitUntil: 'domcontentloaded' });
-	await expect(redA.locator('.hole.filled')).toHaveCount(2, { timeout: 30_000 });
+	expect(
+		await res.text(),
+		'a resubmit with nothing held silently became a fresh claim on the column'
+	).toContain('no longer waiting on you');
 });
 
 test('an ADMIN credit decides a ×N tile outright — the one path that skips the gate', async () => {

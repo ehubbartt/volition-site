@@ -24,6 +24,8 @@ let holder: Page; // Volition 1 — the player who gets sent back
 let mate: Page; // Volition 2 — same side, must learn nothing
 let rival: Page; // IronClad 1 — other side, must learn nothing
 let admin: Page;
+/** Places that printed a raw "col,row" where the rest of the board prints "A1". */
+const labelDefects: string[] = [];
 
 test.beforeAll(async ({ browser }: { browser: Browser }) => {
 	cast = buildLab(SLUG);
@@ -123,6 +125,12 @@ test('the submitter is told, and the notice names the tile they HOLD, not the co
 	await expect(mine).toContainText('Bandos chestplate');
 	await expect(mine).not.toContainText('Armadyl crossbow');
 	await expect(mine.getByRole('button', { name: 'Send a better screenshot' })).toBeVisible();
+	// The waiting room should name cells the way the rest of the board does — "A1", the
+	// label the log, the board and the admin's panel all use — not the raw "0,0" id.
+	// Recorded rather than asserted here so one label defect does not stop the rest of
+	// the send-back journey being exercised; the last test in the file asserts on it.
+	const seen = (await mine.textContent()) ?? '';
+	if (!seen.includes('A1')) labelDefects.push(`waiting room: "${seen.trim().split('\n')[0].trim()}"`);
 });
 
 test('nobody else sees any of it — not their own side, not the other clan', async () => {
@@ -167,6 +175,8 @@ test('the resubmit button reopens the claim they hold and posts a better screens
 	const form = holder.locator('form.claim-form');
 	await expect(form).toBeVisible({ timeout: 15_000 });
 	await expect(form.locator('.redo-head')).toContainText('Bandos chestplate');
+	const head = (await form.locator('.redo-head').textContent()) ?? '';
+	if (!head.includes('A1')) labelDefects.push(`resubmit notice: "${head.trim()}"`);
 	await expect(holder.locator('.tile-detail')).toContainText('Bandos chestplate');
 	await expect(holder.locator('.tile-detail')).not.toContainText('Armadyl crossbow');
 
@@ -219,4 +229,12 @@ test('a SECOND claim in a column you already hold pending places its own piece',
 	await mate.reload({ waitUntil: 'domcontentloaded' });
 	await expect(mate.locator('.hole.filled')).toHaveCount(before + 1, { timeout: 30_000 });
 	await expect(mate.getByRole('button', { name: /^A3 — Volition, Zamorakian spear/ })).toBeVisible();
+});
+
+test('the waiting room and the resubmit notice name cells the way the board does', async () => {
+	// Collected by the tests above, so a label defect does not cut the journey short.
+	expect(
+		labelDefects,
+		'these surfaces printed a raw cell id instead of its A1-style label'
+	).toEqual([]);
 });

@@ -78,6 +78,35 @@ async function goToClaim(page: Page, label: string) {
 	throw new Error(`no claim for "${label}" in the queue`);
 }
 
+/** Every claim label sitting in this game's review queue, by walking it with Skip. */
+async function queueLabels(page: Page): Promise<string[]> {
+	await openQueue(page);
+	const seen: string[] = [];
+	for (let i = 0; i < 20; i++) {
+		const card = page.locator('article.card .task-name');
+		if (!(await card.count())) break;
+		const label = (await card.first().textContent())?.trim() ?? '';
+		if (seen.includes(label) && i > 0) break;
+		seen.push(label);
+		const skip = page.getByRole('button', { name: /Skip/ });
+		if (!(await skip.count())) break;
+		await skip.click();
+		await page.waitForTimeout(250);
+	}
+	return seen;
+}
+
+/** What the board says Volition has banked toward column C's ×1000 tile. */
+async function volitionBank(page: Page): Promise<number> {
+	await page.reload({ waitUntil: 'domcontentloaded' });
+	await expect(page.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
+	await page.getByRole('button', { name: 'Column C: QA Stardust Haul' }).click();
+	const detail = page.locator('.tile-detail');
+	await expect(detail).toContainText(/Volition \d+\/1000/, { timeout: 20_000 });
+	const text = (await detail.textContent()) ?? '';
+	return Number(/Volition (\d+)\/1000/.exec(text)?.[1] ?? NaN);
+}
+
 async function decide(page: Page, label: string, button: RegExp, note?: string) {
 	await openQueue(page);
 	await goToClaim(page, label);
@@ -182,42 +211,40 @@ test('two clans racing one column never double-book a cell, and each piece match
 	const f1 = await stage(red, 'E', 'Ancestral hat');
 	const f2 = await stage(yellow, 'E', 'Ancestral hat');
 
-	// Both send at once. The database decides, not the application.
+	// Both send at once. The database decides who gets the cell, not the application.
 	await Promise.all([
 		f1.getByRole('button', { name: /Submit this drop/ }).click(),
 		f2.getByRole('button', { name: /Submit this drop/ }).click()
 	]);
-	await expect(red.getByText('Sent for review')).toBeVisible({ timeout: 60_000 });
-	await expect(yellow.getByText('Sent for review')).toBeVisible({ timeout: 60_000 });
+	await expect(red.getByText(/Sent for review/)).toBeVisible({ timeout: 60_000 });
+	await expect(yellow.getByText(/Sent for review/)).toBeVisible({ timeout: 60_000 });
 
 	await red.reload({ waitUntil: 'domcontentloaded' });
 	await expect(red.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
 
-	// One cell each, no duplicate, no error page.
-	const e1 = red.getByRole('button', { name: /^E1 — / });
-	const e2 = red.getByRole('button', { name: /^E2 — / });
-	await expect(e1).toBeVisible();
-	// Whoever lost the cell was told so and placed nothing, OR stacked on top — either is
-	// fine, but the tile each piece carries has to be the one its proof was sent for.
-	const stacked = await e2.evaluate((el) => el.getAttribute('aria-label') ?? '');
-	if (!/empty/.test(stacked)) {
-		// A second piece landed. It must be the NEXT tile, and the submission in the queue
-		// must name that same tile — otherwise a player is holding a cell for a drop they
-		// never proved.
-		expect(stacked, `E2 is ${stacked}`).toContain('Twisted bow');
-		await openQueue(admin);
-		await expect(
-			admin.locator('.chips'),
-			'the loser of the race holds a tile no submission names'
-		).toBeTruthy();
-		const labels = await admin.locator('article.card .task-name').allTextContents();
-		expect(labels.join(' ')).toBeTruthy();
-	}
-	// The board never shows the same cell twice.
+	// No cell is ever double-booked — unique(event_id, col, row) is the arbiter.
 	const cells = await red.locator('.hole.filled').evaluateAll((els) =>
 		els.map((e) => e.getAttribute('aria-label')?.split(' — ')[0] ?? '')
 	);
 	expect(new Set(cells).size, `duplicate cells: ${cells.join(', ')}`).toBe(cells.length);
+
+	// What each piece in column E is FOR, off the board itself.
+	const held = await red.locator('.hole.filled').evaluateAll((els) =>
+		els
+			.map((e) => e.getAttribute('aria-label') ?? '')
+			.filter((l) => /^E\d/.test(l))
+			.map((l) => l.split(', ').slice(1).join(', '))
+	);
+	// And what the review queue says was actually proved for column E.
+	const proved = (await queueLabels(admin)).filter((l) => /column E/.test(l));
+
+	for (const tile of held) {
+		expect(
+			proved.some((l) => l.startsWith(`${tile} —`)),
+			`a piece is holding "${tile}" in column E but no submission for column E names it — ` +
+				`queue says: ${proved.join(' | ')}`
+		).toBe(true);
+	}
 });
 
 test('a player who is signed up but not on a side cannot claim, and is told why', async () => {
@@ -230,6 +257,9 @@ test('a player who is signed up but not on a side cannot claim, and is told why'
 
 	// And the server refuses the post, not just the markup.
 	const res = await bench.request.post(`/events/${SLUG}/connect4?/submitClaim`, {
+		// The header `use:enhance` sends, so the action answers with its result rather
+		// than a full page render — the member board has no server load to render into.
+		headers: { 'x-sveltekit-action': 'true' },
 		multipart: {
 			col: '0',
 			proof: { name: 'drop.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]) }
@@ -293,7 +323,7 @@ test('no tile anywhere renders as a broken image', async () => {
 });
 
 test('the form refuses an empty submission and clamps a nonsense quantity', async () => {
-	test.setTimeout(120_000);
+	test.setTimeout(180_000);
 	await openBoard(red2);
 	await red2.getByRole('button', { name: 'Column C: QA Stardust Haul' }).click();
 	// Submit is dead until a screenshot is staged.
@@ -302,24 +332,50 @@ test('the form refuses an empty submission and clamps a nonsense quantity', asyn
 	).toBeDisabled();
 	// And the server refuses a post with no image.
 	const noImage = await red2.request.post(`/events/${SLUG}/connect4?/submitClaim`, {
+		// The header `use:enhance` sends, so the action answers with its result rather
+		// than a full page render — the member board has no server load to render into.
+		headers: { 'x-sveltekit-action': 'true' },
 		multipart: { col: '2', quantity: '5' }
 	});
 	expect(await noImage.text()).toContain('Add a screenshot');
 
-	// Absurd covers values are clamped, not believed.
-	for (const [value, expected] of [
-		['0', 1],
-		['-50', 1],
-		['banana', 1]
-	] as const) {
+	// Absurd covers values bank exactly one, they are not believed and not rejected.
+	for (const value of ['0', '-50', 'banana']) {
+		const before = await volitionBank(red2);
 		const res = await red2.request.post(`/events/${SLUG}/connect4?/submitClaim`, {
+			headers: { 'x-sveltekit-action': 'true' },
 			multipart: {
 				col: '2',
 				quantity: value,
 				proof: { name: 'd.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]) }
 			}
 		});
-		const body = await res.text();
-		expect(body, `quantity=${value} was not clamped to ${expected}`).toContain(`covers ${expected} of 1000`);
+		expect(res.status(), `quantity=${value}`).toBeLessThan(500);
+		const after = await volitionBank(red2);
+		expect(after - before, `quantity=${value} banked ${after - before}, not 1`).toBe(1);
 	}
+
+	// And more than the tile needs is capped at the tile, never past it.
+	const before = await volitionBank(red2);
+	await red2.request.post(`/events/${SLUG}/connect4?/submitClaim`, {
+		// The header `use:enhance` sends, so the action answers with its result rather
+		// than a full page render — the member board has no server load to render into.
+		headers: { 'x-sveltekit-action': 'true' },
+		multipart: {
+			col: '2',
+			quantity: '999999',
+			proof: { name: 'd.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]) }
+		}
+	});
+	await red2.reload({ waitUntil: 'domcontentloaded' });
+	await expect(red2.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
+	// 1000 was the cap, so the tile is finished and column C has moved on — exactly once.
+	await expect(red2.getByRole('button', { name: 'Column C: Tyrannical ring' })).toBeVisible({
+		timeout: 30_000
+	});
+	const cPieces = await red2.locator('.hole.filled').evaluateAll((els) =>
+		els.map((e) => e.getAttribute('aria-label') ?? '').filter((l) => /^C\d/.test(l))
+	);
+	expect(cPieces, `column C pieces: ${cPieces.join(' | ')}`).toHaveLength(1);
+	expect(before).toBeGreaterThanOrEqual(0);
 });
