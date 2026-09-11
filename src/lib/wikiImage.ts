@@ -53,7 +53,7 @@ export function wikiTitleCase(name: string): string {
 		.join(' ');
 }
 
-const FILE_PATH = 'https://oldschool.runescape.wiki/w/Special:FilePath/';
+export const FILE_PATH = 'https://oldschool.runescape.wiki/w/Special:FilePath/';
 
 // Full-size image. Returns '' for an empty name so callers can skip it.
 export function wikiImageUrl(name: string): string {
@@ -73,6 +73,40 @@ export function wikiImageSources(name: string | null | undefined): string[] {
 	const titled = wikiImageUrl(wikiTitleCase(n));
 	if (titled && titled !== out[0]) out.push(titled);
 	return out;
+}
+
+/**
+ * THE URL TO PUT IN AN `<img>`: our own caching proxy, not the wiki.
+ *
+ * Hotlinking straight from every browser is what got us throttled — a 600-tile board
+ * watched by two clans is a few hundred people each firing a burst at the wiki's
+ * Cloudflare front, which drops a share of them and leaves tiles blank. `/api/wiki-image`
+ * fetches each file once, keeps it, and serves it with a year's cache lifetime, so the
+ * wiki sees one origin and the steady state is no wiki traffic at all. It also resolves
+ * the case-sensitive spelling server-side, so the browser stops walking candidates.
+ *
+ * Pair with `wikiImageSources` for the fallback list — <WikiImage> tries this first and
+ * falls through to the wiki directly, so a proxy problem can never blank a board.
+ */
+export function wikiProxyUrl(name: string | null | undefined, width = 0): string {
+	const n = (name ?? '').trim();
+	if (!n) return '';
+	const w = width ? `&width=${Math.round(width)}` : '';
+	return `/api/wiki-image?name=${encodeURIComponent(n)}${w}`;
+}
+
+/**
+ * The proxy URL for a wiki image url we already hold — used by `<WikiImage>` so every
+ * caller in the app goes through the cache without any of them being changed. Anything
+ * that is not a Special:FilePath url on the wiki is handed back untouched.
+ */
+export function viaProxy(url: string): string {
+	if (!url || !url.startsWith(FILE_PATH)) return url;
+	const rest = url.slice(FILE_PATH.length);
+	const [file, query = ''] = rest.split('?');
+	if (!file) return url;
+	const width = new URLSearchParams(query).get('width');
+	return `/api/wiki-image?file=${file}${width ? `&width=${width}` : ''}`;
 }
 
 // Wiki ARTICLE link (/w/<Page>) for a boss / skill / item / etc. Returns '' for an empty name.

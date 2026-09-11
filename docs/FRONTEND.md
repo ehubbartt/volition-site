@@ -79,9 +79,22 @@ bugs that used to recur per feature):
   family without an entry each. Over the 76 distinct sources in the Connect Four tile pool
   that took resolution from 45/76 to 76/76. `itemIconUrl` (`$lib/osrsItems`), `skillIconUrl`
   (`$lib/ehp`) and the CA icon fns (`$lib/ca`) are thin re-exports — don't fork new copies.
+- **`src/routes/api/wiki-image/+server.ts`** — **icons are served by us, not hotlinked.**
+  A 600-tile board watched by two clans is a few hundred browsers each firing a burst at the
+  wiki's Cloudflare front, which drops a share of them and leaves tiles blank. This endpoint
+  fetches each file **once**, keeps it in memory (LRU, 1500 entries, 24h) and serves it with
+  a year's `immutable` cache lifetime, so the wiki sees one origin and the steady state is
+  no wiki traffic at all. Concurrent misses for the same file share one fetch, and a name
+  the wiki has no file for is negative-cached for ten minutes. It is **not** an open proxy:
+  `?name=` goes through `wikiImageSources` and `?file=` must be a bare wiki file name — the
+  URL fetched is always built here, on the wiki's host.
 - **`src/lib/WikiImage.svelte`** — an `<img>` with the hotlink incantation baked in
   (`referrerpolicy="no-referrer"` + `use:retryImage`); renders nothing for an empty `src`.
-  `src` takes a url **or a list of candidates**.
+  `src` takes a url **or a list of candidates**, and each is rewritten through the proxy
+  above by `viaProxy` with the direct wiki url kept behind it — so every existing caller got
+  the cache without changing, and a problem with the proxy degrades to the old behaviour
+  instead of blanking a board. `e2e/wiki-image-proxy.spec.ts` asserts a page loads **zero**
+  images from `runescape.wiki`.
   `retryImage` (`$lib/imageRetry`) handles the two failures that blank a tile and that
   `onerror` cannot tell apart, since it carries no status: it tries every candidate spelling
   once (clearing a case mismatch within a frame), then backs off and retries the whole list

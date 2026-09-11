@@ -8,6 +8,7 @@
 	// (case is significant past the first letter) — and `retryImage` walks it before giving
 	// up, so a title-cased file no longer renders as a blank tile.
 	import { retryImage } from '$lib/imageRetry';
+	import { viaProxy } from '$lib/wikiImage';
 	let {
 		src,
 		alt = '',
@@ -15,7 +16,12 @@
 		class: klass = ''
 	}: { src: string | string[]; alt?: string; size?: number; class?: string } = $props();
 
-	const sources = $derived((Array.isArray(src) ? src : [src]).filter(Boolean));
+	// Our caching proxy FIRST, the wiki itself as the fallback. Hotlinking from every
+	// browser is what got us throttled on a 600-tile board; the proxy fetches each file
+	// once and serves it from memory. Keeping the direct urls behind it means a problem
+	// with the proxy degrades to the old behaviour instead of blanking the board.
+	const given = $derived((Array.isArray(src) ? src : [src]).filter(Boolean));
+	const sources = $derived([...given.map(viaProxy), ...given].filter((u, i, a) => a.indexOf(u) === i));
 	const first = $derived(sources[0] ?? '');
 	// Identity of the whole candidate list, so {#key} remounts when any of it changes.
 	const key = $derived(sources.join('|'));

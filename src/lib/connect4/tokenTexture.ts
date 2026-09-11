@@ -18,7 +18,7 @@
 // the board, costs nothing — and `disposeTokenTextures()` frees the lot with the scene.
 
 import * as THREE from 'three';
-import { wikiImageSources } from '$lib/wikiImage';
+import { viaProxy, wikiImageSources } from '$lib/wikiImage';
 
 const SIZE = 128;
 const cache = new Map<string, THREE.CanvasTexture>();
@@ -86,7 +86,9 @@ export function tokenTexture(itemName: string): THREE.CanvasTexture {
 	tex.anisotropy = 4;
 	cache.set(key, tex);
 
-	loadFirst(wikiImageSources(itemName)).then((img) => {
+	// Through the cache like every other icon — the 3D board draws the same 40 items the
+	// rail does, and hotlinking them separately doubled the burst the wiki saw.
+	loadFirst([...wikiImageSources(itemName).map(viaProxy), ...wikiImageSources(itemName)]).then((img) => {
 		if (!img) return; // every spelling 404'd — the bare disc stands in
 		const box = SIZE * 0.72;
 		const scale = Math.min(box / img.naturalWidth, box / img.naturalHeight);
