@@ -204,6 +204,15 @@ test('a ×5 tile completes for whoever REACHES 5, not whoever contributed most',
 	await expect(yellowA.getByRole('button', { name: 'Column B: QA Wintertodt Kits' })).toBeVisible();
 });
 
+test('an ADMIN credit decides a ×N tile outright — the one path that skips the gate', async () => {
+	test.setTimeout(120_000);
+	await admin.goto(`/admin/connect4/${SLUG}`, { waitUntil: 'domcontentloaded' });
+	// Column B now offers the ×3 tile behind the one IronClad just took.
+	await admin.getByRole('button', { name: 'Column B: QA Wintertodt Kits' }).click();
+	await admin.getByRole('button', { name: /Volition/ }).first().click();
+	await expect(admin.getByRole('button', { name: 'Column B: Dragon boots' })).toBeVisible({ timeout: 60_000 });
+});
+
 test('a completed tile is off the board, and a stale resubmit lands on the CURRENT tile', async () => {
 	test.setTimeout(120_000);
 
@@ -232,13 +241,4 @@ test('a completed tile is off the board, and a stale resubmit lands on the CURRE
 		await res.text(),
 		'a resubmit with nothing held silently became a fresh claim on the column'
 	).toContain('no longer waiting on you');
-});
-
-test('an ADMIN credit decides a ×N tile outright — the one path that skips the gate', async () => {
-	test.setTimeout(120_000);
-	await admin.goto(`/admin/connect4/${SLUG}`, { waitUntil: 'domcontentloaded' });
-	// Column B now offers the ×3 tile behind the one IronClad just took.
-	await admin.getByRole('button', { name: 'Column B: QA Wintertodt Kits' }).click();
-	await admin.getByRole('button', { name: /Volition/ }).first().click();
-	await expect(admin.getByRole('button', { name: 'Column B: Dragon boots' })).toBeVisible({ timeout: 60_000 });
 });

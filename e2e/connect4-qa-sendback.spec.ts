@@ -216,14 +216,6 @@ test('the better screenshot reaches the queue and approving confirms the right c
 	await expect(holder.locator('.awaiting')).not.toContainText('Bandos chestplate');
 });
 
-test('the waiting room and the resubmit notice name cells the way the board does', async () => {
-	// Collected by the tests above, so a label defect does not cut the journey short.
-	expect(
-		labelDefects,
-		'these surfaces printed a raw cell id instead of its A1-style label'
-	).toEqual([]);
-});
-
 test('a SECOND claim in a column you already hold pending places its own piece', async () => {
 	test.setTimeout(180_000);
 	// `mate` holds A2 (Armadyl crossbow), still unreviewed. They now get the drop for
@@ -235,4 +227,12 @@ test('a SECOND claim in a column you already hold pending places its own piece',
 	await mate.reload({ waitUntil: 'domcontentloaded' });
 	await expect(mate.locator('.hole.filled')).toHaveCount(before + 1, { timeout: 30_000 });
 	await expect(mate.getByRole('button', { name: /^A3 — Volition, Zamorakian spear/ })).toBeVisible();
+});
+
+test('the waiting room and the resubmit notice name cells the way the board does', async () => {
+	// Collected by the tests above, so a label defect does not cut the journey short.
+	expect(
+		labelDefects,
+		'these surfaces printed a raw cell id instead of its A1-style label'
+	).toEqual([]);
 });
