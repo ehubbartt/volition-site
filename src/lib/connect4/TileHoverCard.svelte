@@ -29,6 +29,8 @@
 		progress?: { 1: number; 2: number } | null;
 		/** Who has banked toward a ×N tile, resolved to names by the board. */
 		contributors?: { rsn: string; side: number; qty: number }[] | null;
+		/** How long this objective has been the column's offer, e.g. "12m ago". */
+		upFor?: string | null;
 		/** Side names for the progress line (defaults to Red/Yellow). */
 		sideNames?: string[] | null;
 		x: number;
@@ -94,6 +96,7 @@
 			<div class="hc-row"><span>from <strong>{info.source}</strong></span></div>
 		{/if}
 		{#if info.ehb}<div class="hc-row">{formatEhb(info.ehb)} to obtain</div>{/if}
+		{#if info.upFor}<div class="hc-row">went up <strong>{info.upFor}</strong></div>{/if}
 		{#if info.qty && info.qty > 1}
 			<div class="hc-row">
 				<strong>first side to {info.qty} drops</strong>

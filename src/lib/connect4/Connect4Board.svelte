@@ -39,7 +39,8 @@
 		disabled = false,
 		cellFloor = 0,
 		freshCols,
-		rsnFor
+		rsnFor,
+		upForSlot
 	}: {
 		pieces: Piece[];
 		live: (LiveTile | null)[];
@@ -76,6 +77,8 @@
 		rsnFor?: (userId: string) => string | null;
 		/** Columns whose objective was dealt recently — the rail flags them as new. */
 		freshCols?: Set<number>;
+		/** "12m ago" for a deck slot — how long that objective has been on offer. */
+		upForSlot?: (deckIdx: number) => string | null;
 	} = $props();
 
 	// Claim order is the order pieces arrive from the server (ordered by claimed_at).
@@ -178,6 +181,7 @@
 			anyOf: info.slot.tile.any_of?.map((m) => m.item_name) ?? null,
 			qty: info.slot.tile.qty ?? null,
 			progress: info.slot.progress ?? null,
+			upFor: upForSlot?.(info.slot.deckIdx) ?? null,
 			contributors:
 				info.slot.contributors?.map((c) => ({
 					rsn: rsnFor?.(c.userId) ?? 'someone',

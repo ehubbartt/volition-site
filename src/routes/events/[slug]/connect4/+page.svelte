@@ -290,6 +290,9 @@
 	// tile it banks immediately — so a proof sent early, or twice, costs the side real
 	// progress that only an admin can take back. The last step is therefore deliberate:
 	// it restates what is being sent, and makes them say they are done.
+	/** Proof screenshots currently open in the viewer, or null. */
+	let viewing = $state<string[] | null>(null);
+
 	let confirming = $state(false);
 	let claimForm = $state<HTMLFormElement | null>(null);
 
@@ -358,6 +361,18 @@
 		const below = game.pieces.find((p) => p.deck_idx === deckIdx - 1);
 		const at = below?.claimed_at ? Date.parse(below.claimed_at) : NaN;
 		return Number.isFinite(at) ? at : null;
+	}
+
+	/** "just now" / "12m" / "3h 20m" — how long a tile has been the column's offer. */
+	function upFor(deckIdx: number): string | null {
+		const at = tileLiveAt(deckIdx);
+		if (at == null) return null;
+		const s = Math.max(0, Math.floor((clock.now - at) / 1000));
+		if (s < 60) return 'just now';
+		const m = Math.floor(s / 60);
+		if (m < 60) return `${m}m ago`;
+		const h = Math.floor(m / 60);
+		return h < 24 ? `${h}h ${m % 60}m ago` : `${Math.floor(h / 24)}d ${h % 24}h ago`;
 	}
 
 	/** How long a freshly-dealt tile is worth flagging. */
@@ -533,6 +548,7 @@
 					: 'from a Dink drop';
 
 	const hover3dCard = $derived.by((): CardInfo | null => {
+		void clock.now; // so "up 12m ago" ticks while the card is open
 		const h = hover3d;
 		if (!h || !game) return null;
 		if (h.kind === 'piece') {
@@ -558,6 +574,13 @@
 			anyOf: h.tile.tile.any_of?.map((m) => m.item_name) ?? null,
 			qty: h.tile.tile.qty ?? null,
 			progress: h.tile.progress ?? null,
+			contributors:
+				h.tile.contributors?.map((c) => ({
+					rsn: rsnByUser.get(c.userId) ?? 'someone',
+					side: c.side,
+					qty: c.qty
+				})) ?? null,
+			upFor: upFor(h.tile.deckIdx),
 			sideNames: game.sides.map((s) => s.name),
 			where: `column ${columnLabel(h.tile.col)}`,
 			x: h.x,
@@ -790,6 +813,7 @@
 								{cellFloor}
 								{freshCols}
 								rsnFor={(id) => rsnByUser.get(id) ?? null}
+								upForSlot={(idx) => upFor(idx)}
 								onselect={(c) => {
 									cancelResubmit();
 									selected = selected === c ? null : c;
@@ -1047,8 +1071,28 @@
 												{#if tile.any_of?.length}
 													· any of: {tile.any_of.map((m) => m.item_name).join(', ')}
 												{/if}
+												{#if upFor(t.slot.deckIdx)}
+													· up {upFor(t.slot.deckIdx)}
+												{/if}
 											</span>
 										</span>
+										{#if (tile.qty ?? 1) > 1 && t.slot.progress}
+											<!-- A ×N tile is a race between two banks, so the row that offers it
+											     says where both sides stand. Read off the same numbers the hover
+											     card and the claim form use. -->
+											<span class="offer-prog">
+												{#each game.sides as sd (sd.side)}
+													<span
+														class="pp"
+														class:won={(t.slot.progress?.[sd.side] ?? 0) >= (tile.qty ?? 1)}
+														style="--c: {sd.color}"
+													>
+														{sd.name}
+														{t.slot.progress?.[sd.side] ?? 0}/{tile.qty}
+													</span>
+												{/each}
+											</span>
+										{/if}
 										{#if (tile.qty ?? 1) > 1}
 											<span class="offer-qty">×{tile.qty}</span>
 										{/if}
@@ -1116,10 +1160,11 @@
 				<div class="table-wrap">
 					<table class="osrs-table">
 						<thead>
-							<tr><th>Cell</th><th>Side</th><th>Tile</th><th>By</th><th>How</th></tr>
+							<tr><th>Cell</th><th>Side</th><th>Tile</th><th>By</th><th>Proof</th></tr>
 						</thead>
 						<tbody>
 							{#each [...pieces].reverse().slice(0, 60) as p (p.id)}
+								{@const shots = p.submission_id ? (game.proofs[p.submission_id] ?? []) : []}
 								<tr>
 									<td>{columnLabel(p.col)}{p.row + 1}</td>
 									<td>
@@ -1129,8 +1174,25 @@
 									</td>
 									<td>{p.item_name}</td>
 									<td>{p.by_rsn ?? '—'}</td>
+									<!-- The receipts. "by hand" said nothing a player could check; the
+									     screenshot is the thing the claim was actually settled on, and both
+									     clans being able to see it is what makes a manual-proof race
+									     credible. -->
 									<td class="tiny muted">
-										{#if p.drop_key?.startsWith('manual:')}by hand{:else if p.drop_key?.startsWith('test-')}simulated{:else}Dink{/if}
+										{#if shots.length}
+											<button type="button" class="proof-btn" onclick={() => (viewing = shots)}>
+												<img src={shots[0]} alt="" loading="lazy" />
+												{#if shots.length > 1}<span>+{shots.length - 1}</span>{/if}
+											</button>
+										{:else if p.drop_key?.startsWith('manual:submission:')}
+											<span title="The screenshot is no longer on file">—</span>
+										{:else if p.drop_key?.startsWith('manual:')}
+											credited by an admin
+										{:else if p.drop_key?.startsWith('test-')}
+											simulated
+										{:else}
+											Dink
+										{/if}
 									</td>
 								</tr>
 							{/each}
@@ -1141,6 +1203,37 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Proof viewer. Opened from the claims log — every member can see what any claim was
+     settled on. -->
+{#if viewing}
+	<div
+		class="modal-back"
+		role="button"
+		tabindex="-1"
+		onclick={() => (viewing = null)}
+		onkeydown={(e) => e.key === 'Escape' && (viewing = null)}
+	>
+		<div
+			class="shots"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Submitted screenshots"
+			onclick={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
+		>
+			{#each viewing as url, i (url)}
+				<a href={url} target="_blank" rel="noopener noreferrer">
+					<img src={url} alt="Submitted screenshot {i + 1}" />
+				</a>
+			{/each}
+			<div class="modal-actions">
+				<span class="muted tiny">Click a shot to open it full size.</span>
+				<button type="button" onclick={() => (viewing = null)}>Close</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- The last chance to stop. Restates what is about to be sent, because the two ways
      people get this wrong — sending before the tile is actually finished, and sending the
@@ -1545,6 +1638,30 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	.offer-prog {
+		margin-left: auto;
+		flex: none;
+		display: flex;
+		gap: 0.3rem;
+		font-size: 0.68rem;
+		white-space: nowrap;
+	}
+	.offer-prog .pp {
+		padding: 0.02rem 0.32rem;
+		border: 1px solid var(--c);
+		border-radius: 999px;
+		color: var(--c);
+	}
+	/* A side that has reached the total holds the tile — it should not read the same as
+	   one still counting. */
+	.offer-prog .pp.won {
+		background: color-mix(in srgb, var(--c) 24%, transparent);
+		font-weight: 700;
+	}
+	/* Only ONE child takes the auto margin, or the badges after it bunch to the left. */
+	.offer-prog + .offer-qty {
+		margin-left: 0;
+	}
 	.offer-qty {
 		margin-left: auto;
 		flex: none;
@@ -1626,6 +1743,51 @@
 		color: var(--muted);
 		font-size: 0.8rem;
 		cursor: pointer;
+	}
+	.proof-btn {
+		border-image: none;
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		background: rgba(0, 0, 0, 0.2);
+		min-height: 0;
+		margin: 0;
+		padding: 1px;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		cursor: pointer;
+	}
+	.proof-btn:hover {
+		border-color: var(--accent);
+	}
+	.proof-btn img {
+		display: block;
+		width: 44px;
+		height: 30px;
+		object-fit: cover;
+		border-radius: 2px;
+	}
+	.proof-btn span {
+		padding-right: 0.25rem;
+		font-size: 0.7rem;
+		color: var(--muted);
+	}
+	.shots {
+		width: min(52rem, 100%);
+		max-height: calc(100vh - 2rem);
+		overflow-y: auto;
+		padding: 0.8rem;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		background: var(--panel, #241f16);
+		cursor: default;
+	}
+	.shots img {
+		display: block;
+		max-width: 100%;
+		margin: 0 auto 0.6rem;
+		border: 1px solid var(--border);
+		border-radius: 3px;
 	}
 	.modal-back {
 		position: fixed;

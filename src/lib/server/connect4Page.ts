@@ -66,6 +66,14 @@ export interface Connect4View {
 		tile: LiveTile['tile'] | null;
 		note: string | null;
 	}[];
+	/**
+	 * The screenshots behind recent claims, by submission id — the board's receipts.
+	 * Public on purpose: this is a clan-vs-clan race settled on manual proof, and both
+	 * sides being able to see what was accepted is what makes that credible. Only the
+	 * claims the log actually renders are fetched; a 600-cell board is not worth carrying
+	 * in full.
+	 */
+	proofs: Record<string, string[]>;
 	winner: Side | null;
 	full: boolean;
 	deckSize: number;
@@ -102,18 +110,31 @@ export async function buildConnect4Page(
 	// A rejection note is only ever shown to the person it was written for.
 	const pendingPieces = r.pieces.filter((p) => p.status === 'pending');
 	const notesBySubmission = new Map<string, string | null>();
-	const subIds = pendingPieces.map((p) => p.submission_id).filter((x): x is string => !!x);
+	const proofs: Record<string, string[]> = {};
+	// The pending claims (for their notes) and the tail the log renders (for their
+	// screenshots), in ONE read rather than two.
+	const LOG_DEPTH = 60;
+	const subIds = [
+		...new Set(
+			[
+				...pendingPieces.map((p) => p.submission_id),
+				...r.pieces.slice(-LOG_DEPTH).map((p) => p.submission_id)
+			].filter((x): x is string => !!x)
+		)
+	];
 	if (subIds.length) {
 		const { data } = await db()
 			.from('vs_submissions')
-			.select('id, status, review_note, user_id')
+			.select('id, status, review_note, user_id, proof_urls')
 			.in('id', subIds);
 		for (const row of (data ?? []) as Array<{
 			id: string;
 			status: string;
 			review_note: string | null;
 			user_id: string | null;
+			proof_urls: string[] | null;
 		}>) {
+			if (row.proof_urls?.length) proofs[row.id] = row.proof_urls;
 			// 'rejected' on a piece that is STILL STANDING is a partial rejection: the
 			// evidence was sent back but the tile was never taken away.
 			if (row.status === 'rejected' && row.user_id === user.id) {
@@ -171,6 +192,7 @@ export async function buildConnect4Page(
 			live: r.live,
 			bonus: r.bonus,
 			awaiting,
+			proofs,
 			winner: r.winner,
 			full: r.full,
 			deckSize: r.deckSize,

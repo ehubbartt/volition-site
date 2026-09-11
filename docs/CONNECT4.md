@@ -161,6 +161,19 @@ Two optional tile shapes on top of the plain single item:
   camera at any tilt. A tile that arrives through the REQUEUE is not flagged: nothing about
   that swap moves a piece, so there is no timestamp to read.
 
+  **The offer list carries both banks and the tile's age**, and the hover cards say when a
+  tile went up. A ×N tile is a race between two banks, so the row that offers it shows
+  where each side stands, with the side that has reached the total marked as holding it.
+
+  **The claims log shows the screenshot, not the word "by hand".** Every row with a member
+  submission behind it has a thumbnail that opens the proof full size, to any signed-in
+  member. This is a race settled on manual proof, and both clans being able to see what was
+  accepted is what makes that credible; the files are already public storage URLs, the same
+  ones `/admin/submissions` renders. Only the claims the log actually shows are fetched —
+  `LOG_DEPTH` in `connect4Page.ts` — folded into the read that was already fetching
+  send-back notes, so this costs no extra query. A piece credited by an admin, or by Dink,
+  still says so, since there is no screenshot behind it.
+
   **Submitting takes a confirmation step.** Posting a claim is not free: it takes the cell
   immediately, and on a ×N tile it banks immediately, so a proof sent early or sent twice
   costs the side progress only an admin can return. The Submit button therefore opens a
