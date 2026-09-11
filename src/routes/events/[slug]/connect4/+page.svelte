@@ -285,6 +285,23 @@
 		new Map((game?.sides ?? []).flatMap((sd) => sd.members.map((m) => [m.userId, m.rsn])))
 	);
 
+	// ── Confirm before submitting ─────────────────────────────────────────────
+	// Submitting is not free: a claim takes the cell the moment it is posted, and on a ×N
+	// tile it banks immediately — so a proof sent early, or twice, costs the side real
+	// progress that only an admin can take back. The last step is therefore deliberate:
+	// it restates what is being sent, and makes them say they are done.
+	let confirming = $state(false);
+	let claimForm = $state<HTMLFormElement | null>(null);
+
+	function askToConfirm() {
+		if (!staged.length || submitting) return;
+		confirming = true;
+	}
+	function confirmSubmit() {
+		confirming = false;
+		claimForm?.requestSubmit();
+	}
+
 	// ── Submission toast ──────────────────────────────────────────────────────
 	// The confirmation under the form is easy to miss on a 600-cell board — it sits below
 	// the fold once the claim panel is open, and a player who does not see it submits the
@@ -307,6 +324,9 @@
 				? null
 				: (game?.live[selected] ?? null)
 	);
+
+	/** The thing most often got wrong: a before+after tile sent with a single shot. */
+	const shortOfPreShot = $derived(!!selectedTile?.tile.pre_shot && staged.length < 2);
 
 	// One toast per action result. `form` is replaced wholesale by use:enhance, so tracking
 	// the object identity is enough — resubmitting the same column twice still speaks.
@@ -765,6 +785,7 @@
 							     the same /admin/submissions queue every other event uses, and an admin
 							     approves it. Nothing lands on the board from here. -->
 							<form
+								bind:this={claimForm}
 								method="POST"
 								action="?/submitClaim"
 								enctype="multipart/form-data"
@@ -884,7 +905,8 @@
 								{/if}
 
 								<div class="claim-actions">
-									<button type="submit" disabled={submitting || !staged.length}>
+									<!-- type=button: the confirm step submits the form, not this click. -->
+									<button type="button" disabled={submitting || !staged.length} onclick={askToConfirm}>
 										{submitting ? 'Sending…' : 'Submit this drop for review'}
 									</button>
 									{#if staged.length}
@@ -1052,6 +1074,82 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- The last chance to stop. Restates what is about to be sent, because the two ways
+     people get this wrong — sending before the tile is actually finished, and sending the
+     same shot twice — are both invisible once the claim is in. -->
+{#if confirming && selectedTile && game}
+	<div
+		class="modal-back"
+		role="button"
+		tabindex="-1"
+		onclick={() => (confirming = false)}
+		onkeydown={(e) => e.key === 'Escape' && (confirming = false)}
+	>
+		<div
+			class="modal"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Confirm your submission"
+			onclick={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
+		>
+			<h3>Send this for review?</h3>
+
+			<div class="sum">
+				<div class="sum-row">
+					<span class="sum-k">Tile</span>
+					<span><strong>{selectedTile.tile.item_name}</strong> — column {columnLabel(selectedTile.col)}</span>
+				</div>
+				{#if (selectedTile.tile.qty ?? 1) > 1}
+					<div class="sum-row">
+						<span class="sum-k">Needs</span>
+						<span>
+							{selectedTile.tile.qty} drops · this proof says it covers <strong>{quantity}</strong>
+							{#if selectedTile.progress}
+								· your side is on {selectedTile.progress[game.viewerSide ?? 1]}/{selectedTile.tile.qty}
+							{/if}
+						</span>
+					</div>
+				{/if}
+				<div class="sum-row">
+					<span class="sum-k">Sending</span>
+					<span>{staged.length} screenshot{staged.length === 1 ? '' : 's'}</span>
+				</div>
+			</div>
+
+			{#if staged.length}
+				<div class="sum-shots">
+					{#each staged as st, i (st.url)}<img src={st.url} alt="Screenshot {i + 1}" />{/each}
+				</div>
+			{/if}
+
+			{#if shortOfPreShot}
+				<p class="modal-warn">
+					📷 <strong>This tile needs a BEFORE screenshot as well as an after</strong>, and you are
+					sending only one.
+					{#if selectedTile.tile.pre_note}
+						The before shot should show {selectedTile.tile.pre_note}.
+					{/if}
+					Send both together — you cannot go back for the before shot later.
+				</p>
+			{/if}
+
+			<p class="modal-ask">
+				Are you sure you have <strong>everything you need to complete this tile</strong>? Once it is
+				sent it holds the cell until an admin reviews it, and sending the same screenshot twice
+				counts against your side twice.
+			</p>
+
+			<div class="modal-actions">
+				<button type="button" class="link-ish" onclick={() => (confirming = false)}>
+					Not yet — go back
+				</button>
+				<button type="button" class="go" onclick={confirmSubmit}>Yes, submit it</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- Pinned to the viewport, so it is visible wherever they are on a 600-cell board. -->
 {#if toast}
@@ -1445,6 +1543,86 @@
 		color: var(--muted);
 		font-size: 0.8rem;
 		cursor: pointer;
+	}
+	.modal-back {
+		position: fixed;
+		inset: 0;
+		z-index: 70;
+		display: grid;
+		place-items: center;
+		padding: 1rem;
+		background: rgba(0, 0, 0, 0.62);
+	}
+	.modal {
+		width: min(30rem, 100%);
+		max-height: calc(100vh - 2rem);
+		overflow-y: auto;
+		padding: 1rem 1.1rem 0.9rem;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		background: var(--panel, #241f16);
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+		text-align: left;
+		cursor: default;
+	}
+	.modal h3 {
+		margin: 0 0 0.6rem;
+		color: var(--heading);
+	}
+	.sum {
+		display: grid;
+		gap: 0.3rem;
+		font-size: 0.85rem;
+	}
+	.sum-row {
+		display: flex;
+		gap: 0.5rem;
+		align-items: baseline;
+	}
+	.sum-k {
+		flex: 0 0 4.5rem;
+		color: var(--muted);
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+	.sum-shots {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		margin: 0.6rem 0 0;
+	}
+	.sum-shots img {
+		width: 92px;
+		height: 92px;
+		object-fit: cover;
+		border: 1px solid var(--border);
+		border-radius: 3px;
+	}
+	.modal-warn {
+		margin: 0.7rem 0 0;
+		padding: 0.5rem 0.6rem;
+		border: 1px solid var(--danger);
+		border-radius: 3px;
+		background: rgba(180, 60, 60, 0.12);
+		font-size: 0.82rem;
+		line-height: 1.35;
+	}
+	.modal-ask {
+		margin: 0.7rem 0 0;
+		font-size: 0.85rem;
+		line-height: 1.4;
+	}
+	.modal-actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 0.8rem;
+		margin-top: 0.9rem;
+	}
+	.modal-actions .go {
+		border-color: var(--success, #6aa84f);
+		color: var(--success, #6aa84f);
 	}
 	.toast {
 		position: fixed;

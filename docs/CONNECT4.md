@@ -142,6 +142,16 @@ Two optional tile shapes on top of the plain single item:
   `manual:submission:<id>` — so a prefix test on `manual:` alone told every player their
   own screenshot had been credited by hand.
 
+  **Submitting takes a confirmation step.** Posting a claim is not free: it takes the cell
+  immediately, and on a ×N tile it banks immediately, so a proof sent early or sent twice
+  costs the side progress only an admin can return. The Submit button therefore opens a
+  modal that restates the tile and column, the ×N total and where the side stands, and
+  every screenshot about to go — and asks outright whether they have everything needed to
+  complete the tile. On a `pre_shot` tile carrying fewer than two images it says so in
+  terms, with the tile's own `pre_note`, because the before shot cannot be taken after the
+  fact. Cancelling submits nothing; the confirm calls `requestSubmit()` on the real form,
+  so `use:enhance` and the staged-file handling are untouched.
+
   **A submission also confirms itself as a toast.** The line under the claim form sits
   below the fold once the panel is open on a 600-cell board, and a player who misses it
   sends the same screenshot again — which double-banks a ×N tile. The toast is pinned to
