@@ -90,7 +90,40 @@ try {
 	);
 	check('and it is not open yet', c4.hasOpened(snap) === false);
 
-	step(4, 'Until then it gives nothing away and takes nothing');
+	step(4, 'A started game is ON the events page');
+	// A game is created UNLISTED so a half-built board is not on display, and nothing used
+	// to clear that — a real game could be live, open, and invisible to the whole clan.
+	check('a test game stays off the events page', snap.unlisted === true, `unlisted=${snap.unlisted}`);
+	// The real thing: a non-test game, which is what an actual event is.
+	const realOne = await c4.createConnect4({
+		slug: `${SLUG}-real`, name: 'Schedule drill real', ownerUserId: a.id, cols: COLS, rows: ROWS
+	});
+	if (!realOne.ok) throw new Error(realOne.error);
+	const realId = realOne.value.id;
+	try {
+		await c4.enrolMembers({ eventId: realId, userIds: [a.id], side: 1 });
+		await fill(realId);
+		const go = await c4.startGame(realId);
+		check('a real game starts', go.ok, go.ok ? '' : go.error);
+		const { data: evRow } = await sb
+			.from('vs_events')
+			.select('status, unlisted')
+			.eq('id', realId)
+			.maybeSingle();
+		check('its status is open', evRow?.status === 'open', `${evRow?.status}`);
+		check('and it is listed, so /events shows it', evRow?.unlisted === false, `unlisted=${evRow?.unlisted}`);
+		check('it can be hidden by hand', (await c4.setListed(realId, false)).ok);
+		check('and shown again', (await c4.loadConnect4(`${SLUG}-real`)).unlisted === true
+			&& (await c4.setListed(realId, true)).ok
+			&& (await c4.loadConnect4(`${SLUG}-real`)).unlisted === false);
+	} finally {
+		// Deleted at the row, not through deleteConnect4 — that refuses a non-test game.
+		await sb.from('vs_connect4_pieces').delete().eq('event_id', realId).catch?.(() => {});
+		await sb.from('vs_event_signups').delete().eq('event_id', realId);
+		await sb.from('vs_events').delete().eq('id', realId);
+	}
+
+	step(5, 'Until the start it gives nothing away and takes nothing');
 	const seenByMember = c4.redactSnapshot(snap, false);
 	check('a member sees no undealt deck', seenByMember.deck.length === 0);
 	// The one that matters: a board dealt early must not leak the 40 tiles on offer.
@@ -106,7 +139,7 @@ try {
 	snap = await c4.loadConnect4(SLUG);
 	check('and nothing landed on the board', snap.pieces.length === 0, `${snap.pieces.length}`);
 
-	step(5, 'On the stroke, everything opens');
+	step(6, 'On the stroke, everything opens');
 	await sb.from('vs_events').update({ starts_at: new Date(Date.now() - 1000).toISOString() }).eq('id', eventId);
 	snap = await c4.loadConnect4(SLUG);
 	check('the board has opened', c4.hasOpened(snap) === true);
@@ -114,7 +147,7 @@ try {
 	const onTime = await c4.creditManual({ eventId, side: 1, col: 0 });
 	check('a claim now lands', onTime.status === 'claimed', onTime.status);
 
-	step(6, 'A time given by hand beats the inherited one, and nonsense is refused');
+	step(7, 'A time given by hand beats the inherited one, and nonsense is refused');
 	const later = new Date(Date.now() + 2 * HOUR).toISOString();
 	const second = await c4.createConnect4({
 		slug: `${SLUG}-2`, name: 'Schedule drill 2', ownerUserId: a.id, cols: COLS, rows: ROWS, test: true
@@ -138,7 +171,7 @@ try {
 		await c4.deleteConnect4(id2).catch(() => {});
 	}
 
-	step(7, 'A game with no form behind it starts the moment it is dealt');
+	step(8, 'A game with no form behind it starts the moment it is dealt');
 	const third = await c4.createConnect4({
 		slug: `${SLUG}-3`, name: 'Schedule drill 3', ownerUserId: a.id, cols: COLS, rows: ROWS, test: true
 	});

@@ -19,6 +19,7 @@ import {
 	reopenGame,
 	rosterFor,
 	seatByClan,
+	setListed,
 	sourceStart,
 	setPool,
 	setSideNames,
@@ -462,6 +463,19 @@ export const actions: Actions = {
 		if (!at) return fail(400, { error: 'That signup form has no start time set' });
 		const { error: uErr } = await db().from('vs_events').update({ starts_at: at }).eq('id', game.id);
 		return uErr ? fail(400, { error: uErr.message }) : { startMoved: at };
+	},
+
+	// Show or hide the game on /events. A Connect Four game is created unlisted so a
+	// half-built board is not on display; starting it now clears that, and this is the
+	// handle for a game that was started before it did.
+	setListing: async ({ request, locals, params }) => {
+		if (!locals.user || !isAdmin(locals.user)) return fail(403, { error: 'Admins only' });
+		const form = await request.formData();
+		const game = await loadConnect4(params.slug);
+		if (!game) return fail(404, { error: 'No such game' });
+		const listed = form.get('listed') === '1';
+		const res = await setListed(game.id, listed);
+		return res.ok ? { listed } : fail(400, { error: res.error });
 	},
 
 	scoring: async ({ request, locals, params }) => {

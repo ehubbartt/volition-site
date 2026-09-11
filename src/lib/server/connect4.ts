@@ -23,6 +23,7 @@ import { randomUUID } from 'node:crypto';
 import { clanMemberIds } from './clan';
 import { normalizePoolOpts, type StoredPoolOpts } from './connect4Pool';
 import { db, fetchAllFiltered } from './db';
+import { bustEventCaches } from './microCache';
 import {
 	COLS,
 	DECK_SIZE,
@@ -115,6 +116,8 @@ export interface Connect4Snapshot {
 	startsAt: string | null;
 	/** The signup event this roster was seated from, if any — see `source_event_id`. */
 	sourceEventId: string | null;
+	/** Hidden from /events. True for a game still being built, and for test games. */
+	unlisted: boolean;
 	endsAt: string | null;
 	/** The curated pool (one tile per cell), in the admin's chosen order. Empty until set. */
 	pool: TileRef[];
@@ -251,7 +254,7 @@ async function readPieces(eventId: string): Promise<Piece[]> {
 export async function loadConnect4(slug: string): Promise<Connect4Snapshot | null> {
 	const { data: ev } = await db()
 		.from('vs_events')
-		.select('id, slug, name, description, kind, status, structure, starts_at, ends_at')
+		.select('id, slug, name, description, kind, status, structure, starts_at, ends_at, unlisted')
 		.eq('slug', slug)
 		.maybeSingle();
 	if (!ev || ev.kind !== CONNECT4_KIND) return null;
@@ -261,7 +264,7 @@ export async function loadConnect4(slug: string): Promise<Connect4Snapshot | nul
 export async function loadConnect4ById(eventId: string): Promise<Connect4Snapshot | null> {
 	const { data: ev } = await db()
 		.from('vs_events')
-		.select('id, slug, name, description, kind, status, structure, starts_at, ends_at')
+		.select('id, slug, name, description, kind, status, structure, starts_at, ends_at, unlisted')
 		.eq('id', eventId)
 		.maybeSingle();
 	if (!ev || ev.kind !== CONNECT4_KIND) return null;
@@ -277,6 +280,7 @@ interface EventRow {
 	structure: unknown;
 	starts_at: string | null;
 	ends_at: string | null;
+	unlisted: boolean | null;
 }
 
 interface BonusRow {
@@ -419,6 +423,7 @@ async function buildSnapshot(ev: EventRow): Promise<Connect4Snapshot> {
 		deckSize: deckSizeOf(size),
 		startsAt: ev.starts_at,
 		sourceEventId: c4.source_event_id ?? null,
+		unlisted: ev.unlisted !== false,
 		endsAt: ev.ends_at,
 		pool: Array.isArray(c4.pool) ? c4.pool : [],
 		custom: Array.isArray(c4.custom) ? c4.custom : [],
@@ -1021,7 +1026,12 @@ export async function startGame(
 		.update({
 			structure: { ...structure, connect4: c4 },
 			status: 'open',
-			starts_at: openAt.toISOString()
+			starts_at: openAt.toISOString(),
+			// A game is created UNLISTED so a half-built board never shows up on /events.
+			// Starting it is the moment that stops being true — and nothing else ever cleared
+			// the flag, so a real game could be live, open and still invisible to the clan.
+			// Test games stay hidden: they are rehearsals, not events.
+			unlisted: snap.test
 		})
 		.eq('id', eventId)
 		// The CAS: only the row still in `setup` is updated, so a second Start deals nothing.
@@ -1030,8 +1040,21 @@ export async function startGame(
 	if (error) return errResult(error.message);
 	if (!updated?.length) return errResult('This game has already started');
 
+	// The events list is micro-cached, and starting a game changes what belongs on it.
+	bustEventCaches();
 	await syncTrackedItems(eventId);
 	return okResult({ seed: usedSeed });
+}
+
+/**
+ * Show or hide the game on /events. Separate from `status` — an event can be `open` and
+ * still `unlisted`, which is the state a Connect Four game used to be stuck in.
+ */
+export async function setListed(eventId: string, listed: boolean): Promise<Result> {
+	const { error } = await db().from('vs_events').update({ unlisted: !listed }).eq('id', eventId);
+	if (error) return errResult(error.message);
+	bustEventCaches();
+	return okResult();
 }
 
 // ── The claim ───────────────────────────────────────────────────────────────

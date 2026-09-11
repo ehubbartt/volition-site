@@ -41,8 +41,11 @@ test('a board dealt before its start shows a countdown and no tiles', async ({ p
 	await page.getByRole('button', { name: /Deal the deck now, open at the time above/ }).click();
 
 	await expect(page.locator('.osrs-badge', { hasText: 'live' })).toBeVisible({ timeout: 60_000 });
-	// The admin is told in as many words that it has not opened yet.
+	// The admin is told in as many words that it has not opened yet…
 	await expect(page.locator('.osrs-badge.waiting')).toContainText('opens');
+	// …and that this one is a rehearsal that stays off /events. A REAL game is listed the
+	// moment it starts; the drill covers that half, which needs a non-test game.
+	await expect(page.locator('.osrs-badge.unlisted')).toBeVisible();
 	await page.screenshot({ path: 'e2e-shots/scheduled/01-admin-waiting.png' });
 
 	// ── what a member sees in the meantime ─────────────────────────────────────

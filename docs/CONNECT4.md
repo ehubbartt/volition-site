@@ -748,6 +748,19 @@ take the form's. A game with no form behind it opens the moment it is dealt, as 
 > blank opens the board as soon as you deal."* Type the announced time into **Opens at**
 > and it is exact. Giving signup forms their own start time is the obvious follow-up.
 
+### Listed vs open — two different flags
+
+A game is created **unlisted** so a half-built board is not on display, and `status`
+`draft`. Starting it sets `status: 'open'` **and clears `unlisted`** — both are needed:
+`/events` filters on `unlisted = false` AND an open-ish status, so an event can be open
+and still invisible to the whole clan. That is exactly what happened — nothing ever
+cleared the flag a game was created with, so no Connect Four game could reach the events
+page. **Test games stay unlisted** when started; they are rehearsals, not events.
+
+The admin page says so at the top when a started game is not listed, with a button either
+way (`?/setListing` → `setListed`). The events list is micro-cached for 15s, so both paths
+bust it.
+
 ### Dealt, but not yet open
 
 `hasOpened(snap)` is the gate: a game is `live` once the deck is dealt, and **open** only

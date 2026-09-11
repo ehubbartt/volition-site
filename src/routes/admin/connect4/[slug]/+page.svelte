@@ -495,6 +495,10 @@
 			{/if}
 			<span class="osrs-badge">{game.cols}×{game.rows}</span>
 			{#if game.test}<span class="osrs-badge test">test</span>{/if}
+			<!-- Only once it has started: a game in setup is unlisted on purpose. -->
+			{#if game.unlisted && game.phase !== 'setup'}
+				<span class="osrs-badge unlisted">not on /events</span>
+			{/if}
 			<a class="export" href="/admin/connect4/{game.slug}/export.csv" download title="The whole tile list as a spreadsheet">
 				⤓ Export CSV
 			</a>
@@ -523,6 +527,30 @@
 	{/if}
 	{#if form?.customRemoved}<p class="ok">Custom task removed.</p>{/if}
 	{#if form?.optsSaved}<p class="ok">Generator filters saved.</p>{/if}
+	{#if game.phase !== 'setup'}
+		<!-- `status: open` is not the whole story: an event can be open and still UNLISTED,
+		     which is invisible on /events. A game used to be stuck that way because nothing
+		     ever cleared the flag it was created with. Said at the TOP, because an event
+		     nobody can find is not a small detail. -->
+		<form method="POST" action="?/setListing" use:enhance class="listing">
+			<input type="hidden" name="listed" value={game.unlisted ? '1' : '0'} />
+			{#if game.unlisted}
+				<span class="warn">
+					This game is <strong>not listed on /events</strong> — members can only reach it by
+					a direct link.
+				</span>
+				<button type="submit">Show it on /events</button>
+			{:else}
+				<span class="muted tiny">Listed on /events.</span>
+				<button type="submit" class="quiet">Hide it</button>
+			{/if}
+		</form>
+	{/if}
+	{#if form?.listed !== undefined}
+		<p class="ok">{form.listed ? 'Now listed on /events.' : 'Hidden from /events.'}</p>
+	{/if}
+
+
 	{#if form?.undone}
 		<p class="ok">
 			Removed the piece{typeof form.undone === 'string' ? ` at ${cellLabel(form.undone)}` : ''}.
@@ -1466,6 +1494,7 @@
 		gap: 0.5rem;
 		flex-wrap: wrap;
 	}
+	.osrs-badge.unlisted,
 	.osrs-badge.test {
 		color: var(--yellow);
 	}
@@ -1636,6 +1665,16 @@
 	}
 	.start-form input[type='datetime-local'] {
 		max-width: 100%;
+	}
+	.listing {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0.4rem 0;
+		padding: 0.45rem 0.6rem;
+		border-left: 3px solid var(--danger, #c0392b);
+		background: var(--surface-alt);
 	}
 	.linked {
 		margin: 0.2rem 0 0.5rem;
