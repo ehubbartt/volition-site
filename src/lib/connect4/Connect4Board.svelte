@@ -91,11 +91,30 @@
 	// cancel would be undone by the schedule that follows it, and the card always hid just
 	// as you reached the links.
 	let overCard = false;
+	// And it waits before OPENING, because a 600-cell board means the pointer crosses
+	// dozens of tiles on its way anywhere and a card under every one of them is noise.
+	// Warm-up, not a flat delay: once a card is up, moving along the board swaps it
+	// straight away, so deliberately reading the board never feels slow. Leaving cancels
+	// a pending open, so a tile you merely passed over never opens after the fact.
+	const SHOW_DELAY = 350;
+	let showTimer: ReturnType<typeof setTimeout> | null = null;
 	function show(info: CardInfo) {
 		if (hideTimer) clearTimeout(hideTimer);
-		hovered = info;
+		if (hovered) {
+			hovered = info;
+			return;
+		}
+		if (showTimer) clearTimeout(showTimer);
+		showTimer = setTimeout(() => {
+			showTimer = null;
+			hovered = info;
+		}, SHOW_DELAY);
 	}
 	function leave() {
+		if (showTimer) {
+			clearTimeout(showTimer);
+			showTimer = null;
+		}
 		if (hideTimer) clearTimeout(hideTimer);
 		hideTimer = setTimeout(() => {
 			if (!overCard) hovered = null;

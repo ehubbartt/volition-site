@@ -733,6 +733,15 @@ does — but a third clan's player would be labelled IronClad too.
 the split in one go: pick the signup form the roster was collected on, preview, then seat.
 Seating also signs everyone up to the game, which is what puts them in the Dink allowlist.
 
+**Hover cards warm up rather than fire instantly.** A 600-cell board means the pointer
+crosses dozens of tiles on the way anywhere, so a card waits 350ms before it opens, and
+leaving cancels a pending open — a tile merely passed over never pops one. Once a card IS
+up, moving along the board swaps it with no wait, so reading the board deliberately never
+feels slow. Both boards do this: the flat one in `Connect4Board.svelte`, the 3D one in
+`set3dHover` on the page. Hiding still lags 260ms behind the pointer, which is what lets
+you reach the wiki links inside the card.
+
+
 **The rail is also a list.** *Tiles on offer* under the board is the same 40 objectives
 as scannable rows — column letter, icon, source, EHB, `×N`, and a **before + after** flag —
 with a filter box over item name, source, any-of member and column. Clicking a row runs the

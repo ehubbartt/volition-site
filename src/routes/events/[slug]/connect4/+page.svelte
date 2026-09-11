@@ -385,13 +385,31 @@
 	let hover3d = $state<HoverInfo | null>(null);
 	let overCard3d = false;
 	let hide3d: ReturnType<typeof setTimeout> | null = null;
+	// Same warm-up as the flat board: wait before the first card opens, then swap without
+	// waiting while one is already up, and drop a pending open the moment the pointer leaves.
+	const HOVER_DELAY = 350;
+	let show3d: ReturnType<typeof setTimeout> | null = null;
 	function set3dHover(info: HoverInfo | null) {
 		if (hide3d) clearTimeout(hide3d);
-		if (info) hover3d = info;
-		else
+		if (info) {
+			if (hover3d) {
+				hover3d = info;
+				return;
+			}
+			if (show3d) clearTimeout(show3d);
+			show3d = setTimeout(() => {
+				show3d = null;
+				hover3d = info;
+			}, HOVER_DELAY);
+		} else {
+			if (show3d) {
+				clearTimeout(show3d);
+				show3d = null;
+			}
 			hide3d = setTimeout(() => {
 				if (!overCard3d) hover3d = null;
 			}, 260);
+		}
 	}
 	const claimedVia = (p: { drop_key?: string }) =>
 		p.drop_key?.startsWith('manual:')
