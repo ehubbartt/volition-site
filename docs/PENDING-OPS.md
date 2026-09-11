@@ -165,9 +165,27 @@ a re-runnable diagnostic.
    constraint hardcoded `deck_idx = col * 10 + row`). Not touching the drops knob
    is no way to dodge it — smart fill manufactures ×N-drops tiles by itself
    whenever the filtered candidate list is smaller than the board.
-3. ☐ Confirm `/admin/connect4` loads on prod, then create the game, curate the
-   pool, **Preview** the clan split, fix the flagged names, seat, start. Members
-   watch at `/events/<slug>/connect4`.
+3. ☑ Game built on prod — `volition-vs-ironclad`, 40×15 / 600 cells, the planned
+   244-tile list, 259 seated (131 Volition / 128 IronClad), dealt with
+   `starts_at` 17:00 UTC.
+4. ☑ **Apply the `qty` column** (the tail of `db/scripts/connect4.sql`) —
+   2026-09-11, per the maintainer; verified present on staging and proven there
+   with a ×70,000 tile (1 → 20,001 → 69,001 → claimed at 70,000). Without it a
+   points tile would need one submission per point; the code falls back rather
+   than failing a claim, so a miss is quiet. Confirm on any database with
+   `select qty from vs_connect4_progress limit 1;`.
+5. ☑ **Pre-screenshot flags stamped onto the live board** via *Re-apply from the
+   planned list* on the game's admin page — 66 tiles, 124 of the 600 cells. A
+   dealt game holds its own copy of every tile, so this does not happen by
+   deploying.
+6. ☐ **RELEASE IT.** The game is deliberately held back until shortly before the
+   off. `/events` filters on BOTH, so it needs both:
+   ```sql
+   update vs_events set status = 'open', unlisted = false
+   where slug = 'volition-vs-ironclad';
+   ```
+   The board still will not open until `starts_at`, so releasing early only makes
+   the event visible — the tiles stay hidden and no claim is accepted.
 
 Everything else about the event (who can sign up, how sides are decided) is in
 [`CONNECT4.md`](CONNECT4.md) § "Clan vs clan".
