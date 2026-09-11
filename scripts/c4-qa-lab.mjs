@@ -16,6 +16,8 @@
 //   E  ×1, for the contested-claim race
 //   F  ×1, for the full rejection
 //
+// The cast is three players a side, one signed up but unseated, and one outsider.
+//
 // The deck is dealt by the real startGame and then OVERWRITTEN with a fixed order, so
 // slot c*rows+n is known. Nothing else about the game is special.
 
@@ -112,8 +114,8 @@ try {
 		.order('id')
 		.limit(40);
 	const admins = (process.env.SUPER_ADMIN_DISCORD_IDS ?? '').split(',').map((s) => s.trim());
-	const cast = (users ?? []).filter((u) => !admins.includes(u.discord_id)).slice(0, 7);
-	if (cast.length < 7) throw new Error('need seven non-admin members with an RSN on this database');
+	const cast = (users ?? []).filter((u) => !admins.includes(u.discord_id)).slice(0, 8);
+	if (cast.length < 8) throw new Error('need eight non-admin members with an RSN on this database');
 
 	const owner = cast[0];
 	const created = await c4.createConnect4({
@@ -134,6 +136,8 @@ try {
 	const red = cast.slice(0, 3);
 	const yellow = cast.slice(3, 6);
 	const bench = cast[6];
+	// Never signed up at all — the pure spectator.
+	const outsider = cast[7];
 	let r = await c4.enrolMembers({ eventId, userIds: red.map((u) => u.id), side: 1 });
 	if (!r.ok) throw new Error(r.error);
 	r = await c4.enrolMembers({ eventId, userIds: yellow.map((u) => u.id), side: 2 });
@@ -161,6 +165,7 @@ try {
 	red.forEach((u, i) => line(`Volition ${i + 1}`, u));
 	yellow.forEach((u, i) => line(`IronClad ${i + 1}`, u));
 	line('bench', bench);
+	line('outsider', outsider);
 	console.log('\nlive tiles:', snap.live.map((l, i) => `${String.fromCharCode(65 + i)}=${l.tile.item_name}${l.tile.qty > 1 ? ` x${l.tile.qty}` : ''}`).join(', '));
 	// One machine-readable line, so a spec can build its own board in beforeAll.
 	console.log(
@@ -170,7 +175,8 @@ try {
 				eventId,
 				red: red.map((u) => ({ id: u.discord_id, rsn: u.rsn })),
 				yellow: yellow.map((u) => ({ id: u.discord_id, rsn: u.rsn })),
-				bench: { id: bench.discord_id, rsn: bench.rsn }
+				bench: { id: bench.discord_id, rsn: bench.rsn },
+				outsider: { id: outsider.discord_id, rsn: outsider.rsn }
 			})
 	);
 } finally {

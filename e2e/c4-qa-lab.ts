@@ -14,6 +14,7 @@ export interface LabCast {
 	red: { id: string; rsn: string }[];
 	yellow: { id: string; rsn: string }[];
 	bench: { id: string; rsn: string };
+	outsider: { id: string; rsn: string };
 }
 
 /** A 1x1 PNG — the proof screenshot. Small on purpose; nothing reads the pixels. */
