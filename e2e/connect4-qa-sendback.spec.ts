@@ -222,9 +222,14 @@ test('a SECOND claim in a column you already hold pending places its own piece',
 	// what column A offers NEXT and submit for the same column — an ordinary thing to
 	// happen when the review queue is behind.
 	await mate.reload({ waitUntil: 'domcontentloaded' });
+	// Count only once the board has actually rendered — a count taken mid-load is 0 and
+	// would make any outcome look like a gain.
+	await expect(mate.locator('.hole.filled').first()).toBeVisible({ timeout: 30_000 });
 	const before = await mate.locator('.hole.filled').count();
+	expect(before, 'no pieces on the board to compare against').toBeGreaterThan(0);
 	await claim(mate, 'A', 'Zamorakian spear');
 	await mate.reload({ waitUntil: 'domcontentloaded' });
+	await expect(mate.locator('.hole.filled').first()).toBeVisible({ timeout: 30_000 });
 	await expect(mate.locator('.hole.filled')).toHaveCount(before + 1, { timeout: 30_000 });
 	await expect(mate.getByRole('button', { name: /^A3 — Volition, Zamorakian spear/ })).toBeVisible();
 });

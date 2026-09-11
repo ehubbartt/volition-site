@@ -208,8 +208,16 @@ test('an ADMIN credit decides a ×N tile outright — the one path that skips th
 	test.setTimeout(120_000);
 	await admin.goto(`/admin/connect4/${SLUG}`, { waitUntil: 'domcontentloaded' });
 	// Column B now offers the ×3 tile behind the one IronClad just took.
-	await admin.getByRole('button', { name: 'Column B: QA Wintertodt Kits' }).click();
-	await admin.getByRole('button', { name: 'Credit Volition', exact: true }).click();
+	const credit = admin.getByRole('button', { name: 'Credit Volition', exact: true });
+	// The tester reloads itself on a 3s poll, which can land between the click and the
+	// panel rendering — so re-open the tile until the credit form is up.
+	await expect(async () => {
+		if (!(await credit.count())) {
+			await admin.getByRole('button', { name: 'Column B: QA Wintertodt Kits' }).click();
+		}
+		await expect(credit).toBeVisible({ timeout: 5_000 });
+	}).toPass({ timeout: 60_000 });
+	await credit.click();
 	// One press decides it: the ×3 is claimed outright and the column moves on. This is
 	// the documented exception — everything a MEMBER sends banks and waits.
 	await expect(admin.getByRole('button', { name: 'Column B: Dragon boots' })).toBeVisible({
