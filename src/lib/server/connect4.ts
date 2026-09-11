@@ -1916,27 +1916,51 @@ export async function pendingPieceOf(
 	return ((data ?? [])[0] as { id: string; deck_idx: number; row: number; item_name: string | null }) ?? null;
 }
 
-export async function repointPendingPiece(
-	eventId: string,
-	col: number,
-	userId: string,
-	submissionId: string
-): Promise<boolean> {
-	const { data } = await db()
-		.from('vs_connect4_pieces')
-		.select('id')
-		.eq('event_id', eventId)
-		.eq('col', col)
-		.eq('by_user_id', userId)
-		.eq('status', 'pending')
-		.limit(1);
-	const row = (data ?? [])[0] as { id: string } | undefined;
-	if (!row) return false;
-	await db()
+/**
+ * Point a piece the player already holds at a NEW proof — the resubmit path, and only
+ * that path.
+ *
+ * It takes the piece id rather than looking one up, because looking one up is what went
+ * wrong: it matched any pending piece of that user in that column, so an ORDINARY second
+ * claim in a column whose first claim was still unreviewed was read as a resubmit. The
+ * first claim lost its proof (approving it then updated no rows), the second tile was
+ * never claimed, and the player was told it had worked. The caller knows whether this is
+ * a resubmit; it passes the piece it found.
+ */
+export async function repointPendingPiece(pieceId: string, submissionId: string): Promise<boolean> {
+	const { error } = await db()
 		.from('vs_connect4_pieces')
 		.update({ submission_id: submissionId })
-		.eq('id', row.id);
-	return true;
+		.eq('id', pieceId)
+		.eq('status', 'pending');
+	return !error;
+}
+
+/**
+ * Give back what a claim banked against a quantity tile.
+ *
+ * Progress is written when the claim is SUBMITTED, not when it is approved — that is what
+ * makes submission order decide a contested tile. The cost is that a rejected claim's
+ * drops were already counted, and nothing used to take them off again: a bogus claim for
+ * 70,000 Mixology points banked 70,000, and rejecting it removed the piece but left the
+ * bank, so the side's next drop of any size tipped the tile over. For a partial-cover
+ * claim there is no piece at all, so the rejection was a complete no-op.
+ *
+ * The row is keyed by the same `drop_key` the piece uses, so this takes back exactly what
+ * this submission put in and never touches anyone else's contribution.
+ */
+export async function revokeProgressFor(
+	eventId: string,
+	submissionId: string
+): Promise<Result<{ cleared: number }>> {
+	const { data, error } = await db()
+		.from('vs_connect4_progress')
+		.delete()
+		.eq('event_id', eventId)
+		.eq('drop_key', `manual:submission:${submissionId}`)
+		.select('id');
+	if (error) return errResult(error.message);
+	return okResult({ cleared: (data ?? []).length });
 }
 
 

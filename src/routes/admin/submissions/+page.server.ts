@@ -4,7 +4,7 @@ import { mintBombsForApprovedClaims } from '$lib/server/battleship';
 import { isAdmin } from '$lib/server/auth';
 import { grantPlayerVp } from '$lib/server/playerStats';
 import { decideSubmissions, revokeSubmissions } from '$lib/server/submissions';
-import { confirmPiece, rejectPieceFully } from '$lib/server/connect4';
+import { confirmPiece, rejectPieceFully, revokeProgressFor } from '$lib/server/connect4';
 import type { SubmissionSource, ReviewDecision } from '$lib/submissions';
 import type { Actions } from './$types';
 
@@ -75,6 +75,12 @@ async function settleConnect4(ids: string[], outcome: 'approve' | 'partial' | 'f
 			const res = await confirmPiece(r.id);
 			if (!res.ok) console.warn(`[submissions] confirm ${r.id}: ${res.error}`);
 		} else if (outcome === 'full') {
+			// Order matters only in that both must happen. The bank comes off FIRST because
+			// it is the half that used to be missed entirely: a partial-cover claim places
+			// no piece, so the piece rejection below is a no-op for it and the drops would
+			// otherwise stay counted for a claim an admin just threw out.
+			const gave = await revokeProgressFor(r.event_id, r.id);
+			if (!gave.ok) console.warn(`[submissions] clear bank ${r.id}: ${gave.error}`);
 			const res = await rejectPieceFully(r.event_id, r.id);
 			if (!res.ok) console.warn(`[submissions] full reject ${r.id}: ${res.error}`);
 		}

@@ -88,7 +88,12 @@ export const actions: Actions = {
 		// Already holding this column from a partial rejection? Then this is a better
 		// screenshot for the claim they never lost — keep the piece, point it at the new
 		// proof. Claiming again would fail, since they are standing on the cell.
-		if (await repointPendingPiece(game.id, col, locals.user.id, result.id)) {
+		//
+		// Gated on `redo`, which is only set when the player POSTED a resubmit and really
+		// holds a sent-back claim. Without that gate an ordinary second claim in a column
+		// whose first claim was still awaiting review was treated as a resubmit: it stole
+		// the first claim's proof, placed nothing for the new tile, and reported success.
+		if (redo && (await repointPendingPiece(redo.id, result.id))) {
 			return { submitted: true, col, resubmitted: true };
 		}
 

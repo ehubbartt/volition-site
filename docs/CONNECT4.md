@@ -99,8 +99,18 @@ Two optional tile shapes on top of the plain single item:
   A partial claim tells the player where they stand ("37 of 100 for your side") rather
   than reporting a bare success.
 
-  An undo leaves banked progress standing, so the next qualifying claim re-takes the tile;
-  clear `vs_connect4_progress` rows by hand if the undo was meant to reset the race.
+  **A full rejection gives the bank back.** Progress is written when a claim is SUBMITTED,
+  which is what lets submission order decide a contested tile — and it used to mean a
+  rejected claim's drops stayed counted forever. A bogus claim for 70,000 points banked
+  70,000, and *Reject & free tile* took the piece off but left the bank, so the side's next
+  drop of any size tipped the tile over; for a partial-cover claim there is no piece at all,
+  so the rejection did nothing whatsoever. `revokeProgressFor` now deletes the row keyed to
+  that submission's own `drop_key` before the piece goes, so it takes back exactly what that
+  claim put in and no one else's contribution.
+
+  **Revoking an approval still does not**, and neither does an undo: both leave banked
+  progress standing, so the next qualifying claim re-takes the tile. Clear
+  `vs_connect4_progress` rows by hand if that was meant to reset the race.
 
 ### Scoring
 
