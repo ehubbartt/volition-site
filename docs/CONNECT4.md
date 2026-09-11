@@ -733,6 +733,15 @@ does — but a third clan's player would be labelled IronClad too.
 the split in one go: pick the signup form the roster was collected on, preview, then seat.
 Seating also signs everyone up to the game, which is what puts them in the Dink allowlist.
 
+**Side colours are stored, not derived.** `createConnect4` stamps `SIDE_COLORS` — red
+`#ef4444` for side 1, yellow `#eab308` for side 2 — into the game's `sides` at creation, and
+every renderer reads them back from there: the 2D discs, the 3D discs, the rail, the score
+pills, the hover card, the admin credit buttons. Repainting a clan is therefore one write to
+`structure.connect4.sides`, safe mid-game (side numbers, teams and pieces are untouched) and
+with nothing to redeploy — [`db/scripts/connect4_side_colors.sql`](../db/scripts/connect4_side_colors.sql)
+does it by side name. An open board picks the change up on its next load rather than on the
+live poll, because the 3D scene bakes one material per side when it is built.
+
 > **Preview before you seat, and read the flagged list.** The rule's failure mode is a real
 > Volition member whose site account was never linked to their `players` row — no Discord
 > match and an RSN that does not match either — who lands with the visitors. The report
