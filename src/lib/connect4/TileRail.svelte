@@ -94,6 +94,10 @@
 		margin: 0;
 		/* No padding: the disc fills the square card, or it renders as a flat ellipse. */
 		padding: 0;
+		/* So the initials stand-in can be sized against the card rather than against a
+		   fixed pixel number — on a zoomed board the disc grows and it has to come with
+		   it, and more than half this board's tiles have no wiki file to draw. */
+		container-type: inline-size;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -166,6 +170,13 @@
 		background: radial-gradient(circle at 40% 35%, #efe4c8 0%, #cbbb95 75%, #a89774 100%);
 		box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.35);
 		overflow: hidden;
+	}
+	/* WikiImage sizes its stand-in off the `size` prop, which is one number for every
+	   column. Track the card instead, exactly as the art above does. */
+	.disc :global(.wiki-fallback) {
+		width: 88cqw;
+		height: 88cqw;
+		font-size: 36cqw;
 	}
 	.disc :global(img) {
 		max-width: 80%;

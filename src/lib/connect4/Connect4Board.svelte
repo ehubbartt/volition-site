@@ -36,7 +36,8 @@
 		selected = null,
 		onselect,
 		oncolumn,
-		disabled = false
+		disabled = false,
+		cellFloor = 0
 	}: {
 		pieces: Piece[];
 		live: (LiveTile | null)[];
@@ -58,6 +59,13 @@
 		/** Clicking a column (admin manual credit). Omit for a read-only board. */
 		oncolumn?: (col: number) => void;
 		disabled?: boolean;
+		/**
+		 * Minimum column width in px, 0 to fit the container. Raising it is how the board
+		 * zooms: the rail, the labels and the frame all floor at the same number, so they
+		 * widen together and a token stays over its own column. Past the container the
+		 * whole unit scrolls sideways inside `.wrap` rather than the page doing it.
+		 */
+		cellFloor?: number;
 	} = $props();
 
 	// Claim order is the order pieces arrive from the server (ordered by claimed_at).
@@ -142,7 +150,7 @@
 
 <svelte:window onscroll={leave} />
 
-<div class="wrap" style="--n: {cols}; --rows: {rows};">
+<div class="wrap" style="--n: {cols}; --rows: {rows};{cellFloor ? ` --min-cell: ${cellFloor}px;` : ''}">
 	<TileRail {live} {claiming} {selected} {onselect} onhover={railHover} />
 
 	<div class="collabels" aria-hidden="true">

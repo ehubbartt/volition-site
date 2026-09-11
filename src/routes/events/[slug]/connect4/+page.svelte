@@ -296,8 +296,10 @@
 	onMount(() => {
 		try {
 			if (localStorage.getItem(VIEW_KEY) === '3d') view = '3d';
+			const z = Number(localStorage.getItem(ZOOM_KEY));
+			if (ZOOMS.some((o) => o.px === z)) cellFloor = z;
 		} catch {
-			/* storage unavailable — flat is the safe default */
+			/* storage unavailable — flat and fit-to-page are the safe defaults */
 		}
 		// The board arrives after this mount (instant-nav), so match on the cookie NAME
 		// rather than waiting for the payload to name the event.
@@ -311,6 +313,29 @@
 		view = v;
 		try {
 			localStorage.setItem(VIEW_KEY, v);
+		} catch {
+			/* ignore */
+		}
+	}
+
+	// ── Board zoom ────────────────────────────────────────────────────────────
+	// A 40-column board fitted to the page gives each column about 22px, which is too
+	// small to read the objective off its token. Zoom puts a FLOOR on the column width
+	// instead of scaling anything: the rail, the labels and the frame all share that
+	// floor, so they widen together and every token stays over its own column, and past
+	// the container the whole unit scrolls sideways inside its own box. 0 is fit-to-page,
+	// which is what the board has always done.
+	const ZOOM_KEY = 'vs_c4_zoom';
+	const ZOOMS = [
+		{ px: 0, label: 'Fit' },
+		{ px: 34, label: 'Big' },
+		{ px: 48, label: 'Huge' }
+	];
+	let cellFloor = $state(0);
+	function setZoom(px: number) {
+		cellFloor = px;
+		try {
+			localStorage.setItem(ZOOM_KEY, String(px));
 		} catch {
 			/* ignore */
 		}
@@ -542,6 +567,15 @@
 							</label>
 							<span class="muted tiny">{pieces.length} claims</span>
 						{/if}
+						{#if view === 'flat'}
+							<span class="viewtoggle zoomtoggle" aria-label="Board size">
+								{#each ZOOMS as z (z.px)}
+									<button type="button" class:on={cellFloor === z.px} onclick={() => setZoom(z.px)}>
+										{z.label}
+									</button>
+								{/each}
+							</span>
+						{/if}
 						<span class="viewtoggle">
 							<button type="button" class:on={view === 'flat'} onclick={() => setView('flat')}>
 								Flat
@@ -582,6 +616,7 @@
 								revealed={playback.revealed}
 								falling={playback.falling}
 								{selected}
+								{cellFloor}
 								onselect={(c) => {
 									cancelResubmit();
 									selected = selected === c ? null : c;
@@ -1010,6 +1045,11 @@
 	.viewtoggle {
 		display: inline-flex;
 		margin-left: auto;
+	}
+	/* Only ONE of the two strips pushes off the left — otherwise the second one is shoved
+	   against the first with no gap between the pair. */
+	.zoomtoggle + .viewtoggle {
+		margin-left: 0.6rem;
 	}
 	.viewtoggle button {
 		min-height: 0;

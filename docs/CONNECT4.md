@@ -733,6 +733,19 @@ does — but a third clan's player would be labelled IronClad too.
 the split in one go: pick the signup form the roster was collected on, preview, then seat.
 Seating also signs everyone up to the game, which is what puts them in the Dink allowlist.
 
+**The board zooms by flooring the column width, not by scaling.** A 40-column board fitted
+to the page gives each column about 21px, which is too small to read an objective off its
+token. The **Fit / Big / Huge** strip beside the Flat/3D toggle sets `cellFloor` (0 / 34 /
+48px), which the board applies as `--min-cell`. The rail, the column labels and the frame
+are three separate grids sharing one track definition and that same floor, so they widen
+*together* and every token stays over its own column; past the container the whole unit
+scrolls sideways inside `.wrap` rather than the page doing it. Measured on the 40-column
+rehearsal board: rail and frame both 963 / 1480 / 2040px wide at the three settings. The
+choice is remembered per browser (`vs_c4_zoom`), and **Fit is the default**, so a player who
+never touches it sees the board exactly as before. The initials stand-in on a token sizes
+itself in container units for the same reason — on a zoomed board a fixed 28px circle would
+stay small while the disc around it grew.
+
 **Side colours are stored, not derived.** `createConnect4` stamps `SIDE_COLORS` — red
 `#ef4444` for side 1, yellow `#eab308` for side 2 — into the game's `sides` at creation, and
 every renderer reads them back from there: the 2D discs, the 3D discs, the rail, the score
