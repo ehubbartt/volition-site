@@ -15,6 +15,11 @@ let yellow: Page;
 let bench: Page; // signed up, never seated
 let outsider: Page; // not on the event at all
 let admin: Page;
+/**
+ * Defects the last test asserts on. Collected rather than thrown where they happen, so
+ * one confirmed bug does not stop the tests after it in this serial file from running.
+ */
+const defects: string[] = [];
 
 test.beforeAll(async ({ browser }: { browser: Browser }) => {
 	cast = buildLab(SLUG);
@@ -340,17 +345,17 @@ test('two clans racing one column never double-book a cell, and each piece match
 	test.setTimeout(240_000);
 	await openBoard(red);
 	await openBoard(yellow);
+	// BOTH players are claiming the same tile: column E is offering "Ancestral hat" and
+	// that is the objective each of them has a screenshot of.
 	const f1 = await stage(red, 'E', 'Ancestral hat');
 	const f2 = await stage(yellow, 'E', 'Ancestral hat');
 
-	// Both send at once. The database decides who gets the cell, not the application.
+	// Sent at once. The database decides who gets the cell, not the application.
 	await Promise.all([
 		f1.getByRole('button', { name: /Submit this drop/ }).click(),
 		f2.getByRole('button', { name: /Submit this drop/ }).click()
 	]);
-	await expect(red.getByText(/Sent for review/)).toBeVisible({ timeout: 60_000 });
-	await expect(yellow.getByText(/Sent for review/)).toBeVisible({ timeout: 60_000 });
-
+	await red.waitForTimeout(4000);
 	await red.reload({ waitUntil: 'domcontentloaded' });
 	await expect(red.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
 
@@ -360,22 +365,24 @@ test('two clans racing one column never double-book a cell, and each piece match
 	);
 	expect(new Set(cells).size, `duplicate cells: ${cells.join(', ')}`).toBe(cells.length);
 
-	// What each piece in column E is FOR, off the board itself.
+	// Column E has had exactly two claims and both were for "Ancestral hat", so every
+	// piece standing in it must be for that tile. Anything else is a player holding a
+	// cell for a drop nobody proved.
 	const held = await red.locator('.hole.filled').evaluateAll((els) =>
 		els
 			.map((e) => e.getAttribute('aria-label') ?? '')
 			.filter((l) => /^E\d/.test(l))
 			.map((l) => l.split(', ').slice(1).join(', '))
 	);
-	// And what the review queue says was actually proved for column E.
-	const proved = (await queueLabels(admin)).filter((l) => /column E/.test(l));
-
+	expect(held.length, 'neither claim reached column E').toBeGreaterThan(0);
 	for (const tile of held) {
-		expect(
-			proved.some((l) => l.startsWith(`${tile} —`)),
-			`a piece is holding "${tile}" in column E but no submission for column E names it — ` +
-				`queue says: ${proved.join(' | ')}`
-		).toBe(true);
+		if (tile !== 'Ancestral hat') {
+			defects.push(
+				`column E holds a piece for "${tile}", but both claims for that column were ` +
+					`for "Ancestral hat" — the loser of the cell race was credited the NEXT tile ` +
+					`in the column instead of being told it lost`
+			);
+		}
 	}
 });
 
@@ -398,9 +405,20 @@ test('rejecting a quantity claim gives the banked amount back', async () => {
 	// The 600 must not still be sitting there: the next real 400 would finish the tile
 	// off the back of a claim an admin threw out.
 	await red.reload({ waitUntil: 'domcontentloaded' });
+	await expect(red.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
 	await red.getByRole('button', { name: 'Column C: QA Stardust Haul' }).click();
-	await expect(
-		red.locator('.tile-detail'),
-		'a rejected quantity claim is still banked toward the tile'
-	).toContainText('Volition 0/1000', { timeout: 20_000 });
+	const detail = red.locator('.tile-detail');
+	await expect(detail).toContainText(/Volition \d+\/1000/, { timeout: 20_000 });
+	const bank = Number(/Volition (\d+)\/1000/.exec((await detail.textContent()) ?? '')?.[1] ?? NaN);
+	if (bank !== 0) {
+		defects.push(
+			`a fully rejected quantity claim left ${bank} of 1000 banked against the tile — ` +
+				`the next qualifying drop from that side takes it off the back of a claim an ` +
+				`admin threw out, and nothing in the admin UI can clear it`
+		);
+	}
+});
+
+test('nothing the run collected is still outstanding', async () => {
+	expect(defects, defects.join('\n')).toEqual([]);
 });
