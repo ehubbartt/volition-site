@@ -70,17 +70,37 @@ Two optional tile shapes on top of the plain single item:
   on the hover card, the detail strip and the CSV. A group tile's icon is its first
   member's. (Each member would also be projected into the Dink allowlist, were
   auto-tracking on — see *Tracking*.)
-- **Quantity tiles** (`qty`) — "×3": one side needs that many qualifying drops, and the
-  FIRST side to its Nth drop claims the tile. Per-side progress lives in
-  `vs_connect4_progress` — one row per qualifying drop, `unique (event_id, drop_key)`
-  exactly like the pieces, so the reconcile pass can re-run a counted drop forever and
-  it stays one drop; the Nth drop claims the piece with the same drop key. Progress
-  drops are stamped `partial` in /admin/dink-drops. Set the ×N in the curation list
-  (a number input on every ticked tile) or on the custom-task form. An admin's manual
-  column credit claims a qty tile OUTRIGHT — crediting means the tile is decided, not
-  one more drop toward it — and an undo leaves banked progress standing, so the next
-  qualifying drop re-claims it; clear `vs_connect4_progress` rows by hand if the undo
-  was meant to reset the race.
+- **Quantity tiles** (`qty`) — "×3", or "×70,000" for a points tile: one side needs that
+  much, and the FIRST side to reach N claims the tile. Per-side progress lives in
+  `vs_connect4_progress`, `unique (event_id, drop_key)` exactly like the pieces, so the
+  reconcile pass can re-run a counted claim forever and it stays counted once; the claim
+  that REACHES N takes the piece with the same drop key. Progress drops are stamped
+  `partial` in /admin/dink-drops. Set the ×N in the curation list (a number input on every
+  ticked tile) or on the custom-task form.
+
+  **What decides a tile is WHO is claiming, not whether a column was named.** Only an
+  explicit admin credit (`adminCredit`, set solely by `creditManual`) claims a ×N tile
+  outright — crediting means the tile is decided, not one more drop toward it. This gate
+  used to turn on `input.col == null`, i.e. "only the drop pipeline counts", on the
+  reasoning that naming a column meant an admin. Manual proof broke that: a member's
+  submission names its column too, so it sailed past the gate and **a single screenshot
+  finished a thousand-drop tile**. Every non-admin route now banks and waits.
+
+  **A claim banks the AMOUNT it covers**, not one — `vs_connect4_progress.qty`, summed
+  rather than counted. `tileQty` capped at 99 back when ×N meant N separate drops; 22
+  tiles on this board ask for more (70,000 Mixology points, 6,000 Stardust, 1,500 laps)
+  and at that cap a fraction of the work finished the tile. One row per unit is absurd at
+  70,000, so one row carries the amount. `qty` is a hand-applied column
+  (`db/scripts/connect4.sql`); until it exists the code falls back to one row per claim
+  rather than failing the claim, because a pending migration must not stop anyone
+  submitting mid-event. PostgREST names a missing column differently on a write
+  (`PGRST204`) than on a read (`42703`) — `missingColumn` covers both.
+
+  A partial claim tells the player where they stand ("37 of 100 for your side") rather
+  than reporting a bare success.
+
+  An undo leaves banked progress standing, so the next qualifying claim re-takes the tile;
+  clear `vs_connect4_progress` rows by hand if the undo was meant to reset the race.
 
 ### Scoring
 
@@ -387,7 +407,7 @@ winner. Teams reuse `vs_teams` + `vs_event_signups.team_id` like every other eve
 | Table | The guarantee |
 |---|---|
 | `vs_connect4_pieces` | `unique (event_id, col, row)` **is** the "first team to the tile claims it" rule. `unique (event_id, drop_key)` **is** what makes intake safe against the reconcile pass. |
-| `vs_connect4_progress` | Per-side drops banked toward a QUANTITY tile, keyed to the deck slot. Same `unique (event_id, drop_key)` guard as the pieces. |
+| `vs_connect4_progress` | Per-side amount banked toward a QUANTITY tile, keyed to the deck slot. `qty` per row (summed, not counted) so a 70,000-point tile is one row per claim. Same `unique (event_id, drop_key)` guard as the pieces. |
 | `vs_connect4_bonus` | Points awarded beside the board (pets). `points` is stored, not derived — see *Bonus awards*. `drop_key` is nullable and unique per event, so hand-entered rows never collide (NULLs don't conflict) while the guard stays available if pet awards are ever automated. |
 
 Everything else — the board, the live tiles, the standings, the winner — is derived from
@@ -794,6 +814,14 @@ store.
 
 `e2e/connect4-player-journey.spec.ts` submits by **dispatching a real paste event**, so the
 clipboard path is the one under test rather than the picker.
+
+**Asked for a better screenshot?** The send-back notice under the board carries a
+**Send a better screenshot** button. It has to: by then the column has moved on to its next
+tile, so the old instruction — "click column K and send another" — pointed at a different
+objective, and the proof would have been filed against it. The button reopens the claim
+actually held, and `submitClaim` resolves a `resubmit=1` post through the submitter's own
+pending piece (`pendingPieceOf`) rather than through `live[col]`, so the deck slot, the
+tile name and any before-screenshot warning are the ones being re-evidenced.
 
 ### Tile icons
 
