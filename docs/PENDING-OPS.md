@@ -9,19 +9,20 @@ Nothing here is done by a deploy. Delete sections as you complete them.
 
 ---
 
-## 0a. ☐ RE-RUN `db/scripts/connect4.sql` — needed before the review flow works
+## 0a. ☑ `db/scripts/connect4.sql` — APPLIED to prod (2026-09-11, per the maintainer)
 
-It gained `vs_connect4_pieces.status` and `.submission_id` (provisional pieces) on top
-of the earlier `vs_connect4_bonus` table. Until it is applied:
+It added `vs_connect4_pieces.status` and `.submission_id` (provisional pieces) on top of
+the earlier `vs_connect4_bonus` table, which is what makes the review flow real: a
+submitted claim holds its cell as **pending** until a reviewer approves it, and the two
+rejections, the column shift and the tile requeue all work.
 
-* a submitted claim still places a piece, but it is confirmed on the spot and cannot be
-  reviewed (the insert falls back to the old column set on purpose, so nothing breaks);
-* the two rejections, the column shift and the tile requeue do nothing;
-* the waiting-room panel under the member board stays empty.
-
-Nothing errors — it simply behaves like the pre-review build. Verify afterwards with
-`npm run drill:connect4:review`, which refuses to run until the columns exist and then
-walks submit → resubmit → stack → full reject → column shift → tile back on offer.
+To confirm on any database: `npm run drill:connect4:review` refuses to run until the
+columns exist, then walks submit → resubmit → stack → full reject → column shift → tile
+back on offer. On **prod**, where that drill is not pointed, the two-minute equivalent is
+a throwaway **test** game: seat yourself, deal, submit a claim from the member board, and
+check it shows in the waiting room as awaiting rather than landing confirmed. (A test game
+accepts it: `dropKeyAllowed` lets `manual:` keys through — it is only real Dink drop keys
+that test games refuse.)
 
 ---
 
