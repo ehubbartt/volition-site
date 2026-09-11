@@ -741,6 +741,13 @@ two are then run as a single event. Seating from a form records it as the game's
 An explicit **Opens at** on the start control beats the inherited time; leave it blank to
 take the form's. A game with no form behind it opens the moment it is dealt, as before.
 
+> **A signup form is created with `starts_at` null** — `/admin/events` only asks a signup
+> form when it opens and closes, not when the event it is collecting for begins. So there
+> is usually nothing to inherit, and the start control says so where it would otherwise be
+> read as "it will use the form's time": *"‹form› has no start time set, so leaving this
+> blank opens the board as soon as you deal."* Type the announced time into **Opens at**
+> and it is exact. Giving signup forms their own start time is the obvious follow-up.
+
 ### Dealt, but not yet open
 
 `hasOpened(snap)` is the gate: a game is `live` once the deck is dealt, and **open** only

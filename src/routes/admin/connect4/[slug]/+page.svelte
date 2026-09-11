@@ -565,6 +565,13 @@
 								Deals the deck. Left blank it opens when <strong>{data.link.name}</strong> does
 								— {fmtWhen(data.link.startsAt)} — so you can deal the board tonight and the
 								race still begins when it was announced.
+							{:else if data.link}
+								<!-- Linked, but the form carries no start of its own: a signup form is
+								     created with `starts_at` null. Silence must not read as "1pm" when it
+								     would actually mean "the second you click". -->
+								<strong class="warn">{data.link.name} has no start time set</strong>, so
+								leaving this blank opens the board <strong>as soon as you deal</strong>. Type
+								the announced time here if the event starts later.
 							{:else}
 								Deals the deck. Leave the time blank to open right now, or set the moment the
 								race begins — the deck can be dealt long before it, and nothing counts until
