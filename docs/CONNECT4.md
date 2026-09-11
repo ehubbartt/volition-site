@@ -815,6 +815,20 @@ store.
 `e2e/connect4-player-journey.spec.ts` submits by **dispatching a real paste event**, so the
 clipboard path is the one under test rather than the picker.
 
+**Where a send-back lives.** A partial rejection sends the evidence back without taking
+the tile away: the piece stays `pending` and holds its cell, and the submission goes to
+`rejected`. That drops it out of `/admin/submissions`, which is the queue for claims
+waiting on a REVIEWER — these are waiting on a PLAYER. The game's admin page therefore
+carries its own **Waiting on a better screenshot** panel, listing every such claim with the
+cell, the tile, who holds it, when it was sent back and the note. Without it a send-back
+that never came back was invisible to everyone except the person who wrote it.
+
+**What everyone else sees.** The waiting room under the member board is public — both clans
+can see what is contested — but the send-back state is not. `needsBetterProof`, the note,
+the tile and the resubmit button are all gated on `row.user_id === user.id`, so another
+player sees only an ordinary pending claim: the cell, the item, who claimed it and how long
+ago. Nobody learns that a rival's evidence was questioned.
+
 **Asked for a better screenshot?** The send-back notice under the board carries a
 **Send a better screenshot** button. It has to: by then the column has moved on to its next
 tile, so the old instruction — "click column K and send another" — pointed at a different

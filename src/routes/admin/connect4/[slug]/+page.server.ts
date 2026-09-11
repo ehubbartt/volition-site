@@ -43,7 +43,7 @@ import { parseTileCsv, toPoolAndCustom, plannedTiles, PLANNED_SUMMARY } from '$l
 import { simulateDinkDrop, maybeProcessDinkDrops } from '$lib/server/dinkDrops';
 import { liveVersion } from '$lib/server/liveVersion';
 import { SIGNUP_EVENT_KIND } from '$lib/events/signupForm';
-import { isSide, type Side } from '$lib/connect4/rules';
+import { cellId, isSide, type Side } from '$lib/connect4/rules';
 
 /**
  * Events whose signups can seat this game. Signup forms are the normal case — the roster
@@ -66,6 +66,38 @@ async function signupSources(
 		.filter((e) => e.id !== eventId)
 		.map((e) => ({ id: e.id, name: e.name, startsAt: e.starts_at }));
 }
+/** Claims an admin has asked to re-evidence, that the player has not resent yet. */
+async function sentBackClaims(game: Connect4Snapshot): Promise<
+	{ cell: string; col: number; itemName: string | null; rsn: string | null; side: number; at: string; note: string | null }[]
+> {
+	const pending = game.pieces.filter((p) => p.status === 'pending' && p.submission_id);
+	if (!pending.length) return [];
+	const { data } = await db()
+		.from('vs_submissions')
+		.select('id, status, review_note, reviewed_at')
+		.in('id', pending.map((p) => p.submission_id as string));
+	const back = new Map(
+		((data ?? []) as { id: string; status: string; review_note: string | null; reviewed_at: string | null }[])
+			.filter((r) => r.status === 'rejected')
+			.map((r) => [r.id, r])
+	);
+	return pending
+		.filter((p) => back.has(p.submission_id as string))
+		.map((p) => {
+			const r = back.get(p.submission_id as string)!;
+			return {
+				cell: cellId(p.col, p.row),
+				col: p.col,
+				itemName: p.item_name ?? null,
+				rsn: p.by_rsn ?? null,
+				side: p.side,
+				at: r.reviewed_at ?? p.claimed_at ?? '',
+				note: r.review_note ?? null
+			};
+		})
+		.sort((a, b) => (a.at ?? '').localeCompare(b.at ?? ''));
+}
+
 /**
  * How the game and the signup form it was seated from compare right now: the form's name
  * and start, whether the board's own start has drifted from it, and who has signed up
@@ -146,6 +178,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	// without a browser.
 	const roster = await rosterFor(fresh);
 
+	// WAITING ON THE PLAYER. A partial rejection sends the evidence back without taking the
+	// tile away: the piece stays pending and holds its cell, and the submission goes to
+	// 'rejected' — which drops it out of /admin/submissions, since that queue is for claims
+	// waiting on a REVIEWER. Nothing then listed the claims waiting on a PLAYER, so a
+	// send-back that never came back was invisible to everyone but the person who wrote it.
+	const sentBack = await sentBackClaims(fresh);
+
 	// THE LINK to the signup form this roster came from. The two are run as one event, so
 	// the page has to be able to say when they have drifted apart: a start time that moved
 	// after the deck was dealt, or people who signed up after the seating.
@@ -168,6 +207,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		},
 		roster,
 		link,
+		sentBack,
 		candidates,
 		// Rosters a clan-vs-clan game can be seated from — normally the signup form the
 		// list was collected on.

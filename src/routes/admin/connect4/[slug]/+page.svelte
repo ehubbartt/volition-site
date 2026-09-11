@@ -322,6 +322,17 @@
 			: '';
 	}
 
+	/** "3m ago" — same wording the member board uses, so the two read alike. */
+	function ago(iso: string): string {
+		const ms = Date.now() - Date.parse(iso);
+		if (!isFinite(ms) || ms < 0) return 'just now';
+		const m = Math.floor(ms / 60000);
+		if (m < 1) return 'just now';
+		if (m < 60) return `${m}m ago`;
+		const h = Math.floor(m / 60);
+		return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`;
+	}
+
 	// How much of the board needs a "before" shot — the answer an admin wants before the
 	// off, not after someone asks in Discord.
 	const preShotCells = $derived(game.live.filter((t) => t?.tile.pre_shot).length);
@@ -1308,6 +1319,34 @@
 	</section>
 	{/if}
 
+	<!-- ── waiting on the player ─────────────────────────────────────────── -->
+	{#if data.sentBack.length}
+		<section class="osrs-panel">
+			<div class="osrs-titlebar">
+				Waiting on a better screenshot — {data.sentBack.length}
+			</div>
+			<div class="pad">
+				<p class="muted tiny">
+					Sent back without taking the tile away, and not resent yet. These are NOT in the
+					review queue — that queue is for claims waiting on a reviewer, and these are waiting
+					on a player. They still hold their cell, so nobody else can take the tile while they
+					sort the shot out.
+				</p>
+				<ul class="sent-back">
+					{#each data.sentBack as b (b.cell)}
+						<li>
+							<span class="chip" style="--c: {game.sides[b.side - 1]?.color}"></span>
+							<strong>{cellLabel(b.cell)}</strong>
+							<span>{b.itemName ?? '—'}</span>
+							<span class="muted tiny">{b.rsn ?? 'someone'} · sent back {ago(b.at)}</span>
+							{#if b.note}<span class="muted tiny">“{b.note}”</span>{/if}
+						</li>
+					{/each}
+				</ul>
+			</div>
+		</section>
+	{/if}
+
 	<!-- ── scoring ───────────────────────────────────────────────────────── -->
 	<section class="osrs-panel">
 		<div class="osrs-titlebar">Scoring — optional, retunable any time (even mid-game)</div>
@@ -1697,6 +1736,27 @@
 		padding: 0.45rem 0.6rem;
 		border-left: 3px solid var(--danger, #c0392b);
 		background: var(--surface-alt);
+	}
+	.sent-back {
+		list-style: none;
+		margin: 0.4rem 0 0;
+		padding: 0;
+		display: grid;
+		gap: 0.35rem;
+	}
+	.sent-back li {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		font-size: 0.85rem;
+	}
+	.chip {
+		width: 0.7rem;
+		height: 0.7rem;
+		border-radius: 50%;
+		background: var(--c);
+		flex: none;
 	}
 	.linked {
 		margin: 0.2rem 0 0.5rem;
