@@ -228,13 +228,12 @@ test('an ADMIN credit decides a ×N tile outright — the one path that skips th
 test('a completed tile is off the board, and a stale resubmit lands on the CURRENT tile', async () => {
 	test.setTimeout(120_000);
 
-	// There is no UI route back to a completed tile: column B has moved on to the ×3
-	// behind it, and the ×5 is gone from the rail entirely.
+	// There is no UI route back to a completed tile: column B has moved past both of its
+	// quantity tiles and neither is on the rail any more.
 	await redA.reload({ waitUntil: 'domcontentloaded' });
-	await expect(redA.getByRole('button', { name: 'Column B: QA Wintertodt Kits' })).toBeVisible({
-		timeout: 30_000
-	});
+	await expect(redA.locator('.rail .tile').first()).toBeVisible({ timeout: 30_000 });
 	await expect(redA.getByRole('button', { name: 'Column B: QA Mixology Points' })).toHaveCount(0);
+	await expect(redA.getByRole('button', { name: 'Column B: QA Wintertodt Kits' })).toHaveCount(0);
 
 	// A stale "send a better screenshot" post — resubmit=1 from a player who no longer
 	// holds anything in that column. It must not be filed against whatever the column
