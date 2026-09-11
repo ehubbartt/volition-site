@@ -118,7 +118,7 @@ try {
 	const owner = cast[0];
 	const created = await c4.createConnect4({
 		slug: SLUG,
-		name: 'Connect Four QA lab',
+		name: `Connect Four QA lab (${SLUG})`,
 		ownerUserId: owner.id,
 		cols: COLS,
 		rows: ROWS,

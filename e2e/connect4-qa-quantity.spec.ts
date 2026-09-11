@@ -61,8 +61,8 @@ async function openTile(page: Page, col: string, name: string) {
 async function openQueue(page: Page) {
 	await page.goto('/admin/submissions', { waitUntil: 'domcontentloaded' });
 	await page.locator('#approve-btn').waitFor({ timeout: 60_000 });
-	await page.getByRole('button', { name: /^Connect Four QA lab \(\d+\)$/ }).click();
-	await expect(page.locator('article.card')).toContainText('Connect Four QA lab', { timeout: 15_000 });
+	await page.getByRole('button', { name: new RegExp(`^Connect Four QA lab \\(${SLUG}\\) \\(\\d+\\)$`) }).click();
+	await expect(page.locator('article.card')).toContainText(`Connect Four QA lab (${SLUG})`, { timeout: 15_000 });
 }
 
 /** Tick the evidence checks, approve the claim showing, and wait for it to leave. */
