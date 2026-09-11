@@ -57,9 +57,17 @@ async function stage(page: Page, col: string, name: string, qty?: number) {
 }
 
 async function claim(page: Page, col: string, name: string, qty?: number) {
+	const title = page.locator('.board-panel .osrs-titlebar');
+	const before = (await title.textContent()) ?? '';
 	const form = await stage(page, col, name, qty);
 	await form.getByRole('button', { name: /Submit this drop/ }).click();
-	await expect(page.getByText('Sent for review')).toBeVisible({ timeout: 60_000 });
+	// Wait on the BOARD, not on the transient "Sent for review" line: if the submit ever
+	// falls back to a full page POST the confirmation is lost with the page state, and
+	// the claim landing is what the rest of the test is about. The message itself is
+	// asserted in e2e/connect4-qa-quantity.spec.ts.
+	await expect(title, 'the claim never reached the board').not.toHaveText(before, {
+		timeout: 60_000
+	});
 }
 
 async function openQueue(page: Page) {
@@ -149,8 +157,14 @@ test('a pre-screenshot tile says so on the rail, in the detail, and ABOVE the dr
 	});
 	expect(order, 'the before-screenshot warning is not above the drop zone').toBeTruthy();
 
-	// And the reviewer is told too, with a checkbox that gates approval.
-	await claim(red, 'D', 'QA Rooftop Course Laps');
+	// And the reviewer is told too, with a checkbox that gates approval. The tile is
+	// already open, so submit from the form that is up — clicking the token again would
+	// close it.
+	const form = red.locator('form.claim-form');
+	await pasteProof(red);
+	await expect(form.locator('.thumb img')).toHaveCount(1, { timeout: 10_000 });
+	await form.getByRole('button', { name: /Submit this drop/ }).click();
+	await expect(red.getByText(/Sent for review/)).toBeVisible({ timeout: 60_000 });
 	await openQueue(admin);
 	await goToClaim(admin, 'QA Rooftop Course Laps');
 	await expect(admin.locator('.approve-checks')).toContainText('This tile needs a BEFORE screenshot');
