@@ -184,6 +184,19 @@
       return iso;
     }
   }
+  /**
+   * The same instant in UTC. Reviewers are in several timezones and the thing they are
+   * comparing against — the clock in the submitter's screenshot — is not necessarily in
+   * theirs, so the browser's local rendering alone invites an off-by-an-hour call on a
+   * check that decides whether a claim stands.
+   */
+  function fmtUtc(iso: string) {
+    try {
+      return `${new Date(iso).toISOString().slice(0, 19).replace('T', ' ')} UTC`;
+    } catch {
+      return iso;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -664,8 +677,9 @@
           <!-- First-come board: a real drop from BEFORE the tile went up must not
                claim it, so the reviewer confirms the times line up by hand. -->
           <p class="tile-window">
-            This tile went up at <strong>{fmt(current.tileActiveSince)}</strong>.
-            The drop has to have happened after that.
+            This tile went up at <strong>{fmt(current.tileActiveSince)}</strong>
+            <span class="utc">({fmtUtc(current.tileActiveSince)})</span>. The drop has to have
+            happened after that.
           </p>
           <label class="check">
             <input type="checkbox" bind:checked={timingConfirmed} />
@@ -1752,6 +1766,11 @@
     .proof-button img {
       max-height: 22rem;
     }
+  }
+  .utc {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
   .tile-window {
     margin: 0.2rem 0;

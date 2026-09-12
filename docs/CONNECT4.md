@@ -931,6 +931,10 @@ already missed their chance to take the shot:
 | The claim form | A warning **above the drop zone**, with the tile's own note if it has one |
 | The review queue | A callout, and a checkbox that **gates the approve button** |
 
+The timing callout gives the tile's start in the reviewer's own timezone **and in UTC**:
+reviewers sit in several, the clock they are comparing it against is in the submitter's
+screenshot, and an off-by-an-hour reading decides whether a claim stands.
+
 **A game already dealt does not pick this up on its own.** A live board holds its own copy
 of every tile, taken at deal time, so editing the planned list does nothing for it. The
 admin page has *"Re-apply from the planned list"* (`?/markPreShots` → `applyPreShots`),
