@@ -678,7 +678,13 @@
 				<h1>{game.name}</h1>
 			</div>
 			<div class="head-right">
-				<span class="osrs-badge">{game.phase}</span>
+				<!-- The recording dot: a board that is live is the one state worth reading at a
+				     glance, so it gets the camera's own shorthand. Only while actually live —
+				     a blinking light on a finished game says the opposite of the truth. -->
+				<span class="osrs-badge" class:live-badge={opened}>
+					{#if opened}<span class="rec-dot" aria-hidden="true"></span>{/if}
+					{game.phase}
+				</span>
 				{#if game.test}<span class="osrs-badge test">test</span>{/if}
 				{#if mySide}
 					<span class="pill" style="--c: {mySide.color}">You play for {mySide.name}</span>
@@ -2021,6 +2027,35 @@
 	.modal-actions .go {
 		border-color: var(--success, #6aa84f);
 		color: var(--success, #6aa84f);
+	}
+	.live-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+	.rec-dot {
+		width: 0.5em;
+		height: 0.5em;
+		border-radius: 50%;
+		background: #ff3b30;
+		box-shadow: 0 0 4px rgba(255, 59, 48, 0.9);
+	}
+	/* Held still for anyone who has asked not to be blinked at — the dot itself still
+	   says live, it simply stops pulsing. */
+	@media (prefers-reduced-motion: no-preference) {
+		.rec-dot {
+			animation: rec-blink 1.6s ease-in-out infinite;
+		}
+	}
+	@keyframes rec-blink {
+		0%,
+		45% {
+			opacity: 1;
+		}
+		55%,
+		100% {
+			opacity: 0.15;
+		}
 	}
 	.toast {
 		position: fixed;
