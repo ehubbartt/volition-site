@@ -1221,8 +1221,13 @@
 					{/if}
 
 					{#if game.bonus.length}
+						<p class="muted tiny pets-head">{game.bonus.length} awarded so far</p>
+						<!-- ALL of them, newest first. This used to keep the last eight, which on a
+						     clan-scale event quietly hid most of the pets people had sent in and
+						     read as "mine never counted". Capped by height instead, so the list
+						     scrolls rather than the panel growing without end. -->
 						<ul class="pets">
-							{#each game.bonus.slice(-8).reverse() as bn (bn.id)}
+							{#each [...game.bonus].reverse() as bn (bn.id)}
 								<li>
 									<span class="chip" style="--c: {game.sides[bn.side - 1]?.color}"></span>
 									<strong>{bn.itemName ?? bn.kind}</strong>
@@ -1890,13 +1895,19 @@
 		border: 1px solid var(--border);
 		border-radius: 3px;
 	}
+	.pets-head {
+		margin: 0.6rem 0 0.2rem;
+	}
 	.pets {
 		list-style: none;
-		margin: 0.6rem 0 0;
+		margin: 0;
 		padding: 0;
 		display: grid;
 		gap: 0.25rem;
 		font-size: 0.85rem;
+		max-height: 16rem;
+		overflow-y: auto;
+		overscroll-behavior-y: contain;
 	}
 	.pets li {
 		display: flex;
