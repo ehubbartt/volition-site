@@ -8,6 +8,8 @@ import {
 import { maybeProcessDinkDrops } from '$lib/server/dinkDrops';
 import { liveVersion } from '$lib/server/liveVersion';
 import { db } from '$lib/server/db';
+import { buildSquadView } from '$lib/server/connect4Squads';
+import type { SquadView } from '$lib/connect4/squads';
 import { cellId, type Connect4Scoring, type LiveTile, type Piece, type Side } from '$lib/connect4/rules';
 
 // Builds the payload for the MEMBER board page (/events/[slug]/connect4) — the spectator
@@ -79,6 +81,16 @@ export interface Connect4View {
 	deckSize: number;
 	/** The side the viewer is seated on, or null for a pure spectator. */
 	viewerSide: Side | null;
+	/**
+	 * One clan's INTERNAL teams — its own split of its side into squads, with the per-cell
+	 * contribution shares the page rings the board with (src/lib/connect4/squads.ts).
+	 *
+	 * `null` for everyone not seated on that side (admins excepted). This is an omission at
+	 * the source, not a hidden field: the opposing clan's payload carries no roster, no
+	 * shares and no standings, so there is nothing to read out of the page. A game with no
+	 * squad rows gets null too, which leaves every other board exactly as it was.
+	 */
+	squads: SquadView | null;
 }
 
 export type Connect4PageResult =
@@ -104,6 +116,11 @@ export async function buildConnect4Page(
 	const r = redactSnapshot(snap, false);
 	const viewerSide =
 		r.sides.find((s) => s.members.some((m) => m.userId === user.id))?.side ?? null;
+
+	// Built from the UNREDACTED snapshot: a ×N tile's contribution shares need the dealt
+	// deck to know which slots carry a quantity at all. Nothing about the deck leaves in
+	// the result — only cell ids and shares.
+	const squads = await buildSquadView(snap, user);
 
 	// The waiting room: pieces on the board that nobody has reviewed yet. Public, because
 	// the whole point is that both clans can see what is contested and what is settled.
@@ -196,7 +213,8 @@ export async function buildConnect4Page(
 			winner: r.winner,
 			full: r.full,
 			deckSize: r.deckSize,
-			viewerSide
+			viewerSide,
+			squads
 		}
 	};
 }

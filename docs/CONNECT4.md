@@ -506,13 +506,15 @@ The container is a **`vs_events` row** (`kind='connect4'`). `structure.connect4`
 phase, the scoring config, the sides, the curated pool, the dealt deck, the seed and the
 winner. Teams reuse `vs_teams` + `vs_event_signups.team_id` like every other event.
 
-**Three tables**, each holding a guarantee the application cannot make for itself:
+**Three tables**, each holding a guarantee the application cannot make for itself (plus a
+fourth, optional one that holds no guarantee at all — see *Internal teams*):
 
 | Table | The guarantee |
 |---|---|
 | `vs_connect4_pieces` | `unique (event_id, col, row)` **is** the "first team to the tile claims it" rule. `unique (event_id, drop_key)` **is** what makes intake safe against the reconcile pass. |
 | `vs_connect4_progress` | Per-side amount banked toward a QUANTITY tile, keyed to the deck slot. `qty` per row (summed, not counted) so a 70,000-point tile is one row per claim. Same `unique (event_id, drop_key)` guard as the pieces. |
 | `vs_connect4_bonus` | Points awarded beside the board (pets). `points` is stored, not derived — see *Bonus awards*. `drop_key` is nullable and unique per event, so hand-entered rows never collide (NULLs don't conflict) while the guard stays available if pet awards are ever automated. |
+| `vs_connect4_squads` | *Optional.* One clan's internal split of its own side. `primary key (event_id, user_id)` is all it asserts — one squad per player, so the proportional split always sums to 1. Nothing here feeds scoring; see *Internal teams (squads)*. |
 
 Everything else — the board, the live tiles, the standings, the winner — is derived from
 those rows on every read. There is nothing to keep in sync, which is why `undoClaim` needs
@@ -763,6 +765,64 @@ is the board, standings and run highlights are recomputed client-side from it, a
 3-second version poll (`liveEvent`, paused mid-replay) keeps it honest. The viewer's own
 side, if they are seated, is called out in the header. Sign-in is required (`onboarded`
 guard) — the board is clan business, not a public scoreboard.
+
+### Internal teams (squads)
+
+One clan can split its own side into smaller teams and race them against each other
+without touching the clan-vs-clan game at all. The board calls these **squads**, never
+"teams": `vs_teams` / `vs_event_signups.team_id` already means *which of the two sides you
+play for*, and using one word for both groupings would guarantee somebody joined the wrong
+one.
+
+**They cannot change the game.** A squad never claims a cell, never wins a tile and never
+moves a side's total. Squad standings are a *re-reading* of points the side has already
+scored, derived on every read like everything else here.
+
+**Who gets a share of a cell** (`src/lib/connect4/squads.ts` — pure, shared by the server
+and the page, so the two can never disagree):
+
+| The cell | Who it counts for |
+|---|---|
+| A ×1 tile | The claimant's squad, whole. |
+| A ×N tile | Every contributor, in proportion to the qty they banked (`vs_connect4_progress`). Two players who each bank 500 of a 1,000 tile take half a tile each. |
+| A line | Split evenly across its cells first, then each cell's slice by that cell's own shares. A four built by four squads pays each a quarter. |
+| A pet | The submitter's squad, whole. |
+
+Anything that resolves to nobody — a hand-credited piece with no claimant, a player never
+assigned a squad — lands in an **unassigned** bucket rather than being dropped. That is
+what keeps the invariant the drill asserts: *the squads' totals add back up to the side's
+own total*. A re-attribution that invented or lost points would show the clan an internal
+race that didn't match the scoreboard directly above it, with no way to tell which number
+was wrong.
+
+**Visibility is an omission at the source, not a hidden field.** `buildSquadView`
+(`src/lib/server/connect4Squads.ts`) returns `null` unless the viewer is seated on the
+squads' own side, or is an admin. The opposing clan's payload carries no roster, no shares
+and no standings, so there is nothing to read out of the page source. Which side the squads
+belong to is *derived* — whichever holds the most assigned players — so it cannot drift out
+of sync with where the clan is actually sitting.
+
+**On the board**, every claimed cell of that side is ringed in its contributing squads'
+colours. 2D sweeps a conic gradient in exact proportion; 3D draws one concentric torus per
+contributor, largest outermost, so a shared cell reads as two rings and the percentages
+stay on the 2D board. The squad palette is deliberately *not* the side palette: a ring sits
+on a disc already painted in its side's colour, and one of the squads is called Yellow on a
+side that is itself yellow. The dark separator drawn between disc and ring is what makes
+that legible, and it is load-bearing.
+
+Setting it up:
+
+1. Apply the schema once: `db/apply.sh --staging db/scripts/connect4_squads.sql`.
+2. Insert one row per player into `vs_connect4_squads (event_id, user_id, squad)`. The key
+   is free text, lowercased by convention; `SQUAD_PALETTE` names and colours `red`, `blue`,
+   `yellow`, `green`, `purple`, `orange`, `cyan` and `pink`, and falls back to a title-cased
+   label plus a spare colour for anything else — so a fourth squad is rows in the database
+   and no code change.
+3. Nothing else. A game with no squad rows gets `squads: null` and renders exactly as it
+   did before.
+
+`npm run drill:connect4:squads` covers the split rules, the invariant, the visibility of
+the other side's pieces, the playback slice and the ring geometry. No database needed.
 
 ### Running a game
 

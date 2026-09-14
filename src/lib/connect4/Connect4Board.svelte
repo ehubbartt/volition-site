@@ -21,6 +21,7 @@
 	import TileRail from './TileRail.svelte';
 	import TileHoverCard, { type CardInfo } from './TileHoverCard.svelte';
 	import { COLS, ROWS, cellId, columnLabel, type LiveTile, type Piece } from './rules';
+	import { ringStops, UNASSIGNED_DEF, type CellShare } from './squads';
 
 	let {
 		pieces = [],
@@ -40,7 +41,10 @@
 		cellFloor = 0,
 		freshCols,
 		rsnFor,
-		upForSlot
+		upForSlot,
+		squadCells,
+		squadColorOf,
+		squadNameOf
 	}: {
 		pieces: Piece[];
 		live: (LiveTile | null)[];
@@ -79,6 +83,14 @@
 		freshCols?: Set<number>;
 		/** "12m ago" for a deck slot — how long that objective has been on offer. */
 		upForSlot?: (deckIdx: number) => string | null;
+		/**
+		 * INTERNAL TEAMS. Cell id → who banked it, proportionally (see squads.ts). Only one
+		 * side ever has these and only that side's own members are sent them, so a ringed
+		 * cell is always a cell of the viewer's own clan. Omitted, the board is unchanged.
+		 */
+		squadCells?: Record<string, CellShare[]>;
+		squadColorOf?: (key: string) => string;
+		squadNameOf?: (key: string) => string;
 	} = $props();
 
 	// Claim order is the order pieces arrive from the server (ordered by claimed_at).
@@ -89,6 +101,26 @@
 	const rowsTopDown = $derived(Array.from({ length: rows }, (_, i) => rows - 1 - i));
 	const colList = $derived(Array.from({ length: cols }, (_, i) => i));
 	const colFull = $derived(colList.map((c) => shown.filter((p) => p.col === c).length >= rows));
+
+	// The squad ring, precomputed per cell rather than in the render loop: a 600-cell board
+	// re-runs that loop on every poll and a conic-gradient string is not free.
+	const colorOf = $derived((key: string) => squadColorOf?.(key) ?? UNASSIGNED_DEF.color);
+	const rings = $derived.by(() => {
+		const out = new Map<string, string>();
+		if (!squadCells) return out;
+		for (const [cell, shares] of Object.entries(squadCells)) {
+			const stops = ringStops(shares, colorOf);
+			if (stops) out.set(cell, stops);
+		}
+		return out;
+	});
+	const squadTitle = (cell: string): string | null => {
+		const shares = squadCells?.[cell];
+		if (!shares?.length || !squadNameOf) return null;
+		return shares
+			.map((s) => (s.share > 0.995 ? squadNameOf(s.key) : `${squadNameOf(s.key)} ${Math.round(s.share * 100)}%`))
+			.join(' · ');
+	};
 
 	// Hover card, for BOTH the objectives on the rail and the pieces on the board.
 	// Anchored from the element's own rect so it reads next to the thing you pointed at
@@ -210,16 +242,18 @@
 			{#each colList as col (col)}
 				{@const id = cellId(col, row)}
 				{@const piece = byCell.get(id)}
+				{@const ring = piece ? (rings.get(id) ?? null) : null}
 				<button
 					type="button"
 					class="hole"
 					class:filled={!!piece}
 					class:in-run={runCells.has(id)}
 					class:newest={!!piece && falling === piece.id}
+					class:ringed={!!ring}
 					style={piece ? `--disc: ${sideColors[piece.side - 1] ?? '#888'}; --fall: ${rows - row};` : ''}
 					disabled={disabled || !oncolumn || colFull[col]}
 					aria-label={piece
-						? `${columnLabel(col)}${row + 1} — ${sideNames[piece.side - 1] ?? `side ${piece.side}`}${piece.item_name ? `, ${piece.item_name}` : ''}`
+						? `${columnLabel(col)}${row + 1} — ${sideNames[piece.side - 1] ?? `side ${piece.side}`}${piece.item_name ? `, ${piece.item_name}` : ''}${ring ? `, ${squadTitle(id) ?? ''}` : ''}`
 						: `${columnLabel(col)}${row + 1} — empty`}
 					onmouseenter={(e) => enter(e, piece)}
 					onfocus={(e) => enter(e, piece)}
@@ -228,6 +262,12 @@
 					onclick={() => oncolumn?.(col)}
 				>
 					{#if piece}<span class="disc"></span>{/if}
+					{#if ring}
+						<span class="ring-gap"></span>
+						<span class="ring" style="background: conic-gradient(from 0deg, {ring});"
+							><span class="sr-only">{squadTitle(id) ?? ''}</span></span
+						>
+					{/if}
 				</button>
 			{/each}
 		{/each}
@@ -314,6 +354,7 @@
 		justify-content: center;
 		overflow: hidden;
 		cursor: default;
+		position: relative;
 	}
 	.hole:not(:disabled) {
 		cursor: pointer;
@@ -337,6 +378,45 @@
 		box-shadow:
 			inset 0 -2px 4px rgba(0, 0, 0, 0.45),
 			0 0 3px rgba(0, 0, 0, 0.5);
+	}
+
+	/* ── the internal-team ring ────────────────────────────────────────────────
+	   An annulus drawn ON TOP of the disc's outer edge, in the contributing squads'
+	   colours, swept proportionally. Over the disc rather than around it because the
+	   hole clips (`overflow: hidden`) and an outward box-shadow would simply vanish —
+	   and because the disc's outer fifth is shadow anyway, so nothing legible is lost.
+
+	   THE DARK GAP IS LOAD-BEARING. One side of this game is yellow and one of the
+	   squads is called Yellow Team; without a separator that ring would be invisible on
+	   exactly the cells it is meant to mark. The gap ring is drawn under the colour ring
+	   and inset by a hair, so every squad colour reads on every disc colour. */
+	.ring,
+	.ring-gap {
+		position: absolute;
+		inset: 0;
+		border-radius: 50%;
+		pointer-events: none;
+	}
+	/* `closest-side` is NOT optional. A radial-gradient sizes to farthest-corner by
+	   default, so on a square element 76% is 76% of the half-DIAGONAL — past the circle's
+	   own edge, and the ring masks itself away to nothing. Sized to the side, the
+	   percentages mean what they read as: fractions of the disc's radius. */
+	.ring {
+		-webkit-mask: radial-gradient(circle closest-side, #0000 0 74%, #000 76%);
+		mask: radial-gradient(circle closest-side, #0000 0 74%, #000 76%);
+	}
+	.ring-gap {
+		background: rgba(0, 0, 0, 0.82);
+		-webkit-mask: radial-gradient(circle closest-side, #0000 0 64%, #000 66%);
+		mask: radial-gradient(circle closest-side, #0000 0 64%, #000 66%);
+	}
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 
 	/* A cell that is part of a connect four (or longer) pulses in its own colour. The

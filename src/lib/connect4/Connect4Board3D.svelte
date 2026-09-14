@@ -26,6 +26,7 @@
 	import { COLS, ROWS, cellId, type LiveTile, type Piece } from './rules';
 	import { FALL_MS } from './playback.svelte';
 	import { disposeTokenTextures, tokenTexture } from './tokenTexture';
+	import { UNASSIGNED_DEF, type CellShare } from './squads';
 
 	let {
 		pieces = [],
@@ -40,7 +41,9 @@
 		falling = null,
 		selected = null,
 		onselect,
-		onhover
+		onhover,
+		squadCells,
+		squadColorOf
 	}: {
 		pieces: Piece[];
 		/** The objective on offer above each column — rendered as the floating tokens. */
@@ -60,6 +63,15 @@
 		onselect?: (col: number) => void;
 		/** Reports what the pointer is over so the page can show one card for either. */
 		onhover?: (info: HoverInfo | null) => void;
+		/**
+		 * INTERNAL TEAMS. Cell id → who banked it, proportionally (see squads.ts). Drawn as
+		 * rings standing proud of the disc: one ring per contributing squad, concentric and
+		 * largest contributor outermost. 3D shows WHO, not the exact split — a conic sweep
+		 * has no cheap instanced equivalent — so a shared cell reads as two rings and the 2D
+		 * board is where the percentages live. Omitted, the board is unchanged.
+		 */
+		squadCells?: Record<string, CellShare[]>;
+		squadColorOf?: (key: string) => string;
 	} = $props();
 
 	export type HoverInfo =
@@ -80,6 +92,9 @@
 	const HOLE_R = 0.42;
 	const DISC_R = 0.4;
 	const DISC_D = 0.26;
+	/** Ring radii by contributor rank, biggest contributor outermost. Past three, a cell's
+	 *  remaining contributors are left to the 2D board, which shows every slice. */
+	const RING_RADII = [DISC_R * 0.9, DISC_R * 0.66, DISC_R * 0.42];
 	const PAD = 0.55;
 	const W = NCOLS * CELL + PAD * 2;
 	const H = NROWS * CELL + PAD * 2;
@@ -112,6 +127,12 @@
 	let discMeshes: THREE.InstancedMesh[] = [];
 	let glowMesh: THREE.InstancedMesh | null = null;
 	let glowMat: THREE.MeshStandardMaterial | null = null;
+	// Squad rings, one InstancedMesh per (colour, ring rank), built on demand and cached
+	// for the life of the scene. Squad colours are data, so the meshes cannot be made up
+	// front; the cache is what stops a sync allocating on every poll. The unmount traverse
+	// disposes them with everything else.
+	let ringMeshes = new Map<string, THREE.InstancedMesh>();
+	let ringGeos: THREE.TorusGeometry[] = [];
 	let fallingMesh: THREE.Mesh | null = null;
 	let pickPlane: THREE.Mesh | null = null;
 	/** One coin per column, indexed by column. Hidden where the column has retired. */
@@ -461,6 +482,9 @@
 		glowMesh.frustumCulled = false;
 		scene.add(glowMesh);
 
+		// One torus per ring rank; the per-squad meshes below share these.
+		ringGeos = RING_RADII.map((r) => new THREE.TorusGeometry(r, 0.052, 8, 26));
+
 		// The single falling piece.
 		fallingMesh = new THREE.Mesh(discGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 }));
 		fallingMesh.visible = false;
@@ -515,6 +539,68 @@
 			}
 			glowMesh.count = g;
 			glowMesh.instanceMatrix.needsUpdate = true;
+		}
+
+		syncSquadRings();
+	}
+
+	/** Get (or make) the instanced mesh for one squad colour at one ring rank. */
+	function ringMeshFor(color: string, rank: number): THREE.InstancedMesh | null {
+		if (!scene || !ringGeos[rank]) return null;
+		const key = `${rank}:${color}`;
+		let m = ringMeshes.get(key);
+		if (!m) {
+			m = new THREE.InstancedMesh(
+				ringGeos[rank],
+				// Emissive, like the run glow: a thin ring lit only by the key light reads as
+				// grey against a bright disc, which defeats the whole point of colouring it.
+				new THREE.MeshStandardMaterial({
+					color: new THREE.Color(color),
+					emissive: new THREE.Color(color),
+					emissiveIntensity: 0.55,
+					roughness: 0.4
+				}),
+				NCOLS * NROWS
+			);
+			m.count = 0;
+			m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+			m.frustumCulled = false;
+			scene.add(m);
+			ringMeshes.set(key, m);
+		}
+		return m;
+	}
+
+	function syncSquadRings() {
+		if (!ringMeshes.size && !squadCells) return;
+		const counts = new Map<THREE.InstancedMesh, number>();
+		if (squadCells) {
+			for (const p of shown) {
+				if (falling && p.id === falling) continue;
+				const shares = squadCells[cellId(p.col, p.row)];
+				if (!shares?.length) continue;
+				const ranked = [...shares].sort((a, b) => b.share - a.share).slice(0, RING_RADII.length);
+				for (let rank = 0; rank < ranked.length; rank++) {
+					const mesh = ringMeshFor(squadColorOf?.(ranked[rank].key) ?? UNASSIGNED_DEF.color, rank);
+					if (!mesh) continue;
+					// Just proud of the disc, and under the run glow's own ring so a scoring cell
+					// still reads as scoring first.
+					dummy.position.set(wx(p.col), wy(p.row), DISC_D / 2 + 0.012);
+					dummy.rotation.set(0, 0, 0);
+					dummy.scale.setScalar(1);
+					dummy.updateMatrix();
+					const n = counts.get(mesh) ?? 0;
+					mesh.setMatrixAt(n, dummy.matrix);
+					counts.set(mesh, n + 1);
+				}
+			}
+		}
+		// Every cached mesh is re-counted, including the ones that got nothing this pass —
+		// a squad losing its last cell (a rejection taking the piece away) must leave no
+		// stale instances behind.
+		for (const mesh of ringMeshes.values()) {
+			mesh.count = counts.get(mesh) ?? 0;
+			mesh.instanceMatrix.needsUpdate = true;
 		}
 	}
 
@@ -679,6 +765,8 @@
 				else m?.dispose?.();
 			});
 			disposeTokenTextures();
+			ringMeshes = new Map();
+			ringGeos = [];
 			renderer?.dispose();
 			renderer?.domElement.remove();
 			renderer = null;
@@ -693,6 +781,7 @@
 		void live;
 		void selected;
 		void freshCols;
+		void squadCells;
 		if (ready) {
 			syncDiscs();
 			syncTokens();

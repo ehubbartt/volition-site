@@ -25,6 +25,7 @@
 		runCellSet,
 		standings as computeStandings
 	} from '$lib/connect4/rules';
+	import { squadStandings, UNASSIGNED_DEF } from '$lib/connect4/squads';
 	import { formatEhb } from '$lib/ehb';
 	import { Playback, loadSeen, saveSeen, paceFor } from '$lib/connect4/playback.svelte';
 	import { liveEvent } from '$lib/live.svelte';
@@ -220,6 +221,37 @@
 	);
 	const standings = $derived(game ? computeStandings(pieces, game.scoring, bonusTotals) : []);
 	const runCells = $derived(runCellSet(standings.flatMap((s) => s.runs)));
+
+	// ── internal teams ────────────────────────────────────────────────────────
+	// The clan's own split of its side into squads. NULL for everyone not on that side —
+	// the server never builds the payload for them (src/lib/server/connect4Squads.ts), so
+	// there is nothing here to hide client-side. Standings are re-derived from the same
+	// pieces and runs the scoreboard above uses, so the two can never disagree.
+	const squadView = $derived(game?.squads ?? null);
+	const squadColor = $derived(
+		new Map((squadView?.squads ?? []).map((sq) => [sq.key, sq.color] as const))
+	);
+	const squadName = $derived(
+		new Map((squadView?.squads ?? []).map((sq) => [sq.key, sq.name] as const))
+	);
+	const squadColorOf = (key: string) => squadColor.get(key) ?? UNASSIGNED_DEF.color;
+	const squadNameOf = (key: string) => squadName.get(key) ?? UNASSIGNED_DEF.name;
+	const squadRows = $derived(
+		squadView && game
+			? squadStandings(
+					squadView,
+					standings.flatMap((s) => s.runs),
+					game.scoring,
+					game.bonus.map((b) => ({ side: b.side, points: b.points, byUserId: b.byUserId })),
+					pieces
+				)
+			: []
+	);
+	/** Longest bar, so the chart reads as a race rather than three near-full bars. */
+	const squadTop = $derived(Math.max(1, ...squadRows.map((s) => s.total)));
+	const squadSideName = $derived(
+		squadView && game ? (game.sides[squadView.side - 1]?.name ?? 'your clan') : ''
+	);
 
 	// ── playback ──────────────────────────────────────────────────────────────
 	// Whatever landed since this browser last watched the board falls into place, in claim
@@ -728,6 +760,50 @@
 			{/each}
 		</section>
 
+		<!-- ── internal teams ────────────────────────────────────────────────────
+		     Only rendered because the server sent a payload, which it only does for
+		     members of this side and for admins. The opposing clan gets `squads: null`
+		     and this whole section never exists for them. -->
+		{#if squadView && squadRows.length}
+			<section class="osrs-panel squads">
+				<div class="osrs-titlebar">
+					{squadSideName} internal teams
+					<span class="only">{squadSideName} only</span>
+				</div>
+				<div class="pad">
+					<ul class="squad-list">
+						{#each squadRows as sq (sq.key)}
+							<li class:you={!!squadView.viewerSquad && sq.key === squadView.viewerSquad}>
+								<span class="dot" style="--c: {sq.color}"></span>
+								<span class="nm">
+									{sq.name}
+									{#if squadView.viewerSquad && sq.key === squadView.viewerSquad}
+										<em class="yours">you</em>
+									{/if}
+								</span>
+								<span class="bar"
+									><i style="--c: {sq.color}; width: {(sq.total / squadTop) * 100}%"></i></span
+								>
+								<span class="pts">{Math.round(sq.total).toLocaleString()}</span>
+								<span class="sub muted tiny">
+									{sq.tiles.toFixed(1)} tiles{#if sq.bonusPoints}
+										· {Math.round(sq.bonusPoints).toLocaleString()} pets{/if}{#if sq.members}
+										· {sq.members} players{/if}
+								</span>
+							</li>
+						{/each}
+					</ul>
+					<p class="muted tiny note">
+						Your clan's own split, scored from the same board. A tile claimed by one player
+						counts whole to their team; a ×N tile splits between everyone who banked toward
+						it, and a line splits across the teams holding its four cells — so these add back
+						up to {squadSideName}'s total above. Every claimed cell on the board is ringed in
+						the colour of the team that banked it, with a shared cell ringed in proportion.
+					</p>
+				</div>
+			</section>
+		{/if}
+
 		<!-- ── the board ─────────────────────────────────────────────────────── -->
 		<section class="osrs-panel board-panel">
 			<div class="osrs-titlebar">
@@ -822,6 +898,8 @@
 								revealed={playback.revealed}
 								falling={playback.falling}
 								{selected}
+								squadCells={squadView?.cells}
+								{squadColorOf}
 								onselect={(c) => {
 									cancelResubmit();
 									selected = selected === c ? null : c;
@@ -844,6 +922,9 @@
 								{freshCols}
 								rsnFor={(id) => rsnByUser.get(id) ?? null}
 								upForSlot={(idx) => upFor(idx)}
+								squadCells={squadView?.cells}
+								{squadColorOf}
+								{squadNameOf}
 								onselect={(c) => {
 									cancelResubmit();
 									selected = selected === c ? null : c;
@@ -1530,6 +1611,88 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
 		gap: 0.75rem;
+	}
+
+	/* ── internal teams ──────────────────────────────────────────────────── */
+	.squads .only {
+		float: right;
+		font-size: 0.7rem;
+		font-weight: 400;
+		color: var(--yellow);
+		opacity: 0.9;
+	}
+	.squad-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		gap: 0.4rem;
+	}
+	.squad-list li {
+		display: grid;
+		/* dot · name · bar · points, with the sub-line tucked under the name so a phone
+		   never has to wrap the bar itself. */
+		grid-template-columns: auto minmax(6rem, max-content) 1fr auto;
+		grid-template-areas: 'dot nm bar pts' '. sub sub sub';
+		align-items: center;
+		gap: 0.15rem 0.5rem;
+		padding: 0.3rem 0.45rem;
+		border-radius: var(--radius);
+		border: 1px solid transparent;
+	}
+	.squad-list li.you {
+		border-color: var(--border);
+		background: var(--surface);
+	}
+	.squad-list .dot {
+		grid-area: dot;
+		width: 0.7rem;
+		height: 0.7rem;
+		border-radius: 50%;
+		background: var(--c);
+		box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+	}
+	.squad-list .nm {
+		grid-area: nm;
+		font-weight: 600;
+	}
+	.squad-list .yours {
+		font-style: normal;
+		font-size: 0.65rem;
+		color: var(--accent);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.squad-list .bar {
+		grid-area: bar;
+		height: 0.55rem;
+		border-radius: 999px;
+		background: rgba(0, 0, 0, 0.3);
+		overflow: hidden;
+		min-width: 3rem;
+	}
+	.squad-list .bar i {
+		display: block;
+		height: 100%;
+		background: var(--c);
+		border-radius: 999px;
+	}
+	.squad-list .pts {
+		grid-area: pts;
+		font-variant-numeric: tabular-nums;
+		font-weight: 700;
+	}
+	.squad-list .sub {
+		grid-area: sub;
+	}
+	.squads .note {
+		margin: 0.6rem 0 0;
+	}
+	@media (max-width: 560px) {
+		.squad-list li {
+			grid-template-columns: auto 1fr auto;
+			grid-template-areas: 'dot nm pts' '. bar bar' '. sub sub';
+		}
 	}
 	.score {
 		border: 1px solid var(--border);
