@@ -799,8 +799,10 @@
 								>
 								<span class="pts">{Math.round(sq.total).toLocaleString()}</span>
 								<span class="sub muted tiny">
-									{sq.tiles.toFixed(1)} tiles{#if sq.bonusPoints}
-										· {Math.round(sq.bonusPoints).toLocaleString()} pets{/if}{#if sq.members}
+									{sq.tiles.toFixed(1)} tiles{#if sq.bonusCount}
+										· {sq.bonusCount}
+										{sq.bonusCount === 1 ? 'pet' : 'pets'}
+										({Math.round(sq.bonusPoints).toLocaleString()}){/if}{#if sq.members}
 										· {sq.members} players{/if}
 								</span>
 							</li>

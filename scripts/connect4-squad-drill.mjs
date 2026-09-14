@@ -134,10 +134,29 @@ try {
 			view({ '0,0': [{ key: 'red', share: 1 }] }, members), [], scoring, bonus, pieces
 		);
 		ck('blue banked the pet', rowOf(rows, 'blue').bonusPoints, 10);
+		// The count and the points are DIFFERENT NUMBERS. pet_points is 10, so reading the
+		// points as a count showed a team with five pets as having fifty.
+		ck('blue banked ONE pet, not ten', rowOf(rows, 'blue').bonusCount, 1);
 		ck("side 2's pet was ignored", rowOf(rows, 'red').bonusPoints, 0);
 		ck('the nameless award went to unassigned', rowOf(rows, sq.UNASSIGNED).bonusPoints, 10);
+		ck('and counts as one award', rowOf(rows, sq.UNASSIGNED).bonusCount, 1);
+		ck("side 2's pet is not counted either", rowOf(rows, 'red').bonusCount, 0);
 		const side = rules.sideStanding(pieces, 1, scoring, { 1: 20 });
 		ck('THE INVARIANT, with bonuses', sum(rows), side.total);
+	}
+
+	console.log('\n── Five pets are five pets, not fifty ──');
+	{
+		const members = { u1: 'red', u2: 'red', u3: 'blue' };
+		const bonus = [
+			...Array.from({ length: 5 }, (_, i) => ({ side: 1, points: 10, byUserId: i < 4 ? 'u1' : 'u2' })),
+			{ side: 1, points: 25, byUserId: 'u3' } // a hand-tuned award, still one pet
+		];
+		const rows = sq.squadStandings(view({}, members), [], scoring, bonus, []);
+		ck('red pet count', rowOf(rows, 'red').bonusCount, 5);
+		ck('red pet points', rowOf(rows, 'red').bonusPoints, 50);
+		ck('blue pet count', rowOf(rows, 'blue').bonusCount, 1);
+		ck('blue pet points', rowOf(rows, 'blue').bonusPoints, 25);
 	}
 
 	console.log('\n── Roster counts, and who is on no squad ──');

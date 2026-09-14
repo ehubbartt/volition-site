@@ -105,6 +105,12 @@ export interface SquadStanding extends SquadDef {
 	tilePoints: number;
 	linePoints: number;
 	bonusPoints: number;
+	/**
+	 * How many awards, as distinct from what they paid. Both are needed: the points go into
+	 * the total, and "5 pets" is what a player wants to read. Conflating them showed a team
+	 * with five pets as having fifty, because pet_points is 10.
+	 */
+	bonusCount: number;
 	total: number;
 	/** Fractional — half of a ×N tile really is half a tile. */
 	tiles: number;
@@ -134,11 +140,14 @@ export function squadStandings(
 	bonus: { side: Side; points: number; byUserId: string | null }[],
 	pieces: Piece[]
 ): SquadStanding[] {
-	const acc = new Map<string, { tile: number; line: number; bonus: number; tiles: number }>();
+	type Acc = { tile: number; line: number; bonus: number; tiles: number; awards: number };
+	const blank = (): Acc => ({ tile: 0, line: 0, bonus: 0, tiles: 0, awards: 0 });
+	const acc = new Map<string, Acc>();
 	const bump = (key: string, field: 'tile' | 'line' | 'bonus', amount: number, tiles = 0) => {
-		const row = acc.get(key) ?? { tile: 0, line: 0, bonus: 0, tiles: 0 };
+		const row = acc.get(key) ?? blank();
 		row[field] += amount;
 		row.tiles += tiles;
+		if (field === 'bonus') row.awards++;
 		acc.set(key, row);
 	};
 
@@ -183,12 +192,13 @@ export function squadStandings(
 
 	return [...view.squads, UNASSIGNED_DEF]
 		.map((def) => {
-			const row = acc.get(def.key) ?? { tile: 0, line: 0, bonus: 0, tiles: 0 };
+			const row = acc.get(def.key) ?? blank();
 			return {
 				...def,
 				tilePoints: row.tile,
 				linePoints: row.line,
 				bonusPoints: row.bonus,
+				bonusCount: row.awards,
 				total: row.tile + row.line + row.bonus,
 				tiles: row.tiles,
 				members: headcount.get(def.key) ?? 0
