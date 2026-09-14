@@ -29,6 +29,12 @@
 		progress?: { 1: number; 2: number } | null;
 		/** Who has banked toward a ×N tile, resolved to names by the board. */
 		contributors?: { rsn: string; side: number; qty: number }[] | null;
+		/**
+		 * INTERNAL TEAMS: which squad(s) this claimed cell counts for, largest share first.
+		 * Only ever set for a viewer on the squads' own side — the server sends nobody else
+		 * the shares (see src/lib/server/connect4Squads.ts).
+		 */
+		squads?: { name: string; color: string; share: number }[] | null;
 		/** How long this objective has been the column's offer, e.g. "12m ago". */
 		upFor?: string | null;
 		/** Side names for the progress line (defaults to Red/Yellow). */
@@ -125,6 +131,22 @@
 			</div>
 		{/if}
 		{#if info.byRsn}<div class="hc-row">by <strong>{info.byRsn}</strong></div>{/if}
+		{#if info.squads?.length}
+			<div class="hc-squads">
+				<span class="hc-squads-head">
+					{info.squads.length > 1 ? 'shared between:' : 'claimed for:'}
+				</span>
+				<ul>
+					{#each info.squads as sq (sq.name)}
+						<li>
+							<span class="sw" style="--c: {sq.color}"></span>
+							{sq.name}
+							{#if info.squads.length > 1}<em>{Math.round(sq.share * 100)}%</em>{/if}
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
 		{#if info.via}<div class="hc-via">{info.via}</div>{/if}
 	</div>
 
@@ -143,6 +165,41 @@
 </div>
 
 <style>
+	/* The internal-team line. Mirrors .hc-who, with a colour swatch so the card and the
+	   ring on the board are read as the same thing. */
+	.hc-squads {
+		margin-top: 0.25rem;
+		font-size: 0.75rem;
+	}
+	.hc-squads-head {
+		color: var(--muted);
+	}
+	.hc-squads ul {
+		list-style: none;
+		margin: 0.15rem 0 0;
+		padding: 0;
+		display: grid;
+		gap: 0.1rem;
+	}
+	.hc-squads li {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+	.hc-squads .sw {
+		width: 0.6rem;
+		height: 0.6rem;
+		border-radius: 50%;
+		background: var(--c);
+		box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+		flex: none;
+	}
+	.hc-squads em {
+		font-style: normal;
+		color: var(--muted);
+		font-variant-numeric: tabular-nums;
+	}
+
 	.hovercard {
 		position: fixed;
 		z-index: 50;

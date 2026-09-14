@@ -803,12 +803,23 @@ belong to is *derived* — whichever holds the most assigned players — so it c
 of sync with where the clan is actually sitting.
 
 **On the board**, every claimed cell of that side is ringed in its contributing squads'
-colours. 2D sweeps a conic gradient in exact proportion; 3D draws one concentric torus per
-contributor, largest outermost, so a shared cell reads as two rings and the percentages
-stay on the 2D board. The squad palette is deliberately *not* the side palette: a ring sits
-on a disc already painted in its side's colour, and one of the squads is called Yellow on a
-side that is itself yellow. The dark separator drawn between disc and ring is what makes
-that legible, and it is load-bearing.
+colours. The ring goes *around* the disc, which shrinks to make room — 2D by resizing the
+element (not `transform`, which the drop animation owns), 3D by scaling the instance in x/y
+only. 2D sweeps a conic gradient in exact proportion; 3D draws one concentric torus per
+contributor, largest innermost, capped at three before a ring would reach the neighbouring
+cell — so a shared cell reads as two rings there and the percentages stay on the 2D board.
+Hovering a claimed cell names the teams it counts for, and their shares when it is shared.
+
+The squad palette is deliberately *not* the side palette: a ring sits beside a disc already
+painted in its side's colour, and one of the squads is called Yellow on a side that is
+itself yellow. The dark gap between disc and ring is what makes that legible, and it is
+load-bearing — it comes free from the empty hole behind the disc.
+
+The **unassigned bucket is computed but not tabled**. The scorer still has to put a
+seatless player's claim somewhere, or the teams would silently stop adding up to the side's
+total; the member page filters that row out of the standings table and prints it as one
+line underneath instead, so it cannot outrank a real team while the roster is still being
+filled in.
 
 Setting it up:
 

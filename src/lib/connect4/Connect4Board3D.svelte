@@ -65,10 +65,10 @@
 		onhover?: (info: HoverInfo | null) => void;
 		/**
 		 * INTERNAL TEAMS. Cell id → who banked it, proportionally (see squads.ts). Drawn as
-		 * rings standing proud of the disc: one ring per contributing squad, concentric and
-		 * largest contributor outermost. 3D shows WHO, not the exact split — a conic sweep
-		 * has no cheap instanced equivalent — so a shared cell reads as two rings and the 2D
-		 * board is where the percentages live. Omitted, the board is unchanged.
+		 * rings AROUND the disc, which shrinks to make room: one ring per contributing squad,
+		 * concentric, largest contributor innermost. 3D shows WHO, not the exact split — a
+		 * conic sweep has no cheap instanced equivalent — so a shared cell reads as two rings
+		 * and the 2D board is where the percentages live. Omitted, the board is unchanged.
 		 */
 		squadCells?: Record<string, CellShare[]>;
 		squadColorOf?: (key: string) => string;
@@ -92,9 +92,14 @@
 	const HOLE_R = 0.42;
 	const DISC_R = 0.4;
 	const DISC_D = 0.26;
-	/** Ring radii by contributor rank, biggest contributor outermost. Past three, a cell's
-	 *  remaining contributors are left to the 2D board, which shows every slice. */
-	const RING_RADII = [DISC_R * 0.9, DISC_R * 0.66, DISC_R * 0.42];
+	/** How much a RINGED disc shrinks to make room for its rings — the 3D twin of the 2D
+	 *  board's smaller disc. Scaled in x/y only so the cylinder keeps its depth. */
+	const RINGED_DISC = 0.78;
+	/** Ring radii by contributor rank, largest contributor INNERMOST so it hugs the disc
+	 *  and a solo cell reads as one tight ring rather than a floating halo. Three is the
+	 *  ceiling: a fourth would reach into the neighbouring cell. A cell with more
+	 *  contributors than that is left to the 2D board, which shows every slice. */
+	const RING_RADII = [0.345, 0.4, 0.455];
 	const PAD = 0.55;
 	const W = NCOLS * CELL + PAD * 2;
 	const H = NROWS * CELL + PAD * 2;
@@ -483,7 +488,7 @@
 		scene.add(glowMesh);
 
 		// One torus per ring rank; the per-squad meshes below share these.
-		ringGeos = RING_RADII.map((r) => new THREE.TorusGeometry(r, 0.052, 8, 26));
+		ringGeos = RING_RADII.map((r) => new THREE.TorusGeometry(r, 0.028, 8, 26));
 
 		// The single falling piece.
 		fallingMesh = new THREE.Mesh(discGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 }));
@@ -514,9 +519,13 @@
 			const idx = p.side - 1;
 			const mesh = discMeshes[idx];
 			if (!mesh) continue;
+			// A ringed disc shrinks so its rings sit AROUND it rather than over it. x/y only:
+			// scaling z as well would thin the cylinder and the board would look dented.
+			const ringed = !!squadCells?.[cellId(p.col, p.row)]?.length;
 			dummy.position.set(wx(p.col), wy(p.row), 0);
 			dummy.rotation.set(0, 0, 0);
-			dummy.scale.setScalar(1);
+			if (ringed) dummy.scale.set(RINGED_DISC, RINGED_DISC, 1);
+			else dummy.scale.setScalar(1);
 			dummy.updateMatrix();
 			mesh.setMatrixAt(counts[idx], dummy.matrix);
 			counts[idx]++;

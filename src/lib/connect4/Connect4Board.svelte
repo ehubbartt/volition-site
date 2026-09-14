@@ -186,11 +186,20 @@
 					? 'simulated'
 					: 'from a Dink drop';
 
+	/** The claimed cell's squads, resolved to names and colours for the hover card. */
+	const squadsFor = (cell: string) =>
+		squadCells?.[cell]?.map((s) => ({
+			name: squadNameOf?.(s.key) ?? UNASSIGNED_DEF.name,
+			color: colorOf(s.key),
+			share: s.share
+		})) ?? null;
+
 	function enter(e: MouseEvent | FocusEvent, piece: Piece | undefined) {
 		if (!piece) return;
 		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
 		show({
 			kind: 'piece',
+			squads: squadsFor(cellId(piece.col, piece.row)),
 			itemName: piece.item_name ?? 'Unknown drop',
 			source: piece.source,
 			where: `${columnLabel(piece.col)}${piece.row + 1}`,
@@ -263,7 +272,6 @@
 				>
 					{#if piece}<span class="disc"></span>{/if}
 					{#if ring}
-						<span class="ring-gap"></span>
 						<span class="ring" style="background: conic-gradient(from 0deg, {ring});"
 							><span class="sr-only">{squadTitle(id) ?? ''}</span></span
 						>
@@ -381,34 +389,35 @@
 	}
 
 	/* ── the internal-team ring ────────────────────────────────────────────────
-	   An annulus drawn ON TOP of the disc's outer edge, in the contributing squads'
-	   colours, swept proportionally. Over the disc rather than around it because the
-	   hole clips (`overflow: hidden`) and an outward box-shadow would simply vanish —
-	   and because the disc's outer fifth is shadow anyway, so nothing legible is lost.
+	   An annulus AROUND the disc, in the contributing squads' colours, swept in
+	   proportion to what each banked. The disc shrinks to make room for it, so the ring
+	   never covers any of the piece itself.
 
-	   THE DARK GAP IS LOAD-BEARING. One side of this game is yellow and one of the
-	   squads is called Yellow Team; without a separator that ring would be invisible on
-	   exactly the cells it is meant to mark. The gap ring is drawn under the colour ring
-	   and inset by a hair, so every squad colour reads on every disc colour. */
-	.ring,
-	.ring-gap {
+	   The disc is resized rather than transformed. `.hole.newest .disc` animates
+	   `transform` to drop the piece into its slot, and a scale() here would be
+	   overwritten by the keyframes the moment a ringed piece landed.
+
+	   THE DARK GAP IS LOAD-BEARING, and it is free: the empty hole behind the disc is
+	   already near-black, so the band between a 70% disc and a 78% ring separates them
+	   with no extra element. Without it the yellow squad would be invisible on the yellow
+	   side — which is exactly the side that has squads. */
+	.ring {
 		position: absolute;
 		inset: 0;
 		border-radius: 50%;
 		pointer-events: none;
+		/* `closest-side` is NOT optional. A radial-gradient sizes to farthest-corner by
+		   default, so on a square element 78% is 78% of the half-DIAGONAL — past the
+		   circle's own edge, and the ring masks itself away to nothing. Sized to the
+		   side, the percentages mean what they read as: fractions of the hole's radius.
+		   The outer stop stops short of 100% so a sliver of dark rim keeps the ring off
+		   the frame. */
+		-webkit-mask: radial-gradient(circle closest-side, #0000 0 75%, #000 78% 97%, #0000 98%);
+		mask: radial-gradient(circle closest-side, #0000 0 75%, #000 78% 97%, #0000 98%);
 	}
-	/* `closest-side` is NOT optional. A radial-gradient sizes to farthest-corner by
-	   default, so on a square element 76% is 76% of the half-DIAGONAL — past the circle's
-	   own edge, and the ring masks itself away to nothing. Sized to the side, the
-	   percentages mean what they read as: fractions of the disc's radius. */
-	.ring {
-		-webkit-mask: radial-gradient(circle closest-side, #0000 0 74%, #000 76%);
-		mask: radial-gradient(circle closest-side, #0000 0 74%, #000 76%);
-	}
-	.ring-gap {
-		background: rgba(0, 0, 0, 0.82);
-		-webkit-mask: radial-gradient(circle closest-side, #0000 0 64%, #000 66%);
-		mask: radial-gradient(circle closest-side, #0000 0 64%, #000 66%);
+	.hole.ringed .disc {
+		width: 70%;
+		height: 70%;
 	}
 	.sr-only {
 		position: absolute;

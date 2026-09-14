@@ -21,11 +21,12 @@
 	// the ITEM icons, which are what a player actually reads off the board.
 	import { itemImageUrl, nameInitials } from '$lib/wikiImage';
 	import {
+		cellId,
 		columnLabel,
 		runCellSet,
 		standings as computeStandings
 	} from '$lib/connect4/rules';
-	import { squadStandings, UNASSIGNED_DEF } from '$lib/connect4/squads';
+	import { squadStandings, UNASSIGNED, UNASSIGNED_DEF } from '$lib/connect4/squads';
 	import { formatEhb } from '$lib/ehb';
 	import { Playback, loadSeen, saveSeen, paceFor } from '$lib/connect4/playback.svelte';
 	import { liveEvent } from '$lib/live.svelte';
@@ -236,7 +237,7 @@
 	);
 	const squadColorOf = (key: string) => squadColor.get(key) ?? UNASSIGNED_DEF.color;
 	const squadNameOf = (key: string) => squadName.get(key) ?? UNASSIGNED_DEF.name;
-	const squadRows = $derived(
+	const squadAll = $derived(
 		squadView && game
 			? squadStandings(
 					squadView,
@@ -247,6 +248,12 @@
 				)
 			: []
 	);
+	// The unassigned bucket is kept OUT of the table but not out of the maths: the scorer
+	// still has to put a seatless player's claim somewhere or the teams would silently not
+	// add up to the side's own total. It shows as one quiet line under the table instead of
+	// a row that outranks real teams while the roster is being filled in.
+	const squadRows = $derived(squadAll.filter((s) => s.key !== UNASSIGNED));
+	const squadOrphan = $derived(squadAll.find((s) => s.key === UNASSIGNED) ?? null);
 	/** Longest bar, so the chart reads as a race rather than three near-full bars. */
 	const squadTop = $derived(Math.max(1, ...squadRows.map((s) => s.total)));
 	const squadSideName = $derived(
@@ -618,6 +625,12 @@
 				sideColor: game.sides[p.side - 1]?.color,
 				byRsn: p.by_rsn,
 				via: claimedVia(p),
+				squads:
+					squadView?.cells[cellId(p.col, p.row)]?.map((s) => ({
+						name: squadNameOf(s.key),
+						color: squadColorOf(s.key),
+						share: s.share
+					})) ?? null,
 				x: h.x,
 				y: h.y
 			};
@@ -793,12 +806,19 @@
 							</li>
 						{/each}
 					</ul>
+					{#if squadOrphan && squadOrphan.total > 0}
+						<p class="muted tiny orphan">
+							<strong>{Math.round(squadOrphan.total).toLocaleString()}</strong> points
+							({squadOrphan.tiles.toFixed(1)} tiles) came from players not yet on a team — they
+							count for {squadSideName} but for nobody here.
+						</p>
+					{/if}
 					<p class="muted tiny note">
 						Your clan's own split, scored from the same board. A tile claimed by one player
 						counts whole to their team; a ×N tile splits between everyone who banked toward
-						it, and a line splits across the teams holding its four cells — so these add back
-						up to {squadSideName}'s total above. Every claimed cell on the board is ringed in
-						the colour of the team that banked it, with a shared cell ringed in proportion.
+						it, and a line splits across the teams holding its four cells. Every claimed cell
+						is ringed on the board in its team's colour — a shared cell in proportion — and
+						hovering one says who it counts for.
 					</p>
 				</div>
 			</section>
@@ -1684,6 +1704,11 @@
 	}
 	.squad-list .sub {
 		grid-area: sub;
+	}
+	.squads .orphan {
+		margin: 0.5rem 0 0;
+		padding-left: 0.45rem;
+		border-left: 2px solid var(--border);
 	}
 	.squads .note {
 		margin: 0.6rem 0 0;
