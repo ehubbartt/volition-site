@@ -377,6 +377,7 @@
 	}
 
 	.disc {
+		position: relative;
 		width: 100%;
 		height: 100%;
 		border-radius: 50%;
@@ -428,14 +429,29 @@
 		white-space: nowrap;
 	}
 
-	/* A cell that is part of a connect four (or longer) pulses in its own colour. The
-	   glow is on the disc, not the hole, so the frame stays put. */
-	.hole.in-run .disc {
+	/* A cell that is part of a connect four (or longer) pulses. Two things here are not
+	   style choices:
+
+	   THE GLOW IS INSET. It used to spread outward from a disc that exactly fills the
+	   hole, and `.hole` clips (`overflow: hidden`) — so the entire glow was thrown away
+	   and only the white ring ever reached the screen. Inset, it is inside the clip and
+	   actually visible.
+
+	   THE ANIMATION IS ON `opacity`, NOT ON THE SHADOW. Animating box-shadow cannot be
+	   composited: every frame repaints, and since the discs are not on their own layers
+	   that invalidates the whole 600-cell board. On a 40x15 board with 300 cells in
+	   scoring lines it cost roughly two thirds of the frame budget — for an invisible
+	   effect. A static shadow whose opacity animates is composited, so the cost stops
+	   scaling with how much of the board is lit. */
+	.hole.in-run .disc::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: 50%;
 		box-shadow:
-			inset 0 -2px 4px rgba(0, 0, 0, 0.45),
-			0 0 8px 2px var(--disc);
-		outline: 2px solid #fff;
-		outline-offset: -2px;
+			inset 0 0 0 2px #fff,
+			inset 0 0 12px 3px color-mix(in srgb, var(--disc) 45%, #fff);
+		pointer-events: none;
 	}
 
 	@media (prefers-reduced-motion: no-preference) {
@@ -446,7 +462,7 @@
 		.hole.newest .disc {
 			animation: c4-drop 0.55s cubic-bezier(0.45, 0.05, 0.55, 1) 1;
 		}
-		.hole.in-run .disc {
+		.hole.in-run .disc::after {
 			animation: c4-glow 1.6s ease-in-out infinite;
 		}
 		@keyframes c4-drop {
@@ -464,17 +480,14 @@
 				transform: translateY(0);
 			}
 		}
+		/* Opacity only. Nothing here may touch a property that repaints — see above. */
 		@keyframes c4-glow {
 			0%,
 			100% {
-				box-shadow:
-					inset 0 -2px 4px rgba(0, 0, 0, 0.45),
-					0 0 6px 1px var(--disc);
+				opacity: 0.4;
 			}
 			50% {
-				box-shadow:
-					inset 0 -2px 4px rgba(0, 0, 0, 0.45),
-					0 0 16px 5px var(--disc);
+				opacity: 1;
 			}
 		}
 	}
