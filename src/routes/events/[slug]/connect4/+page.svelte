@@ -1503,7 +1503,7 @@
 	<section class="osrs-panel rpt">
 		<div class="osrs-titlebar">How it went</div>
 		<div class="pad">
-			<ul class="bignums">
+			<ul class="scores bignums">
 				<li><b>{st.board.claimed.toLocaleString()}</b><span>tiles claimed</span>
 					<em>of {st.board.cells.toLocaleString()} · {pct(st.board.claimed, st.board.cells)}%</em></li>
 				<li><b>{st.submissions.total.toLocaleString()}</b><span>submissions</span>
@@ -1522,27 +1522,27 @@
 	<section class="osrs-panel rpt">
 		<div class="osrs-titlebar">Side by side</div>
 		<div class="scroll-x">
-			<table class="stat-table">
+			<table class="osrs-table">
 				<thead>
 					<tr>
-						<th>Side</th><th class="right">Points</th><th class="right">Tiles</th>
-						<th class="right">Longest</th><th class="right">Pets</th>
-						<th class="right">Sent</th><th class="right">Approved</th>
-						<th class="right">Rejected</th><th class="right">Turned up</th>
+						<th>Side</th><th class="num">Points</th><th class="num">Tiles</th>
+						<th class="num">Longest</th><th class="num">Pets</th>
+						<th class="num">Sent</th><th class="num">Approved</th>
+						<th class="num">Rejected</th><th class="num">Turned up</th>
 					</tr>
 				</thead>
 				<tbody>
 					{#each st.sides as sd (sd.side)}
 						<tr>
 							<td><span class="chip" style="--c: {sd.color}"></span> {sd.name}</td>
-							<td class="right"><strong>{sd.points.toLocaleString()}</strong></td>
-							<td class="right">{sd.tiles.toLocaleString()}</td>
-							<td class="right">{sd.longestLine >= 4 ? sd.longestLine : '—'}</td>
-							<td class="right">{sd.pets}</td>
-							<td class="right">{sd.submissions.toLocaleString()}</td>
-							<td class="right">{sd.approved.toLocaleString()}</td>
-							<td class="right">{sd.rejected.toLocaleString()}</td>
-							<td class="right">{sd.active} / {sd.players}</td>
+							<td class="num"><strong>{sd.points.toLocaleString()}</strong></td>
+							<td class="num">{sd.tiles.toLocaleString()}</td>
+							<td class="num">{sd.longestLine >= 4 ? sd.longestLine : '—'}</td>
+							<td class="num">{sd.pets}</td>
+							<td class="num">{sd.submissions.toLocaleString()}</td>
+							<td class="num">{sd.approved.toLocaleString()}</td>
+							<td class="num">{sd.rejected.toLocaleString()}</td>
+							<td class="num">{sd.active} / {sd.players}</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -1596,7 +1596,7 @@
 
 	{#if st.timeline.length > 1}
 		<section class="osrs-panel rpt">
-			<div class="osrs-titlebar">When the board moved</div>
+			<div class="osrs-titlebar">Activity</div>
 			<div class="pad">
 				<div class="spark" role="img"
 					aria-label="Tiles claimed per hour, peaking at {timelinePeak} in one hour">
@@ -1616,29 +1616,31 @@
 	<section class="osrs-panel rpt">
 		<div class="osrs-titlebar">Players — {rankedPlayers.length}</div>
 		<div class="pad">
-			<div class="sorts">
-				<span class="muted tiny">Sort</span>
-				{#each PLAYER_SORTS as srt (srt.key)}
-					<button type="button" class="tiny" class:on={playerSort === srt.key}
-						onclick={() => (playerSort = srt.key)}>{srt.label}</button>
-				{/each}
-				<span class="muted tiny sep">Side</span>
-				<button type="button" class="tiny" class:on={playerSide === 0}
-					onclick={() => (playerSide = 0)}>Both</button>
-				{#each game?.sides ?? [] as sd (sd.side)}
-					<button type="button" class="tiny" class:on={playerSide === sd.side}
-						onclick={() => (playerSide = sd.side)}>{sd.name}</button>
-				{/each}
+			<div class="rpt-tools">
+				<span class="viewtoggle sorttoggle" aria-label="Sort the players">
+					{#each PLAYER_SORTS as srt (srt.key)}
+						<button type="button" class:on={playerSort === srt.key}
+							onclick={() => (playerSort = srt.key)}>{srt.label}</button>
+					{/each}
+				</span>
+				<span class="viewtoggle sorttoggle" aria-label="Filter by side">
+					<button type="button" class:on={playerSide === 0}
+						onclick={() => (playerSide = 0)}>Both</button>
+					{#each game?.sides ?? [] as sd (sd.side)}
+						<button type="button" class:on={playerSide === sd.side}
+							onclick={() => (playerSide = sd.side)}>{sd.name}</button>
+					{/each}
+				</span>
 			</div>
 		</div>
 		<div class="scroll-x">
-			<table class="stat-table">
+			<table class="osrs-table">
 				<thead>
 					<tr>
-						<th class="right">#</th><th>Player</th><th>Side</th>
-						<th class="right">Points</th><th class="right">Tiles</th>
-						<th class="right">Sent</th><th class="right">Approved</th>
-						<th class="right">Rejected</th><th class="right">Pets</th>
+						<th class="num">#</th><th>Player</th><th>Side</th>
+						<th class="num">Points</th><th class="num">Tiles</th>
+						<th class="num">Sent</th><th class="num">Approved</th>
+						<th class="num">Rejected</th><th class="num">Pets</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -1647,12 +1649,12 @@
 							<td class="right muted">{i + 1}</td>
 							<td>{p.rsn ?? 'unknown'}</td>
 							<td><span class="chip" style="--c: {game?.sides[p.side - 1]?.color}"></span></td>
-							<td class="right"><strong>{Math.round(p.points).toLocaleString()}</strong></td>
-							<td class="right">{p.tiles ? p.tiles.toFixed(1) : '—'}</td>
-							<td class="right">{p.submissions || '—'}</td>
-							<td class="right">{p.approved || '—'}</td>
-							<td class="right">{p.rejected || '—'}</td>
-							<td class="right">{p.pets || '—'}</td>
+							<td class="num"><strong>{Math.round(p.points).toLocaleString()}</strong></td>
+							<td class="num">{p.tiles ? p.tiles.toFixed(1) : '—'}</td>
+							<td class="num">{p.submissions || '—'}</td>
+							<td class="num">{p.approved || '—'}</td>
+							<td class="num">{p.rejected || '—'}</td>
+							<td class="num">{p.pets || '—'}</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -1660,9 +1662,11 @@
 		</div>
 		{#if rankedPlayers.length > PLAYER_PREVIEW}
 			<div class="pad">
-				<button type="button" class="tiny" onclick={() => (showAllPlayers = !showAllPlayers)}>
-					{showAllPlayers ? 'Show top 20' : `Show all ${rankedPlayers.length}`}
-				</button>
+				<span class="viewtoggle sorttoggle">
+					<button type="button" class="on" onclick={() => (showAllPlayers = !showAllPlayers)}>
+						{showAllPlayers ? 'Show top 20' : `Show all ${rankedPlayers.length}`}
+					</button>
+				</span>
 			</div>
 		{/if}
 		<div class="pad">
@@ -1683,7 +1687,7 @@
 				<span class="only">staff only</span>
 			</div>
 			<div class="pad">
-				<ul class="bignums small">
+				<ul class="scores bignums small">
 					<li><b>{st.admin.reviewers.reduce((a: number, r) => a + r.total, 0).toLocaleString()}</b><span>decisions</span></li>
 					<li><b>{dur(st.admin.medianReviewMinutes)}</b><span>median wait</span>
 						<em>submitted → decided</em></li>
@@ -1693,21 +1697,21 @@
 				</ul>
 			</div>
 			<div class="scroll-x">
-				<table class="stat-table">
+				<table class="osrs-table">
 					<thead>
-						<tr><th class="right">#</th><th>Reviewer</th><th class="right">Decisions</th>
-							<th class="right">Approved</th><th class="right">Rejected</th>
-							<th class="right">Median wait</th></tr>
+						<tr><th class="num">#</th><th>Reviewer</th><th class="num">Decisions</th>
+							<th class="num">Approved</th><th class="num">Rejected</th>
+							<th class="num">Median wait</th></tr>
 					</thead>
 					<tbody>
 						{#each st.admin.reviewers as r, i (r.userId)}
 							<tr>
 								<td class="right muted">{i + 1}</td>
 								<td>{r.rsn ?? 'unknown'}</td>
-								<td class="right"><strong>{r.total.toLocaleString()}</strong></td>
-								<td class="right">{r.approved.toLocaleString()}</td>
-								<td class="right">{r.rejected.toLocaleString()}</td>
-								<td class="right">{dur(r.medianMinutes)}</td>
+								<td class="num"><strong>{r.total.toLocaleString()}</strong></td>
+								<td class="num">{r.approved.toLocaleString()}</td>
+								<td class="num">{r.rejected.toLocaleString()}</td>
+								<td class="num">{dur(r.medianMinutes)}</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -1923,45 +1927,52 @@
 		gap: 0.75rem;
 	}
 
-	/* ── the post-event report ───────────────────────────────────────────── */
+	/* ── the post-event report ───────────────────────────────────────────────
+	   Almost nothing new: the tables are the site's `.osrs-table`, the headline
+	   numbers reuse this page's own `.score` cards and `.total`, and the sort strips
+	   are the same `.viewtoggle` control as Flat/3D. What is left here is only the
+	   handful of things the report genuinely adds. */
+
+	/* The headline figures, laid out as a row of the standings cards. */
 	.bignums {
 		list-style: none;
 		margin: 0;
 		padding: 0;
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-		gap: 0.75rem;
+		grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
 	}
 	.bignums li {
-		display: grid;
-		gap: 0.1rem;
-		padding: 0.5rem 0.7rem;
 		border: 1px solid var(--border);
+		border-left: 4px solid var(--accent);
 		border-radius: var(--radius);
 		background: var(--surface);
+		padding: 0.6rem 0.8rem;
 	}
 	.bignums b {
-		font-size: 1.6rem;
+		display: block;
+		font-family: var(--font-heading);
+		font-weight: normal;
+		font-size: 1.7rem;
 		line-height: 1.1;
-		font-variant-numeric: tabular-nums;
+		color: var(--heading);
 	}
 	.bignums.small b {
-		font-size: 1.25rem;
+		font-size: 1.3rem;
 	}
 	.bignums span {
+		display: block;
 		font-size: 0.8rem;
 	}
 	.bignums em {
 		font-style: normal;
-		font-size: 0.7rem;
+		font-size: 0.72rem;
 		color: var(--muted);
 	}
 
-	/* Tables are the one thing allowed to be wider than the column — each in its own
-	   scroller, so the PAGE still never goes sideways. Both halves are needed: a grid
-	   item defaults to `min-width: auto` and is sized by its widest content, so without
-	   `.rpt` the panel grows to fit the table and the scroller never scrolls. Measured at
-	   400px: the page went sideways until the panel could shrink. */
+	/* A table is the one thing allowed to be wider than its column, in its own
+	   scroller. Both halves are needed: a grid item defaults to `min-width: auto` and
+	   is sized by its widest content, so without `.rpt` the panel grows to fit the
+	   table and the scroller never scrolls — measured at 400px, the page went
+	   sideways until the panel could shrink. */
 	.rpt {
 		min-width: 0;
 	}
@@ -1969,42 +1980,28 @@
 		max-width: 100%;
 		overflow-x: auto;
 		overscroll-behavior-x: contain;
-		padding: 0 0.6rem 0.6rem;
 	}
-	.stat-table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: 0.82rem;
+	.scroll-x .osrs-table {
+		font-size: 0.85rem;
 	}
-	.stat-table th,
-	.stat-table td {
-		padding: 0.3rem 0.5rem;
-		text-align: left;
+	.scroll-x .osrs-table th,
+	.scroll-x .osrs-table td {
+		padding: 0.35rem 0.6rem;
 		white-space: nowrap;
-		border-bottom: 1px solid var(--border);
 	}
-	.stat-table th {
-		color: var(--muted);
-		font-weight: 600;
-		font-size: 0.72rem;
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-	}
-	.stat-table td.right,
-	.stat-table th.right {
+	.osrs-table .num {
 		text-align: right;
 		font-variant-numeric: tabular-nums;
 	}
-	.stat-table tbody tr.you {
-		background: color-mix(in srgb, var(--accent) 14%, transparent);
+	.osrs-table tbody tr.you {
+		background: rgba(255, 152, 31, 0.14);
 	}
-	.stat-table .chip {
+	/* The table's own chip is smaller than a standings chip and sits inline. */
+	.osrs-table .chip {
 		display: inline-block;
-		width: 0.6rem;
-		height: 0.6rem;
-		border-radius: 50%;
-		background: var(--c);
-		box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+		width: 0.65rem;
+		height: 0.65rem;
+		vertical-align: middle;
 	}
 
 	.records {
@@ -2012,17 +2009,20 @@
 		margin: 0;
 		padding: 0;
 		display: grid;
-		gap: 0.35rem;
+		gap: 0.4rem;
 	}
 	.records li {
 		display: grid;
-		grid-template-columns: minmax(8rem, 12rem) 1fr;
+		grid-template-columns: minmax(8rem, 13rem) 1fr;
 		gap: 0.6rem;
 		align-items: baseline;
 	}
 	.records .rk {
-		color: var(--muted);
-		font-size: 0.78rem;
+		font-family: var(--font-heading);
+		font-weight: normal;
+		font-size: 0.85rem;
+		color: var(--accent);
+		text-shadow: var(--ts);
 	}
 	.records .rv {
 		font-size: 0.85rem;
@@ -2034,17 +2034,20 @@
 		}
 	}
 
-	/* Claims per hour. A plain flex row of bars — no chart library for one sparkline. */
+	/* Claims per hour. A flex row of bars — no chart library for one sparkline, and
+	   the frame matches the board's own sunken panels. */
 	.spark {
 		display: flex;
 		align-items: flex-end;
 		gap: 1px;
 		height: 5rem;
-		padding: 0.2rem;
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		background: var(--surface);
+		padding: 0.25rem;
+		border: 1px solid var(--frame);
+		border-radius: 3px;
+		background: rgba(0, 0, 0, 0.3);
+		box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.55);
 		overflow-x: auto;
+		overscroll-behavior-x: contain;
 	}
 	.spark i {
 		flex: 1 0 3px;
@@ -2054,26 +2057,17 @@
 		opacity: 0.85;
 	}
 
-	.sorts {
+	.rpt-tools {
 		display: flex;
-		align-items: center;
-		gap: 0.3rem;
+		gap: 0.6rem;
 		flex-wrap: wrap;
-	}
-	.sorts .sep {
-		margin-left: 0.5rem;
-	}
-	.sorts button.on {
-		border-color: var(--accent);
-		color: var(--accent);
 	}
 
 	.adminpanel .only {
 		float: right;
 		font-size: 0.7rem;
-		font-weight: 400;
 		color: var(--yellow);
-		opacity: 0.9;
+		text-shadow: var(--ts);
 	}
 
 	/* ── internal teams ──────────────────────────────────────────────────── */
