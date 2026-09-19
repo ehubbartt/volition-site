@@ -9,6 +9,8 @@ import { maybeProcessDinkDrops } from '$lib/server/dinkDrops';
 import { liveVersion } from '$lib/server/liveVersion';
 import { db } from '$lib/server/db';
 import { buildSquadView } from '$lib/server/connect4Squads';
+import { buildConnect4Stats } from '$lib/server/connect4Stats';
+import type { Connect4Stats } from '$lib/connect4/stats';
 import type { SquadView } from '$lib/connect4/squads';
 import { cellId, type Connect4Scoring, type LiveTile, type Piece, type Side } from '$lib/connect4/rules';
 
@@ -81,6 +83,9 @@ export interface Connect4View {
 	deckSize: number;
 	/** The side the viewer is seated on, or null for a pure spectator. */
 	viewerSide: Side | null;
+	/** The viewer's OWN id — so a leaderboard can mark their row. Discloses nothing:
+	 *  it is the id of the person the response is being sent to. */
+	viewerId: string;
 	/**
 	 * One clan's INTERNAL teams — its own split of its side into squads, with the per-cell
 	 * contribution shares the page rings the board with (src/lib/connect4/squads.ts).
@@ -91,6 +96,13 @@ export interface Connect4View {
 	 * squad rows gets null too, which leaves every other board exactly as it was.
 	 */
 	squads: SquadView | null;
+	/**
+	 * THE POST-EVENT REPORT, and only that: null until the game is `finished`. A live
+	 * board must not pay for it — it reads the whole submission ledger — and the sections
+	 * it replaces are the ones that only make sense while a game is still being played.
+	 * Its `admin` field is null for non-staff (src/lib/server/connect4Stats.ts).
+	 */
+	stats: Connect4Stats | null;
 }
 
 export type Connect4PageResult =
@@ -121,6 +133,10 @@ export async function buildConnect4Page(
 	// deck to know which slots carry a quantity at all. Nothing about the deck leaves in
 	// the result — only cell ids and shares.
 	const squads = await buildSquadView(snap, user);
+
+	// Only for a finished game. The live board polls every few seconds and this walks the
+	// whole submission ledger; a finished one is read once and memoized behind it.
+	const stats = snap.phase === 'finished' ? await buildConnect4Stats(snap, user) : null;
 
 	// The waiting room: pieces on the board that nobody has reviewed yet. Public, because
 	// the whole point is that both clans can see what is contested and what is settled.
@@ -214,7 +230,9 @@ export async function buildConnect4Page(
 			full: r.full,
 			deckSize: r.deckSize,
 			viewerSide,
-			squads
+			viewerId: user.id,
+			squads,
+			stats
 		}
 	};
 }

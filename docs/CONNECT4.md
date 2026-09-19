@@ -835,6 +835,49 @@ Setting it up:
 `npm run drill:connect4:squads` covers the split rules, the invariant, the visibility of
 the other side's pieces, the playback slice and the ring geometry. No database needed.
 
+### The post-event report
+
+Once a game is `finished`, everything below the board is replaced by a derived report.
+The offer list, the pet form, the waiting room and the claims log all describe a game
+still being played, so the member page forks once rather than checking the phase in four
+places.
+
+**It is derived, not recorded.** Nothing is written when a game ends; every number is
+recomputed from the pieces, the progress rows and the submission ledger, exactly like the
+live board's standings. A reopened game keeps working, and a hand-corrected piece restates
+the report on the next read.
+
+`src/lib/connect4/stats.ts` is the scorer and is **pure** — same split as squads.ts, and
+for the same reason: it has to agree with the standings the browser derives from the same
+pieces. `src/lib/server/connect4Stats.ts` only fetches (the submission ledger, paged, and
+the per-cell shares from `connect4Contrib.ts`) and hands it over.
+
+What it shows:
+
+| Section | What it answers |
+|---|---|
+| How it went | Tiles claimed and board fill, submissions and approval rate, players who turned up vs signed up, pets |
+| Side by side | Per side: points, tiles, longest line, pets, sent/approved/rejected, turnout |
+| Records | Fastest claim, typical tile life, longest holdout, busiest hour, biggest ×N grind, most hands on one tile, longest line |
+| When the board moved | Claims per hour, as a bar per hour |
+| Players | Every player's points, tiles, submissions, approvals, rejections and pets, sortable, own row highlighted |
+| Review desk | **Staff only.** Decisions per reviewer, approve/reject split, median wait from submission to decision, what was left in the queue |
+
+**Player points use the same shares as everything else** (`connect4Contrib.ts`), so the
+leaderboard adds up to the side totals above it — a ×N tile is split between the people
+who banked it rather than credited whole to whoever landed the last drop. A claim naming
+nobody still scores for its SIDE but joins no player's tally, so the leaderboard can fall
+short of the side total only by genuinely unattributed work, never by a rounding error.
+That invariant is what `npm run drill:connect4:stats` exists to assert.
+
+**The review desk is a separate field, not a hidden section.** `stats.admin` is null in a
+member's payload, so who approved and rejected what never leaves the server for anyone but
+staff. The memo cache is keyed on staff-or-not for the same reason.
+
+**Cost.** The report reads the whole submission ledger, so it is built only for a finished
+game — never on the live board, which polls every few seconds — and memoized for 60s
+behind that.
+
 ### Running a game
 
 1. Apply the schema once: `db/apply.sh --staging db/scripts/connect4.sql`.

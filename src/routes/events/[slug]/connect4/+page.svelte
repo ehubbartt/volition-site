@@ -30,7 +30,7 @@
 	import { formatEhb } from '$lib/ehb';
 	import { Playback, loadSeen, saveSeen, paceFor } from '$lib/connect4/playback.svelte';
 	import { liveEvent } from '$lib/live.svelte';
-	import type { Connect4PageResult } from '$lib/server/connect4Page';
+	import type { Connect4PageResult, Connect4View } from '$lib/server/connect4Page';
 
 	// The member board — the SPECTATOR half of the Connect Four event. The admin tester
 	// (/admin/connect4/[slug]) drives the game; this page only watches it: same board,
@@ -256,6 +256,58 @@
 	const squadOrphan = $derived(squadAll.find((s) => s.key === UNASSIGNED) ?? null);
 	/** Longest bar, so the chart reads as a race rather than three near-full bars. */
 	const squadTop = $derived(Math.max(1, ...squadRows.map((s) => s.total)));
+	// ── the post-event report ─────────────────────────────────────────────────
+	// Present only on a finished game (the server builds it then and not before), so its
+	// mere existence is the switch for everything below the board.
+	const stats = $derived(game?.stats ?? null);
+
+	const PLAYER_SORTS = [
+		{ key: 'points', label: 'Points' },
+		{ key: 'tiles', label: 'Tiles' },
+		{ key: 'submissions', label: 'Submissions' },
+		{ key: 'approved', label: 'Approved' }
+	] as const;
+	let playerSort = $state<(typeof PLAYER_SORTS)[number]['key']>('points');
+	let playerSide = $state<0 | 1 | 2>(0);
+	let showAllPlayers = $state(false);
+	const PLAYER_PREVIEW = 20;
+
+	const rankedPlayers = $derived.by(() => {
+		const rows = (stats?.players ?? []).filter((p) => !playerSide || p.side === playerSide);
+		return [...rows].sort((a, b) => b[playerSort] - a[playerSort] || b.points - a.points);
+	});
+	const shownPlayers = $derived(
+		showAllPlayers ? rankedPlayers : rankedPlayers.slice(0, PLAYER_PREVIEW)
+	);
+	/** Longest bar in the timeline, so a quiet hour is visibly quiet. */
+	const timelinePeak = $derived(Math.max(1, ...(stats?.timeline ?? []).map((t) => t.claims)));
+
+	/** "4m" / "2h 10m" / "3d 4h" — a duration a person can read at a glance. */
+	function dur(mins: number | null | undefined): string {
+		if (mins == null || !isFinite(mins)) return '—';
+		const m = Math.round(mins);
+		if (m < 1) return 'under a minute';
+		if (m < 60) return `${m}m`;
+		const h = Math.floor(m / 60);
+		if (h < 24) return `${h}h ${m % 60}m`;
+		return `${Math.floor(h / 24)}d ${h % 24}h`;
+	}
+	/** An ISO hour bucket, rendered in the reader's own timezone. */
+	function hourLabel(iso: string): string {
+		const d = new Date(iso);
+		return isFinite(d.getTime())
+			? d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric' })
+			: iso;
+	}
+	function dayLabel(iso: string | null): string {
+		if (!iso) return '—';
+		const d = new Date(iso);
+		return isFinite(d.getTime())
+			? d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+			: '—';
+	}
+	const pct = (n: number, of: number) => (of > 0 ? Math.round((n / of) * 100) : 0);
+
 	const squadSideName = $derived(
 		squadView && game ? (game.sides[squadView.side - 1]?.name ?? 'your clan') : ''
 	);
@@ -1149,6 +1201,13 @@
 			</div>
 		</section>
 
+		<!-- ── after the game, everything below the board is the REPORT ──────
+		     The offer list, the pet form, the waiting room and the claims log all
+		     describe a game still being played. A finished board wants a different
+		     page, so the fork is here rather than four separate `phase` checks. -->
+		{#if stats}
+			{@render report(stats)}
+		{:else}
 		<!-- ── what is on offer ──────────────────────────────────────────────
 		     The rail in one readable column. Same selection as clicking the rail. -->
 		{#if game.phase === 'live' && openTiles.length}
@@ -1432,8 +1491,237 @@
 				</div>
 			</section>
 		{/if}
+		{/if}
 	{/if}
 </div>
+
+<!-- ── THE POST-EVENT REPORT ──────────────────────────────────────────────────
+     Every number is derived from the same pieces, progress rows and submission
+     ledger the live board used — nothing is recorded when a game ends, so a
+     corrected piece restates the report on the next read. -->
+{#snippet report(st: NonNullable<Connect4View['stats']>)}
+	<section class="osrs-panel rpt">
+		<div class="osrs-titlebar">How it went</div>
+		<div class="pad">
+			<ul class="bignums">
+				<li><b>{st.board.claimed.toLocaleString()}</b><span>tiles claimed</span>
+					<em>of {st.board.cells.toLocaleString()} · {pct(st.board.claimed, st.board.cells)}%</em></li>
+				<li><b>{st.submissions.total.toLocaleString()}</b><span>submissions</span>
+					<em>{pct(st.submissions.approved, st.submissions.total)}% approved</em></li>
+				<li><b>{st.sides.reduce((a: number, x) => a + x.active, 0).toLocaleString()}</b><span>players took part</span>
+					<em>of {st.sides.reduce((a: number, x) => a + x.players, 0).toLocaleString()} signed up</em></li>
+				<li><b>{st.board.pets.toLocaleString()}</b><span>pets</span>
+					<em>{st.board.petPoints.toLocaleString()} points</em></li>
+			</ul>
+			<p class="muted tiny">
+				First claim {dayLabel(st.window.first)} · last {dayLabel(st.window.last)}.
+			</p>
+		</div>
+	</section>
+
+	<section class="osrs-panel rpt">
+		<div class="osrs-titlebar">Side by side</div>
+		<div class="scroll-x">
+			<table class="stat-table">
+				<thead>
+					<tr>
+						<th>Side</th><th class="right">Points</th><th class="right">Tiles</th>
+						<th class="right">Longest</th><th class="right">Pets</th>
+						<th class="right">Sent</th><th class="right">Approved</th>
+						<th class="right">Rejected</th><th class="right">Turned up</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each st.sides as sd (sd.side)}
+						<tr>
+							<td><span class="chip" style="--c: {sd.color}"></span> {sd.name}</td>
+							<td class="right"><strong>{sd.points.toLocaleString()}</strong></td>
+							<td class="right">{sd.tiles.toLocaleString()}</td>
+							<td class="right">{sd.longestLine >= 4 ? sd.longestLine : '—'}</td>
+							<td class="right">{sd.pets}</td>
+							<td class="right">{sd.submissions.toLocaleString()}</td>
+							<td class="right">{sd.approved.toLocaleString()}</td>
+							<td class="right">{sd.rejected.toLocaleString()}</td>
+							<td class="right">{sd.active} / {sd.players}</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	</section>
+
+	<section class="osrs-panel rpt">
+		<div class="osrs-titlebar">Records</div>
+		<div class="pad">
+			<ul class="records">
+				{#if st.records.fastestClaim}
+					<li><span class="rk">Fastest claim</span>
+						<span class="rv"><strong>{st.records.fastestClaim.itemName ?? 'a tile'}</strong>
+							— {dur(st.records.fastestClaim.minutes)} after it went up{#if st.records.fastestClaim.rsn},
+								by {st.records.fastestClaim.rsn}{/if}</span></li>
+				{/if}
+				{#if st.records.medianClaimMinutes != null}
+					<li><span class="rk">Typical tile</span>
+						<span class="rv">stood for <strong>{dur(st.records.medianClaimMinutes)}</strong> before someone took it</span></li>
+				{/if}
+				{#if st.records.slowestClaim}
+					<li><span class="rk">Longest holdout</span>
+						<span class="rv"><strong>{st.records.slowestClaim.itemName ?? 'a tile'}</strong>
+							— {dur(st.records.slowestClaim.minutes)}</span></li>
+				{/if}
+				{#if st.records.busiestHour}
+					<li><span class="rk">Busiest hour</span>
+						<span class="rv"><strong>{hourLabel(st.records.busiestHour.hour)}</strong>
+							— {st.records.busiestHour.claims} tiles claimed</span></li>
+				{/if}
+				{#if st.records.biggestQty}
+					<li><span class="rk">Biggest grind</span>
+						<span class="rv"><strong>{st.records.biggestQty.itemName ?? 'a tile'}</strong>
+							— ×{st.records.biggestQty.qty.toLocaleString()}{#if st.records.biggestQty.contributors > 1},
+								{st.records.biggestQty.contributors} players on it{/if}</span></li>
+				{/if}
+				{#if st.records.mostContested}
+					<li><span class="rk">Most hands on one tile</span>
+						<span class="rv"><strong>{st.records.mostContested.itemName ?? 'a tile'}</strong>
+							— {st.records.mostContested.contributors} players banked toward it</span></li>
+				{/if}
+				{#if st.records.longestLine}
+					<li><span class="rk">Longest line</span>
+						<span class="rv"><strong>{st.records.longestLine.len} in a row</strong>
+							— {game?.sides[st.records.longestLine.side - 1]?.name ?? ''}</span></li>
+				{/if}
+			</ul>
+		</div>
+	</section>
+
+	{#if st.timeline.length > 1}
+		<section class="osrs-panel rpt">
+			<div class="osrs-titlebar">When the board moved</div>
+			<div class="pad">
+				<div class="spark" role="img"
+					aria-label="Tiles claimed per hour, peaking at {timelinePeak} in one hour">
+					{#each st.timeline as t (t.hour)}
+						<i style="height: {Math.max(2, (t.claims / timelinePeak) * 100)}%"
+							title="{hourLabel(t.hour)} — {t.claims} claimed"></i>
+					{/each}
+				</div>
+				<p class="muted tiny">
+					Tiles claimed per hour, {hourLabel(st.timeline[0].hour)} to
+					{hourLabel(st.timeline[st.timeline.length - 1].hour)}. Peak {timelinePeak} in one hour.
+				</p>
+			</div>
+		</section>
+	{/if}
+
+	<section class="osrs-panel rpt">
+		<div class="osrs-titlebar">Players — {rankedPlayers.length}</div>
+		<div class="pad">
+			<div class="sorts">
+				<span class="muted tiny">Sort</span>
+				{#each PLAYER_SORTS as srt (srt.key)}
+					<button type="button" class="tiny" class:on={playerSort === srt.key}
+						onclick={() => (playerSort = srt.key)}>{srt.label}</button>
+				{/each}
+				<span class="muted tiny sep">Side</span>
+				<button type="button" class="tiny" class:on={playerSide === 0}
+					onclick={() => (playerSide = 0)}>Both</button>
+				{#each game?.sides ?? [] as sd (sd.side)}
+					<button type="button" class="tiny" class:on={playerSide === sd.side}
+						onclick={() => (playerSide = sd.side)}>{sd.name}</button>
+				{/each}
+			</div>
+		</div>
+		<div class="scroll-x">
+			<table class="stat-table">
+				<thead>
+					<tr>
+						<th class="right">#</th><th>Player</th><th>Side</th>
+						<th class="right">Points</th><th class="right">Tiles</th>
+						<th class="right">Sent</th><th class="right">Approved</th>
+						<th class="right">Rejected</th><th class="right">Pets</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each shownPlayers as p, i (p.userId)}
+						<tr class:you={p.userId === game?.viewerId}>
+							<td class="right muted">{i + 1}</td>
+							<td>{p.rsn ?? 'unknown'}</td>
+							<td><span class="chip" style="--c: {game?.sides[p.side - 1]?.color}"></span></td>
+							<td class="right"><strong>{Math.round(p.points).toLocaleString()}</strong></td>
+							<td class="right">{p.tiles ? p.tiles.toFixed(1) : '—'}</td>
+							<td class="right">{p.submissions || '—'}</td>
+							<td class="right">{p.approved || '—'}</td>
+							<td class="right">{p.rejected || '—'}</td>
+							<td class="right">{p.pets || '—'}</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+		{#if rankedPlayers.length > PLAYER_PREVIEW}
+			<div class="pad">
+				<button type="button" class="tiny" onclick={() => (showAllPlayers = !showAllPlayers)}>
+					{showAllPlayers ? 'Show top 20' : `Show all ${rankedPlayers.length}`}
+				</button>
+			</div>
+		{/if}
+		<div class="pad">
+			<p class="muted tiny">
+				Points are split the same way the board splits them: a ×1 tile counts whole to its
+				claimant, a ×N tile splits between everyone who banked toward it, and a line splits
+				across the players holding its cells — so these add up to the side totals above.
+			</p>
+		</div>
+	</section>
+
+	{#if st.admin}
+		<!-- Staff only. `admin` is null in the payload for everyone else, so this section
+		     does not exist for a member rather than being hidden from one. -->
+		<section class="osrs-panel adminpanel rpt">
+			<div class="osrs-titlebar">
+				Review desk
+				<span class="only">staff only</span>
+			</div>
+			<div class="pad">
+				<ul class="bignums small">
+					<li><b>{st.admin.reviewers.reduce((a: number, r) => a + r.total, 0).toLocaleString()}</b><span>decisions</span></li>
+					<li><b>{dur(st.admin.medianReviewMinutes)}</b><span>median wait</span>
+						<em>submitted → decided</em></li>
+					<li><b>{st.admin.unreviewed.toLocaleString()}</b><span>never decided</span></li>
+					<li><b>{st.admin.resubmitted.toLocaleString()}</b><span>extra attempts</span>
+						<em>submissions beyond an approval</em></li>
+				</ul>
+			</div>
+			<div class="scroll-x">
+				<table class="stat-table">
+					<thead>
+						<tr><th class="right">#</th><th>Reviewer</th><th class="right">Decisions</th>
+							<th class="right">Approved</th><th class="right">Rejected</th>
+							<th class="right">Median wait</th></tr>
+					</thead>
+					<tbody>
+						{#each st.admin.reviewers as r, i (r.userId)}
+							<tr>
+								<td class="right muted">{i + 1}</td>
+								<td>{r.rsn ?? 'unknown'}</td>
+								<td class="right"><strong>{r.total.toLocaleString()}</strong></td>
+								<td class="right">{r.approved.toLocaleString()}</td>
+								<td class="right">{r.rejected.toLocaleString()}</td>
+								<td class="right">{dur(r.medianMinutes)}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+			<div class="pad">
+				<p class="muted tiny">
+					"Never decided" counts submissions with no reviewer that were not approved —
+					anything left in the queue when the game ended.
+				</p>
+			</div>
+		</section>
+	{/if}
+{/snippet}
 
 <!-- Proof viewer. Opened from the claims log — every member can see what any claim was
      settled on. -->
@@ -1633,6 +1921,159 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
 		gap: 0.75rem;
+	}
+
+	/* ── the post-event report ───────────────────────────────────────────── */
+	.bignums {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+		gap: 0.75rem;
+	}
+	.bignums li {
+		display: grid;
+		gap: 0.1rem;
+		padding: 0.5rem 0.7rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--surface);
+	}
+	.bignums b {
+		font-size: 1.6rem;
+		line-height: 1.1;
+		font-variant-numeric: tabular-nums;
+	}
+	.bignums.small b {
+		font-size: 1.25rem;
+	}
+	.bignums span {
+		font-size: 0.8rem;
+	}
+	.bignums em {
+		font-style: normal;
+		font-size: 0.7rem;
+		color: var(--muted);
+	}
+
+	/* Tables are the one thing allowed to be wider than the column — each in its own
+	   scroller, so the PAGE still never goes sideways. Both halves are needed: a grid
+	   item defaults to `min-width: auto` and is sized by its widest content, so without
+	   `.rpt` the panel grows to fit the table and the scroller never scrolls. Measured at
+	   400px: the page went sideways until the panel could shrink. */
+	.rpt {
+		min-width: 0;
+	}
+	.scroll-x {
+		max-width: 100%;
+		overflow-x: auto;
+		overscroll-behavior-x: contain;
+		padding: 0 0.6rem 0.6rem;
+	}
+	.stat-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.82rem;
+	}
+	.stat-table th,
+	.stat-table td {
+		padding: 0.3rem 0.5rem;
+		text-align: left;
+		white-space: nowrap;
+		border-bottom: 1px solid var(--border);
+	}
+	.stat-table th {
+		color: var(--muted);
+		font-weight: 600;
+		font-size: 0.72rem;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+	.stat-table td.right,
+	.stat-table th.right {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+	.stat-table tbody tr.you {
+		background: color-mix(in srgb, var(--accent) 14%, transparent);
+	}
+	.stat-table .chip {
+		display: inline-block;
+		width: 0.6rem;
+		height: 0.6rem;
+		border-radius: 50%;
+		background: var(--c);
+		box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+	}
+
+	.records {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		gap: 0.35rem;
+	}
+	.records li {
+		display: grid;
+		grid-template-columns: minmax(8rem, 12rem) 1fr;
+		gap: 0.6rem;
+		align-items: baseline;
+	}
+	.records .rk {
+		color: var(--muted);
+		font-size: 0.78rem;
+	}
+	.records .rv {
+		font-size: 0.85rem;
+	}
+	@media (max-width: 560px) {
+		.records li {
+			grid-template-columns: 1fr;
+			gap: 0;
+		}
+	}
+
+	/* Claims per hour. A plain flex row of bars — no chart library for one sparkline. */
+	.spark {
+		display: flex;
+		align-items: flex-end;
+		gap: 1px;
+		height: 5rem;
+		padding: 0.2rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--surface);
+		overflow-x: auto;
+	}
+	.spark i {
+		flex: 1 0 3px;
+		min-width: 3px;
+		background: var(--accent);
+		border-radius: 1px 1px 0 0;
+		opacity: 0.85;
+	}
+
+	.sorts {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		flex-wrap: wrap;
+	}
+	.sorts .sep {
+		margin-left: 0.5rem;
+	}
+	.sorts button.on {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+
+	.adminpanel .only {
+		float: right;
+		font-size: 0.7rem;
+		font-weight: 400;
+		color: var(--yellow);
+		opacity: 0.9;
 	}
 
 	/* ── internal teams ──────────────────────────────────────────────────── */
