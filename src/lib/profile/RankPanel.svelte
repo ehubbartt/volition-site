@@ -373,11 +373,17 @@
 	/** Is this component currently carrying an adjustment? Drives the "adjusted" flag. */
 	const isAdjusted = (key: string) => currentAdjustment(key) !== '';
 
-	/** Manual gear credited for a tile's check item, if any (drives the tile's grant editor). */
-	function grantFor(itemName: string | null): GrantedItem | null {
-		if (!itemName || !adminEdit) return null;
+	/** Manual gear credited for a tile's check item, split by where it came from (drives the
+	 * tile's grant editor). A member's approved claim and a staff grant can both exist for one
+	 * item — scoring takes the higher count — so each is looked up on its own. */
+	function creditsFor(itemName: string | null): { staff: GrantedItem | null; claim: GrantedItem | null } {
+		if (!itemName || !adminEdit) return { staff: null, claim: null };
 		const key = itemName.toLowerCase();
-		return adminEdit.granted.find((g) => g.item_name.toLowerCase() === key) ?? null;
+		const rows = adminEdit.granted.filter((g) => g.item_name.toLowerCase() === key);
+		return {
+			staff: rows.find((g) => g.source === 'admin') ?? null,
+			claim: rows.find((g) => g.source !== 'admin') ?? null
+		};
 	}
 
 	// Shared enhance handler for every editor: close on success, and let the page's own
@@ -1056,48 +1062,59 @@
 		     different credit from one. -->
 		{#if adminEdit}
 			{@const item = p.checkItem ?? p.iconItem ?? p.name}
-			{@const granted = grantFor(item)}
+			{@const credits = creditsFor(item)}
+			{@const granted = credits.staff}
+			{@const cap = adminEdit.quantityCaps[item.toLowerCase()] ?? 1}
 			<div class="modal-admin">
+				{#if credits.claim}
+					<p class="modal-admin-head">
+						Credited by claim:
+						<strong
+							>{credits.claim.item_name}{credits.claim.quantity > 1 ? ` ×${credits.claim.quantity}` : ''}</strong
+						>
+						<span class="muted">(approved member claim)</span>
+					</p>
+				{/if}
 				{#if granted}
 					<p class="modal-admin-head">
 						Credited by hand:
 						<strong>{granted.item_name}{granted.quantity > 1 ? ` ×${granted.quantity}` : ''}</strong>
-						<span class="muted">({granted.source === 'admin' ? 'staff grant' : 'approved claim'})</span>
+						<span class="muted">(staff grant)</span>
 					</p>
 				{/if}
-				{#if !granted || granted.source === 'admin'}
-					{@const cap = adminEdit.quantityCaps[item.toLowerCase()] ?? 1}
-					<form method="POST" action="?/grantItem" class="modal-grant" use:enhance={editSubmit}>
-						<input type="hidden" name="item_name" value={item} />
-						<label>
-							Count
-							<input type="number" name="quantity" min="1" max={cap} step="1" value={granted?.quantity ?? 1} />
-							<!-- Only worth saying for the entries that actually count more than one
-							     (Zenyte shard 4, Tormented synapse 3); everywhere else it's noise. -->
-							{#if cap > 1}<small class="cap-hint">up to {cap} count toward the gear table</small>{/if}
-						</label>
-						<label class="grow">
-							Reason
-							<input
-								type="text"
-								name="reason"
-								required
-								maxlength="300"
-								placeholder="e.g. dropped before the collection log existed"
-							/>
-						</label>
-						<button type="submit" disabled={saving}>{granted ? 'Update' : 'Grant'}</button>
+				<!-- A staff grant is always available, even over an approved member claim: the two
+				     are separate rows and scoring takes the HIGHER count, so granting 4 Zenyte shards
+				     to a member whose old claim credited 1 raises them to 4 without touching the
+				     claim (which stays as reviewed). -->
+				<form method="POST" action="?/grantItem" class="modal-grant" use:enhance={editSubmit}>
+					<input type="hidden" name="item_name" value={item} />
+					<label>
+						Count
+						<input type="number" name="quantity" min="1" max={cap} step="1" value={granted?.quantity ?? 1} />
+						<!-- Only worth saying for the entries that actually count more than one
+						     (Zenyte shard 4, Tormented synapse 3); everywhere else it's noise. -->
+						{#if cap > 1}<small class="cap-hint">up to {cap} count toward the gear table</small>{/if}
+					</label>
+					<label class="grow">
+						Reason
+						<input
+							type="text"
+							name="reason"
+							required
+							maxlength="300"
+							placeholder="e.g. dropped before the collection log existed"
+						/>
+					</label>
+					<button type="submit" disabled={saving}>{granted ? 'Update' : 'Grant'}</button>
+				</form>
+				{#if granted}
+					<form method="POST" action="?/revokeGrant" use:enhance={editSubmit}>
+						<input type="hidden" name="id" value={granted.id} />
+						<button class="modal-revoke" type="submit" disabled={saving}>Revoke this grant</button>
 					</form>
-					{#if granted}
-						<form method="POST" action="?/revokeGrant" use:enhance={editSubmit}>
-							<input type="hidden" name="id" value={granted.id} />
-							<button class="modal-revoke" type="submit" disabled={saving}>Revoke this grant</button>
-						</form>
-					{/if}
-				{:else}
+				{:else if credits.claim}
 					<p class="muted small">
-						This came from a claim the member submitted — review it under Admin → Ranks → Gear
-						Claims.
+						The member's claim stays as reviewed; a grant only adds credit when its count is higher.
 					</p>
 				{/if}
 			</div>

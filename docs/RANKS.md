@@ -385,7 +385,12 @@ page instead).
 - **The whole gear table, not the claimable subset.** `allGearItems()` vs
   `claimableGearItems()`. Members may still only submit `claimable: true` entries — this is
   for items that are trackable in principle but unprovable in this member's case. A claim the
-  member submitted is NOT editable from the tile; it goes back through the review queue.
+  member submitted is NOT editable from the tile — but a staff grant can still be layered over
+  it: the two are separate rows and scoring takes the higher count, so the tile always offers
+  the grant form and shows the member claim alongside it. (The motivating case: a member whose
+  old approved claim credits 1 Zenyte shard, back when shards were member-claimable, and who
+  needs 4. The review queue only acts on *pending* claims, so without this there was no way to
+  raise it.)
 - **A count, because several entries are quantity checks.** The motivating case: a member who
   got four Zenyte shards before the in-game collection log existed. Zenyte Shard is four
   independent entries needing 1/2/3/4 shards, so a grant that could only say "owned" would
