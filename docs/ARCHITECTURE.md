@@ -26,6 +26,12 @@ system works.
 
 - **SvelteKit 2 / Svelte 5 (runes)**, TypeScript, `@sveltejs/adapter-node` (SSR).
 - Runs as a Node server (`node build`) on **Fly.io** (`fly.toml`, `Dockerfile`, Node 22).
+  Production sizing: `shared-cpu-1x` / 512 MB, **one always-on machine plus one suspended
+  standby** (`fly scale count 2`; `min_machines_running = 1`). The Fly proxy wakes the standby
+  when the live machine passes the `[http_service.concurrency]` soft limit and suspends it again
+  when traffic drops — Fly only starts/stops existing machines, it never creates new ones, so the
+  standby's existence IS the scale-out headroom. Per-instance in-memory state (caches, the Dink
+  drop throttle) is duplicated while both run.
 - Data layer: **Supabase Postgres** via `@supabase/supabase-js`, server-side only — see
   [`DATABASE.md`](DATABASE.md).
 - Other libs: `arctic` (Discord OAuth), `three` (3D cards), `sharp`, `marked`, `zod`.

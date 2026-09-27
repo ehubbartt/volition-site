@@ -15,6 +15,17 @@ primary_region = 'iad'
   min_machines_running = 1
   processes = ['app']
 
+  # Scale-out on demand. Fly never creates machines by itself — it starts/stops the ones
+  # that exist. So production keeps ONE always-on machine (min_machines_running above)
+  # plus ONE standby (`fly scale count 2`) that sits suspended (billed for storage only)
+  # until the running machine passes soft_limit concurrent requests, then the proxy wakes
+  # it; auto_stop suspends it again once traffic drops. `requests` (not connections) so
+  # idle keep-alive sockets don't count as load.
+  [http_service.concurrency]
+    type = 'requests'
+    soft_limit = 40
+    hard_limit = 60
+
 # Restart a wedged machine automatically. /health is answered in hooks.server.ts
 # before the canonical-host redirect, so the internal probe gets a 200 (not a 308).
 [[http_service.checks]]
