@@ -49,6 +49,17 @@
 		lineItems.splice(i, 1);
 	}
 
+	function parseLeaf(text: string): unknown {
+		const t = text.trim();
+		if (t === 'true') return true;
+		if (t === 'false') return false;
+		if (/^-?\d+(\.\d+)?$/.test(t)) {
+			const n = Number(t);
+			if (t.includes('.') || Number.isSafeInteger(n)) return n;
+		}
+		return text;
+	}
+
 	function label(k: string): string {
 		return k
 			.replace(/([A-Z])/g, ' $1')
@@ -92,7 +103,23 @@
 		<span class="muted">{value ? 'true' : 'false'}</span>
 	</label>
 {:else if t === 'number'}
-	<input class="leaf inp" type="number" step="any" bind:value={value as number} />
+	<!-- Not bind:value: Svelte binds an EMPTIED number box as null, and a null leaf then
+	     re-renders as a plain text box below, so the value typed back in was saved as a
+	     STRING ("29.7"). That's how the loot table broke. Only finite numbers are written;
+	     clearing the box keeps the last number, and leaving it empty puts that number back. -->
+	<input
+		class="leaf inp"
+		type="number"
+		step="any"
+		value={value as number}
+		oninput={(e) => {
+			const n = e.currentTarget.valueAsNumber;
+			if (Number.isFinite(n)) value = n;
+		}}
+		onblur={(e) => {
+			if (e.currentTarget.value === '') e.currentTarget.value = String(value);
+		}}
+	/>
 {:else if t === 'string'}
 	{#if isHexColor(value)}
 		<div class="leaf color-row">
@@ -143,12 +170,16 @@
 		{#if Object.keys(value as Record<string, unknown>).length === 0}<span class="muted empty">(empty)</span>{/if}
 	</div>
 {:else}
+	<!-- An empty (null) field can't know what type it should be, so read the typed text:
+	     a plain number becomes a number and true/false a boolean, anything else stays text.
+	     Integers too big to be exact (Discord ids) stay strings so they aren't rounded.
+	     On change rather than input: the field swaps to a typed control once it has a value. -->
 	<input
 		class="leaf inp"
 		type="text"
 		placeholder="null"
 		value=""
-		oninput={(e) => (value = e.currentTarget.value)}
+		onchange={(e) => (value = parseLeaf(e.currentTarget.value))}
 	/>
 {/if}
 

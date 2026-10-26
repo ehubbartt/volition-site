@@ -53,6 +53,9 @@ Every request passes through the handle hook, in order:
 - **Bot config editor:** `/admin/config` (super-admin) writes `bot_config`; the bot
   hot-reloads within ~60s. This is the seam used by the editable command-messages and forms
   work.
+  The editor (`ConfigValueEditor.svelte`) keeps each leaf's JSON type: clearing a number box
+  never saves `null`, and typing into an empty (null) field parses plain numbers / `true` /
+  `false` instead of storing them as text. A number saved as a string once broke loot crates.
 - **Bot bridge:** the site posts to a Discord webhook the bot listens on for actions like
   granting a Discord role after a reward (see `src/lib/server/botBridge.ts`).
 - **Voice tracking is bot-owned, and keyed by Discord identity.** The bot's 5-minute poll
