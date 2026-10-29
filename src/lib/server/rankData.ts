@@ -119,6 +119,10 @@ export interface TempleClog {
 	items: Record<string, unknown>;
 	finished: number;
 	available: number;
+	/** The player's exact in-game spelling as Temple reports it (e.g. "Chest X-Ray"). WOM
+	 * folds hyphens into spaces ("Chest X Ray"), but WikiSync keys players by the exact name,
+	 * so this is the spelling to retry WikiSync with. Null when Temple didn't say. */
+	displayName: string | null;
 }
 
 export type SourceResult<T> = { status: 'ok'; data: T } | { status: 'missing' } | { status: 'error' };
@@ -131,7 +135,12 @@ export async function fetchTempleCollectionLogResult(rsn: string): Promise<Sourc
 		rsn
 	)}&categories=all&includenames=1`;
 	const res = await getJsonOutcome<{
-		data?: { items?: Record<string, unknown>; total_collections_finished?: number; total_collections_available?: number };
+		data?: {
+			items?: Record<string, unknown>;
+			total_collections_finished?: number;
+			total_collections_available?: number;
+			player_name_with_capitalization?: string;
+		};
 	}>(url, 20000);
 	if (res.status === 'error') return { status: 'error' };
 	if (res.status === 'missing') return { status: 'missing' };
@@ -143,7 +152,8 @@ export async function fetchTempleCollectionLogResult(rsn: string): Promise<Sourc
 		data: {
 			items: d.items || {},
 			finished: d.total_collections_finished || 0,
-			available: d.total_collections_available || 0
+			available: d.total_collections_available || 0,
+			displayName: d.player_name_with_capitalization?.trim() || null
 		}
 	};
 }
@@ -164,11 +174,15 @@ export interface WikiSyncPlayer {
 	diaries: Record<string, Record<string, boolean>> | null;
 }
 
-// Status-aware WikiSync fetch. WikiSync 404s for a player who has never run the RuneLite
-// plugin ('missing'); other non-OK / network / timeout is 'error' (transient).
+// Status-aware WikiSync fetch. WikiSync answers a player who has never run the RuneLite
+// plugin with 400 {"code":"NO_USER_DATA"} (a 404 is treated the same) → 'missing'; other
+// non-OK / network / timeout is 'error' (transient). Treating that 400 as an outage used to
+// make every never-synced member's rank check skip its save.
 export async function fetchWikiSyncPlayerResult(rsn: string): Promise<SourceResult<WikiSyncPlayer>> {
 	const res = await getJsonOutcome<{ combat_achievements?: number[]; achievement_diaries?: Record<string, unknown> }>(
-		`${WIKISYNC_BASE}/${encodeURIComponent(rsn)}/STANDARD`
+		`${WIKISYNC_BASE}/${encodeURIComponent(rsn)}/STANDARD`,
+		undefined,
+		(status, body) => status === 400 && (body as { code?: unknown } | null)?.code === 'NO_USER_DATA'
 	);
 	if (res.status === 'error') return { status: 'error' };
 	if (res.status === 'missing') return { status: 'missing' };
@@ -193,6 +207,20 @@ export async function fetchWikiSyncPlayerResult(rsn: string): Promise<SourceResu
 	}
 
 	return { status: 'ok', data: { caIds: data.combat_achievements || [], diaries } };
+}
+
+// WikiSync keys players by their EXACT name, hyphens included, but the clan roster (WOM) and
+// site profiles often carry a hyphen-less spelling ("Chest X Ray" for "Chest X-Ray"). When
+// WikiSync has nothing under the roster spelling, retry once under Temple's reported
+// spelling. Temple matches names loosely, so it finds the player either way.
+export async function retryWikiSyncAs(
+	rsn: string,
+	first: SourceResult<WikiSyncPlayer>,
+	templeName: string | null | undefined
+): Promise<SourceResult<WikiSyncPlayer>> {
+	if (first.status !== 'missing' || !templeName) return first;
+	if (templeName.toLowerCase() === rsn.trim().toLowerCase()) return first;
+	return fetchWikiSyncPlayerResult(templeName);
 }
 
 export async function fetchWikiSyncPlayer(rsn: string): Promise<WikiSyncPlayer | null> {
@@ -263,7 +291,7 @@ export async function fetchPlayerRankInputs(
 
 	// GIM accounts: re-derive EHB from boss KCs on iron rates (fetched in parallel).
 	const iron = usesIronmanEhb(accountType);
-	const [totalLevel, templeRes, wikiRes, bossKills] = await Promise.all([
+	const [totalLevel, templeRes, wikiFirst, bossKills] = await Promise.all([
 		fetchPlayerTotalLevel(rsn),
 		fetchTempleCollectionLogResult(rsn),
 		fetchWikiSyncPlayerResult(rsn),
@@ -271,6 +299,7 @@ export async function fetchPlayerRankInputs(
 	]);
 
 	const temple = templeRes.status === 'ok' ? templeRes.data : null;
+	const wikiRes = await retryWikiSyncAs(rsn, wikiFirst, temple?.displayName);
 	const ca = wikiRes.status === 'ok' ? wikiRes.data.caIds : null;
 	const gear = calculateGearPoints(temple?.items, manualGear);
 	const caResult = calculateCAPoints(ca);

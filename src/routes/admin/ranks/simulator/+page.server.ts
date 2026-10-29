@@ -12,7 +12,8 @@ import {
 	fetchClanRoster,
 	fetchPlayerTotalLevel,
 	fetchTempleCollectionLog,
-	fetchWikiSyncCA,
+	fetchWikiSyncPlayerResult,
+	retryWikiSyncAs,
 	fetchPlayerBossKills,
 	monthsBetween
 } from '$lib/server/rankData';
@@ -413,12 +414,15 @@ export const actions: Actions = {
 		for (const entry of worklist) {
 			// GIM accounts: re-derive EHB from boss KCs on iron rates (fetched in parallel).
 			const iron = usesIronmanEhb(accountTypeByRsn.get(entry.rsn.toLowerCase()));
-			const [totalLevel, temple, ca, bossKills] = await Promise.all([
+			const [totalLevel, temple, wikiFirst, bossKills] = await Promise.all([
 				fetchPlayerTotalLevel(entry.rsn),
 				fetchTempleCollectionLog(entry.rsn),
-				fetchWikiSyncCA(entry.rsn),
+				fetchWikiSyncPlayerResult(entry.rsn),
 				iron ? fetchPlayerBossKills(entry.rsn) : Promise.resolve(null)
 			]);
+			// WikiSync needs the exact (hyphenated) name — retry under Temple's spelling.
+			const wikiRes = await retryWikiSyncAs(entry.rsn, wikiFirst, temple?.displayName);
+			const ca = wikiRes.status === 'ok' ? wikiRes.data.caIds : null;
 			const gear = calculateGearPoints(temple?.items, manualGearByRsn.get(entry.rsn.toLowerCase()));
 			const caResult = calculateCAPoints(ca);
 			// Keep WOM's EHB if the iron boss snapshot didn't come back (outage), rather

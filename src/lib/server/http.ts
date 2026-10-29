@@ -48,12 +48,22 @@ export type JsonOutcome<T> =
 
 export async function getJsonOutcome<T = unknown>(
 	url: string,
-	timeoutMs = DEFAULT_TIMEOUT_MS
+	timeoutMs = DEFAULT_TIMEOUT_MS,
+	// For upstreams that say "no record" with something other than a 404 — WikiSync answers
+	// an unknown player with 400 {"code":"NO_USER_DATA"}. Given the status and parsed error
+	// body, return true when the response means "missing" rather than a transient failure.
+	isMissing?: (status: number, body: unknown) => boolean
 ): Promise<JsonOutcome<T>> {
 	try {
 		const res = await serverFetch(url, { headers: UA }, timeoutMs);
 		if (res.status === 404) return { status: 'missing' };
-		if (!res.ok) return { status: 'error' };
+		if (!res.ok) {
+			if (isMissing) {
+				const body = await res.json().catch(() => null);
+				if (isMissing(res.status, body)) return { status: 'missing' };
+			}
+			return { status: 'error' };
+		}
 		return { status: 'ok', data: (await res.json()) as T };
 	} catch {
 		return { status: 'error' };

@@ -131,6 +131,14 @@ shows). Three tiers, over the seven scored categories:
   During a real outage every source errors → nothing saves → no mass demotion.
   `templeAvailable`/`wikisyncAvailable` stay `status === 'ok'` (they drive the breakdown display
   + the home non-Temple shading, which reads `vs_rank_sim.temple_available`).
+- **WikiSync quirks.** WikiSync answers a never-synced player with **400
+  `{"code":"NO_USER_DATA"}`**, not a 404 — `fetchWikiSyncPlayerResult` passes a predicate to
+  `getJsonOutcome` so that reads as `'missing'` (it used to read as `'error'`, which made every
+  never-synced member's check skip its save). WikiSync also keys players by their **exact**
+  name, hyphens included, while WOM folds hyphens into spaces ("Chest X Ray" for "Chest X-Ray").
+  Temple matches loosely and reports the real spelling (`TempleClog.displayName`), so when
+  WikiSync has nothing under the roster spelling, `retryWikiSyncAs` retries once under Temple's
+  — in both `fetchPlayerRankInputs` and the simulator refresh.
 - **Admin "Re-check rank" on `/u/[rsn]`** (`recheck` action): an admin viewing any member's
   profile gets a button (shown when `data.canRecheck`, i.e. `isAdmin`) that runs the same
   single-player live check for that member — resolved from `vs_users`, so it folds in their
