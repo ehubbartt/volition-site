@@ -432,7 +432,8 @@ before.
   X-Ray"); the roster and most profiles hold WiseOldMan's spelling, which folds hyphens into
   spaces ("Chest X Ray"). Both the proxy's participant gate (`rsnKey` in dink-proxy) and the
   site's drop → member lookup (`findUserIdByRsnLoose` / `rsnKey` in `users.ts`, also used by
-  the "set up Dink" task check) compare names with the three separators treated as one, so a
+  the "set up Dink" task check and the `/dink-check` Bones self-test list) compare names with
+  the three separators treated as one, so a
   hyphenated member's drops record and credit. `vs_dink_drops.rsn` keeps Dink's spelling.
 
 - **Drop not recorded (`vs_dink_drops` empty):** RSN not in `vs_active_participants`

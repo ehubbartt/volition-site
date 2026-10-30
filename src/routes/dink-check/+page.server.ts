@@ -1,6 +1,6 @@
 import { redirect, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
-import { rsnExactPattern } from '$lib/server/users';
+import { rsnLoosePattern, rsnKey } from '$lib/server/users';
 import {
 	getOrCreateToken,
 	rotateToken,
@@ -49,14 +49,18 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const rsn = locals.user.rsn;
 	const since = new Date(Date.now() - WINDOW_MS).toISOString();
 
+	// Dink records the real in-game spelling ("Chest X-Ray") while the profile usually holds
+	// WiseOldMan's ("Chest X Ray"), so match regardless of space / hyphen / underscore: a
+	// loose ILIKE, then the rsnKey check keeps only this player's drops.
+	const key = rsnKey(rsn);
 	const { data: dropsRaw } = await db()
 		.from('vs_dink_drops')
-		.select('id, event_id, item_id, item_name, quantity, source, received_at')
-		.ilike('rsn', rsnExactPattern(rsn))
+		.select('id, rsn, event_id, item_id, item_name, quantity, source, received_at')
+		.ilike('rsn', rsnLoosePattern(rsn))
 		.gte('received_at', since)
 		.order('received_at', { ascending: false })
 		.limit(50);
-	const drops = (dropsRaw ?? []) as DropRow[];
+	const drops = ((dropsRaw ?? []) as (DropRow & { rsn: string })[]).filter((d) => rsnKey(d.rsn) === key);
 
 	// Resolve event names for any matched drops, plus whether the self-test event exists.
 	const eventIds = [...new Set(drops.map((d) => d.event_id).filter((e): e is string => !!e))];
