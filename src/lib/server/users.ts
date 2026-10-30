@@ -19,6 +19,35 @@ export function rsnExactPattern(rsn: string): string {
 	return rsn.trim().replace(/_/g, ' ').replace(/[\\%_]/g, '\\$&');
 }
 
+// One comparison key per name: lowercase, with any run of space / hyphen / underscore folded
+// to one space — OSRS treats all three as the same character. Sources disagree on which they
+// use: Dink sends the real in-game spelling ("Chest X-Ray"), WiseOldMan (and so the roster and
+// most profiles) folds hyphens into spaces ("Chest X Ray").
+export function rsnKey(rsn: string): string {
+	return rsn.toLowerCase().replace(/[\s_-]+/g, ' ').trim();
+}
+
+// ILIKE pattern that matches an RSN with ANY single separator character where it has a
+// space / hyphen / underscore. Deliberately a little wide (the wildcard admits any char) —
+// callers re-check candidates with rsnKey to keep only a true match.
+export function rsnLoosePattern(rsn: string): string {
+	return rsnKey(rsn)
+		.split(' ')
+		.map((part) => part.replace(/[\\%_]/g, '\\$&'))
+		.join('_');
+}
+
+// A site user id for an RSN, matching it however its separators are spelled (see rsnKey).
+// ILIKE narrows the candidates — each separator becomes a one-character wildcard — and the
+// key comparison then keeps only a true match, so the wildcard can't admit a different name.
+export async function findUserIdByRsnLoose(rsn: string): Promise<string | null> {
+	const key = rsnKey(rsn);
+	if (!key) return null;
+	const { data } = await db().from('vs_users').select('id, rsn').ilike('rsn', rsnLoosePattern(rsn)).limit(10);
+	const hit = ((data ?? []) as { id: string; rsn: string | null }[]).find((u) => u.rsn && rsnKey(u.rsn) === key);
+	return hit?.id ?? null;
+}
+
 // Resolve a /u/[rsn] slug to its vs_users row (case-insensitive). Returns null if
 // no such player. RSNs are unique (see isRsnTaken), so at most one matches.
 export async function findUserBySlug(slug: string): Promise<ProfileUser | null> {

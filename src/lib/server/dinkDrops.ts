@@ -12,7 +12,7 @@
 //   2. opportunistically at the top of the bingo board load (poll-on-read backstop)
 
 import { db } from '$lib/server/db';
-import { rsnExactPattern } from '$lib/server/users';
+import { rsnExactPattern, findUserIdByRsnLoose } from '$lib/server/users';
 import { loadEventBoard } from '$lib/server/eventStructure';
 import { getBingoState, getTileStatus } from '$lib/bingo/state';
 import { postBingoCredit } from '$lib/server/dropsFeed';
@@ -82,17 +82,11 @@ type Outcome =
 	| 'reverted'
 	| 'bomb'; // matched no tile, but was big enough to arm a Battleship bomb
 
-// Resolve an RSN to a site user id (case-insensitive, mirrors clan.ts/users.ts).
+// Resolve an RSN to a site user id. Dink reports the real in-game spelling ("Chest X-Ray")
+// while profiles usually hold WiseOldMan's ("Chest X Ray"), so match regardless of space /
+// hyphen / underscore (users.ts findUserIdByRsnLoose) — an exact match missed those members.
 async function resolveUserId(rsn: string): Promise<string | null> {
-	// Escape the RSN so a stray '_'/'%' can't match the wrong row (OSRS treats
-	// space/underscore as equal — same exact-match helper the vs_users lookups use).
-	const { data } = await db()
-		.from('vs_users')
-		.select('id')
-		.ilike('rsn', rsnExactPattern(rsn))
-		.limit(1)
-		.maybeSingle();
-	return (data as { id: string } | null)?.id ?? null;
+	return findUserIdByRsnLoose(rsn);
 }
 
 // Find the tracked item for a drop (id match preferred, name fallback). WATCH BOTH WAYS:

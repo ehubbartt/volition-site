@@ -428,6 +428,13 @@ before.
 
 ## Troubleshooting
 
+- **Player names: space = hyphen = underscore.** Dink reports the real in-game name ("Chest
+  X-Ray"); the roster and most profiles hold WiseOldMan's spelling, which folds hyphens into
+  spaces ("Chest X Ray"). Both the proxy's participant gate (`rsnKey` in dink-proxy) and the
+  site's drop → member lookup (`findUserIdByRsnLoose` / `rsnKey` in `users.ts`, also used by
+  the "set up Dink" task check) compare names with the three separators treated as one, so a
+  hyphenated member's drops record and credit. `vs_dink_drops.rsn` keeps Dink's spelling.
+
 - **Drop not recorded (`vs_dink_drops` empty):** RSN not in `vs_active_participants`
   (not on the clan roster / not signed up), item id+name don't match any tracked item,
   the event isn't `open`, or the proxy has no `SUPABASE_URL`/`SUPABASE_KEY`. Manifest

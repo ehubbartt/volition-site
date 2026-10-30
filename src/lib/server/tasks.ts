@@ -2,7 +2,7 @@ import { db } from './db';
 import type { SessionUser } from './auth';
 import { isAdmin } from './auth';
 import { isClanMember } from './clan';
-import { rsnExactPattern } from './users';
+import { rsnLoosePattern, rsnKey } from './users';
 import { fetchTempleCollectionLog } from './rankData';
 import { countPendingReview } from './submissions';
 import { getLastLootDate } from './playerStats';
@@ -486,14 +486,17 @@ async function templeLinked(rsn: string, quick: boolean): Promise<boolean> {
 	return refreshTempleLinked(rsn);
 }
 
-// Has the proxy ever recorded a drop for this RSN? One indexed row lookup.
+// Has the proxy ever recorded a drop for this RSN? Dink records the real in-game spelling
+// ("Chest X-Ray") where the profile may hold WOM's ("Chest X Ray"), so match regardless of
+// separators — a loose ILIKE, then the rsnKey check to keep only true matches.
 async function hasDinkDrop(rsn: string): Promise<boolean> {
+	const key = rsnKey(rsn);
 	const { data } = await db()
 		.from('vs_dink_drops')
-		.select('id')
-		.ilike('rsn', rsnExactPattern(rsn))
-		.limit(1);
-	return !!(data && data.length);
+		.select('rsn')
+		.ilike('rsn', rsnLoosePattern(rsn))
+		.limit(10);
+	return ((data ?? []) as { rsn: string }[]).some((d) => rsnKey(d.rsn) === key);
 }
 
 async function setupTasks(user: SessionUser, quick: boolean): Promise<PlayerTask[]> {
