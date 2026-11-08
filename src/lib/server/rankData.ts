@@ -71,8 +71,25 @@ export async function fetchClanRoster(): Promise<Record<string, RosterEntry>> {
 }
 
 type WomPlayer = {
+	ehb?: number;
 	latestSnapshot?: { data?: { skills?: Record<string, { level?: number; experience?: number }>; bosses?: Record<string, { kills?: number }> } };
 };
+
+// The rank inputs WOM's player profile carries: total level (null when WOM has no snapshot)
+// and the player's own EHB. 'missing' = WOM has never tracked this name (404); 'error' = WOM
+// didn't answer (rate limit / outage) — the caller must not save a score built on it.
+// EHB is read here as well as from the group roster because members who aren't in the clan's
+// WOM group (not added yet, or a name change WOM hasn't linked) are absent from the roster,
+// which used to score their EHB as 0 even though WOM tracks it on their profile.
+export async function fetchPlayerWomResult(rsn: string): Promise<SourceResult<{ level: number | null; ehb: number }>> {
+	const res = await womGet<WomPlayer>(`/players/${encodeURIComponent(rsn)}`);
+	if (res.status !== 'ok') return res;
+	const level = res.data?.latestSnapshot?.data?.skills?.overall?.level;
+	return {
+		status: 'ok',
+		data: { level: typeof level === 'number' && level > 0 ? level : null, ehb: Math.round(res.data?.ehb || 0) }
+	};
+}
 
 // Total level from WOM's latest snapshot. 'missing' = WOM has never tracked this name (404)
 // or has no snapshot for it — a real "unknown", so the level component scores 0. 'error' =
@@ -315,16 +332,17 @@ export async function fetchPlayerRankInputs(
 
 	// GIM accounts: re-derive EHB from boss KCs on iron rates (fetched in parallel).
 	const iron = usesIronmanEhb(accountType);
-	const [levelRes, templeRes, wikiFirst, bossKills] = await Promise.all([
-		fetchPlayerTotalLevelResult(rsn),
+	const [playerRes, templeRes, wikiFirst, bossKills] = await Promise.all([
+		fetchPlayerWomResult(rsn),
 		fetchTempleCollectionLogResult(rsn),
 		fetchWikiSyncPlayerResult(rsn),
 		iron ? fetchPlayerBossKills(rsn) : Promise.resolve(null)
 	]);
 
-	const totalLevel = levelRes.status === 'ok' ? levelRes.data : null;
+	const womPlayer = playerRes.status === 'ok' ? playerRes.data : null;
+	const totalLevel = womPlayer?.level ?? null;
 	const womStatus: SourceStatus =
-		rosterRes.status === 'error' || levelRes.status === 'error' ? 'error' : 'ok';
+		rosterRes.status === 'error' || playerRes.status === 'error' ? 'error' : 'ok';
 	const temple = templeRes.status === 'ok' ? templeRes.data : null;
 	const wikiRes = await retryWikiSyncAs(rsn, wikiFirst, temple?.displayName);
 	const ca = wikiRes.status === 'ok' ? wikiRes.data.caIds : null;
@@ -332,7 +350,8 @@ export async function fetchPlayerRankInputs(
 	const caResult = calculateCAPoints(ca);
 	// Iron EHB only overrides when the boss snapshot actually came back; on a WOM outage
 	// we keep WOM's EHB rather than zeroing a GIM's whole EHB component.
-	const ehb = iron && bossKills ? Math.round(computeIronmanEhb(bossKills)) : wom?.ehb ?? 0;
+	// Not in the clan's WOM group → no roster entry; fall back to the EHB on their own profile.
+	const ehb = iron && bossKills ? Math.round(computeIronmanEhb(bossKills)) : wom?.ehb ?? womPlayer?.ehb ?? 0;
 
 	return {
 		rsn: wom?.rsn ?? rsn,

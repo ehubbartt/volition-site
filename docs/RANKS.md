@@ -125,7 +125,11 @@ shows). Three tiers, over the seven scored categories:
   total level errored, and the save-gate below treats it exactly like a Temple/WikiSync error.
   (Before this, a 429 read as "no data": members were scored with EHB 0 / total level 0 and
   **saved** — a burst of re-checks or a mass update demoted ~200 members at once in Nov 2026.)
-  A roster of zero members is an error, never a real clan. A player WOM has never tracked
+  A roster of zero members is an error, never a real clan. EHB comes from the roster, but a
+  member who isn't in the clan's WOM group (not added yet, or a name change WOM hasn't linked)
+  has no roster entry, so `fetchPlayerRankInputs` falls back to the `ehb` on their own WOM
+  profile — the same `/players` response the total level is read from, no extra call. Their
+  time in clan still scores 0 until they're added to the group (the join date lives there). A player WOM has never tracked
   (404, or no snapshot) is `'missing'`: their level scores 0 and the rank still saves.
 - **Save-gate: missing ≠ errored** (the key rule). `fetchPlayerRankInputs` now reports a
   `templeStatus`/`wikisyncStatus` of `'ok'` | `'missing'` | `'error'` (via `getJsonOutcome`,
