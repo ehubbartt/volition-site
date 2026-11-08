@@ -192,7 +192,8 @@ export interface VerifyResult {
 	ehb: number;
 	womId: number | null;
 	meets: boolean;
-	reason?: 'not_found' | 'below_requirements';
+	/** 'unavailable' = WiseOldMan didn't answer (rate limit / outage) — retry, don't judge. */
+	reason?: 'not_found' | 'below_requirements' | 'unavailable';
 }
 
 // Version B verify: look the RSN up on WiseOldMan and gate on 2000+ total & 150+ EHB.
@@ -202,6 +203,11 @@ export async function verifyRsn(rsn: string): Promise<VerifyResult> {
 	const trimmed = rsn.trim();
 	try {
 		const inputs = await fetchPlayerRankInputs(trimmed, undefined, []);
+		// A rate-limited WOM reads as "no total level, no EHB" — never let that turn a real
+		// player into "not found" or "below requirements".
+		if (inputs.womStatus === 'error') {
+			return { ok: false, rsn: trimmed, totalLevel: null, ehb: 0, womId: null, meets: false, reason: 'unavailable' };
+		}
 		const totalLevel = inputs.totalLevel;
 		const ehb = inputs.ehb;
 		const meets = (totalLevel ?? 0) >= MIN_TOTAL_LEVEL && ehb >= MIN_EHB;

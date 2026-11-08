@@ -76,6 +76,7 @@ Required: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (RLS bypass; the app falls
 `SUPABASE_ANON_KEY` in dev only — with RLS deny-all it reads/writes nothing in prod),
 `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `PUBLIC_SITE_URL`, and the role lists
 `ADMIN_DISCORD_IDS`, `SUPER_ADMIN_DISCORD_IDS`, `CARD_TESTER_DISCORD_IDS`. Optional
-bridge/ops webhook URLs may also be set. Fly injects `NODE_ENV`, `PORT`, `FLY_REGION`.
+bridge/ops webhook URLs may also be set, and `WOM_API_KEY` (raises WiseOldMan's limit from
+20 to 100 requests/min; see `womClient.ts`). Fly injects `NODE_ENV`, `PORT`, `FLY_REGION`.
 Confirm the live list against `hooks.server.ts`, `auth.ts`, the `auth/discord/*` routes, and
 `botBridge.ts`.

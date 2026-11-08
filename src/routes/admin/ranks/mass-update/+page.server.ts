@@ -14,9 +14,7 @@ import type { Actions, PageServerLoad } from './$types';
 // TempleOSRS + WikiSync, so a per-player delay keeps us within WOM's rate budget.
 
 const BATCH = 5; // members re-checked per request
-const PER_PLAYER_DELAY_MS = 3000; // spacing between players (WOM ~20 req/min)
 const ROSTER_TTL_MS = 10 * 60_000;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface Member {
 	// vs_users.id, or null for a clan-roster member with no linked site account (scored by
@@ -78,6 +76,16 @@ async function getRosterCached() {
 	}).catch(() => null);
 }
 
+// The page's running list of members skipped this pass (JSON array of lowercase RSNs).
+function parseSkip(form: FormData): Set<string> {
+	try {
+		const v = JSON.parse((form.get('skip') ?? '[]').toString());
+		return new Set(Array.isArray(v) ? v.map((x) => String(x).toLowerCase()) : []);
+	} catch {
+		return new Set();
+	}
+}
+
 // Latest vs_rank_sim.fetched_at per lowercased rsn — used to tell who's already been
 // re-checked this pass (their timestamp moves past the run's `since`).
 async function readFetchedAt(): Promise<Map<string, string>> {
@@ -125,9 +133,12 @@ export const actions: Actions = {
 		// Pending this pass: members whose last check predates the run start (never-checked
 		// sorts as '' → always pending). A member re-checked in an earlier batch has a fresh
 		// timestamp > since and drops out.
-		const pending = since
-			? members.filter((m) => (fetchedAt.get(m.rsn.toLowerCase()) ?? '') < since)
-			: members.slice();
+		// Minus members skipped earlier in this pass (a source errored, so their stamp didn't
+		// move) — otherwise they sort stalest and are retried at the front of every batch.
+		const skip = parseSkip(form);
+		const pending = (
+			since ? members.filter((m) => (fetchedAt.get(m.rsn.toLowerCase()) ?? '') < since) : members.slice()
+		).filter((m) => !skip.has(m.rsn.toLowerCase()));
 
 		// Stalest first so the oldest data updates soonest.
 		const worklist = pending
@@ -143,6 +154,7 @@ export const actions: Actions = {
 		let skipped = 0; // scored but not persisted — a stats source errored transiently
 		let failed = 0;
 		const errors: string[] = [];
+		const skippedRsns: string[] = [];
 		for (const m of worklist) {
 			const res = await checkAndSaveRank(
 				{ userId: m.id, rsn: m.rsn, discordId: m.discord_id, accountType: m.account_type },
@@ -151,12 +163,15 @@ export const actions: Actions = {
 			processed++;
 			if (res.ok) {
 				if (res.outcome.saved) saved++;
-				else if (res.outcome.skippedSave) skipped++;
+				else if (res.outcome.skippedSave) {
+					skipped++;
+					skippedRsns.push(m.rsn.toLowerCase());
+				}
 			} else {
 				failed++;
+				skippedRsns.push(m.rsn.toLowerCase());
 				if (errors.length < 5) errors.push(`${m.rsn}: ${res.error}`);
 			}
-			if (processed < worklist.length) await sleep(PER_PLAYER_DELAY_MS);
 		}
 
 		return {
@@ -166,6 +181,7 @@ export const actions: Actions = {
 			skipped,
 			failed,
 			errors,
+			skippedRsns,
 			total: members.length,
 			// >0 tells the page to keep sweeping.
 			remaining: since ? Math.max(0, pending.length - processed) : 0

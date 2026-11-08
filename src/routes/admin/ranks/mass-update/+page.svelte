@@ -11,6 +11,9 @@
 	let running = $state(false);
 	let stopRequested = $state(false);
 	let runSince = $state<string | null>(null);
+	// Members skipped this pass (a stats source errored) — sent back with every batch so
+	// they aren't retried at the front of each one forever.
+	let runSkip: string[] = [];
 
 	let total = $state(data.total);
 	let doneCount = $state(0); // members re-checked this run
@@ -61,13 +64,17 @@
 						failedCount = 0;
 						errors = [];
 						finished = false;
+						runSkip = [];
 					}
 					formData.set('since', runSince);
+					formData.set('skip', JSON.stringify(runSkip));
 					running = true;
 					return async ({ result }) => {
-						// Transient WOM failure → back off and retry the same batch.
+						// Transient WOM failure, or a dropped connection / server error mid-sweep →
+						// back off and retry the same batch instead of ending the run part-way.
 						const retryable =
-							result.type === 'failure' && !!result.data && result.data.retryable === true;
+							result.type === 'error' ||
+							(result.type === 'failure' && !!result.data && result.data.retryable === true);
 						if (retryable && !stopRequested && retries < MAX_RETRIES) {
 							retries += 1;
 							setTimeout(() => runForm?.requestSubmit(), RETRY_DELAY_MS);
@@ -83,7 +90,9 @@
 								errors?: string[];
 								total: number;
 								remaining: number;
+								skippedRsns?: string[];
 							};
+							if (d.skippedRsns?.length) runSkip = [...runSkip, ...d.skippedRsns];
 							doneCount += d.processed;
 							savedCount += d.saved;
 							skippedCount += d.skipped ?? 0;

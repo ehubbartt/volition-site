@@ -116,6 +116,17 @@ shows). Three tiers, over the seven scored categories:
   `vs_rank_sim` row so a spelling mismatch never duplicates), and persist `players.rank`.
   `/me`'s `checkRank` (with its per-user cooldown + rank-up celebration) and the admin
   **"Re-check one player"** both call it, so the two paths score, cache, and save identically.
+- **WiseOldMan is gated too, and paced.** EHB, time in clan (the WOM group roster) and total
+  level (the WOM player) all come from WOM, which allows **20 requests/minute per IP** without
+  a key and answers the rest with 429. Every WOM call goes through `womClient.ts` `womGet`: one
+  queue per process spaces calls under the limit (18/min, or 90/min when `WOM_API_KEY` is set
+  — sent as `x-api-key`), waits out a 429's reported reset once (≤20s) and otherwise returns
+  `'error'`. `fetchPlayerRankInputs` reports `womStatus = 'error'` when the roster or the
+  total level errored, and the save-gate below treats it exactly like a Temple/WikiSync error.
+  (Before this, a 429 read as "no data": members were scored with EHB 0 / total level 0 and
+  **saved** — a burst of re-checks or a mass update demoted ~200 members at once in Nov 2026.)
+  A roster of zero members is an error, never a real clan. A player WOM has never tracked
+  (404, or no snapshot) is `'missing'`: their level scores 0 and the rank still saves.
 - **Save-gate: missing ≠ errored** (the key rule). `fetchPlayerRankInputs` now reports a
   `templeStatus`/`wikisyncStatus` of `'ok'` | `'missing'` | `'error'` (via `getJsonOutcome`,
   which reads the HTTP status: a 404 / empty body is `'missing'`, a network/timeout/429/5xx is
@@ -145,6 +156,12 @@ shows). Three tiers, over the seven scored categories:
   approved gear claims and writes the right `players.rank`. The page load re-runs afterward,
   so the rank panel reflects the fresh result. An on-demand refresh without sweeping the whole
   roster via `/admin/ranks/simulator`.
+- **Bulk tools never retry the same failures forever.** A member whose save was held back
+  keeps an old `fetched_at`, so "pending this pass" would put them first in every batch. The
+  simulator refresh and mass update return `skippedRsns`; the page sends the pass's running
+  list back as `skip` and the server leaves them out for the rest of the pass (re-run to pick
+  them up). The simulator refresh also leaves a member's cached row alone when WOM, Temple or
+  WikiSync errored, instead of caching zeros. A dropped request is retried like a 429.
 - **`/admin/ranks/simulator`**: bulk refresh into `vs_rank_sim` (batched, WOM-rate-limited),
   instant re-scoring while tuning, threshold suggestion, bulk apply to `players.rank`,
   and the live comparison vs in-game WOM roles. The refresh auto-chains one batch at a

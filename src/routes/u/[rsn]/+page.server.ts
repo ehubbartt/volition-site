@@ -113,7 +113,7 @@ export const actions: Actions = {
 			recheckRankedUp: o.rankedUp,
 			recheckPrevRank: o.prevRank,
 			recheckNote: o.skippedSave
-				? 'Computed from partial data — Temple or WikiSync errored transiently, so the clan rank was NOT changed (avoids a wrong demotion). Try again shortly.'
+				? 'Computed from partial data — WiseOldMan, Temple or WikiSync errored transiently, so the clan rank was NOT changed (avoids a wrong demotion). Try again shortly.'
 				: o.saved && (!o.templeAvailable || !o.wikisyncAvailable)
 					? `Ranked on available data — ${[!o.templeAvailable ? 'TempleOSRS' : null, !o.wikisyncAvailable ? 'WikiSync' : null].filter(Boolean).join(' and ')} has no record for this member, so gear/clog/CA scored 0. They'll rank higher once they sync.`
 					: o.saved
@@ -271,7 +271,7 @@ async function rescore(target: ProfileUser & { rsn: string }): Promise<{ adjustW
 	if (res.outcome.skippedSave) {
 		return {
 			adjustWarning:
-				'Saved, but the rank was not re-applied: TempleOSRS or WikiSync errored transiently, so scoring was skipped to avoid a wrong demotion. Re-check shortly.'
+				'Saved, but the rank was not re-applied: WiseOldMan, TempleOSRS or WikiSync errored transiently, so scoring was skipped to avoid a wrong demotion. Re-check shortly.'
 		};
 	}
 	if (!res.outcome.saved) {

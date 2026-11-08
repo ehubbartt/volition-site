@@ -21,6 +21,9 @@
 	// pass (the server only fetches members not yet updated in this pass and reports
 	// `remaining`); the enhance callback resubmits until remaining is 0 or Stop.
 	let runSince = $state<string | null>(null);
+	// Members the server skipped this pass (a stats source errored) — sent back with every
+	// batch so they aren't retried at the front of each one forever.
+	let runSkip: string[] = [];
 	let stopRequested = $state(false);
 	let refreshRemaining = $state<number | null>(null);
 	let refreshRetries = $state(0); // consecutive retryable failures (WOM rate-limit backoff)
@@ -147,16 +150,23 @@
 				use:enhance={({ formData }) => {
 					// Stamp the pass on the first batch; every chained batch reuses it so
 					// the server can tell what's already been refreshed this run.
-					if (!runSince) runSince = new Date().toISOString();
+					if (!runSince) {
+						runSince = new Date().toISOString();
+						runSkip = [];
+					}
 					formData.set('since', runSince);
 					formData.set('onlyMissing', skipTracked ? '1' : '0');
+					formData.set('skip', JSON.stringify(runSkip));
 					refreshing = true;
 					return async ({ update, result }) => {
 						await update({ reset: false });
 						// Transient WOM failure (rate-limit/outage): back off and retry the
 						// same batch instead of aborting the sweep.
+						// A dropped connection or server error mid-sweep is retried too, rather than
+						// silently ending the run part-way through the clan.
 						const retryable =
-							result.type === 'failure' && !!result.data && result.data.refreshRetryable === true;
+							result.type === 'error' ||
+							(result.type === 'failure' && !!result.data && result.data.refreshRetryable === true);
 						if (retryable && !stopRequested && refreshRetries < MAX_REFRESH_RETRIES) {
 							refreshRetries += 1;
 							setTimeout(() => refreshForm?.requestSubmit(), RETRY_DELAY_MS);
@@ -167,9 +177,12 @@
 								? result.data.remaining
 								: 0;
 						refreshRemaining = remaining;
+						if (result.type === 'success' && Array.isArray(result.data?.skippedRsns)) {
+							runSkip = [...runSkip, ...(result.data.skippedRsns as string[])];
+						}
 						if (result.type === 'success') refreshRetries = 0;
 						if (result.type === 'success' && remaining > 0 && !stopRequested) {
-							// Keep sweeping — the server's per-player delay handles rate limits;
+							// Keep sweeping — the server paces its WOM calls to the rate limit;
 							// this pause just spaces the requests.
 							setTimeout(() => refreshForm?.requestSubmit(), 300);
 						} else {

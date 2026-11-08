@@ -36,7 +36,7 @@ export interface RankCheckOutcome {
 	rank: string;
 	/** Whether the rank was persisted to players.rank (the bot mirrors it to Discord). */
 	saved: boolean;
-	/** True when a stats source ERRORED transiently (not merely "no record"), so the rank was
+	/** True when a stats source (WOM, Temple or WikiSync) ERRORED transiently (not merely "no record"), so the rank was
 	 * deliberately NOT saved to avoid a wrong demotion. A genuinely-untracked player saves. */
 	skippedSave: boolean;
 	/** Rank held before this write (null when not looked up / no player record). */
@@ -103,7 +103,9 @@ export async function checkAndSaveRank(
 		// record ('missing') is NOT an error: that 0 is real, so we fall through and persist the
 		// correct rank on available data. During a true outage every source errors, so nothing
 		// saves and no one is mass-demoted.
-		if (inputs.templeStatus === 'error' || inputs.wikisyncStatus === 'error') {
+		// WOM counts too: a rate-limited roster or level lookup scores EHB / time / total level
+		// as 0, which is how a run of re-checks once mass-demoted members.
+		if (inputs.templeStatus === 'error' || inputs.wikisyncStatus === 'error' || inputs.womStatus === 'error') {
 			return {
 				ok: true,
 				outcome: {

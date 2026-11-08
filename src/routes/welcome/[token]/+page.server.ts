@@ -136,6 +136,9 @@ export const actions: Actions = {
 		}
 
 		const result = await verifyRsn(rsn);
+		if (result.reason === 'unavailable') {
+			return fail(503, { verifyError: 'WiseOldMan is busy right now — wait a minute and try again.' });
+		}
 		if (result.reason === 'not_found') {
 			return fail(404, { verifyError: `No WiseOldMan profile found for "${rsn}". Check the spelling.`, verify: result });
 		}
@@ -211,6 +214,11 @@ export const actions: Actions = {
 			]);
 			inputs.tcgOwned = tcg.owned;
 			inputs.tcgTotal = tcg.total;
+			// Same save-gate as checkAndSaveRank: a transient source error would cache (and show)
+			// zeros, so stop before writing anything and ask them to retry.
+			if (inputs.womStatus === 'error' || inputs.templeStatus === 'error' || inputs.wikisyncStatus === 'error') {
+				return fail(503, { rankError: 'A stats site (WiseOldMan, TempleOSRS or WikiSync) is busy — wait a minute and try again.' });
+			}
 			const { rank } = scorePlayer(inputs, config);
 			const { data: existing } = await db()
 				.from('vs_rank_sim')

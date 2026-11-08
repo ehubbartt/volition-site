@@ -104,7 +104,7 @@ async function rescoreByRsn(rsn: string, discordId: string | null): Promise<stri
 	});
 	if (!res.ok) return `Saved, but the rank re-check failed — ${res.error} It'll apply on the next check.`;
 	if (res.outcome.skippedSave) {
-		return 'Saved, but the rank was not re-applied: TempleOSRS or WikiSync errored transiently, so scoring was skipped to avoid a wrong demotion. Re-check shortly.';
+		return 'Saved, but the rank was not re-applied: WiseOldMan, TempleOSRS or WikiSync errored transiently, so scoring was skipped to avoid a wrong demotion. Re-check shortly.';
 	}
 	if (!res.outcome.saved) {
 		return res.outcome.saveReason === 'no_player'

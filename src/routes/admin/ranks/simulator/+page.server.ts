@@ -10,8 +10,8 @@ import {
 import { computeScores, determineProjectedRank } from '$lib/server/rankScoring';
 import {
 	fetchClanRoster,
-	fetchPlayerTotalLevel,
-	fetchTempleCollectionLog,
+	fetchPlayerTotalLevelResult,
+	fetchTempleCollectionLogResult,
 	fetchWikiSyncPlayerResult,
 	retryWikiSyncAs,
 	fetchPlayerBossKills,
@@ -38,7 +38,6 @@ const REFRESH_BATCH = 6; // players fetched per request (bounds request time)
 // WOM's anonymous rate budget is ~20 req/min and each player costs one WOM call
 // (Temple/WikiSync have their own, laxer limits) — 3s spacing keeps a full
 // auto-chained sweep at ~20/min so WOM stops 429ing mid-run.
-const PER_PLAYER_DELAY_MS = 3000;
 // The bulk roster call is heavy; cache it across the run's batches (and across
 // admins) instead of re-fetching it every ~30s. Identity-independent → microCache.
 const ROSTER_TTL_MS = 10 * 60_000;
@@ -62,7 +61,16 @@ interface SimRow {
 	fetched_at: string | null;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// The page's running list of members skipped this pass (JSON array of lowercase RSNs).
+function parseSkip(form: FormData): Set<string> {
+	try {
+		const v = JSON.parse((form.get('skip') ?? '[]').toString());
+		return new Set(Array.isArray(v) ? v.map((x) => String(x).toLowerCase()) : []);
+	} catch {
+		return new Set();
+	}
+}
 
 // One WOM group call per ROSTER_TTL_MS, shared by refresh batches and the live
 // comparison. Throw INSIDE the cached fn so an empty/failed roster is never cached.
@@ -382,11 +390,16 @@ export const actions: Actions = {
 		// (never-fetched sorts as '' — always pending). Without `since` (manual single
 		// batch), everyone is eligible and the stalest-first order picks the batch. When
 		// onlyMissing is set, members who already have Temple data are dropped entirely.
+		// Members skipped earlier in this pass (a source errored) — sent back by the page so
+		// they aren't retried at the front of every batch forever (they keep a stale stamp).
+		const skip = parseSkip(form);
 		const pending = (
 			since
 				? rosterEntries.filter((e) => (fetchedAt.get(e.rsn.toLowerCase()) ?? '') < since)
 				: rosterEntries.slice()
-		).filter((e) => !onlyMissing || !hasTemple.has(e.rsn.toLowerCase()));
+		)
+			.filter((e) => !onlyMissing || !hasTemple.has(e.rsn.toLowerCase()))
+			.filter((e) => !skip.has(e.rsn.toLowerCase()));
 
 		// Stalest first: never-fetched (null) before oldest timestamp.
 		const worklist = pending
@@ -411,15 +424,25 @@ export const actions: Actions = {
 		const userIdByRsn = await readUserIdsByRsn();
 		await getTcgCatalog();
 		let processed = 0;
+		const skippedRsns: string[] = [];
 		for (const entry of worklist) {
 			// GIM accounts: re-derive EHB from boss KCs on iron rates (fetched in parallel).
 			const iron = usesIronmanEhb(accountTypeByRsn.get(entry.rsn.toLowerCase()));
-			const [totalLevel, temple, wikiFirst, bossKills] = await Promise.all([
-				fetchPlayerTotalLevel(entry.rsn),
-				fetchTempleCollectionLog(entry.rsn),
+			const [levelRes, templeRes, wikiFirst, bossKills] = await Promise.all([
+				fetchPlayerTotalLevelResult(entry.rsn),
+				fetchTempleCollectionLogResult(entry.rsn),
 				fetchWikiSyncPlayerResult(entry.rsn),
 				iron ? fetchPlayerBossKills(entry.rsn) : Promise.resolve(null)
 			]);
+			// A transient error (WOM rate limit, Temple/WikiSync outage) would cache zeros over
+			// this member's last good row. Leave the row alone and report them as skipped.
+			if (levelRes.status === 'error' || templeRes.status === 'error' || wikiFirst.status === 'error') {
+				skippedRsns.push(entry.rsn.toLowerCase());
+				processed++;
+				continue;
+			}
+			const totalLevel = levelRes.status === 'ok' ? levelRes.data : null;
+			const temple = templeRes.status === 'ok' ? templeRes.data : null;
 			// WikiSync needs the exact (hyphenated) name — retry under Temple's spelling.
 			const wikiRes = await retryWikiSyncAs(entry.rsn, wikiFirst, temple?.displayName);
 			const ca = wikiRes.status === 'ok' ? wikiRes.data.caIds : null;
@@ -480,7 +503,6 @@ export const actions: Actions = {
 			);
 			if (upErr) return fail(500, { refreshError: `DB write failed: ${upErr.message}` });
 			processed++;
-			if (processed < worklist.length) await sleep(PER_PLAYER_DELAY_MS);
 		}
 
 		const cachedNow = new Set(existing.map((r) => r.rsn.toLowerCase()));
@@ -489,6 +511,7 @@ export const actions: Actions = {
 		return {
 			refreshOk: true,
 			processed,
+			skippedRsns,
 			cachedCount: cachedNow.size,
 			rosterSize: rosterEntries.length,
 			// How many of this pass's pending members are still unfetched — >0 tells

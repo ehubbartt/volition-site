@@ -12,12 +12,12 @@ import {
 	type ManualGearItem
 } from './rankScoring';
 import { usesIronmanEhb, computeIronmanEhb } from './rankScoring/ehb';
-import { getJson, getJsonOutcome } from './http';
+import { getJsonOutcome } from './http';
+import { womGet, womPost } from './womClient';
 import { SKILLS, SKILL_WOM_KEY, type Skill } from '$lib/ehp';
 
 // Same WOM group as the bot (voli-disc-bot/config.json clanId).
 const WOM_CLAN_ID = 4765;
-const WOM_BASE = 'https://api.wiseoldman.net/v2';
 const TEMPLE_BASE = 'https://templeosrs.com/api';
 const WIKISYNC_BASE = 'https://sync.runescape.wiki/runelite/player';
 
@@ -35,12 +35,17 @@ export interface RosterEntry {
 	womRole: string | null;
 }
 
+type WomGroup = {
+	memberships?: Array<{ role?: string; player: { id: number; displayName?: string; username?: string; ehb?: number; ehp?: number }; createdAt?: string }>;
+};
+
 // One bulk WOM group call → lookup by lowercase RSN (ehb, ehp, join date, wom id, role).
-export async function fetchClanRoster(): Promise<Record<string, RosterEntry>> {
-	const data = (await getJson(`${WOM_BASE}/groups/${WOM_CLAN_ID}`)) as
-		| { memberships?: Array<{ role?: string; player: { id: number; displayName?: string; username?: string; ehb?: number; ehp?: number }; createdAt?: string }> }
-		| null;
-	const memberships = data?.memberships ?? [];
+// 'error' when WOM didn't answer (rate limit / outage) or answered with no members — a clan
+// of zero is never real, and scoring against it zeroes everyone's EHB and time in clan.
+export async function fetchClanRosterResult(): Promise<SourceResult<Record<string, RosterEntry>>> {
+	const res = await womGet<WomGroup>(`/groups/${WOM_CLAN_ID}`);
+	if (res.status !== 'ok') return { status: 'error' };
+	const memberships = res.data?.memberships ?? [];
 	const lookup: Record<string, RosterEntry> = {};
 	for (const m of memberships) {
 		const rsn = m.player.displayName || m.player.username || '';
@@ -54,34 +59,48 @@ export async function fetchClanRoster(): Promise<Record<string, RosterEntry>> {
 			womRole: m.role ?? null
 		};
 	}
-	return lookup;
+	if (Object.keys(lookup).length === 0) return { status: 'error' };
+	return { status: 'ok', data: lookup };
+}
+
+// Back-compat: the roster, or {} when WOM is unavailable. Callers that SAVE anything from it
+// must use fetchClanRosterResult and stop on 'error' instead.
+export async function fetchClanRoster(): Promise<Record<string, RosterEntry>> {
+	const res = await fetchClanRosterResult();
+	return res.status === 'ok' ? res.data : {};
+}
+
+type WomPlayer = {
+	latestSnapshot?: { data?: { skills?: Record<string, { level?: number; experience?: number }>; bosses?: Record<string, { kills?: number }> } };
+};
+
+// Total level from WOM's latest snapshot. 'missing' = WOM has never tracked this name (404)
+// or has no snapshot for it — a real "unknown", so the level component scores 0. 'error' =
+// WOM didn't answer (rate limit / outage) — the caller must not save a score built on it.
+export async function fetchPlayerTotalLevelResult(rsn: string): Promise<SourceResult<number>> {
+	const res = await womGet<WomPlayer>(`/players/${encodeURIComponent(rsn)}`);
+	if (res.status !== 'ok') return res;
+	const level = res.data?.latestSnapshot?.data?.skills?.overall?.level;
+	return typeof level === 'number' && level > 0 ? { status: 'ok', data: level } : { status: 'missing' };
 }
 
 export async function fetchPlayerTotalLevel(rsn: string): Promise<number | null> {
-	const data = (await getJson(`${WOM_BASE}/players/${encodeURIComponent(rsn)}`)) as
-		| { latestSnapshot?: { data?: { skills?: { overall?: { level?: number } } } } }
-		| null;
-	return data?.latestSnapshot?.data?.skills?.overall?.level ?? null;
+	const res = await fetchPlayerTotalLevelResult(rsn);
+	return res.status === 'ok' ? res.data : null;
 }
 
 // Best-effort: ask WoM to refresh this player's snapshot so per-skill XP is current. WoM
 // rate-limits updates (~1/min/player); failures are non-fatal — fetchPlayerSkillXp below
 // falls back to the last stored snapshot.
 export async function updateWomPlayer(rsn: string): Promise<void> {
-	try {
-		await fetch(`${WOM_BASE}/players/${encodeURIComponent(rsn)}`, { method: 'POST' });
-	} catch {
-		// ignore
-	}
+	await womPost(`/players/${encodeURIComponent(rsn)}`);
 }
 
 // Per-skill current XP from WoM's latest snapshot (used for skilling-tile baselines + the
 // "gained since lock" check). Best-effort: null on outage; missing skills default to 0.
 export async function fetchPlayerSkillXp(rsn: string): Promise<Record<Skill, number> | null> {
-	const data = (await getJson(`${WOM_BASE}/players/${encodeURIComponent(rsn)}`)) as
-		| { latestSnapshot?: { data?: { skills?: Record<string, { experience?: number }> } } }
-		| null;
-	const skills = data?.latestSnapshot?.data?.skills;
+	const res = await womGet<WomPlayer>(`/players/${encodeURIComponent(rsn)}`);
+	const skills = res.status === 'ok' ? res.data?.latestSnapshot?.data?.skills : undefined;
 	if (!skills) return null;
 	const out = {} as Record<Skill, number>;
 	for (const s of SKILLS) {
@@ -96,10 +115,8 @@ export async function fetchPlayerSkillXp(rsn: string): Promise<Record<Skill, num
 // unranked bosses, which we drop so only real kill counts feed the calc. Best-effort:
 // null on outage → the caller keeps WOM's own EHB.
 export async function fetchPlayerBossKills(rsn: string): Promise<Record<string, number> | null> {
-	const data = (await getJson(`${WOM_BASE}/players/${encodeURIComponent(rsn)}`)) as
-		| { latestSnapshot?: { data?: { bosses?: Record<string, { kills?: number }> } } }
-		| null;
-	const bosses = data?.latestSnapshot?.data?.bosses;
+	const res = await womGet<WomPlayer>(`/players/${encodeURIComponent(rsn)}`);
+	const bosses = res.status === 'ok' ? res.data?.latestSnapshot?.data?.bosses : undefined;
 	if (!bosses) return null;
 	const out: Record<string, number> = {};
 	for (const [metric, v] of Object.entries(bosses)) {
@@ -261,6 +278,9 @@ export interface PlayerRankData extends RankInputs {
 	wikisyncAvailable: boolean;
 	templeStatus: SourceStatus;
 	wikisyncStatus: SourceStatus;
+	/** 'error' when WOM didn't answer for the roster or the total level (rate limit / outage):
+	 * EHB, time in clan and total level would score as 0, so the save-gate must hold. */
+	womStatus: SourceStatus;
 	caTier: string;
 	gearDetail: GearDetail;
 	caDetail: CADetail;
@@ -286,18 +306,25 @@ export async function fetchPlayerRankInputs(
 	manualGear?: ManualGearItem[],
 	accountType?: string | null
 ): Promise<PlayerRankData> {
-	const r = roster ?? (await fetchClanRoster());
+	// A caller-supplied roster was already checked; otherwise a failed roster is an error.
+	const rosterRes: SourceResult<Record<string, RosterEntry>> = roster
+		? { status: 'ok', data: roster }
+		: await fetchClanRosterResult();
+	const r = rosterRes.status === 'ok' ? rosterRes.data : {};
 	const wom = r[rsn.toLowerCase()] ?? null;
 
 	// GIM accounts: re-derive EHB from boss KCs on iron rates (fetched in parallel).
 	const iron = usesIronmanEhb(accountType);
-	const [totalLevel, templeRes, wikiFirst, bossKills] = await Promise.all([
-		fetchPlayerTotalLevel(rsn),
+	const [levelRes, templeRes, wikiFirst, bossKills] = await Promise.all([
+		fetchPlayerTotalLevelResult(rsn),
 		fetchTempleCollectionLogResult(rsn),
 		fetchWikiSyncPlayerResult(rsn),
 		iron ? fetchPlayerBossKills(rsn) : Promise.resolve(null)
 	]);
 
+	const totalLevel = levelRes.status === 'ok' ? levelRes.data : null;
+	const womStatus: SourceStatus =
+		rosterRes.status === 'error' || levelRes.status === 'error' ? 'error' : 'ok';
 	const temple = templeRes.status === 'ok' ? templeRes.data : null;
 	const wikiRes = await retryWikiSyncAs(rsn, wikiFirst, temple?.displayName);
 	const ca = wikiRes.status === 'ok' ? wikiRes.data.caIds : null;
@@ -326,6 +353,7 @@ export async function fetchPlayerRankInputs(
 		wikisyncAvailable: wikiRes.status === 'ok',
 		templeStatus: templeRes.status,
 		wikisyncStatus: wikiRes.status,
+		womStatus,
 		caTier: caResult.highestTier,
 		gearDetail: { matchedItems: gear.matchedItems, missedItems: gear.missedItems, partials: gear.partials },
 		caDetail: {
