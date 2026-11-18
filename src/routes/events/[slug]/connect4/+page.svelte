@@ -28,7 +28,7 @@
 	} from '$lib/connect4/rules';
 	import { squadStandings, UNASSIGNED, UNASSIGNED_DEF } from '$lib/connect4/squads';
 	import { formatEhb } from '$lib/ehb';
-	import { Playback, loadSeen, saveSeen, paceFor } from '$lib/connect4/playback.svelte';
+	import { Playback, loadSeen, saveSeen, paceFor, timelineDelays } from '$lib/connect4/playback.svelte';
 	import { liveEvent } from '$lib/live.svelte';
 	import type { Connect4PageResult, Connect4View } from '$lib/server/connect4Page';
 
@@ -192,7 +192,11 @@
 	// runs and the board opens itself on the stroke, with nobody reloading.
 	const clock = createClock(1000);
 	const opensIn = $derived(game?.startsAt ? new Date(game.startsAt).getTime() - clock.now : 0);
-	const opened = $derived(!!game && game.phase === 'live' && opensIn <= 0);
+	// A finished game is open by definition — gating on 'live' alone hid a past event's
+	// board (and its replay) behind the 'Opens in…' countdown forever.
+	const opened = $derived(
+		!!game && (game.phase === 'finished' || (game.phase === 'live' && opensIn <= 0))
+	);
 	function fmtStart(iso: string | null): string {
 		if (!iso) return '';
 		const d = new Date(iso);
@@ -210,17 +214,40 @@
 	const pieces = $derived(game?.pieces ?? []);
 	const pieceIds = $derived(pieces.map((p) => p.id as string));
 
+	// The playback clock (see the playback section below). Created up here because the
+	// scores read it: during a replay or a catch-up run they follow the board.
+	const playback = new Playback();
+
+	// The pieces ON SHOW: the first `revealed` in claim order while a run is going, all of
+	// them otherwise (`revealed` is null until the first effect runs, meaning "all").
+	const shownPieces = $derived(
+		playback.revealed == null || playback.revealed >= pieces.length
+			? pieces
+			: pieces.slice(0, playback.revealed)
+	);
+	// Where the board is in the event's own time: the claim time of the last piece on show,
+	// or the start before the first one. Null when the whole board is up.
+	const boardClock = $derived.by((): string | null => {
+		if (shownPieces === pieces) return null;
+		const last = shownPieces[shownPieces.length - 1];
+		return last?.claimed_at ?? game?.startsAt ?? null;
+	});
+
 	// Scores and the run highlight are recomputed client-side from the pieces on show —
 	// the rules module is pure and client-safe, and deriving them here means a freshly
-	// polled piece lights its four-in-a-row the same instant it lands.
-	// Awards are not pieces, so they must be handed to the scorer separately.
+	// polled piece lights its four-in-a-row the same instant it lands, and a replay moves
+	// the score as it goes. Awards are not pieces, so they're handed to the scorer
+	// separately — and mid-run only those awarded by the board's clock count.
+	const shownBonus = $derived(
+		boardClock == null ? (game?.bonus ?? []) : (game?.bonus ?? []).filter((b) => b.createdAt <= boardClock)
+	);
 	const bonusTotals = $derived(
-		(game?.bonus ?? []).reduce<Record<number, number>>((acc, b) => {
+		shownBonus.reduce<Record<number, number>>((acc, b) => {
 			acc[b.side] = (acc[b.side] ?? 0) + b.points;
 			return acc;
 		}, {})
 	);
-	const standings = $derived(game ? computeStandings(pieces, game.scoring, bonusTotals) : []);
+	const standings = $derived(game ? computeStandings(shownPieces, game.scoring, bonusTotals) : []);
 	const runCells = $derived(runCellSet(standings.flatMap((s) => s.runs)));
 
 	// ── internal teams ────────────────────────────────────────────────────────
@@ -243,8 +270,8 @@
 					squadView,
 					standings.flatMap((s) => s.runs),
 					game.scoring,
-					game.bonus.map((b) => ({ side: b.side, points: b.points, byUserId: b.byUserId })),
-					pieces
+					shownBonus.map((b) => ({ side: b.side, points: b.points, byUserId: b.byUserId })),
+					shownPieces
 				)
 			: []
 	);
@@ -317,9 +344,11 @@
 	// order. The baseline is the LAST VISIT (localStorage, shared with the admin tester —
 	// it is the same board), so coming back to a board that moved on shows what you missed
 	// instead of silently swapping it.
-	const playback = new Playback();
 	let speed = $state(1);
 	let replaying = $state(false);
+	// 'even' = one tick per claim; 'timeline' = gaps follow the real time between claims,
+	// so a burst of drops lands as a burst (playback.timelineDelays).
+	let pace = $state<'even' | 'timeline'>('timeline');
 
 	// The board this effect last acted on, so it doesn't re-run on polls that change
 	// nothing and cancel a run it just started.
@@ -356,7 +385,28 @@
 
 	function replayAll() {
 		replaying = true;
-		playback.play(pieceIds, 0, paceFor(pieceIds.length, speed));
+		const timing =
+			pace === 'timeline'
+				? timelineDelays(pieces.map((p) => p.claimed_at), speed)
+				: paceFor(pieceIds.length, speed);
+		playback.play(pieceIds, 0, timing);
+	}
+
+	// The replay's date line: "Sat 14 Nov, 6:42 pm · day 2".
+	function fmtBoardClock(iso: string): string {
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return '';
+		const when = d.toLocaleString(undefined, {
+			weekday: 'short',
+			day: 'numeric',
+			month: 'short',
+			hour: 'numeric',
+			minute: '2-digit'
+		});
+		const start = game?.startsAt ? Date.parse(game.startsAt) : NaN;
+		if (!Number.isFinite(start) || d.getTime() < start) return when;
+		const day = Math.floor((d.getTime() - start) / 86_400_000) + 1;
+		return `${when} · day ${day}`;
 	}
 	function stopReplay() {
 		replaying = false;
@@ -721,7 +771,8 @@
 	// without this every player would sit looking at an empty rail until they reloaded.
 	let fetchedOnOpen = $state(false);
 	$effect(() => {
-		if (opened && !fetchedOnOpen) {
+		// Live only: a finished board arrived complete, there is no countdown to run out.
+		if (opened && game?.phase === 'live' && !fetchedOnOpen) {
 			fetchedOnOpen = true;
 			invalidateAll();
 		}
@@ -778,8 +829,8 @@
 				<!-- The recording dot: a board that is live is the one state worth reading at a
 				     glance, so it gets the camera's own shorthand. Only while actually live —
 				     a blinking light on a finished game says the opposite of the truth. -->
-				<span class="osrs-badge" class:live-badge={opened}>
-					{#if opened}<span class="rec-dot" aria-hidden="true"></span>{/if}
+				<span class="osrs-badge" class:live-badge={opened && game.phase === 'live'}>
+					{#if opened && game.phase === 'live'}<span class="rec-dot" aria-hidden="true"></span>{/if}
 					{game.phase}
 				</span>
 				{#if game.test}<span class="osrs-badge test">test</span>{/if}
@@ -794,7 +845,9 @@
 
 		{#if game.description}<p class="muted desc">{game.description}</p>{/if}
 
-		{#if game.phase === 'finished'}
+		{#if replaying && boardClock}
+			<p class="replay-clock">▶ Replaying — <strong>{fmtBoardClock(boardClock)}</strong></p>
+		{:else if game.phase === 'finished'}
 			<p class="ok">
 				{#if winnerSide}
 					Finished — <strong>{winnerSide.name}</strong> takes it.
@@ -808,7 +861,7 @@
 		<section class="scores">
 			{#each game.sides as side, i (side.side)}
 				{@const st = standings[i]}
-				<div class="score" style="--c: {side.color}" class:winner={game.winner === side.side}>
+				<div class="score" style="--c: {side.color}" class:winner={game.winner === side.side && !replaying}>
 					<div class="score-head">
 						<span class="chip"></span>
 						<strong>{side.name}</strong>
@@ -881,7 +934,7 @@
 		<!-- ── the board ─────────────────────────────────────────────────────── -->
 		<section class="osrs-panel board-panel">
 			<div class="osrs-titlebar">
-				The board — {pieces.length} / {game.deckSize} claimed
+				The board — {shownPieces.length} / {game.deckSize} claimed
 			</div>
 			<div class="pad">
 				{#if game.phase === 'setup'}
@@ -936,6 +989,13 @@
 									<option value={2}>2×</option>
 									<option value={4}>4×</option>
 									<option value={8}>8×</option>
+								</select>
+							</label>
+							<label class="tiny">
+								pace
+								<select bind:value={pace}>
+									<option value="timeline">as it happened</option>
+									<option value="even">even</option>
 								</select>
 							</label>
 							<span class="muted tiny">{pieces.length} claims</span>
@@ -1453,7 +1513,8 @@
 							<tr><th>Cell</th><th>Side</th><th>Tile</th><th>By</th><th>Proof</th></tr>
 						</thead>
 						<tbody>
-							{#each [...pieces].reverse().slice(0, 60) as p (p.id)}
+							<!-- shownPieces: mid-replay this list fills in as the board does. -->
+							{#each [...shownPieces].reverse().slice(0, 60) as p (p.id)}
 								{@const shots = p.submission_id ? (game.proofs[p.submission_id] ?? []) : []}
 								<tr>
 									<td>{columnLabel(p.col)}{p.row + 1}</td>
@@ -2263,6 +2324,16 @@
 	}
 	.muted {
 		color: var(--muted);
+	}
+	/* The replay's running date line — sits where the result banner goes, in the same box. */
+	.replay-clock {
+		margin: 0;
+		padding: 0.5rem 0.75rem;
+		border: 1px solid var(--accent);
+		border-radius: var(--radius);
+		color: var(--accent);
+		background: var(--accent-soft);
+		font-variant-numeric: tabular-nums;
 	}
 	.ok {
 		margin: 0;

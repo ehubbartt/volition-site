@@ -59,6 +59,8 @@ export class Playback {
 	#clear: ReturnType<typeof setTimeout> | null = null;
 	#ids: string[] = [];
 	#interval = 260;
+	/** Per-step delays for a time-proportional run (see timelineDelays); null = even ticks. */
+	#delays: number[] | null = null;
 
 	/** Show everything with no animation — the normal state of a board nobody is watching. */
 	showAll(total: number) {
@@ -76,12 +78,14 @@ export class Playback {
 	 * Walk from `from` to `ids.length`, revealing one piece per tick.
 	 *
 	 * `ids` is every piece in claim order; `from` is how many were already on the board
-	 * when the run started (0 to replay the whole event).
+	 * when the run started (0 to replay the whole event). `interval` is either one tick for
+	 * every piece, or a delay per piece (indexed like `ids`: the wait AFTER piece i lands).
 	 */
-	play(ids: string[], from: number, interval = 260) {
+	play(ids: string[], from: number, interval: number | number[] = 260) {
 		this.stop();
 		this.#ids = ids;
-		this.#interval = Math.max(40, interval);
+		this.#delays = Array.isArray(interval) ? interval : null;
+		this.#interval = Math.max(40, Array.isArray(interval) ? 260 : interval);
 		this.from = Math.max(0, Math.min(from, ids.length));
 		this.to = ids.length;
 		this.revealed = this.from;
@@ -109,7 +113,8 @@ export class Playback {
 		this.#clear = setTimeout(() => {
 			if (this.falling === id) this.falling = null;
 		}, FALL_MS);
-		this.#timer = setTimeout(this.#step, this.#interval);
+		const wait = this.#delays ? (this.#delays[this.revealed - 1] ?? this.#interval) : this.#interval;
+		this.#timer = setTimeout(this.#step, Math.max(40, wait));
 	};
 
 	/** Cut the run short and leave the board wherever it got to. */
@@ -135,4 +140,29 @@ export class Playback {
 export function paceFor(count: number, speed = 1): number {
 	const base = count <= 6 ? 320 : count <= 25 ? 200 : count <= 80 ? 120 : 70;
 	return Math.max(40, Math.round(base / speed));
+}
+
+/**
+ * Delays for replaying pieces "as it happened": each wait is proportional to the real gap
+ * before the NEXT claim, so a burst of drops lands as a burst and a quiet night passes
+ * quickly. The whole run is squeezed to roughly `targetMs` at 1× (longer events get a bit
+ * more time), and every gap is clamped so a single 10-hour lull can't stall the replay and
+ * a same-second pair still reads as two drops. Pieces with no timestamp get an even tick.
+ */
+export function timelineDelays(times: (string | null | undefined)[], speed = 1): number[] {
+	const ms = times.map((t) => (t ? Date.parse(t) : NaN));
+	const gaps: number[] = [];
+	for (let i = 0; i < ms.length; i++) {
+		const a = ms[i];
+		const b = ms[i + 1];
+		gaps.push(Number.isFinite(a) && Number.isFinite(b) ? Math.max(0, b - a) : NaN);
+	}
+	const span = gaps.reduce((s, g) => (Number.isFinite(g) ? s + g : s), 0);
+	const target = Math.max(20_000, ms.length * 140) / speed;
+	const min = Math.max(40, 90 / speed);
+	const max = Math.max(min, 3_000 / speed);
+	const even = paceFor(ms.length, speed);
+	return gaps.map((g) =>
+		!Number.isFinite(g) || span <= 0 ? even : Math.min(max, Math.max(min, (g / span) * target))
+	);
 }

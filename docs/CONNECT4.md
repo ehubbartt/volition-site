@@ -577,7 +577,20 @@ back. Two things use one mechanism (`playback.svelte.ts`):
 - **Catch-up.** Whatever has been claimed since this browser last watched falls into place
   in claim order. The baseline is the **last visit**, kept in localStorage per event — a
   reload is precisely the case being served, so it must not be reset by the page loading.
-- **Replay.** A button walks the whole event from an empty board, at 1× to 8×.
+- **Replay.** A button walks the whole event from an empty board, at 1× to 8×, with two
+  paces: **as it happened** (the default — each wait is proportional to the real gap to the
+  next claim, squeezed to ~20s+ at 1× and clamped so a quiet night can't stall it; see
+  `timelineDelays`) or **even** (one tick per claim). It is there on a **finished** event too:
+  `opened` counts a finished game as open — it used to require `live`, which left a past
+  event's board (and this button) hidden behind the "Opens in…" countdown.
+
+**The score follows the board.** Standings, four-in-a-row highlights, the squad table, the
+"The board — N claimed" heading and the latest-claims list are all derived from
+`shownPieces` — the first `revealed` pieces while a run is going, every piece otherwise — so a
+replay (or a catch-up run) moves the score as the pieces land. Bonus awards count once the
+board's clock (the claim time of the last piece on show) has passed their `createdAt`. While
+replaying, the result banner becomes a running date line ("▶ Replaying — Sat 14 Nov, 8:36 pm ·
+day 2") and the winner's card is not highlighted until the end.
 
 Both are "reveal pieces 0..n on a clock", so both are the same class with a different
 starting index. The board renders only the first `revealed` pieces and animates whichever
