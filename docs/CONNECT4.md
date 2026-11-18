@@ -592,6 +592,12 @@ board's clock (the claim time of the last piece on show) has passed their `creat
 replaying, the result banner becomes a running date line ("▶ Replaying — Sat 14 Nov, 8:36 pm ·
 day 2") and the winner's card is not highlighted until the end.
 
+**Replay mode extras.** While a replay runs, the internal-teams panel is hidden (it is the
+clan's own split, not the race on screen), and a **Live drops** panel appears under the board:
+the last dozen claims to land — item icon, item, who got it, their clan's colour, the claim's
+time — plus pet awards once the replay clock passes them, newest first (`liveFeed`, built from
+`shownPieces` / `shownBonus`). Both go back to normal when the replay ends or is skipped.
+
 Both are "reveal pieces 0..n on a clock", so both are the same class with a different
 starting index. The board renders only the first `revealed` pieces and animates whichever
 id is `falling`, which is why the flat board and the 3D board need no separate animation

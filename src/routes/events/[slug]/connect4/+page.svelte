@@ -20,6 +20,8 @@
 	// No monsterImageUrl: the source's own icon was dropped so the wiki budget goes on
 	// the ITEM icons, which are what a player actually reads off the board.
 	import { itemImageUrl, nameInitials } from '$lib/wikiImage';
+	import { fly } from 'svelte/transition';
+	import { flip } from 'svelte/animate';
 	import {
 		cellId,
 		columnLabel,
@@ -425,6 +427,45 @@
 	const rsnByUser = $derived(
 		new Map((game?.sides ?? []).flatMap((sd) => sd.members.map((m) => [m.userId, m.rsn])))
 	);
+
+	// ── live drops (replay) ───────────────────────────────────────────────────
+	// The replay's running feed: each claim as it lands (item + who), and pet awards once the
+	// replay clock passes them — newest first, the last dozen. Built from shownPieces /
+	// shownBonus, so it is always exactly what the board and the scores are showing.
+	interface FeedEntry {
+		key: string;
+		side: number;
+		item: string;
+		who: string | null;
+		at: string;
+		pet: boolean;
+	}
+	const liveFeed = $derived.by((): FeedEntry[] => {
+		if (!replaying) return [];
+		const drops: FeedEntry[] = shownPieces.slice(-12).map((p) => ({
+			key: `p:${p.id}`,
+			side: p.side,
+			item: p.item_name || 'a tile',
+			who: p.by_rsn ?? (p.by_user_id ? (rsnByUser.get(p.by_user_id) ?? null) : null),
+			at: p.claimed_at ?? '',
+			pet: false
+		}));
+		const pets: FeedEntry[] = shownBonus.map((b) => ({
+			key: `b:${b.id}`,
+			side: b.side,
+			item: b.itemName || 'a pet',
+			who: b.byRsn,
+			at: b.createdAt,
+			pet: true
+		}));
+		return [...drops, ...pets].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 12);
+	});
+	function fmtFeedTime(iso: string): string {
+		const d = new Date(iso);
+		return Number.isNaN(d.getTime())
+			? ''
+			: d.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+	}
 
 	// ── Confirm before submitting ─────────────────────────────────────────────
 	// Submitting is not free: a claim takes the cell the moment it is posted, and on a ×N
@@ -882,7 +923,8 @@
 		     Only rendered because the server sent a payload, which it only does for
 		     members of this side and for admins. The opposing clan gets `squads: null`
 		     and this whole section never exists for them. -->
-		{#if squadView && squadRows.length}
+		<!-- Hidden during a replay: it is the clan's own split, not part of the race on screen. -->
+		{#if squadView && squadRows.length && !replaying}
 			<section class="osrs-panel squads">
 				<div class="osrs-titlebar">
 					{squadSideName} internal teams
@@ -1260,6 +1302,36 @@
 				{/if}
 			</div>
 		</section>
+
+		<!-- ── live drops — only while replaying ─────────────────────────────── -->
+		{#if replaying}
+			<section class="osrs-panel live-drops">
+				<div class="osrs-titlebar">Live drops</div>
+				{#if liveFeed.length}
+					<ul class="feed">
+						{#each liveFeed as e (e.key)}
+							<li
+								class="feed-row"
+								style="--c: {game.sides[e.side - 1]?.color}"
+								in:fly={{ y: -14, duration: 260 }}
+								animate:flip={{ duration: 220 }}
+							>
+								<WikiImage src={itemImageUrl(e.item)} fallback={nameInitials(e.item)} alt="" size={32} />
+								<div class="feed-text">
+									<strong>{e.item}</strong>{#if e.pet}<span class="pet-tag">pet</span>{/if}
+									<span class="muted tiny">
+										{e.who ?? 'Someone'} · <span class="feed-side">{game.sides[e.side - 1]?.name}</span>
+									</span>
+								</div>
+								<span class="muted tiny feed-time">{fmtFeedTime(e.at)}</span>
+							</li>
+						{/each}
+					</ul>
+				{:else}
+					<p class="muted tiny">Waiting for the first drop…</p>
+				{/if}
+			</section>
+		{/if}
 
 		<!-- ── after the game, everything below the board is the REPORT ──────
 		     The offer list, the pet form, the waiting room and the claims log all
@@ -2324,6 +2396,44 @@
 	}
 	.muted {
 		color: var(--muted);
+	}
+	/* Live drops: the replay's running feed under the board. */
+	.feed {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		gap: 0.35rem;
+	}
+	.feed-row {
+		display: flex;
+		align-items: center;
+		gap: 0.65rem;
+		padding: 0.4rem 0.6rem;
+		border-left: 3px solid var(--c);
+		border-radius: var(--radius);
+		background: var(--surface-alt);
+	}
+	.feed-text {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		flex: 1;
+	}
+	.feed-side {
+		color: var(--c);
+	}
+	.feed-time {
+		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
+	}
+	.pet-tag {
+		margin-left: 0.4rem;
+		padding: 0 0.35rem;
+		border-radius: 999px;
+		font-size: 0.7rem;
+		color: var(--accent);
+		border: 1px solid var(--accent);
 	}
 	/* The replay's running date line — sits where the result banner goes, in the same box. */
 	.replay-clock {
