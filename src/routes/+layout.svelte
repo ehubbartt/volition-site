@@ -1,10 +1,18 @@
 <script lang="ts">
 	import '../app.css';
-	import { page, navigating } from '$app/state';
+	import { page, navigating, updated } from '$app/state';
+	import { beforeNavigate } from '$app/navigation';
 	import AccountIcon from '$lib/AccountIcon.svelte';
 	import type { LayoutData } from './$types';
 
 	let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
+
+	// After a deploy, the next in-app navigation loads the page fresh instead of rendering it
+	// with the code this tab started with (kit.version.pollInterval spots the new version).
+	// Without it, a tab left open across a deploy keeps showing the old behaviour.
+	beforeNavigate(({ willUnload, to }) => {
+		if (updated.current && !willUnload && to?.url) location.href = to.url.href;
+	});
 
 	let path = $derived(page.url.pathname);
 	let menuOpen = $state(false);

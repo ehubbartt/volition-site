@@ -296,3 +296,12 @@ transport can become SSE later without touching the pages.
 - **Race window:** submit two drops for the same tile N ms apart and assert the earlier
   `received_at` wins, sweeping N down until it doesn't. That number *is* the fairness
   guarantee, and it belongs in this doc once measured.
+
+## New deploys reach open tabs
+
+A tab left open keeps running the JavaScript it first loaded; in-app navigation never
+re-fetches it. `svelte.config.js` sets `kit.version.pollInterval` (60s), so the client notices
+a new deploy via `/_app/version.json`, and the root layout's `beforeNavigate` turns the next
+in-app navigation into a full page load once `updated.current` is true. Without it, a fix could
+be live for hours while people with the site open still saw the old page (it happened with the
+Connect 4 replay button).
